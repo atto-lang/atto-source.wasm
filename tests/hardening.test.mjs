@@ -10,16 +10,16 @@ import {admitCoreGuest} from '../src/guest-admission.mjs';
 
 const scalarIr = 'target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n';
 const loopingIr = 'target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { entry: br label %spin\nspin: br label %spin\n}\n';
-function compile(ir) {
+function compile(ir, {maxMemory = true, allowUndefined = false} = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'ores-wasm-audit-'));
   try {
     const out = join(dir, 'fixture.wasm');
-    const r = spawnSync(process.env.CLANG || 'clang', [
-      '--target=wasm32', '-x', 'ir', '-O0', '-nostdlib',
-      '-Wl,--no-entry', '-Wl,--export=main',
-      '-Wl,--initial-memory=131072', '-Wl,--max-memory=131072',
-      '-o', out, '-'
-    ], {input: ir, encoding: 'utf8', timeout: 30000});
+    const args = ['--target=wasm32', '-x', 'ir', '-O0', '-nostdlib',
+      '-Wl,--no-entry', '-Wl,--export=main', '-Wl,--initial-memory=131072'];
+    if (maxMemory) args.push('-Wl,--max-memory=131072');
+    if (allowUndefined) args.push('-Wl,--allow-undefined');
+    args.push('-o', out, '-');
+    const r = spawnSync(process.env.CLANG || 'clang', args, {input: ir, encoding: 'utf8', timeout: 30000});
     if (r.error || r.status !== 0) throw new Error('clang wasm32 failed: ' + (r.error?.message || r.stderr));
     return readFileSync(out);
   } finally { rmSync(dir, {recursive: true, force: true}); }
@@ -62,4 +62,14 @@ test('pin mismatch is rejected before malformed Wasm gets parsed or compiled', (
 test('oversized input is rejected before copying to the worker', async () => {
   await assert.rejects(runIsolatedCoreGuest(new Uint8Array(16 * 1024 * 1024 + 1)), /maximum byte size/);
   await assert.rejects(runIsolatedCoreGuest('bad'), /expected core WebAssembly bytes/);
+});
+
+test('worker admission rejects guest host imports before invocation', async () => {
+  const ir = 'target triple = "wasm32-unknown-unknown"\ndeclare i64 @host_clock()\ndefine i64 @main() { %x = call i64 @host_clock()\n ret i64 %x }\n';
+  const guest = compile(ir, {allowUndefined: true});
+  await assert.rejects(runIsolatedCoreGuest(guest), /host imports denied/);
+});
+test('worker admission rejects unbounded guest memory', async () => {
+  const guest = compile(scalarIr, {maxMemory: false});
+  await assert.rejects(runIsolatedCoreGuest(guest), /memory requires fixed|bounded/);
 });
