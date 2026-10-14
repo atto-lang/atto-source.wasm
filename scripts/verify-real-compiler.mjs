@@ -90,6 +90,13 @@ export async function verifyRealCompiler({
       encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
     });
     assertNativeFrontendRejection(frontend);
+    // The direct rejection test bypasses the bridge's own per-run executable
+    // rehash. Ensure that even a self-mutating compiler cannot be reported as
+    // the pinned, trusted compiler after the frontend call.
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during direct rejection test");
     let rejected = false;
     try {
       await compileOresToWasm({
