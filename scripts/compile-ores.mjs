@@ -4,8 +4,9 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
+import {constants} from "node:fs";
 import {createHash} from "node:crypto";
-import {readFile,writeFile,mkdir,mkdtemp,rm,rename,realpath,stat} from "node:fs/promises";
+import {readFile,writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
 import {dirname,resolve,isAbsolute,join,basename} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
@@ -14,6 +15,42 @@ import {publishAtomicRelease} from "./atomic-release.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// A preflight stat + readFile(path) is not a byte-budget: the file can be
+// replaced or expanded before readFile allocates. Open once with NOFOLLOW,
+// reject FIFOs/non-files, read exactly the statted budget and verify the
+// opened inode did not change during the copy.
+export async function readBoundedRegularFile(path,maxBytes,errorLabel="input exceeds byte budget"){
+ if(!Number.isSafeInteger(maxBytes)||maxBytes<0)
+  throw new TypeError("invalid input byte budget");
+ if(!Number.isInteger(constants.O_NOFOLLOW)||!Number.isInteger(constants.O_NONBLOCK))
+  throw Error("bounded no-follow file reads unsupported on this host");
+ let fd;
+ try{fd=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK)}
+ catch(error){
+  if(["ELOOP","EISDIR","ENXIO"].includes(error?.code))
+   throw Error("symlink or special input file is forbidden");
+  throw error;
+ }
+ try{
+  const before=await fd.stat();
+  if(!before.isFile()||!Number.isSafeInteger(before.size)||
+     before.size<0||before.size>maxBytes)throw Error(errorLabel);
+  const bytes=Buffer.alloc(before.size);
+  let at=0;
+  while(at<bytes.length){
+   const {bytesRead}=await fd.read(bytes,at,bytes.length-at,at);
+   if(bytesRead===0)throw Error("input was truncated during snapshot");
+   at+=bytesRead;
+  }
+  const after=await fd.stat();
+  if(!after.isFile()||after.size!==before.size||
+     after.dev!==before.dev||after.ino!==before.ino||
+     after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs)
+   throw Error("input changed during snapshot");
+  return {bytes,stat:before};
+ }finally{await fd.close()}
+}
+
 function rejectStartSection(bytes){
  let i=8;
  const u32=()=>{let value=0;for(let j=0;j<5;j++){
@@ -109,9 +146,17 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   }catch(error){if(error?.code!=="ENOENT")throw error}
  }
  await rejectMixedPublication(published,publication);
- const [sourceBytes,compilerBytes]=await Promise.all([readFile(sourcePath),readFile(compilerPath)]);
- if(sourceBytes.length>MAX_SOURCE_BYTES)throw Error("source exceeds 1 MiB compiler bridge budget");
- if(compilerBytes.length>MAX_COMPILER_BYTES)throw Error("compiler exceeds 256 MiB executable budget");
+ const [sourceSnapshot,compilerSnapshot]=await Promise.all([
+  readBoundedRegularFile(sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget"),
+  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")
+ ]);
+ // Input paths may have changed after the initial preflight/inode overlap
+ // checks. Refuse a different input inode rather than pinning a new source
+ // through a validated destination alias.
+ if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino||
+    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
+  throw Error("compiler or source input changed between preflight and snapshot");
+ const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
@@ -131,15 +176,15 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // filesystem principal; this is not a sandbox for a malicious compiler.
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  const ir=run(stagedCompiler,environment?["--target=wasm32",stagedSource]:[stagedSource]);
- if(sha(await readFile(stagedCompiler))!==actualCompilerHash)
+ if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
  // provenance tied to a compiler digest if its executable changed in flight.
- if(sha(await readFile(compilerPath))!==actualCompilerHash)
+ if(sha((await readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")).bytes)!==actualCompilerHash)
   throw Error("compiler executable changed during execution; refusing stale provenance");
  // Reject mutation of the snapshotted compilation input even when the
  // original caller path remains unchanged.
- if(sha(await readFile(stagedSource))!==sha(sourceBytes))
+ if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
  // Require a genuine LLVM triple declaration, not a comment or string.
  if(environment&&!/^target triple\\s*=\\s*"wasm32-unknown-unknown"\\s*$/m.test(ir))
@@ -152,11 +197,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    "-Wl,--no-entry","-Wl,--export="+exportName,
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
    "-o",provisional,"-"],{input:ir});
- const wasmStat=await stat(provisional);
- if(!wasmStat.isFile()||wasmStat.size>MAX_WASM_BYTES)
-  throw Error("linked Wasm exceeds 16 MiB artifact budget");
- const wasm=await readFile(provisional);
- if(wasm.length>MAX_WASM_BYTES)throw Error("linked Wasm exceeds 16 MiB artifact budget");
+ const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
+  "linked Wasm exceeds 16 MiB artifact budget")).bytes;
  if(!WebAssembly.validate(wasm))throw Error("linker emitted invalid core Wasm");
  rejectStartSection(wasm);
  const module=new WebAssembly.Module(wasm);
