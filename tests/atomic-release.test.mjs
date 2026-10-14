@@ -394,9 +394,9 @@ test("atomic publisher rejects otherwise valid Wasm with an additional function 
  const w=await workspace();
  try{
   const output=join(w.dir,"extra-guest.wasm");
-  const ir='target triple = "wasm32-unknown-unknown"\\n'+
-   'define i64 @main() { ret i64 42 }\\n'+
-   'define i64 @other() { ret i64 7 }\\n';
+  const ir='target triple = "wasm32-unknown-unknown"\n'+
+   'define i64 @main() { ret i64 42 }\n'+
+   'define i64 @other() { ret i64 7 }\n';
   const args=["--target=wasm32","-x","ir","-Oz","-nostdlib",
    "-Wl,--no-entry","-Wl,--export=main","-Wl,--export=other",
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
