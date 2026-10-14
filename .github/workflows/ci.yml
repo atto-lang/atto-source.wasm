@@ -1,19 +1,26 @@
 name: WebAssembly scalar backend checks
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: wasm-scalar-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install WebAssembly toolchain
+      - name: Install wasm32 toolchain
         run: sudo apt-get update && sudo apt-get install -y clang lld
-      - name: Run real WebAssembly admission and bridge tests
+      - name: Test guest admission and compiler bridge
         run: npm test
