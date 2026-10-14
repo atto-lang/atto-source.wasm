@@ -107,3 +107,29 @@ test('reject unexpected function exports and start sections', async () => {
   const started = Buffer.concat([compile(scalarIr), Buffer.from([8,1,0])]);
   await assert.rejects(runIsolatedCoreGuest(started), /start section/);
 });
+
+test('SharedArrayBuffer-backed Wasm is rejected before hashing or compiling', async () => {
+  const wasm = compile(scalarIr);
+  const shared = new SharedArrayBuffer(wasm.length);
+  new Uint8Array(shared).set(wasm);
+  const view = new Uint8Array(shared);
+  const dataView = new DataView(shared);
+  const {inspectWasmBytes} = await import('../scripts/inspect-core-memory.mjs');
+  const {compileAdmittedCoreGuest} = await import('../src/guest-admission.mjs');
+  for (const data of [view, dataView]) {
+    assert.throws(() => admitCoreGuest(data), /SharedArrayBuffer-backed/);
+    assert.throws(() => compileAdmittedCoreGuest(data), /SharedArrayBuffer-backed/);
+    assert.throws(() => inspectWasmBytes(data), /SharedArrayBuffer-backed/);
+    await assert.rejects(runIsolatedCoreGuest(data), /SharedArrayBuffer-backed/);
+  }
+});
+
+test('snapshot is not affected by caller mutation immediately after submission', async () => {
+  const wasm = compile(scalarIr);
+  const hash = createHash('sha256').update(wasm).digest('hex');
+  const submitted = runIsolatedCoreGuest(wasm, {expectedSha256:hash});
+  wasm.fill(0);
+  const executed = await submitted;
+  assert.equal(executed.value,42n);
+  assert.equal(executed.admission.sha256,hash);
+});

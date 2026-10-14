@@ -1,4 +1,5 @@
 import {Worker} from "node:worker_threads";
+import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
 // also enforce an aggregate per-tenant/process-level limit at its broker.
@@ -31,20 +32,12 @@ export async function runIsolatedCoreGuest(input, {
   if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
     throw new TypeError("invalid pinned SHA-256");
   }
-  if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) {
-    throw new TypeError("expected core WebAssembly bytes");
-  }
-  // Reject oversized inputs before cloning attacker-controlled bytes.
-  if (input.byteLength > maxModuleBytes) {
-    throw new Error("Wasm module exceeds maximum byte size");
-  }
+  // Reject shared backing stores and oversize before any worker allocation.
+  // The helper makes a private immutable-by-convention input snapshot.
   if (activeGuestWorkers >= MAX_ACTIVE_GUEST_WORKERS) {
     throw new Error("guest worker concurrency quota exceeded");
   }
-  // No alias with the caller survives this snapshot. Structured cloning this
-  // Uint8Array into workerData produces another private byte copy.
-  const bytes = input instanceof ArrayBuffer ? Uint8Array.from(new Uint8Array(input)) :
-    Uint8Array.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
+  const bytes = snapshotGuestBytes(input, maxModuleBytes);
   activeGuestWorkers++;
   try {
     return await new Promise((resolve, reject) => {
