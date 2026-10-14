@@ -4,10 +4,10 @@ Dedicated compiler integration and **experimental zero-capability execution host
 
 ## Implemented (initial slice)
 
-- Ported the original source-to-Wasm bridge from the private \`oreslang-wasm\` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native \`oreslang-llvmc\`, NOT a new Oreslang parser.
-- Build pipeline: \`.ores\` source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core \`.wasm\`.
+- Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new Oreslang parser.
+- Build pipeline: `.ores` source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
 - Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
-- Deny all guest imports, reject start and table sections, bound private linear memory, require an exact \`main: () -> i64\` signature, and optionally pin module SHA-256.
+- Deny all guest imports, reject start and table sections, bound private linear memory, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
 - Run admitted modules in disposable Node worker threads with an execution deadline. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
 - Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
 
@@ -36,7 +36,7 @@ A fake or stub compiler exercising the linker does **not** count as real Oreslan
 - Node worker threads and V8 isolates do not provide OS process separation.
 - Deadlines are enforced by terminating a worker, not deterministic instruction fuel.
 - The Node/V8 host may perform JIT compilation of WebAssembly: this is NOT a strict-no-JIT runtime.
-- The current ABI is intentionally limited to a pure \`() -> i64\` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
+- The current ABI is intentionally limited to a pure `() -> i64` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
 - Compiler executable bytes must be trusted. A SHA-256 pin proves byte identity, not that the binary came from any particular source commit.
 - Full strict AOT requires a separate trusted precompilation stage and compatible compiler-free native runtime (planned: Wasmtime host with OS sandbox).
 

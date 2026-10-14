@@ -19,6 +19,12 @@ export async function runIsolatedCoreGuest(input, {
   if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) {
     throw new TypeError("expected core WebAssembly bytes");
   }
+  // Reject oversized buffers *before* cloning attacker-controlled bytes.
+  // The admission helper performs an independent bound check on the snapshot.
+  const length = input.byteLength;
+  if (!Number.isSafeInteger(length) || length > maxModuleBytes) {
+    throw new Error("Wasm module exceeds maximum byte size");
+  }
   const bytes = input instanceof ArrayBuffer ? Uint8Array.from(new Uint8Array(input)) :
     Uint8Array.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
   const admission = admitCoreGuest(bytes, {expectedSha256, entry, maxMemoryPages, maxModuleBytes});
