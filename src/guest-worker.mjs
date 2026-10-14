@@ -1,18 +1,18 @@
 import {parentPort, workerData} from "node:worker_threads";
+import {admitCoreGuest} from "./guest-admission.mjs";
 
-// Trusted worker wrapper. The guest has no JS host imports, no WASI,
-// no clock/files/network and no cross-worker shared memory.
-// Workers are V8 isolates in ONE PROCESS; this is not an OS sandbox.
+// All potentially expensive Wasm validation AND compilation occur here, under
+// the parent's deadline. No host imports, WASI or ambient guest capabilities.
 try {
   const bytes = Uint8Array.from(workerData.bytes);
+  const admission = admitCoreGuest(bytes, workerData.options);
   const module = new WebAssembly.Module(bytes);
-  if (WebAssembly.Module.imports(module).length !== 0) throw Error("host imports denied");
   const instance = new WebAssembly.Instance(module, {});
-  const entry = instance.exports[workerData.entry];
+  const entry = instance.exports[admission.entry];
   if (typeof entry !== "function") throw Error("missing entry");
   const result = entry();
   if (typeof result !== "bigint") throw Error("guest entry did not return i64");
-  parentPort.postMessage({ok: true, result});
-} catch (e) {
-  parentPort.postMessage({ok: false, error: String(e?.message || e).slice(0, 500)});
+  parentPort.postMessage({ok: true, result, admission});
+} catch (error) {
+  parentPort.postMessage({ok: false, error: String(error?.message || error).slice(0, 500)});
 }

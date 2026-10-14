@@ -1,11 +1,16 @@
 import {Worker} from "node:worker_threads";
-import {admitCoreGuest} from "./guest-admission.mjs";
+
+// Module-local admission quota. A service with multiple Node processes must
+// also enforce an aggregate per-tenant/process-level limit at its broker.
+const MAX_ACTIVE_GUEST_WORKERS = 4;
+let activeGuestWorkers = 0;
 
 /**
- * Disposable worker-per-invocation runner for the pure ()->i64 profile.
- * Not an Oreslang actor scheduler, not a native AOT host and not a security
- * boundary against vulnerabilities in Node/V8 or other same-process attacks.
- * Synchronous admission precedes any WebAssembly execution.
+ * Run a zero-import ()->i64 guest in a disposable worker.
+ * Full Wasm parsing, validation and compilation occur INSIDE the worker, so
+ * malicious compilation cannot block the calling thread before the deadline.
+ * Resolves only after the guest worker has terminated.
+ * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
 export async function runIsolatedCoreGuest(input, {
   expectedSha256, entry = "main", maxMemoryPages = 2,
@@ -14,52 +19,78 @@ export async function runIsolatedCoreGuest(input, {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
-  // Copy *before* checking and transfer another copy into Worker data.
-  // Guest input is never read again after the snapshot is made.
+  if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 || maxModuleBytes > 16 * 1024 * 1024) {
+    throw new TypeError("invalid maximum module size");
+  }
+  if (!Number.isSafeInteger(maxMemoryPages) || maxMemoryPages < 1 || maxMemoryPages > 256) {
+    throw new TypeError("invalid maximum memory pages");
+  }
+  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
+    throw new TypeError("invalid guest entry");
+  }
+  if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+    throw new TypeError("invalid pinned SHA-256");
+  }
   if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) {
     throw new TypeError("expected core WebAssembly bytes");
   }
-  // Reject oversized buffers *before* cloning attacker-controlled bytes.
-  // The admission helper performs an independent bound check on the snapshot.
-  const length = input.byteLength;
-  if (!Number.isSafeInteger(length) || length > maxModuleBytes) {
+  // Reject oversized inputs before cloning attacker-controlled bytes.
+  if (input.byteLength > maxModuleBytes) {
     throw new Error("Wasm module exceeds maximum byte size");
   }
+  if (activeGuestWorkers >= MAX_ACTIVE_GUEST_WORKERS) {
+    throw new Error("guest worker concurrency quota exceeded");
+  }
+  // No alias with the caller survives this snapshot. Structured cloning this
+  // Uint8Array into workerData produces another private byte copy.
   const bytes = input instanceof ArrayBuffer ? Uint8Array.from(new Uint8Array(input)) :
     Uint8Array.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
-  const admission = admitCoreGuest(bytes, {expectedSha256, entry, maxMemoryPages, maxModuleBytes});
-  const workerData = {bytes, entry: admission.entry};
-  return await new Promise((resolve, reject) => {
-    let settled = false;
-    let worker;
-    let timer;
-    const finish = (err, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      // Force execution lifetime to end even after success/error.
-      if (worker) void worker.terminate().catch(() => {});
-      if (err) reject(err); else resolve({value, admission});
-    };
-    try {
-      worker = new Worker(new URL("./guest-worker.mjs", import.meta.url), {
-        type: "module", workerData,
-        resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
-      });
-      timer = setTimeout(() => finish(Error("guest execution deadline exceeded")), timeoutMs);
-      worker.once("message", message => {
-        if (!message || message.ok !== true) {
-          finish(Error("guest failed: " + String(message?.error || "invalid worker result")));
-        } else if (typeof message.result !== "bigint") {
-          finish(Error("invalid guest result"));
-        } else {
-          finish(null, message.result);
+  activeGuestWorkers++;
+  try {
+    return await new Promise((resolve, reject) => {
+      let worker;
+      let timer;
+      let decided = false;
+      const finish = (error, payload) => {
+        if (decided) return;
+        decided = true;
+        clearTimeout(timer);
+        // Do not release the concurrency quota or report success while guest
+        // code could still be executing. Termination must finish first.
+        if (!worker) {
+          reject(error || Error("guest worker was not created"));
+          return;
         }
-      });
-      worker.once("error", error => finish(Error("guest worker failure: " + error.message)));
-      worker.once("exit", code => finish(Error("guest worker exited before result: " + code)));
-    } catch (error) {
-      finish(error);
-    }
-  });
+        Promise.resolve().then(() => worker.terminate()).then(
+          () => error ? reject(error) : resolve(payload),
+          e => reject(new Error("guest worker termination failed: " + String(e?.message || e)))
+        );
+      };
+      try {
+        worker = new Worker(new URL("./guest-worker.mjs", import.meta.url), {
+          type: "module",
+          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
+          resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
+        });
+        timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
+        worker.once("message", message => {
+          if (!message || message.ok !== true) {
+            finish(new Error("guest rejected or failed: " + String(message?.error || "invalid worker result")));
+          } else if (typeof message.result !== "bigint" || !message.admission ||
+                     message.admission.imports !== 0 || message.admission.hostCapabilities !== 0 ||
+                     !/^[a-f0-9]{64}$/.test(message.admission.sha256)) {
+            finish(new Error("invalid guest worker response"));
+          } else {
+            finish(null, {value: message.result, admission: message.admission});
+          }
+        });
+        worker.once("error", error => finish(new Error("guest worker failure: " + error.message)));
+        worker.once("exit", code => finish(new Error("guest worker exited before result: " + code)));
+      } catch (error) {
+        finish(error);
+      }
+    });
+  } finally {
+    activeGuestWorkers--;
+  }
 }
