@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp,writeFile,readFile,rm,chmod,mkdir,readdir,rename} from "node:fs/promises";
+import {mkdtemp,writeFile,readFile,rm,chmod,mkdir,readdir,rename,symlink} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
@@ -364,5 +364,27 @@ test("cleanup failure after durable commit returns success with explicit warning
   const inventory=await inspectAtomicReleaseState(w.output);
   assert.equal(inventory.current,baseline.releaseSha256);
   assert.ok(inventory.staging.some(name=>name.startsWith(".staging-")));
+ }finally{await cleanup(w.dir)}
+});
+
+test("atomic current pointer rejects symlinks, including ones with authentic bytes",async()=>{
+ const w=await workspace();
+ try{
+  await compileOresToWasm({...w,environment:"browser",publication:"atomic"});
+  const pointer=w.output+".current.json",moved=pointer+".original";
+  await rename(pointer,moved);
+  await symlink(moved,pointer);
+  await assert.rejects(readAtomicRelease(w.output),/invalid JSON file|invalid file|ELOOP/);
+ }finally{await cleanup(w.dir)}
+});
+
+test("atomic current pointer denies files over the metadata byte budget",async()=>{
+ const w=await workspace();
+ try{
+  await compileOresToWasm({...w,environment:"browser",publication:"atomic"});
+  const pointer=w.output+".current.json";
+  await chmod(pointer,0o600);
+  await writeFile(pointer,Buffer.alloc(16385,0x20));
+  await assert.rejects(readAtomicRelease(w.output),/invalid file|invalid JSON file/);
  }finally{await cleanup(w.dir)}
 });

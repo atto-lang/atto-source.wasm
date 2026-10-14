@@ -3,6 +3,7 @@
  * trust boundary. Immutable means nonoverwriting via this API, not WORM media.
  */
 import {createHash} from "node:crypto";
+import {constants} from "node:fs";
 import {readFile,rename,rm,mkdir,mkdtemp,lstat,chmod,open,readdir} from "node:fs/promises";
 import {join,dirname,resolve} from "node:path";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
@@ -37,12 +38,38 @@ async function durableWrite(path,bytes){
  finally{await handle.close()}
 }
 
+// Open once with NOFOLLOW, then bound every allocation/read to that
+// descriptor. A path preflight followed by readFile() could follow a newly
+// substituted symlink or eagerly load a file that grew beyond the budget.
 async function safeFile(path,limit){
- const stat=await lstat(path);
- if(!stat.isFile()||stat.isSymbolicLink()||stat.size>limit)fail("invalid file");
- const bytes=await readFile(path);
- if(bytes.length>limit)fail("oversized file");
- return bytes;
+ if(!Number.isSafeInteger(limit)||limit<0)fail("invalid file budget");
+ if(!Number.isInteger(constants.O_NOFOLLOW)||!Number.isInteger(constants.O_NONBLOCK))
+  fail("no-follow nonblocking file opens unsupported on this host");
+ let handle;
+ try{
+  handle=await open(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);
+ }catch(error){
+  if(["ELOOP","EISDIR","ENXIO"].includes(error?.code))fail("invalid file");
+  throw error;
+ }
+ try{
+  const before=await handle.stat();
+  if(!before.isFile()||!Number.isSafeInteger(before.size)||
+      before.size<0||before.size>limit)fail("invalid file");
+  const bytes=Buffer.alloc(before.size);
+  let at=0;
+  while(at<bytes.length){
+   const {bytesRead}=await handle.read(bytes,at,bytes.length-at,at);
+   if(bytesRead===0)fail("release file truncated during read");
+   at+=bytesRead;
+  }
+  const after=await handle.stat();
+  if(!after.isFile()||after.size!==before.size||
+     after.dev!==before.dev||after.ino!==before.ino||
+     after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs)
+    fail("release file changed during read");
+  return bytes;
+ }finally{await handle.close()}
 }
 async function safeJSON(path){
  let value;
@@ -64,8 +91,16 @@ function descriptorFor(wasm,manifest,provenance){
     typeof provenance.exportName!=="string"||
     !/^[A-Za-z_][A-Za-z0-9_]*$/.test(provenance.exportName))
    fail("invalid producer record");
- if(WebAssembly.Module.imports(new WebAssembly.Module(wasm)).length!==0)
+ const compiledModule=new WebAssembly.Module(wasm);
+ if(WebAssembly.Module.imports(compiledModule).length!==0)
    fail("guest Wasm host imports forbidden");
+ // Publication and runtime admission must agree on the sole executable API.
+ // An otherwise hash-correct binary with hidden extra exports is not admitted
+ // as the scalar guest profile, even if the entry itself is type-correct.
+ const unexpected=WebAssembly.Module.exports(compiledModule).filter(item=>
+   item.name!==provenance.exportName &&
+   !(item.name==="memory"&&item.kind==="memory"));
+ if(unexpected.length)fail("unexpected guest exports");
  try{assertCoreI64Entry(wasm,provenance.exportName)}
  catch{fail("invalid core i64 entry ABI")}
  const memory=inspectWasmBytes(wasm,{maxModuleBytes:16777216,maxMemoryPages:2});
