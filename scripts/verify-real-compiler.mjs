@@ -13,6 +13,14 @@ const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", imp
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
 // built compiler executable. Supplied source revision alone is not a proof.
+export function assertNativeFrontendRejection(frontend) {
+  if (frontend.error || frontend.signal || frontend.status !== 1 ||
+      frontend.stdout?.trim() !== "" ||
+      !/oreslang-llvmc:\\s*.+/i.test(frontend.stderr || "")) {
+    throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
+  }
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -77,11 +85,7 @@ export async function verifyRealCompiler({
     const frontend = spawnSync(compiler, ["--target=wasm32", negativeSource], {
       encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
     });
-    if (frontend.error || frontend.signal || frontend.status !== 1 ||
-        frontend.stdout.trim() !== "" ||
-        !/oreslang-llvmc:\s*.+/i.test(frontend.stderr)) {
-      throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
-    }
+    assertNativeFrontendRejection(frontend);
     let rejected = false;
     try {
       await compileOresToWasm({

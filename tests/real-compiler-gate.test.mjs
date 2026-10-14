@@ -29,3 +29,17 @@ test("invalid source-commit attestation is refused before compiler execution", a
     /ORESLANG_LLVM_SOURCE_SHA is required/
   );
 });
+
+test("native compiler must report a diagnostic instead of crashing or leaking IR", async () => {
+  const {assertNativeFrontendRejection} = await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {status:1,stdout:"",stderr:"oreslang-llvmc: unknown variable missing_identifier",error:undefined,signal:null};
+  assert.equal(assertNativeFrontendRejection(diagnosed), true);
+  for (const invalid of [
+    {...diagnosed,signal:"SIGSEGV",status:null},
+    {...diagnosed,stderr:""},
+    {...diagnosed,status:2},
+    {...diagnosed,stdout:"define i64 @main() { ret i64 42 }"}
+  ]) {
+    assert.throws(() => assertNativeFrontendRejection(invalid), /diagnosed error/);
+  }
+});

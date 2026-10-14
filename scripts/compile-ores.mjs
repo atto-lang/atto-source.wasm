@@ -141,7 +141,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha(await readFile(stagedSource))!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
- if(environment&&!/target triple = "wasm32-unknown-unknown"/.test(ir))
+ // Require a genuine LLVM triple declaration, not a comment or string.
+ if(environment&&!/^target triple\\s*=\\s*"wasm32-unknown-unknown"\\s*$/m.test(ir))
   throw Error("compiler did not emit wasm32 target-marked IR");
  if(!new RegExp("define\\s+i64\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected i64 @"+exportName+"() export");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
