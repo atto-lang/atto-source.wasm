@@ -14,7 +14,22 @@ export function admitCoreGuest(input, {
   maxMemoryPages = 2
 } = {}) {
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
-  const inspected = inspectWasmBytes(input, {maxModuleBytes, maxMemoryPages});
+  // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
+  // untrusted Wasm. Never hash one buffer and execute another.
+  if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) {
+    throw new TypeError("expected core WebAssembly bytes");
+  }
+  if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
+      maxModuleBytes > 16 * 1024 * 1024) throw new TypeError("invalid maximum module size");
+  if (input.byteLength > maxModuleBytes) throw Error("Wasm module exceeds maximum byte size");
+  const snapshot = input instanceof ArrayBuffer ? Uint8Array.from(new Uint8Array(input)) :
+    Uint8Array.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
+  const sha256 = createHash("sha256").update(snapshot).digest("hex");
+  if (expectedSha256 !== undefined) {
+    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
+    if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
+  }
+  const inspected = inspectWasmBytes(snapshot, {maxModuleBytes, maxMemoryPages});
   const {bytes, memoryCount, memoryInitial, memoryMaximum, hasMemoryMaximum} = inspected;
   if (memoryCount !== 1 || !hasMemoryMaximum) {
     throw Error("guest requires exactly one privately defined, bounded linear memory");
@@ -32,11 +47,6 @@ export function admitCoreGuest(input, {
   }
   const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
   if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  if (expectedSha256 !== undefined) {
-    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
-    if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
-  }
   return Object.freeze({
     schemaVersion: 1, profile: "core-wasm.i64-v1",
     sha256, bytes: bytes.byteLength, entry,

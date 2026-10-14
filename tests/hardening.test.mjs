@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
+import {admitCoreGuest} from '../src/guest-admission.mjs';
 
 const scalarIr = 'target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n';
 const loopingIr = 'target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { entry: br label %spin\nspin: br label %spin\n}\n';
@@ -52,6 +53,11 @@ test('execution quota rejects a fifth live guest and is reclaimed after terminat
   await assert.rejects(runIsolatedCoreGuest(compile(scalarIr)), /concurrency quota exceeded/);
   assert.deepEqual(await Promise.all(running), [true, true, true, true]);
   assert.equal((await runIsolatedCoreGuest(compile(scalarIr))).value, 42n);
+});
+test('pin mismatch is rejected before malformed Wasm gets parsed or compiled', () => {
+  const malformed = Uint8Array.of(0, 1, 2);
+  assert.throws(() => admitCoreGuest(malformed, {expectedSha256: '0'.repeat(64)}), /SHA-256 mismatch/);
+  assert.throws(() => admitCoreGuest(malformed), /invalid core module header/);
 });
 test('oversized input is rejected before copying to the worker', async () => {
   await assert.rejects(runIsolatedCoreGuest(new Uint8Array(16 * 1024 * 1024 + 1)), /maximum byte size/);
