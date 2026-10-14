@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
+import {spawnSync} from "node:child_process";
 import {mkdtemp,writeFile,readFile,rm,chmod,mkdir,readdir,rename,symlink} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -386,5 +387,38 @@ test("atomic current pointer denies files over the metadata byte budget",async()
   await chmod(pointer,0o600);
   await writeFile(pointer,Buffer.alloc(16385,0x20));
   await assert.rejects(readAtomicRelease(w.output),/invalid file|invalid JSON file/);
+ }finally{await cleanup(w.dir)}
+});
+
+test("atomic publisher rejects otherwise valid Wasm with an additional function export",async()=>{
+ const w=await workspace();
+ try{
+  const output=join(w.dir,"extra-guest.wasm");
+  const ir='target triple = "wasm32-unknown-unknown"\\n'+
+   'define i64 @main() { ret i64 42 }\\n'+
+   'define i64 @other() { ret i64 7 }\\n';
+  const args=["--target=wasm32","-x","ir","-Oz","-nostdlib",
+   "-Wl,--no-entry","-Wl,--export=main","-Wl,--export=other",
+   "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
+   "-o",output,"-"];
+  const result=spawnSync(process.env.CLANG||"clang",args,{
+   input:ir,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024
+  });
+  assert.equal(result.status,0,result.stderr||result.error?.message);
+  const wasm=await readFile(output);
+  assert.ok(WebAssembly.Module.exports(new WebAssembly.Module(wasm))
+   .some(exp=>exp.name==="other"&&exp.kind==="function"));
+  const digest=createHash("sha256").update(wasm).digest("hex");
+  const provenance={
+   schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",
+   compilerSha256:"a".repeat(64),sourceSha256:"b".repeat(64),
+   llvmIrSha256:"c".repeat(64),wasmSha256:digest,
+   wasmBytes:wasm.length,exportName:"main"
+  };
+  const publication=join(w.dir,"reject-extra.wasm");
+  await assert.rejects(publishAtomicRelease({
+   output:publication,wasm,provenance
+  }),/unexpected guest exports/);
+  await assert.rejects(readAtomicRelease(publication),/ENOENT/);
  }finally{await cleanup(w.dir)}
 });
