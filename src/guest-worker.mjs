@@ -1,5 +1,5 @@
 import {parentPort, workerData} from "node:worker_threads";
-import {admitCoreGuest} from "./guest-admission.mjs";
+import {compileAdmittedCoreGuest} from "./guest-admission.mjs";
 
 // All potentially expensive Wasm validation AND compilation occur here, under
 // the parent's deadline. No host imports, WASI or ambient guest capabilities.
@@ -9,9 +9,9 @@ try {
   if (Object.keys(process.env).length !== 0) {
     throw Error("guest worker inherited forbidden host environment");
   }
-  const bytes = Uint8Array.from(workerData.bytes);
-  const admission = admitCoreGuest(bytes, workerData.options);
-  const module = new WebAssembly.Module(bytes);
+  // The parent gives this worker private structured-cloned bytes.
+  // Admission snapshots once and returns the exact compiled/validated module.
+  const {admission, module} = compileAdmittedCoreGuest(workerData.bytes, workerData.options);
   const instance = new WebAssembly.Instance(module, {});
   const entry = instance.exports[admission.entry];
   if (typeof entry !== "function") throw Error("missing entry");

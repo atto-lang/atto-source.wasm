@@ -38,3 +38,15 @@ Memory maximum is checked against the binary, not just build flags. CLI file rea
 8. Add fuzzing, differential compilation, crash/timeout, memory-exhaustion and formal state-machine checks.
 
 CI should never treat stub compiler tests as evidence of Oreslang-to-Wasm actor support.
+
+## Compiled module identity
+
+The worker instantiates precisely the one WebAssembly.Module compiled from the
+fully admitted immutable byte snapshot. It must not compile again using a
+separate mutable view after admission. The legacy `admitCoreGuest` API still
+returns only frozen validation metadata; the execution-specific helper returns
+the compiled module privately to the disposable worker.
+
+Host environment and execution-argument stripping are defense in depth, not
+protection from native engine vulnerabilities. Process isolation is still
+required for hostile tenants.

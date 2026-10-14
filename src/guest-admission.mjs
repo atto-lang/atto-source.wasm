@@ -7,7 +7,7 @@ import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function admitCoreGuest(input, {
+export function compileAdmittedCoreGuest(input, {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
@@ -47,10 +47,15 @@ export function admitCoreGuest(input, {
   }
   const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
   if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
-  return Object.freeze({
+  const admission = Object.freeze({
     schemaVersion: 1, profile: "core-wasm.i64-v1",
     sha256, bytes: bytes.byteLength, entry,
     memoryInitialPages: memoryInitial, memoryMaximumPages: memoryMaximum,
     imports: 0, hostCapabilities: 0
   });
+  return {module, admission};
+}
+// Preserve the existing metadata-only API: callers do not receive executable code.
+export function admitCoreGuest(input, options = {}) {
+  return compileAdmittedCoreGuest(input, options).admission;
 }
