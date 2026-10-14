@@ -2,8 +2,8 @@
 
 ## Admitted today: experimental scalar profile
 
-\`core-wasm.i64-v1\` requires:
-- core Wasm validation and exact \`() -> i64\` exported function;
+`core-wasm.i64-v1` requires:
+- core Wasm validation and exact `() -> i64` exported function;
 - **no host imports**, start section or table section;
 - exactly one private 32-bit linear memory, explicitly limited at link time to at most two 64-KiB pages by default;
 - no shared memory, memory64, multi-memory, or unbounded expansion;
@@ -32,7 +32,7 @@ Memory maximum is checked against the binary, not just build flags. Node worker 
 4. Add isolated actor instances and deterministic mailbox/continuation semantics, with each actor's private memory.
 5. Add Wasmtime-based strict AOT host (precompile under trusted build conditions, pin host compatibility, reject untrusted serialized native artifacts) and OS process sandboxing for hostile tenants.
 6. Add WIT component APIs with separate pinned WASI 0.2/0.3 profiles; no direct raw pointers across actor domains.
-7. Attach real compiler binaries to \`oreslang-platform-conformance\` and test inter-backend behavior, not just harness self-tests.
+7. Attach real compiler binaries to `oreslang-platform-conformance` and test inter-backend behavior, not just harness self-tests.
 8. Add fuzzing, differential compilation, crash/timeout, memory-exhaustion and formal state-machine checks.
 
 CI should never treat stub compiler tests as evidence of Oreslang-to-Wasm actor support.
