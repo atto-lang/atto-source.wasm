@@ -34,9 +34,10 @@ Run `npm run test:real-compiler`.
 The gate uses the existing explicit `--target=wasm32` compiler bridge
 to compile `examples/native-int.ores`, publish a content-addressed
 binary and manifest, require import-free bounded memory, execute it in a
-disposable worker, and check a result of `42`. It also compiles an
-intentionally invalid Oreslang file and requires a **compiler rejection
-without artifact publication**.
+disposable worker and check a result of `42`. A second distinct program
+uses a same-module forward call and must return `47`. It also compiles an
+intentionally invalid Oreslang file and requires a **direct native compiler
+rejection with empty IR**, plus no artifact publication.
 
 Missing inputs, hash mismatches, invalid compiler output and failed
 execution cause nonzero exit. The script itself cannot independently prove

@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {spawnSync} from "node:child_process";
 import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
@@ -8,6 +9,7 @@ import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../examples/native-int.ores", import.meta.url));
+const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
 // built compiler executable. Supplied source revision alone is not a proof.
@@ -49,10 +51,35 @@ export async function verifyRealCompiler({
     });
     if (executed.value !== 42n || executed.admission.hostCapabilities !== 0)
       throw Error("native Oreslang Wasm guest returned incorrect result/capabilities");
+    // A second distinct Oreslang program proves same-module calls and
+    // prevents a constant-result smoke test from masquerading as parity.
+    const forwardOutput = join(work, "forward.wasm");
+    const forwardPublished = await compileOresToWasm({
+      compiler, compilerSha256, source:forwardSource, output:forwardOutput,
+      environment:"browser", publication:"atomic"
+    });
+    const forwardRelease = await readAtomicRelease(forwardOutput);
+    if (forwardPublished.wasmSha256 !== sha256(forwardRelease.wasm) ||
+        forwardPublished.sourceSha256 !== sha256(await readFile(forwardSource)))
+      throw Error("forward-call Wasm artifact provenance mismatch");
+    const forwardExecuted = await runIsolatedCoreGuest(forwardRelease.wasm, {
+      expectedSha256:forwardPublished.wasmSha256, timeoutMs:5000
+    });
+    if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
+      throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
       "pub fnc main(): int { return missing_identifier; }\n", {flag:"wx"});
+    // Check the compiler directly first. Rejection at the Clang linker
+    // must never count as language frontend rejection evidence.
+    const frontend = spawnSync(compiler, ["--target=wasm32", negativeSource], {
+      encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+    });
+    if (frontend.error || frontend.signal || frontend.status === 0 ||
+        typeof frontend.status !== "number" || frontend.stdout.trim() !== "")
+      throw Error("real LLVM compiler did not reject invalid source with empty IR");
     let rejected = false;
     try {
       await compileOresToWasm({
@@ -72,7 +99,7 @@ export async function verifyRealCompiler({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
-      negativeSourceRejected:true
+      forwardCallResult:forwardExecuted.value.toString(), negativeSourceRejected:true
     });
   } finally {await rm(work,{recursive:true,force:true});}
 }
