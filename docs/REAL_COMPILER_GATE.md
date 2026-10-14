@@ -77,9 +77,9 @@ A secret-free manual workflow has been installed on the default branch:
 separate from the unmerged PR and accepts only an exact 40-hex commit SHA.
 
 In the repository Actions UI, choose **Manual pinned Wasm PR verification**,
-select **Run workflow**, and enter the exact draft PR head under
-`source_sha` (current reviewed value:
-`d6deb73d19727bf42f70bd43799cf63dd505558d`). The workflow
+select **Run workflow**, and enter the latest exact draft PR head under
+`source_sha` (find it on the PR's **Commits** tab; never substitute an
+older SHA just because it appears in documentation). The workflow
 checks out that SHA, verifies `git rev-parse HEAD`, installs Node 22,
 Clang and LLD, and executes the complete `npm test` suite without access
 to any private cross-repository secret. Its result is evidence **only for
