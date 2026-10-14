@@ -9,6 +9,7 @@
 - no shared memory, memory64, multi-memory, or unbounded expansion;
 - required SHA-256 pin in the CLI (optional only for direct API callers performing local controlled tests), checked against an immutable execution snapshot;
 - no WASI, clock, filesystem, network, environment variables or device host bindings;
+- worker startup clears inherited environment variables and Node execution flags;
 - fresh Node worker per execution; validation, compilation, and guest execution happen inside the worker's wall-time deadline;
 - admission cap of four live workers per main-thread module instance, with capacity released after termination.
 
