@@ -13,7 +13,7 @@ test("LLVM triple in comment cannot satisfy portable guest admission", async () 
     const ir = '; target triple = "wasm32-unknown-unknown"\n' +
       'target triple = "x86_64-unknown-linux-gnu"\n' +
       'define i64 @main() { ret i64 42 }\n';
-    await writeFile(compiler,"#!/bin/sh\nprintf '%s' " + JSON.stringify(ir) + "\n",{mode:0o700});
+    await writeFile(compiler,"#!/bin/sh\nprintf '%b' " + JSON.stringify(ir) + "\n",{mode:0o700});
     await chmod(compiler,0o700);
     await assert.rejects(
       compileOresToWasm({source,compiler,output,environment:"browser"}),
