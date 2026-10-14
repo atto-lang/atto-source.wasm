@@ -16,7 +16,7 @@ const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", imp
 export function assertNativeFrontendRejection(frontend) {
   if (frontend.error || frontend.signal || frontend.status !== 1 ||
       frontend.stdout?.trim() !== "" ||
-      !/oreslang-llvmc:\s*.+/i.test(frontend.stderr || "")) {
+      !/^oreslang-llvmc:\s+\S.+/m.test(frontend.stderr || "")) {
     throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
   }
   return true;
