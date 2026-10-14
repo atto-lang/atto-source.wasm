@@ -6,7 +6,7 @@
 import {spawnSync} from "node:child_process";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
-import {readFile,writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
+import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
 import {dirname,resolve,isAbsolute,join,basename} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
@@ -20,7 +20,7 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // reject FIFOs/non-files, read exactly the statted budget and verify the
 // opened inode did not change during the copy.
 export async function readBoundedRegularFile(path,maxBytes,errorLabel="input exceeds byte budget"){
- if(!Number.isSafeInteger(maxBytes)||maxBytes<0)
+ if(!Number.isSafeInteger(maxBytes)||maxBytes<0||maxBytes>MAX_COMPILER_BYTES)
   throw new TypeError("invalid input byte budget");
  if(!Number.isInteger(constants.O_NOFOLLOW)||!Number.isInteger(constants.O_NONBLOCK))
   throw Error("bounded no-follow file reads unsupported on this host");

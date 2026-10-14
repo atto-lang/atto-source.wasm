@@ -47,6 +47,6 @@ test("compiler input reader fails fast for a FIFO without blocking",{skip:proces
   const fifo=join(dir,"pipe");
   const made=spawnSync("mkfifo",[fifo],{encoding:"utf8",timeout:10000});
   assert.equal(made.status,0,made.stderr||made.error?.message);
-  await assert.rejects(readBoundedRegularFile(fifo,1024),/input is not|special|test budget|file|symlink/);
+  await assert.rejects(readBoundedRegularFile(fifo,1024),/input exceeds byte budget|special|test budget|file|symlink/);
  }finally{await rm(dir,{recursive:true,force:true})}
 });
