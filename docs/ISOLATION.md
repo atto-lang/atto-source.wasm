@@ -7,13 +7,14 @@
 - **no host imports**, start section or table section;
 - exactly one private 32-bit linear memory, explicitly limited at link time to at most two 64-KiB pages by default;
 - no shared memory, memory64, multi-memory, or unbounded expansion;
-- caller-supplied optional SHA-256 pin, verified against the exact execution snapshot;
+- required SHA-256 pin in the CLI (optional only for direct API callers performing local controlled tests), checked against an immutable execution snapshot;
 - no WASI, clock, filesystem, network, environment variables or device host bindings;
-- fresh Node worker per execution and a host-enforced wall-time deadline.
+- fresh Node worker per execution; validation, compilation, and guest execution happen inside the worker's wall-time deadline;
+- admission cap of four live workers per main-thread module instance, with capacity released after termination.
 
 This prevents guests from invoking unauthorized JS host imports through WebAssembly and prevents the normal guest linear-memory address space from being shared between invocations. It is a **defense-in-depth prototype**, not containment against vulnerabilities in the Wasm engine or operating system.
 
-Memory maximum is checked against the binary, not just build flags. Node worker JS heap resourceLimits do not constrain all WASM/non-JS native allocations; the module-size, fixed guest linear-memory maximum, time deadline and OS-level deployment boundaries still matter.
+Memory maximum is checked against the binary, not just build flags. CLI file reads are capped before allocation, and the CLI requires an exact artifact SHA-256 pin. Untrusted compilation runs within the disposable worker, not on the main thread. Node worker JS heap resourceLimits do not constrain all WASM/non-JS native allocations; the module-size, fixed guest linear-memory maximum, time deadline and OS-level deployment boundaries still matter.
 
 ## NOT proven
 
@@ -21,7 +22,8 @@ Memory maximum is checked against the binary, not just build flags. Node worker 
 - Not Native AOT: Node/V8 may compile core Wasm just in time.
 - Not an OS sandbox: native Wasm execution remains in the same OS process as other workers.
 - Not general Wasm Component Model or WASI 0.2/0.3 support.
-- Not native CPU fuel metering; worker termination is a deadline guard, and termination/reclamation is asynchronous.
+- Not native CPU fuel metering; worker termination is a wall-time guard and can be delayed if the host event loop is blocked. The API does not report success or release a worker slot until termination completes.
+- The four-worker admission cap is module-local, not a per-tenant or per-process aggregate quota across every Node context.
 - Not a verified shared frontend or formal proof of semantic parity with other language backends.
 
 ## Next boundaries

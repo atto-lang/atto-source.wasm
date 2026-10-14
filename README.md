@@ -8,7 +8,7 @@ Dedicated compiler integration and **experimental zero-capability execution host
 - Build pipeline: `.ores` source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
 - Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
 - Deny all guest imports, reject start and table sections, bound private linear memory, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
-- Run admitted modules in disposable Node worker threads with an execution deadline. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
+- Run admitted modules in disposable Node worker threads. Validation and JIT compilation occur inside the worker's deadline, with a module-local four-worker admission quota; the worker is terminated before returning. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
 - Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
 
 ## Run locally
@@ -34,7 +34,9 @@ A fake or stub compiler exercising the linker does **not** count as real Oreslan
 **This is not yet an Oreslang actor runtime, a WASI/component-model host, or a production untrusted-code sandbox.**
 
 - Node worker threads and V8 isolates do not provide OS process separation.
-- Deadlines are enforced by terminating a worker, not deterministic instruction fuel.
+- The CLI requires a pinned SHA-256 digest and refuses oversized input before reading or executing it.
+- Deadlines are enforced by terminating a worker, not deterministic instruction fuel; cancellation and isolation are not OS guarantees.
+- The four-worker quota is module-local, not a process-wide or cross-service tenant quota; a deployment broker must enforce aggregate budgets.
 - The Node/V8 host may perform JIT compilation of WebAssembly: this is NOT a strict-no-JIT runtime.
 - The current ABI is intentionally limited to a pure `() -> i64` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
 - Compiler executable bytes must be trusted. A SHA-256 pin proves byte identity, not that the binary came from any particular source commit.
