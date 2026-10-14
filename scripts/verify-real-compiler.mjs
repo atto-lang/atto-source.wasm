@@ -77,9 +77,11 @@ export async function verifyRealCompiler({
     const frontend = spawnSync(compiler, ["--target=wasm32", negativeSource], {
       encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
     });
-    if (frontend.error || frontend.signal || frontend.status === 0 ||
-        typeof frontend.status !== "number" || frontend.stdout.trim() !== "")
-      throw Error("real LLVM compiler did not reject invalid source with empty IR");
+    if (frontend.error || frontend.signal || frontend.status !== 1 ||
+        frontend.stdout.trim() !== "" ||
+        !/oreslang-llvmc:\s*.+/i.test(frontend.stderr)) {
+      throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
+    }
     let rejected = false;
     try {
       await compileOresToWasm({
@@ -87,7 +89,7 @@ export async function verifyRealCompiler({
         environment:"browser", publication:"atomic"
       });
     } catch (e) {
-      if (!/command failed|unknown|undeclared|not declared/i.test(String(e))) throw e;
+      if (!/command failed/i.test(String(e))) throw e;
       rejected = true;
     }
     if (!rejected) throw Error("LLVM compiler accepted invalid Oreslang source");

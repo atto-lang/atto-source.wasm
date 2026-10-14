@@ -4,6 +4,11 @@ import {admitCoreGuest} from "./guest-admission.mjs";
 // All potentially expensive Wasm validation AND compilation occur here, under
 // the parent's deadline. No host imports, WASI or ambient guest capabilities.
 try {
+  // Fail closed if the runtime accidentally changes Worker construction to
+  // inherit host environment variables. Wasm itself has no host imports.
+  if (Object.keys(process.env).length !== 0) {
+    throw Error("guest worker inherited forbidden host environment");
+  }
   const bytes = Uint8Array.from(workerData.bytes);
   const admission = admitCoreGuest(bytes, workerData.options);
   const module = new WebAssembly.Module(bytes);

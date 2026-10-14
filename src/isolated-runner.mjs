@@ -69,6 +69,10 @@ export async function runIsolatedCoreGuest(input, {
       try {
         worker = new Worker(new URL("./guest-worker.mjs", import.meta.url), {
           type: "module",
+          // Never inherit NODE_OPTIONS/--require/--import or ambient host
+          // environment from the trusted parent into the Wasm worker.
+          execArgv: [],
+          env: {},
           workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });

@@ -73,3 +73,15 @@ test('worker admission rejects unbounded guest memory', async () => {
   const guest = compile(scalarIr, {maxMemory: false});
   await assert.rejects(runIsolatedCoreGuest(guest), /memory requires fixed|bounded/);
 });
+
+test('guest worker refuses ambient parent environment while executing real Wasm', async () => {
+  const key = 'ORESLANG_FORBIDDEN_HOST_ENV_SENTINEL';
+  const previous = process.env[key];
+  process.env[key] = 'do-not-inherit';
+  try {
+    const {value} = await runIsolatedCoreGuest(compile(scalarIr));
+    assert.equal(value, 42n);
+  } finally {
+    if (previous === undefined) delete process.env[key]; else process.env[key] = previous;
+  }
+});
