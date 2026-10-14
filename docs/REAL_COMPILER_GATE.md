@@ -97,3 +97,17 @@ The mirror is a temporary testing branch, not an authoritative source.
 The genuine LLVM compiler gate remains separate and cannot be treated as
 passing until a trusted, explicitly authorized private runner completes
 `npm run test:real-compiler` on the same reviewed source revision.
+
+## Compiler-executable path-race closure
+
+The native real-compiler verification gate now reads the executable through
+`readBoundedRegularFile` and verifies its SHA-256 **before** writing it to
+a private execution snapshot. Both positive source compilations and the
+direct compiler-rejection check execute only copies of that snapshot. A
+subsequently replaced input compiler pathname cannot alter the tested
+frontend. This is a verified-byte identity guarantee, not a sandbox for
+an untrusted compiler binary or a reproducible-build proof.
+
+The diagnostic classifier requires a normal exit code of 1, empty LLVM
+IR stdout, and a genuine `oreslang-llvmc:` error prefix; shell crashes,
+unexpected exits and diagnostic spoofing fail the test.

@@ -43,3 +43,15 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
     assert.throws(() => assertNativeFrontendRejection(invalid), /diagnosed error/);
   }
 });
+
+test("real frontend diagnostics require whitespace, not a literal backslash-s", async () => {
+  const {assertNativeFrontendRejection} = await import("../scripts/verify-real-compiler.mjs");
+  assert.equal(assertNativeFrontendRejection({
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: unknown variable missing_identifier"
+  }),true);
+  assert.throws(() => assertNativeFrontendRejection({
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc:\\\\s+forged"
+  }), /diagnosed error/);
+});

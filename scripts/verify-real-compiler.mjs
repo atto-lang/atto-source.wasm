@@ -4,7 +4,7 @@ import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
 import {fileURLToPath} from "node:url";
-import {compileOresToWasm} from "./compile-ores.mjs";
+import {compileOresToWasm, readBoundedRegularFile} from "./compile-ores.mjs";
 import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -16,7 +16,7 @@ const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", imp
 export function assertNativeFrontendRejection(frontend) {
   if (frontend.error || frontend.signal || frontend.status !== 1 ||
       frontend.stdout?.trim() !== "" ||
-      !/oreslang-llvmc:\\s*.+/i.test(frontend.stderr || "")) {
+      !/oreslang-llvmc:\s*.+/i.test(frontend.stderr || "")) {
     throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
   }
   return true;
@@ -32,17 +32,21 @@ export async function verifyRealCompiler({
     throw Error("ORESLANG_LLVM_COMPILER_SHA256 is required");
   if (!/^[0-9a-f]{40}$/.test(llvmSourceSha || ""))
     throw Error("ORESLANG_LLVM_SOURCE_SHA is required");
-  const info = await stat(compiler);
-  if (!info.isFile() || info.size > 256 * 1024 * 1024)
-    throw Error("compiler is not a regular file or exceeds 256 MiB");
-  if (sha256(await readFile(compiler)) !== compilerSha256)
+  // Bind all validation and execution to the same bounded immutable snapshot.
+  // The original compiler pathname is never executed after the SHA check.
+  const compilerBytes = (await readBoundedRegularFile(
+    compiler, 256 * 1024 * 1024, "compiler is not a regular file or exceeds 256 MiB"
+  )).bytes;
+  if (sha256(compilerBytes) !== compilerSha256)
     throw Error("native compiler SHA-256 mismatch");
 
   const work = await mkdtemp(join(tmpdir(), "oreslang-llvm-wasm-"));
   try {
+    const pinnedCompiler = join(work, "pinned-oreslang-llvmc");
+    await writeFile(pinnedCompiler, compilerBytes, {flag:"wx",mode:0o500});
     const output = join(work, "real.wasm");
     const published = await compileOresToWasm({
-      compiler, compilerSha256, source:realSource, output,
+      compiler:pinnedCompiler, compilerSha256, source:realSource, output,
       environment:"browser", publication:"atomic"
     });
     const release = await readAtomicRelease(output);
@@ -63,7 +67,7 @@ export async function verifyRealCompiler({
     // prevents a constant-result smoke test from masquerading as parity.
     const forwardOutput = join(work, "forward.wasm");
     const forwardPublished = await compileOresToWasm({
-      compiler, compilerSha256, source:forwardSource, output:forwardOutput,
+      compiler:pinnedCompiler, compilerSha256, source:forwardSource, output:forwardOutput,
       environment:"browser", publication:"atomic"
     });
     const forwardRelease = await readAtomicRelease(forwardOutput);
@@ -82,14 +86,14 @@ export async function verifyRealCompiler({
       "pub fnc main(): int { return missing_identifier; }\n", {flag:"wx"});
     // Check the compiler directly first. Rejection at the Clang linker
     // must never count as language frontend rejection evidence.
-    const frontend = spawnSync(compiler, ["--target=wasm32", negativeSource], {
+    const frontend = spawnSync(pinnedCompiler, ["--target=wasm32", negativeSource], {
       encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
     });
     assertNativeFrontendRejection(frontend);
     let rejected = false;
     try {
       await compileOresToWasm({
-        compiler, compilerSha256, source:negativeSource, output:negativeOutput,
+        compiler:pinnedCompiler, compilerSha256, source:negativeSource, output:negativeOutput,
         environment:"browser", publication:"atomic"
       });
     } catch (e) {
