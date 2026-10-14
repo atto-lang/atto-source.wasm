@@ -53,3 +53,19 @@ and runner allocation; use only a separately authorized **private**
 CI carrier after the required private-mirror permission checks.
 Do not merge a draft PR based solely on local tests or skipped compiler
 integration checks.
+
+## Audit hardening: execution and provenance
+
+The Node worker starts with an empty environment and without inherited
+Node startup flags. These restrictions protect the trusted worker wrapper;
+they **do not** make Node workers an OS security boundary.
+
+The real native compiler must return **exit code 1**, empty stdout and an
+`oreslang-llvmc:` diagnostic for intentionally invalid Oreslang code.
+A signal termination, toolchain crash, or linker failure is not evidence of
+valid compiler rejection. A real LLVM `target triple` declaration is
+required; the same words in an IR comment are insufficient.
+
+The ordinary and private-LLVM workflows pin checkout and setup-node actions
+to immutable commit SHAs. The real-compiler workflow must still be executed
+in a trusted, explicitly approved private environment with available runners.
