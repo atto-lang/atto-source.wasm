@@ -69,3 +69,31 @@ required; the same words in an IR comment are insufficient.
 The ordinary and private-LLVM workflows pin checkout and setup-node actions
 to immutable commit SHAs. The real-compiler workflow must still be executed
 in a trusted, explicitly approved private environment with available runners.
+
+## Manual full-suite verification before merging the draft PR
+
+A secret-free manual workflow has been installed on the default branch:
+`.github/workflows/manual-pinned-verify.yml`. This is intentionally
+separate from the unmerged PR and accepts only an exact 40-hex commit SHA.
+
+In the repository Actions UI, choose **Manual pinned Wasm PR verification**,
+select **Run workflow**, and enter the exact draft PR head under
+`source_sha` (current reviewed value:
+`d6deb73d19727bf42f70bd43799cf63dd505558d`). The workflow
+checks out that SHA, verifies `git rev-parse HEAD`, installs Node 22,
+Clang and LLD, and executes the complete `npm test` suite without access
+to any private cross-repository secret. Its result is evidence **only for
+that exact commit**.
+
+A private CI-carrier experiment independently mirrored 22 files into
+`3FA-app/3fa-api-server.rs`, branch
+`test-oreslang-wasm-20261014`, at source SHA
+`d6deb73d19727bf42f70bd43799cf63dd505558d`.
+All 22 Git blob identities matched the source tree, but its workflow
+[run 38653912932](https://github.com/3FA-app/3fa-api-server.rs/actions/runs/38653912932)
+failed before any runner steps executed. This is **not** a passing test.
+The mirror is a temporary testing branch, not an authoritative source.
+
+The genuine LLVM compiler gate remains separate and cannot be treated as
+passing until a trusted, explicitly authorized private runner completes
+`npm run test:real-compiler` on the same reviewed source revision.
