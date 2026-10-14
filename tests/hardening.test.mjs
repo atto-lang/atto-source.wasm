@@ -34,6 +34,12 @@ test('actual bounded scalar Wasm executes with pinned digest after worker termin
   assert.equal(admission.sha256, hash);
   assert.equal(admission.imports, 0);
   assert.equal(admission.hostCapabilities, 0);
+  assert.equal(admission.schemaVersion,1);
+  assert.equal(admission.profile,'core-wasm.i64-v1');
+  assert.equal(admission.entry,'main');
+  assert.equal(admission.bytes,bytes.length);
+  assert.equal(admission.memoryMaximumPages,2);
+  assert.ok(admission.memoryInitialPages<=admission.memoryMaximumPages);
 });
 test('digest mismatch and malformed options reject instead of executing', async () => {
   const bytes = compile(scalarIr);
@@ -132,4 +138,10 @@ test('snapshot is not affected by caller mutation immediately after submission',
   const executed = await submitted;
   assert.equal(executed.value,42n);
   assert.equal(executed.admission.sha256,hash);
+});
+
+test('cross-realm SharedArrayBuffer-backed input fails before worker launch', async () => {
+  const {runInNewContext} = await import('node:vm');
+  const crossRealm = runInNewContext('new Uint8Array(new SharedArrayBuffer(32))');
+  await assert.rejects(runIsolatedCoreGuest(crossRealm),/SharedArrayBuffer-backed/);
 });

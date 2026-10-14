@@ -51,3 +51,14 @@ the compiled module privately to the disposable worker.
 Host environment and execution-argument stripping are defense in depth, not
 protection from native engine vulnerabilities. Process isolation is still
 required for hostile tenants.
+
+## Shared-buffer and worker-reply admission (October 2026)
+
+The scalar input boundary rejects all `SharedArrayBuffer`-backed views,
+including cross-realm objects. Hashes are computed only from private byte
+snapshots. No user-owned backing buffer is transferred to a guest worker.
+The parent also validates the complete worker-reported admission envelope
+(version, profile, function entry, input size, SHA pin if present, fixed-memory
+budget and zero capabilities) before returning a successful result. These
+checks prevent accidental success from inconsistent internal metadata but
+do not turn the Node Worker API into an OS-level security boundary.

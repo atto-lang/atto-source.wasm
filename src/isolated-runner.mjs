@@ -74,8 +74,20 @@ export async function runIsolatedCoreGuest(input, {
           if (!message || message.ok !== true) {
             finish(new Error("guest rejected or failed: " + String(message?.error || "invalid worker result")));
           } else if (typeof message.result !== "bigint" || !message.admission ||
-                     message.admission.imports !== 0 || message.admission.hostCapabilities !== 0 ||
-                     !/^[a-f0-9]{64}$/.test(message.admission.sha256)) {
+                     message.admission.schemaVersion !== 1 ||
+                     message.admission.profile !== "core-wasm.i64-v1" ||
+                     message.admission.entry !== entry ||
+                     message.admission.bytes !== bytes.length ||
+                     message.admission.imports !== 0 ||
+                     message.admission.hostCapabilities !== 0 ||
+                     !/^[a-f0-9]{64}$/.test(message.admission.sha256) ||
+                     (expectedSha256 !== undefined &&
+                       message.admission.sha256 !== expectedSha256) ||
+                     !Number.isSafeInteger(message.admission.memoryInitialPages) ||
+                     !Number.isSafeInteger(message.admission.memoryMaximumPages) ||
+                     message.admission.memoryInitialPages < 0 ||
+                     message.admission.memoryMaximumPages < message.admission.memoryInitialPages ||
+                     message.admission.memoryMaximumPages > maxMemoryPages) {
             finish(new Error("invalid guest worker response"));
           } else {
             finish(null, {value: message.result, admission: message.admission});
