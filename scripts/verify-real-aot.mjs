@@ -38,17 +38,34 @@ export async function verifyRealSourceToAot({
   compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256,
   llvmSourceSha=process.env.ORESLANG_LLVM_SOURCE_SHA,
   builder=process.env.ORESLANG_AOT_BUILDER,
-  runner=process.env.ORESLANG_AOT_DEV_RUNNER
+  builderSha256=process.env.ORESLANG_AOT_BUILDER_SHA256,
+  runner=process.env.ORESLANG_AOT_DEV_RUNNER,
+  runnerSha256=process.env.ORESLANG_AOT_DEV_RUNNER_SHA256
 }={}) {
   if(![compiler,builder,runner].every(p=>typeof p==="string"&&isAbsolute(p)))
     throw Error("absolute ORESLANG_LLVM_COMPILER, ORESLANG_AOT_BUILDER and ORESLANG_AOT_DEV_RUNNER paths required");
   if(!/^[a-f0-9]{64}$/.test(compilerSha256||"")||!/^[a-f0-9]{40}$/.test(llvmSourceSha||""))
     throw Error("pinned LLVM compiler binary and source commit SHAs are required");
+  if(!/^[a-f0-9]{64}$/.test(builderSha256||"")||!/^[a-f0-9]{64}$/.test(runnerSha256||""))
+    throw Error("pinned AOT builder and development runner SHA-256 values are required");
   const binary=(await readBoundedRegularFile(compiler,256*1024*1024)).bytes;
   if(sha256(binary)!==compilerSha256)throw Error("native Oreslang compiler digest mismatch");
+  // Verify the exact AOT tools independently. A caller-selected path and
+  // its self-reported output are not evidence that Wasmtime executed.
+  const builderBytes=(await readBoundedRegularFile(builder,256*1024*1024)).bytes;
+  if(sha256(builderBytes)!==builderSha256)throw Error("native AOT builder digest mismatch");
+  const runnerBytes=(await readBoundedRegularFile(runner,256*1024*1024)).bytes;
+  if(sha256(runnerBytes)!==runnerSha256)throw Error("native AOT runner digest mismatch");
   const tmp=await mkdtemp(join(tmpdir(),"oreslang-real-source-aot-"));
   let primaryError;
   try {
+    // Execute the bytes already verified above, not mutable caller-owned
+    // paths. The workspace is a private mkdtemp directory. Production
+    // authenticity still requires independent approval and OS isolation.
+    const pinnedBuilder=join(tmp,"pinned-aot-builder");
+    const pinnedRunner=join(tmp,"pinned-aot-runner");
+    await writeFile(pinnedBuilder,builderBytes,{flag:"wx",mode:0o500});
+    await writeFile(pinnedRunner,runnerBytes,{flag:"wx",mode:0o500});
     const results=[];
     for(const [name,expected] of fixtures) {
       const source=join(root,"examples",name+".ores");
@@ -70,20 +87,20 @@ export async function verifyRealSourceToAot({
       assert.equal(js.admission.sha256,pin);
       const raw=join(tmp,name+".raw.wasm"),native=join(tmp,name+".cwasm");
       await writeFile(raw,wasm,{flag:"wx",mode:0o400});
-      const builderResult=invoke(builder,[raw,pin,native]);
+      const builderResult=invoke(pinnedBuilder,[raw,pin,native]);
       const match=/^aot_sha256=([a-f0-9]{64})$/m.exec(builderResult.stdout);
       if(!match)throw Error("native AOT builder did not emit SHA-256: "+name);
       const nativeSha=sha256(await readFile(native));
       assert.equal(match[1],nativeSha,"native artifact integrity mismatch");
-      const executed=invoke(runner,[native,nativeSha]);
+      const executed=invoke(pinnedRunner,[native,nativeSha]);
       assert.equal(executed.stdout.trim(),expected,"real Oreslang AOT result mismatch: "+name);
       // Reject caller tampering with an otherwise valid native artifact.
-      assert.match(invoke(runner,[native,"0".repeat(64)],false).stderr,/AOT bytes do not match insecure development digest/);
+      assert.match(invoke(pinnedRunner,[native,"0".repeat(64)],false).stderr,/AOT bytes do not match insecure development digest/);
       // Correct SHA must not make raw WebAssembly acceptable to the AOT loader.
-      assert.match(invoke(runner,[raw,pin],false).stderr,/approved bytes are not a precompiled core Wasm module/);
+      assert.match(invoke(pinnedRunner,[raw,pin],false).stderr,/approved bytes are not a precompiled core Wasm module/);
       results.push({fixture:name,node:expected,aot:executed.stdout.trim(),wasmSha256:pin});
     }
-    return {status:"verified-dev-only",llvmSourceSha,compilerSha256,fixtures:results};
+    return {status:"verified-dev-only",llvmSourceSha,compilerSha256,builderSha256,runnerSha256,fixtures:results};
   } catch(error){primaryError=error;throw error}
   finally {
     try{await cleanupRealCompilerWorkspace(tmp)}
