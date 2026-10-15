@@ -14,6 +14,16 @@ import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
 const sha256=bytes=>createHash("sha256").update(bytes).digest("hex");
+const MAX_NATIVE_AOT_BYTES=128*1024*1024;
+// The native builder has a 128 MiB output budget. A successful exit code is
+// not permission for the verifier to eagerly read a bigger or special file.
+// Open and hash the same bounded, no-follow snapshot used at admission.
+export async function sha256BoundedNativeArtifact(path) {
+  const {bytes}=await readBoundedRegularFile(path,MAX_NATIVE_AOT_BYTES,
+    "native AOT artifact exceeds 128 MiB verification budget");
+  return sha256(bytes);
+}
+
 const root=resolve(fileURLToPath(new URL("..",import.meta.url)));
 const fixtures=[
   ["native-int", "42"],
@@ -91,7 +101,7 @@ export async function verifyRealSourceToAot({
       const builderResult=invoke(pinnedBuilder,[raw,pin,native]);
       const match=/^aot_sha256=([a-f0-9]{64})$/m.exec(builderResult.stdout);
       if(!match)throw Error("native AOT builder did not emit SHA-256: "+name);
-      const nativeSha=sha256(await readFile(native));
+      const nativeSha=await sha256BoundedNativeArtifact(native);
       assert.equal(match[1],nativeSha,"native artifact integrity mismatch");
       const executed=invoke(pinnedRunner,[native,nativeSha]);
       assert.equal(executed.stdout.trim(),expected,"real Oreslang AOT result mismatch: "+name);
