@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "policy": "native-async-only",
+  "cases": [
+    {
+      "id": "pure",
+      "expect": "accept",
+      "source": "pub fnc main():int{return (5+3)*7-14;}"
+    },
+    {
+      "id": "pure-io-comment",
+      "expect": "accept",
+      "source": "pub fnc main():int{return 42;} // fs.read_text_async http.get_async stdio.println legacy-blocking"
+    },
+    {
+      "id": "fs-read",
+      "expect": "reject",
+      "source": "pub fnc main():int{return fs.read_text(\"/tmp/denied\");}"
+    },
+    {
+      "id": "fs-read-blocking",
+      "expect": "reject",
+      "source": "pub fnc main():int{return fs.read_text_blocking(\"/tmp/denied\");}"
+    },
+    {
+      "id": "fs-read-async",
+      "expect": "reject",
+      "source": "pub fnc main():int{return fs.read_text_async(\"/tmp/denied\");}"
+    },
+    {
+      "id": "fs-write",
+      "expect": "reject",
+      "source": "pub fnc main():int{return fs.write_text(\"/tmp/denied\", \"x\");}"
+    },
+    {
+      "id": "fs-write-async",
+      "expect": "reject",
+      "source": "pub fnc main():int{return fs.write_text_async(\"/tmp/denied\", \"x\");}"
+    },
+    {
+      "id": "http-get",
+      "expect": "reject",
+      "source": "pub fnc main():int{return http.get(\"http://127.0.0.1:1\");}"
+    },
+    {
+      "id": "http-get-async",
+      "expect": "reject",
+      "source": "pub fnc main():int{return http.get_async(\"http://127.0.0.1:1\");}"
+    },
+    {
+      "id": "http-listen",
+      "expect": "reject",
+      "source": "pub fnc main():int{return http.listen(1);}"
+    },
+    {
+      "id": "net-connect",
+      "expect": "reject",
+      "source": "pub fnc main():int{return net.connect(\"127.0.0.1\",1);}"
+    },
+    {
+      "id": "net-connect-async",
+      "expect": "reject",
+      "source": "pub fnc main():int{return net.connect_async(\"127.0.0.1\",1);}"
+    },
+    {
+      "id": "net-listen",
+      "expect": "reject",
+      "source": "pub fnc main():int{return net.listen(1);}"
+    },
+    {
+      "id": "stdio-read",
+      "expect": "reject",
+      "source": "pub fnc main():int{return stdio.read_line();}"
+    },
+    {
+      "id": "stdio-print",
+      "expect": "reject",
+      "source": "pub fnc main():int{return stdio.println(\"denied\");}"
+    },
+    {
+      "id": "print",
+      "expect": "reject",
+      "source": "pub fnc main():int{return println(\"denied\");}"
+    },
+    {
+      "id": "native-io",
+      "expect": "reject",
+      "source": "pub fnc main():int{return native_io.read(0);}"
+    },
+    {
+      "id": "wasi-io",
+      "expect": "reject",
+      "source": "pub fnc main():int{return wasi.fd_read(0);}"
+    },
+    {
+      "id": "fake-async",
+      "expect": "reject",
+      "source": "pub fnc main():int{return read_file_async();}"
+    },
+    {
+      "id": "alias",
+      "expect": "reject",
+      "source": "pub fnc main():int{let read = fs.read_text; return 42;}"
+    },
+    {
+      "id": "unreachable",
+      "expect": "reject",
+      "source": "pub fnc main():int{return 42; fs.write_text(\"/tmp/denied\", \"x\");}"
+    },
+    {
+      "id": "dead-branch",
+      "expect": "reject",
+      "source": "pub fnc main():int{if(false){stdio.println(\"denied\");} return 42;}"
+    }
+  ]
+}

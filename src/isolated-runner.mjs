@@ -1,3 +1,4 @@
+import {CORE_IO_POLICY, assertGuestOptions} from "./core-io-policy.mjs";
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
@@ -14,10 +15,12 @@ let activeGuestWorkers = 0;
  * Resolves only after the guest worker has terminated.
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
-export async function runIsolatedCoreGuest(input, {
+export async function runIsolatedCoreGuest(input, options = {}) {
+  assertGuestOptions(options, ["expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes", "timeoutMs"]);
+  const {
   expectedSha256, entry = "main", maxMemoryPages = 2,
   maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
-} = {}) {
+} = options;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
@@ -79,6 +82,7 @@ export async function runIsolatedCoreGuest(input, {
             finish(new Error("guest rejected or failed: " + String(message?.error || "invalid worker result")));
           } else if (typeof message.result !== "bigint" || !message.admission ||
                      message.admission.schemaVersion !== 1 ||
+                     message.admission.coreIoPolicy !== CORE_IO_POLICY ||
                      message.admission.profile !== "core-wasm.i64-v1" ||
                      message.admission.entry !== entry ||
                      message.admission.bytes !== bytes.length ||

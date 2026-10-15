@@ -15,7 +15,7 @@ async function workspace(){
  await writeFile(compiler,script,{mode:0o700});
  await chmod(compiler,0o700);
  await writeFile(source,"pub fnc main(): int { return 42; }\n");
- return {dir,compiler,source,output:join(dir,"guest.wasm")};
+ return Object.defineProperty({compiler,source,output:join(dir,"guest.wasm")},"dir",{value:dir});
 }
 const execute=bytes=>(new WebAssembly.Instance(new WebAssembly.Module(bytes))).exports.main();
 async function cleanup(dir){

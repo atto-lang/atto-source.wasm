@@ -3,6 +3,7 @@
  * native oreslang-llvmc (.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
+import {CORE_IO_POLICY, assertGuestOptions} from "../src/core-io-policy.mjs";
 import {spawnSync} from "node:child_process";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
@@ -108,7 +109,9 @@ function run(command,args,{input}={}){
  if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm(options = {}){
+ assertGuestOptions(options,["compiler","source","output","exportName","clang","compilerSha256","environment","publication"]);
+ const {compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}=options;
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -218,7 +221,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
-  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",
+  schemaVersion:1,coreIoPolicy:CORE_IO_POLICY,kind:"llvm-ores-to-wasm32-core-experimental",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,

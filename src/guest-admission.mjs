@@ -1,3 +1,4 @@
+import {CORE_IO_POLICY, assertGuestOptions} from "./core-io-policy.mjs";
 import {createHash} from "node:crypto";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
@@ -8,12 +9,14 @@ import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
+export function compileAdmittedCoreGuest(input, options = {}) {
+  assertGuestOptions(options, ["expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages"]);
+  const {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
   maxMemoryPages = 2
-} = {}) {
+} = options;
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
@@ -48,7 +51,7 @@ export function compileAdmittedCoreGuest(input, {
   const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
   if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
   const admission = Object.freeze({
-    schemaVersion: 1, profile: "core-wasm.i64-v1",
+    schemaVersion: 1, coreIoPolicy: CORE_IO_POLICY, profile: "core-wasm.i64-v1",
     sha256, bytes: bytes.byteLength, entry,
     memoryInitialPages: memoryInitial, memoryMaximumPages: memoryMaximum,
     imports: 0, hostCapabilities: 0
