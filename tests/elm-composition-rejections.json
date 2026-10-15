@@ -1,0 +1,8 @@
+{
+  "option-flat-map": "pub fnc main(): int { val Option<int> x = Some(2); return x.flat_map<int>(|int n| -> { return Some(n * 2); }).unwrap(); }",
+  "result-map-err": "pub fnc main(): int { val Result<int,string> x = Err(\"fail\"); return x.map_err<string>(|string e| -> { return e; }).unwrap_or(2); }",
+  "future-and-then": "async fnc seed():int{return 2;} pub fnc main():int{ val Future<int> f = seed().and_then(|int n| -> { return seed(); }); return await f; }",
+  "observable-filter-map": "pub fnc main():int{ val Observable<int> o = from_values([1,2]); val Observable<int> m = filter_map(o, |int n| -> { return Some(n); }); return 0; }",
+  "stream-filter-map": "pub fnc main():int{ val Stream<int> s = make_stream(); val Stream<int> f = s.filter_map(|int n| -> { return Some(n); }); return 0; }",
+  "channel-observable-no-implicit-bridge": "pub fnc main():int{ val Channel<int> c = Channel.new<int>(0); val Observable<int> o = c; return 0; }"
+}
