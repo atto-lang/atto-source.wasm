@@ -27,9 +27,21 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
  if "$runner" "$tmp/$name.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
    echo "incorrect digest admitted" >&2; exit 1
  fi
+ cp "$tmp/$name.cwasm" "$tmp/$name-corrupt.cwasm"
+ python3 - "$tmp/$name-corrupt.cwasm" <<'PY'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+data = bytearray(path.read_bytes())
+data[len(data)//2] ^= 1
+path.write_bytes(data)
+PY
+ if "$runner" "$tmp/$name-corrupt.cwasm" "$pin" > /dev/null 2>&1; then
+   echo "tampered native artifact admitted" >&2; exit 1
+ fi
  # The caller cannot use an original wasm32 .wasm in the native AOT runtime.
  if "$runner" "$tmp/$name.wasm" "$pin" > /dev/null 2>&1; then
    echo "raw wasm wrongly treated as native artifact" >&2; exit 1
  fi
 done
-echo 'AOT smoke: 3 scalar values, 3 rejected wrong pins and raw-wasm admission passed'
+echo 'AOT smoke: 3 scalars and rejection of wrong pins, corrupted AOT and raw Wasm passed'
