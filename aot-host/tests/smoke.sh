@@ -149,9 +149,9 @@ for bad_fuel in 0 100000001 not-a-number; do
   exit 1
  fi
 done
-# Production artifacts may not use the caller-supplied SHA as approval.
+# Production artifacts may not use the caller-supplied SHA as approval, even\n# when somebody forces debug assertions on in a release build.
 # Prove the production runner refuses an otherwise authentic native artifact.
-cargo build --release --locked --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
+cargo build --release --locked --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin --config profile.release.debug-assertions=true
 release_runner="$repo_dir/aot-host/run/target/release/oreslang-aot-run"
 # The trusted build-stage input pin must reject a valid Wasm module when
 # the supplied digest is wrong; no native code should be published.
