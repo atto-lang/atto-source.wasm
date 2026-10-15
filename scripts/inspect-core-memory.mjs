@@ -34,6 +34,8 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
   if(end>bytes.length)fail("section extends beyond module");
   if(id===8)fail("start section is forbidden (runs before host admission completes)");
   if(id===4)fail("table section is not yet admitted");
+  if(id===9)fail("element sections are forbidden in the scalar profile");
+  if(id===13)fail("exception tag sections are forbidden in the scalar profile");
   if(id===5){
    const count=u32(end);
    memoryCount+=count;

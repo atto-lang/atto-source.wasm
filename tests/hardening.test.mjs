@@ -145,3 +145,37 @@ test('cross-realm SharedArrayBuffer-backed input fails before worker launch', as
   const crossRealm = runInNewContext('new Uint8Array(new SharedArrayBuffer(32))');
   await assert.rejects(runIsolatedCoreGuest(crossRealm),/SharedArrayBuffer-backed/);
 });
+
+
+test('snapshot never invokes inherited typed-array iterator or overridden set', async () => {
+  const wasm = compile(scalarIr);
+  const digest = createHash('sha256').update(wasm).digest('hex');
+  const padded = Buffer.alloc(wasm.length + 8);
+  padded.set(wasm, 4);
+  const dataView = new DataView(padded.buffer, padded.byteOffset + 4, wasm.length);
+  const {snapshotGuestBytes} = await import('../src/snapshot-guest-bytes.mjs');
+  const typedProto = Object.getPrototypeOf(Uint8Array.prototype);
+  const originalIterator = Object.getOwnPropertyDescriptor(typedProto, Symbol.iterator);
+  const originalSet = Object.getOwnPropertyDescriptor(typedProto, 'set');
+  assert.ok(originalIterator && originalSet);
+  try {
+    Object.defineProperty(typedProto, Symbol.iterator, {
+      configurable: true, writable: true,
+      value: function* () { throw Error('untrusted iterator executed'); }
+    });
+    Object.defineProperty(typedProto, 'set', {
+      configurable: true, writable: true,
+      value() { throw Error('untrusted set executed'); }
+    });
+    for (const input of [wasm, dataView]) {
+      const copy = snapshotGuestBytes(input, wasm.length);
+      assert.notEqual(copy.buffer, input.buffer);
+      assert.equal(createHash('sha256').update(copy).digest('hex'), digest);
+    }
+  } finally {
+    Object.defineProperty(typedProto, Symbol.iterator, originalIterator);
+    Object.defineProperty(typedProto, 'set', originalSet);
+  }
+  const result = await runIsolatedCoreGuest(dataView, {expectedSha256: digest});
+  assert.equal(result.value, 42n);
+});

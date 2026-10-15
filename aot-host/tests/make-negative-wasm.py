@@ -22,6 +22,10 @@ exports = section(7, bytes((2, 4)) + b'main' +
 code = section(10, bytes((1, 4, 0, 0x42, 42, 0x0b)))
 
 (root / 'valid.wasm').write_bytes(header + sig + function + memory + exports + code)
+# Valid Wasm with empty element section: must be denied by scalar policy.
+(root / 'element.wasm').write_bytes(
+    header + sig + function + memory + exports +
+    section(9, bytes((0,))) + code)
 (root / 'table.wasm').write_bytes(
     header + sig + function + section(4, bytes((1, 0x70, 0, 1))) +
     memory + exports + code)
