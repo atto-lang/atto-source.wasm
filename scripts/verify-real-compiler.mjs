@@ -88,7 +88,8 @@ export async function verifyRealCompiler({
     const scalarMatrix = [
       {name:"return-arithmetic",expected:28n},
       {name:"negative-result",expected:-5n},
-      {name:"zero-result",expected:0n}
+      {name:"zero-result",expected:0n},
+      {name:"class-scalar-constructor",expected:40n}
     ];
     const scalarResults=[];
     for (const {name,expected} of scalarMatrix) {
