@@ -1,0 +1,37 @@
+name: Wasmtime AOT draft checks
+on:
+  pull_request:
+    paths:
+      - "aot-host/**"
+      - ".github/workflows/aot-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  aot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install Wasmtime 49 compatible Rust 1.96
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Inspect pinned toolchain
+        run: rustc --version && cargo --version && rustup show active-toolchain
+      - name: Build trusted AOT precompiler
+        run: cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
+      - name: Build compiler-free AOT runner
+        run: cargo check --locked --manifest-path aot-host/run/Cargo.toml
+      - name: Assert native runtime dependency tree contains no Wasm compiler
+        shell: bash
+        run: |
+          cargo tree --locked --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin > runtime-tree.txt
+          if grep -E 'wasmtime(-internal)?-(cranelift|winch)' runtime-tree.txt; then
+            echo "runtime is not compiler-free" >&2
+            exit 1
+          fi
+      - name: Install LLVM wasm32 linker
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run strict AOT scalar smoke and tamper rejection
+        run: bash aot-host/tests/smoke.sh
