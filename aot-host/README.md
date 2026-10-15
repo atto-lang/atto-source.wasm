@@ -60,3 +60,16 @@ loading; inode identity, length, mtime and ctime are checked around the copy.
 Unix is an explicit prototype requirement until equivalent Windows handle
 semantics are implemented. The separately provisioned trusted AOT artifact
 SHA-256 remains mandatory: file metadata alone does not authenticate content.
+
+### Extended CI admission corpus and toolchain pin
+
+The AOT smoke now generates **valid** core-Wasm binaries that carry an
+otherwise forbidden start function, table, imported function or additional
+unexported memory. Node's WebAssembly validator first confirms each module
+is structurally well-formed. The trusted precompiler must reject each with
+no artifact produced, independently of generic Wasm parsing.
+
+The AOT branch pins Rust **1.96.0**, consistent with the minimum toolchain
+expected for Wasmtime 49.x. This pin prevents GitHub runner updates from
+changing the compiler selected during verification. The feature-graph and
+AOT execution checks remain required on an actual hosted or trusted runner.

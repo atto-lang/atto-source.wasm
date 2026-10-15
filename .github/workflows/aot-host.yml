@@ -15,8 +15,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Inspect toolchain
-        run: rustc --version && cargo --version
+      - name: Install Wasmtime 49 compatible Rust 1.96
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Inspect pinned toolchain
+        run: rustc --version && cargo --version && rustup show active-toolchain
       - name: Build trusted AOT precompiler
         run: cargo test --manifest-path aot-host/precompile/Cargo.toml
       - name: Build compiler-free AOT runner

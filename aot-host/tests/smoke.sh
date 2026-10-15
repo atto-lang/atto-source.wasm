@@ -66,4 +66,25 @@ if [[ "$build_status" -eq 0 || "$build_status" -eq 124 ||
       "$run_status" -eq 0 || "$run_status" -eq 124 ]]; then
   echo "FIFO input was admitted or blocked indefinitely" >&2; exit 1
 fi
-echo 'AOT smoke: scalars, digest tampering, wrong module kind, symlink and FIFO denial passed'
+# These binaries are valid Wasm but violate the strict zero-capability
+# precompiler profile. Generic parser rejection would be insufficient proof.
+python3 aot-host/tests/make-negative-wasm.py "$tmp"
+node --input-type=module - "$tmp" <<'JS'
+import {readFileSync} from 'node:fs';
+for (const name of ['valid','start','table','extra-memory','import']) {
+  const bytes=readFileSync(process.argv[2]+'/'+name+'.wasm');
+  if (!WebAssembly.validate(bytes)) throw Error(name+' negative fixture is malformed');
+}
+JS
+"$builder" "$tmp/valid.wasm" "$tmp/valid.cwasm" > "$tmp/valid.meta"
+for reason in start table extra-memory import; do
+  if "$builder" "$tmp/$reason.wasm" "$tmp/$reason.cwasm" > /dev/null 2>&1; then
+    echo "AOT precompiler admitted forbidden $reason section" >&2
+    exit 1
+  fi
+  if [[ -e "$tmp/$reason.cwasm" ]]; then
+    echo "AOT precompiler published rejected $reason artifact" >&2
+    exit 1
+  fi
+done
+echo 'AOT smoke: positive scalars and strict policy negatives passed'
