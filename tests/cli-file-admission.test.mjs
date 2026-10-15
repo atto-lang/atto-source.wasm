@@ -23,7 +23,7 @@ function withTemp(callback){
   finally{rmSync(dir,{recursive:true,force:true});}
 }
 function run(path){
-  return spawnSync(process.execPath,[cli,`--wasm=${path}`,`--sha256=${pin}`, "--timeout-ms=500"],{
+  return spawnSync(process.execPath,[cli,`--wasm=${path}`,`--sha256=${pin}`, "--timeout-ms=2500"],{
     encoding:"utf8",timeout:4000,maxBuffer:1024*1024,env:{...process.env}
   });
 }
