@@ -8,7 +8,7 @@ import sys
 
 root = Path(sys.argv[1])
 root.mkdir(parents=True, exist_ok=True)
-header = b'\\0asm\\1\\0\\0\\0'
+header = b'\0asm\1\0\0\0'
 
 def section(kind, payload):
     assert len(payload) < 128
