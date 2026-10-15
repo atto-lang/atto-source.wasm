@@ -80,6 +80,40 @@ export async function verifyRealCompiler({
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
       throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
 
+    // A real compiler, not an IR test double, must support independently
+    // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
+    // mistakes that a constant-42 smoke test cannot expose.
+    const scalarMatrix = [
+      {name:"return-arithmetic",expected:28n},
+      {name:"negative-result",expected:-5n},
+      {name:"zero-result",expected:0n}
+    ];
+    const scalarResults=[];
+    for (const {name,expected} of scalarMatrix) {
+      const source = fileURLToPath(new URL("../examples/"+name+".ores", import.meta.url));
+      const fixtureOutput = join(work,name+".wasm");
+      const pinnedSourceSha = sha256(await readFile(source));
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler,compilerSha256,source,output:fixtureOutput,
+        environment:"browser",publication:"atomic"
+      });
+      const verified = await readAtomicRelease(fixtureOutput);
+      if (built.sourceSha256 !== pinnedSourceSha ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(verified.wasm) ||
+          verified.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("scalar fixture "+name+" produced mismatched source or artifact provenance");
+      const observed = await runIsolatedCoreGuest(verified.wasm,{
+        expectedSha256:built.wasmSha256,timeoutMs:5000
+      });
+      if (observed.value !== expected ||
+          observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("scalar fixture "+name+" returned incorrect result or capabilities");
+      scalarResults.push(Object.freeze({name,value:observed.value.toString(),
+        wasmSha256:built.wasmSha256,sourceSha256:built.sourceSha256}));
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -116,7 +150,8 @@ export async function verifyRealCompiler({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
-      forwardCallResult:forwardExecuted.value.toString(), negativeSourceRejected:true
+      forwardCallResult:forwardExecuted.value.toString(),
+      scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
     });
   } finally {await rm(work,{recursive:true,force:true});}
 }
