@@ -11,7 +11,7 @@ fn bounded(path:&str)->Result<Vec<u8>,Box<dyn Error>>{
  let mut f=File::open(path)?;let m=f.metadata()?;
  if !m.is_file()||m.len()>64*1024*1024{return Err(denied("invalid AOT artifact size"))}
  let mut bytes=Vec::new();
- f.by_ref().take(64*1024*1024+1).read_to_end(&mut bytes)?;
+ (&mut f).take(64*1024*1024+1).read_to_end(&mut bytes)?;
  if bytes.len()>64*1024*1024||bytes.len() as u64!=m.len(){return Err(denied("native artifact changed size"))}
  Ok(bytes)
 }

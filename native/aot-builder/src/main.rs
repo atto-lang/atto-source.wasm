@@ -9,7 +9,7 @@ fn bounded(path:&str, max:usize)->Result<Vec<u8>,Box<dyn Error>>{
  let mut f=File::open(path)?; let metadata=f.metadata()?;
  if !metadata.is_file()||metadata.len()>max as u64{return Err(denied("file exceeds source byte budget"))}
  let mut bytes=Vec::new();
- f.by_ref().take((max+1) as u64).read_to_end(&mut bytes)?;
+ (&mut f).take((max+1) as u64).read_to_end(&mut bytes)?;
  if bytes.len()>max||bytes.len() as u64!=metadata.len(){return Err(denied("input size changed"))}
  Ok(bytes)
 }
