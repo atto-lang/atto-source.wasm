@@ -29,3 +29,7 @@ jobs:
             echo "runtime is not compiler-free" >&2
             exit 1
           fi
+      - name: Install LLVM wasm32 linker
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run strict AOT scalar smoke and tamper rejection
+        run: bash aot-host/tests/smoke.sh

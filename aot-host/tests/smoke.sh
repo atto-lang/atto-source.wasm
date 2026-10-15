@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$repo_dir"
+cargo build --manifest-path aot-host/precompile/Cargo.toml
+cargo build --manifest-path aot-host/run/Cargo.toml
+builder="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-build"
+runner="$repo_dir/aot-host/run/target/debug/oreslang-aot-run"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+for spec in '42:42' 'zero:0' 'negative:-5'; do
+ name="${spec%%:*}"
+ result="${spec#*:}"
+ if [[ "$name" == 42 ]]; then expected_ir=42
+ elif [[ "$name" == zero ]]; then expected_ir=0
+ else expected_ir=-5
+ fi
+ printf 'target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 %s }\n' "$expected_ir" |
+   clang --target=wasm32 -x ir -Oz -nostdlib -Wl,--no-entry -Wl,--export=main \
+     -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+     -o "$tmp/$name.wasm" -
+ "$builder" "$tmp/$name.wasm" "$tmp/$name.cwasm" > "$tmp/$name.meta"
+ pin="$(sed -n 's/^aot_sha256=//p' "$tmp/$name.meta")"
+ [[ "$pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing AOT digest" >&2; exit 1; }
+ actual="$("$runner" "$tmp/$name.cwasm" "$pin")"
+ [[ "$actual" == "$result" ]] || { echo "AOT result mismatch: $name" >&2; exit 1; }
+ if "$runner" "$tmp/$name.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+   echo "incorrect digest admitted" >&2; exit 1
+ fi
+ # The caller cannot use an original wasm32 .wasm in the native AOT runtime.
+ if "$runner" "$tmp/$name.wasm" "$pin" > /dev/null 2>&1; then
+   echo "raw wasm wrongly treated as native artifact" >&2; exit 1
+ fi
+done
+echo 'AOT smoke: 3 scalar values, 3 rejected wrong pins and raw-wasm admission passed'
