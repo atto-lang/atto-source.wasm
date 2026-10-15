@@ -21,7 +21,7 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
    clang --target=wasm32 -x ir -Oz -nostdlib -Wl,--no-entry -Wl,--export=main \
      -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
      -o "$tmp/$name.wasm" -
- "$builder" "$tmp/$name.wasm" "$tmp/$name.cwasm" > "$tmp/$name.meta"
+ "$builder" "$tmp/$name.wasm" "$(sha256sum "$tmp/$name.wasm" | cut -d ' ' -f 1)" "$tmp/$name.cwasm" > "$tmp/$name.meta"
  pin="$(sed -n 's/^aot_sha256=//p' "$tmp/$name.meta")"
  [[ "$pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing AOT digest" >&2; exit 1; }
  if [[ "$name" == 42 ]]; then
@@ -59,7 +59,7 @@ done
 # Validate the native file admission boundary without depending on timeouts
 # to distinguish a refused FIFO from a blocked O_RDONLY open.
 ln -s "$tmp/42.wasm" "$tmp/source-symlink.wasm"
-if "$builder" "$tmp/source-symlink.wasm" "$tmp/source-symlink.cwasm" > /dev/null 2>&1; then
+if "$builder" "$tmp/source-symlink.wasm" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/source-symlink.cwasm" > /dev/null 2>&1; then
   echo "builder followed symlinked Wasm input" >&2; exit 1
 fi
 ln -s "$tmp/42.cwasm" "$tmp/aot-symlink.cwasm"
@@ -69,7 +69,7 @@ if "$runner" "$tmp/aot-symlink.cwasm" "$pin" > /dev/null 2>&1; then
 fi
 mkfifo "$tmp/input.fifo"
 set +e
-timeout 4s "$builder" "$tmp/input.fifo" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
+timeout 4s "$builder" "$tmp/input.fifo" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
 build_status=$?
 timeout 4s "$runner" "$tmp/input.fifo" "$pin" > /dev/null 2>&1
 run_status=$?
@@ -88,9 +88,9 @@ for (const name of ['valid','start','table','extra-memory','import']) {
   if (!WebAssembly.validate(bytes)) throw Error(name+' negative fixture is malformed');
 }
 JS
-"$builder" "$tmp/valid.wasm" "$tmp/valid.cwasm" > "$tmp/valid.meta"
+"$builder" "$tmp/valid.wasm" "$(sha256sum "$tmp/valid.wasm" | cut -d ' ' -f 1)" "$tmp/valid.cwasm" > "$tmp/valid.meta"
 for reason in start table extra-memory import; do
-  if "$builder" "$tmp/$reason.wasm" "$tmp/$reason.cwasm" > /dev/null 2>&1; then
+  if "$builder" "$tmp/$reason.wasm" "$(sha256sum "$tmp/$reason.wasm" | cut -d ' ' -f 1)" "$tmp/$reason.cwasm" > /dev/null 2>&1; then
     echo "AOT precompiler admitted forbidden $reason section" >&2
     exit 1
   fi
@@ -98,6 +98,37 @@ for reason in start table extra-memory import; do
     echo "AOT precompiler published rejected $reason artifact" >&2
     exit 1
   fi
+done
+# PR #2 parity: a valid, infinite-looping core-Wasm guest must exhaust
+# the Wasmtime store fuel budget without hanging a worker indefinitely.
+cat > "$tmp/loop.ll" <<'LLVM'
+target triple = "wasm32-unknown-unknown"
+define i64 @main() {
+entry:
+  br label %loop
+loop:
+  br label %loop
+}
+LLVM
+clang --target=wasm32 -x ir -O0 -nostdlib -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/loop.wasm" "$tmp/loop.ll"
+"$builder" "$tmp/loop.wasm" "$(sha256sum "$tmp/loop.wasm" | cut -d ' ' -f 1)" "$tmp/loop.cwasm" > "$tmp/loop.meta"
+loop_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/loop.meta")"
+set +e
+timeout 5s "$runner" "$tmp/loop.cwasm" "$loop_pin" 10000 > "$tmp/loop.stdout" 2> "$tmp/loop.stderr"
+loop_status=$?
+set -e
+if [[ "$loop_status" -eq 0 || "$loop_status" -eq 124 || "$loop_status" -eq 137 ]]; then
+  echo "loop completed or exceeded wall-time rather than exhausting fuel" >&2
+  cat "$tmp/loop.stderr" >&2
+  exit 1
+fi
+for bad_fuel in 0 100000001 not-a-number; do
+ if "$runner" "$tmp/42.cwasm" "$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")" "$bad_fuel" > /dev/null 2>&1; then
+  echo "invalid fuel budget was admitted: $bad_fuel" >&2
+  exit 1
+ fi
 done
 # Production artifacts may not use the caller-supplied SHA as approval.
 # Prove the production runner refuses an otherwise authentic native artifact.

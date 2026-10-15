@@ -114,3 +114,18 @@ local AOT execution requires both a debug build and Cargo's explicit
 release-mode execution: CI builds a release runner **with the feature enabled**
 and verifies it still refuses a known-good artifact. The test suite first
 exercises the default-debug denial before enabling the development feature.
+
+### PR #2 resource and compiler-pinning parity
+
+The trusted precompiler now requires a 64-digit source-Wasm SHA-256 pin as a
+separate command-line argument, checks it before compiling, and refuses a
+mismatch. This is identity verification, **not proof of release approval**.
+Its usage is now:
+`oreslang-aot-build VERIFIED.wasm APPROVED_WASM_SHA256 NEW.cwasm`.
+
+The opt-in, debug-only AOT runner now enforces Wasmtime store limits of 128
+KiB guest memory, one instance, one memory and zero tables, and a configurable
+fuel allowance between 1 and 100,000,000 (default 1,000,000). CI includes a
+valid LLVM-generated infinite-loop Wasm module that must fail with limited
+fuel rather than completing or timing out. These limits are not OS cgroups,
+process memory isolation, native RSS limits or a production approval service.
