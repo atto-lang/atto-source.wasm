@@ -1,4 +1,5 @@
 import {Worker} from "node:worker_threads";
+import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
@@ -38,6 +39,9 @@ export async function runIsolatedCoreGuest(input, {
     throw new Error("guest worker concurrency quota exceeded");
   }
   const bytes = snapshotGuestBytes(input, maxModuleBytes);
+  // Bind worker-reported provenance to the exact bytes the parent submitted,
+  // even when this API is invoked without an external expectedSha256 pin.
+  const submittedSha256 = createHash("sha256").update(bytes).digest("hex");
   activeGuestWorkers++;
   try {
     return await new Promise((resolve, reject) => {
@@ -81,6 +85,7 @@ export async function runIsolatedCoreGuest(input, {
                      message.admission.imports !== 0 ||
                      message.admission.hostCapabilities !== 0 ||
                      !/^[a-f0-9]{64}$/.test(message.admission.sha256) ||
+                     message.admission.sha256 !== submittedSha256 ||
                      (expectedSha256 !== undefined &&
                        message.admission.sha256 !== expectedSha256) ||
                      !Number.isSafeInteger(message.admission.memoryInitialPages) ||
