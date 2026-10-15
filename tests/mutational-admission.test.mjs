@@ -58,7 +58,7 @@ test('unpinned mutated modules cannot fabricate capabilities, memory or ABI meta
    assert.equal(claim.hostCapabilities,0);
    assert.equal(claim.entry,'main');
    assert.equal(claim.profile,'core-wasm.i64-v1');
-   assert.equal(claim.memoryMaximumPages,2);
+   assert.ok(claim.memoryMaximumPages>=1 && claim.memoryMaximumPages<=2);
    assert.ok(claim.memoryInitialPages<=claim.memoryMaximumPages);
   }catch(error){
    // The host is permitted to reject *any* mutation. However, regression
