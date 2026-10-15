@@ -39,3 +39,15 @@ Wasmtime versions/configurations/CPU features must match AOT artifacts.
 Rust crates use the same exact Wasmtime release but do not share a workspace.
 CI must prove compiler features are absent from the runtime dependency graph
 and exercise digest tamper/replay, ABI mismatch and fuel exhaustion.
+
+### Strict source admission added
+
+The precompiler now parses the exact input Wasm bytes **before** native
+compilation and rejects the presence of any start, import, table, element,
+tag, or unknown section. It requires one and only one explicit private wasm32
+linear memory with no custom page-size, no shared/memory64 mode, and a maximum
+of two pages. This closes gaps left by checking exported Wasmtime metadata
+alone: otherwise a hidden internal table/start function/extra memory would
+be invisible. The precompiler serializes the single already-validated native
+module instead of compiling it again. The source verifier includes unit tests;
+all native tests still require execution on a real Rust toolchain.

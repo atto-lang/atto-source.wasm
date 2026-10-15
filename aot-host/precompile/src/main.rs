@@ -1,4 +1,5 @@
 #[path="../../profile.rs"] mod profile;
+mod wasm_admission;
 use std::{env,fs::{self,OpenOptions},io::{Read,Write}};
 use sha2::{Digest,Sha256};
 use wasmtime::Module;
@@ -12,10 +13,16 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let mut wasm=Vec::new();
  f.take(MAX_WASM+1).read_to_end(&mut wasm)?;
  if wasm.len() as u64>MAX_WASM{return Err("Wasm input too large".into());}
+ // Validate the raw byte-level admission profile before *any* expensive
+ // native-code generation. Wasmtime exported ABI introspection alone does not
+ // show hidden tables, start functions or unexported extra memories.
+ wasm_admission::validate_scalar_module(&wasm)?;
  let engine=profile::engine()?;
  let module=Module::from_binary(&engine,&wasm)?;
  profile::check_abi(&module)?;
- let aot=engine.precompile_module(&wasm)?;
+ // Serialize the module we already compiled, avoiding a second translation
+ // and code generation pass through Engine::precompile_module.
+ let aot=module.serialize()?;
  if aot.len()>MAX_AOT{return Err("native artifact too large".into());}
  let mut out=OpenOptions::new().create_new(true).write(true).open(&args[1])?;
  out.write_all(&aot)?;out.sync_all()?;
