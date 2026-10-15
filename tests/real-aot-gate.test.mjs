@@ -49,3 +49,53 @@ test("AOT gate rejects altered builder or runner bytes before execution",async()
       /native AOT runner digest mismatch/);
   }finally{await rm(dir,{recursive:true,force:true})}
 });
+
+test("native AOT verifier SHA is derived from a bounded no-follow regular-file snapshot",async()=>{
+  const {open,symlink} = await import("node:fs/promises");
+  const {sha256BoundedNativeArtifact} = await import("../scripts/verify-real-aot.mjs");
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-native-artifact-bound-"));
+  try{
+    const good=join(dir,"valid.cwasm");
+    const content=Buffer.from("verified small native test fixture");
+    await writeFile(good,content,{flag:"wx"});
+    assert.equal(await sha256BoundedNativeArtifact(good),
+      createHash("sha256").update(content).digest("hex"));
+
+    // Create a sparse oversized file: test the pre-allocation size gate
+    // without writing or loading 128 MiB of data into memory.
+    const oversized=join(dir,"oversized.cwasm");
+    const handle=await open(oversized,"wx");
+    try{await handle.truncate(128*1024*1024+1)}finally{await handle.close()}
+    await assert.rejects(sha256BoundedNativeArtifact(oversized),
+      /native AOT artifact exceeds 128 MiB verification budget/);
+
+    if(process.platform!=="win32"){
+      const alias=join(dir,"native-link.cwasm");
+      await symlink(good,alias);
+      await assert.rejects(sha256BoundedNativeArtifact(alias),
+        /symlink or special input file is forbidden/);
+    }
+  }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test("native AOT verifier refuses an unwritten FIFO without hanging",{
+  skip:process.platform!=="linux"
+},async()=>{
+  const {spawnSync}=await import("node:child_process");
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-native-aot-fifo-"));
+  try{
+    const fifo=join(dir,"input.fifo");
+    const created=spawnSync("mkfifo",[fifo],{timeout:3000,encoding:"utf8"});
+    assert.equal(created.status,0,created.stderr);
+    // The child timeout detects an accidentally blocking O_RDONLY open.
+    const moduleUrl=new URL("../scripts/verify-real-aot.mjs",import.meta.url).href;
+    const snippet="import {sha256BoundedNativeArtifact} from "+JSON.stringify(moduleUrl)+"; await sha256BoundedNativeArtifact(process.argv[1]);";
+    const observed=spawnSync(process.execPath,["--input-type=module","-e",snippet,fifo],{
+      timeout:3000,encoding:"utf8"
+    });
+    assert.equal(observed.error,undefined,
+      "native AOT FIFO read must not wait for a writer: "+observed.error?.message);
+    assert.equal(observed.status,1);
+    assert.match(observed.stderr,/native AOT artifact exceeds 128 MiB verification budget/);
+  }finally{await rm(dir,{recursive:true,force:true})}
+});
