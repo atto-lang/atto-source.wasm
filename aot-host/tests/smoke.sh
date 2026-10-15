@@ -40,8 +40,9 @@ PY
    echo "tampered native artifact admitted" >&2; exit 1
  fi
  # The caller cannot use an original wasm32 .wasm in the native AOT runtime.
- if "$runner" "$tmp/$name.wasm" "$pin" > /dev/null 2>&1; then
-   echo "raw wasm wrongly treated as native artifact" >&2; exit 1
+ wasm_pin="$(sha256sum "$tmp/$name.wasm" | cut -d ' ' -f 1)"
+ if "$runner" "$tmp/$name.wasm" "$wasm_pin" > /dev/null 2>&1; then
+   echo "raw wasm wrongly treated as native artifact despite matching digest" >&2; exit 1
  fi
 done
 # Validate the native file admission boundary without depending on timeouts

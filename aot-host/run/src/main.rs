@@ -2,7 +2,7 @@
 #[path="../../io.rs"] mod io;
 use std::env;
 use sha2::{Digest,Sha256};
-use wasmtime::{Instance,Module,Store};
+use wasmtime::{Engine,Instance,Module,Precompiled,Store};
 const MAX_AOT:u64=128*1024*1024;
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args=env::args().skip(1).collect::<Vec<_>>();
@@ -14,6 +14,12 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let bytes=io::bounded_regular_file(&args[0],MAX_AOT)?;
  if format!("{:x}",Sha256::digest(&bytes))!=*pin{
   return Err("AOT bytes do not match trusted deployment pin".into());
+ }
+ // This is only format discrimination, NOT security validation.
+ // Refuse raw Wasm and native components even when a caller supplies the
+ // correct content hash. It must happen BEFORE unsafe deserialization.
+ if !matches!(Engine::detect_precompiled(&bytes),Some(Precompiled::Module)){
+  return Err("approved bytes are not a precompiled core Wasm module".into());
  }
  let engine=profile::engine()?;
  // SAFETY: The digest MUST originate from an authenticated operator-managed

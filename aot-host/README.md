@@ -73,3 +73,14 @@ The AOT branch pins Rust **1.96.0**, consistent with the minimum toolchain
 expected for Wasmtime 49.x. This pin prevents GitHub runner updates from
 changing the compiler selected during verification. The feature-graph and
 AOT execution checks remain required on an actual hosted or trusted runner.
+
+### Format discrimination before unsafe AOT deserialization
+
+The runner now applies Wasmtime's safe `Engine::detect_precompiled`
+header probe and only admits `Precompiled::Module` before calling unsafe
+`Module::deserialize`. This prevents raw Wasm and Wasmtime components from
+reaching that call. The smoke test supplies the **correct digest of raw Wasm**
+to verify actual format rejection, not merely a mismatched-hash rejection.
+The format probe is deliberately **not** an authenticity or safety proof;
+only out-of-band approval of trusted serialized module bytes supports the
+safety contract for native deserialization.
