@@ -210,7 +210,15 @@ export async function publishAtomicRelease({
   const destinationDir=join(root,releaseSha256);
   try{await rename(stage,destinationDir)}
   catch(error){
-   if(!["EEXIST","ENOTEMPTY"].includes(error.code))throw error;
+   // Darwin may report EACCES for a collision with our sealed 0500
+   // directory. Accept only an independently verified identical release;
+   // permission failures with no valid installed destination remain errors.
+   if(!["EEXIST","ENOTEMPTY","EACCES","EPERM"].includes(error.code))throw error;
+   try { await verifyDir(destinationDir,releaseSha256); }
+   catch(validationError) {
+    if(validationError.code === "ENOENT") throw error;
+    throw validationError;
+   }
   }
   // Reject preexisting conflicting/replaced content, even if name matches.
   await verifyDir(destinationDir,releaseSha256);

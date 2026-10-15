@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile, stat, readdir, chmod} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -153,7 +153,18 @@ export async function verifyRealCompiler({
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
     });
-  } finally {await rm(work,{recursive:true,force:true});}
+  } finally {
+    // Only this invocation owns these temporary releases. Production readers
+    // never unseal directories; the test must restore write permission before
+    // removing sealed 0500 releases on POSIX filesystems.
+    async function unseal(directory) {
+      await chmod(directory, 0o700);
+      for (const entry of await readdir(directory, {withFileTypes:true}))
+        if (entry.isDirectory()) await unseal(join(directory, entry.name));
+    }
+    await unseal(work);
+    await rm(work,{recursive:true,force:true});
+  }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {console.log(JSON.stringify(await verifyRealCompiler(),null,2));}
