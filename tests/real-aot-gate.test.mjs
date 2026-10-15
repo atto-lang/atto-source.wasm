@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
+import {mkdtemp,writeFile,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
 // Correct, import-free scalar Wasm with explicit bounded exported memory.
@@ -19,4 +22,30 @@ test("unpinned worker result SHA is independently bound to submitted immutable b
 test("native real-source-to-AOT test is fail-closed when required compiler and runner paths are missing", async()=>{
   const {verifyRealSourceToAot}=await import("../scripts/verify-real-aot.mjs");
   await assert.rejects(verifyRealSourceToAot({compiler:null,builder:null,runner:null,compilerSha256:null,llvmSourceSha:null}),/paths required/);
+});
+
+test("AOT gate requires independently pinned builder and runner hashes",async()=>{
+  const {verifyRealSourceToAot}=await import("../scripts/verify-real-aot.mjs");
+  await assert.rejects(verifyRealSourceToAot({
+    compiler:"/bin/false",compilerSha256:"0".repeat(64),llvmSourceSha:"0".repeat(40),
+    builder:"/bin/false",runner:"/bin/false"
+  }),/pinned AOT builder and development runner SHA-256 values are required/);
+});
+test("AOT gate rejects altered builder or runner bytes before execution",async()=>{
+  const {verifyRealSourceToAot}=await import("../scripts/verify-real-aot.mjs");
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-aot-tool-pin-"));
+  try{
+    const tool=join(dir,"fixture-tool");
+    const bytes=Buffer.from("#!/bin/sh\\nexit 93\\n");
+    await writeFile(tool,bytes,{flag:"wx",mode:0o700});
+    const good=createHash("sha256").update(bytes).digest("hex");
+    const opts={
+      compiler:tool,compilerSha256:good,llvmSourceSha:"a".repeat(40),
+      builder:tool,builderSha256:good,runner:tool,runnerSha256:good
+    };
+    await assert.rejects(verifyRealSourceToAot({...opts,builderSha256:"0".repeat(64)}),
+      /native AOT builder digest mismatch/);
+    await assert.rejects(verifyRealSourceToAot({...opts,runnerSha256:"0".repeat(64)}),
+      /native AOT runner digest mismatch/);
+  }finally{await rm(dir,{recursive:true,force:true})}
 });
