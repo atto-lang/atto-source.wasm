@@ -88,4 +88,17 @@ for reason in start table extra-memory import; do
     exit 1
   fi
 done
-echo 'AOT smoke: positive scalars and strict policy negatives passed'
+# Production artifacts may not use the caller-supplied SHA as approval.
+# Prove the production runner refuses an otherwise authentic native artifact.
+cargo build --release --manifest-path aot-host/run/Cargo.toml
+release_runner="$repo_dir/aot-host/run/target/release/oreslang-aot-run"
+pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
+if "$release_runner" "$tmp/42.cwasm" "$pin" > "$tmp/release.stdout" 2> "$tmp/release.stderr"; then
+  echo "release runner executed with caller-controlled approval" >&2; exit 1
+fi
+if ! grep -q 'AOT execution is disabled in release builds' "$tmp/release.stderr"; then
+  echo "release runner failed for an unrelated reason; production denial unverified" >&2
+  cat "$tmp/release.stderr" >&2
+  exit 1
+fi
+echo 'AOT smoke: positive scalars, strict policy negatives and release-mode denial passed'

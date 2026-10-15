@@ -84,3 +84,18 @@ to verify actual format rejection, not merely a mismatched-hash rejection.
 The format probe is deliberately **not** an authenticity or safety proof;
 only out-of-band approval of trusted serialized module bytes supports the
 safety contract for native deserialization.
+
+### Mandatory production fail-closed gate
+
+The only existing approval credential is a SHA-256 passed by the same caller
+that supplies the native executable. **That is not an independent trust
+anchor.** Until an authenticated approval service, OS process isolation and
+privileged deployment configuration exist, `oreslang-aot-run` now **returns
+an error unconditionally in release builds before reading an artifact**.
+The caller-pin execution path is limited to Rust debug builds strictly for
+local compiler-free AOT smoke tests; it is explicitly unsafe for production,
+even if an attacker can reproduce its digest. The smoke matrix builds the
+release runner separately, supplies a genuinely generated artifact and its
+matching hash, and asserts the release binary rejects it for this specific
+policy reason. A full production implementation must replace—not bypass—this
+gate with an out-of-band signed approval and process isolation.

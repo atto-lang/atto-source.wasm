@@ -4,6 +4,19 @@ use std::env;
 use sha2::{Digest,Sha256};
 use wasmtime::{Engine,Instance,Module,Precompiled,Store};
 const MAX_AOT:u64=128*1024*1024;
+// A digest passed on the command line is NOT a trust anchor: a hostile caller
+// can choose both executable bytes and their hash. Prevent shipping this
+// prototype execution path as a release/production binary. Replace the
+// release gate only after an independently authenticated deployment approval
+// and an OS-isolated process supervisor are implemented.
+#[cfg(not(debug_assertions))]
+fn main()->Result<(),Box<dyn std::error::Error>>{
+ Err("AOT execution is disabled in release builds until authenticated native artifact approval and process isolation are implemented".into())
+}
+
+// This deliberately insecure caller-pin interface is usable ONLY in debug
+// builds to validate compiler-free AOT plumbing in an isolated dev environment.
+#[cfg(debug_assertions)]
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args=env::args().skip(1).collect::<Vec<_>>();
  if args.len()!=2{return Err("usage: run-aot APPROVED.cwasm TRUSTED_DEPLOYMENT_SHA256".into());}
