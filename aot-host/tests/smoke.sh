@@ -99,6 +99,25 @@ for reason in start table extra-memory import; do
     exit 1
   fi
 done
+# Publication invariants: an existing AOT file must not be replaced even
+# when the source and hash are valid. Publishing a symlink destination must
+# not follow or clobber its referent.
+orig_pin="$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)"
+if "$builder" "$tmp/42.wasm" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/42.cwasm" > /dev/null 2>&1; then
+  echo "precompiler replaced an already-published native artifact" >&2; exit 1
+fi
+if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$orig_pin" ]]; then
+  echo "published native artifact changed after rejected overwrite" >&2; exit 1
+fi
+printf 'retain-untouched' > "$tmp/sentinel"
+ln -s "$tmp/sentinel" "$tmp/already-linked.cwasm"
+if "$builder" "$tmp/42.wasm" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/already-linked.cwasm" > /dev/null 2>&1; then
+  echo "precompiler overwrote a symlinked AOT output" >&2; exit 1
+fi
+if [[ "$(cat "$tmp/sentinel")" != "retain-untouched" ]] ||
+   [[ ! -L "$tmp/already-linked.cwasm" ]]; then
+  echo "native output symlink or its target was changed" >&2; exit 1
+fi
 # PR #2 parity: a valid, infinite-looping core-Wasm guest must exhaust
 # the Wasmtime store fuel budget without hanging a worker indefinitely.
 cat > "$tmp/loop.ll" <<'LLVM'

@@ -140,3 +140,17 @@ https://github.com/bytecodealliance/wasmtime/releases/tag/v49.0.3 .
 Re-run the native build, source admission, serialization compatibility and
 compiler-free Cargo tree checks before merging. The runtime remains
 **non-production and release-mode disabled** in this PR.
+
+### Atomic, no-overwrite native artifact publication
+
+The precompiler no longer creates the final `.cwasm` and then writes bytes
+through a public release pathname. It creates a private, mode-0600 temporary
+file **in the destination directory**, writes and `fsync`s the complete AOT
+bytes, then publishes using `tempfile::persist_noclobber`; an existing final
+artifact (including a pre-existing symlink) is never overwritten. The parent
+directory is synced before success is reported. A crash may leave a staging
+file, but it cannot expose a partially written final artifact.
+
+The destination directory is a **trusted single-writer build directory**.
+Do not place it in a guest-writable or untrusted shared directory. The path
+publication protocol is not a signature, deployment approval, or OS sandbox.

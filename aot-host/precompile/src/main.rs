@@ -1,7 +1,8 @@
 #[path="../../profile.rs"] mod profile;
 #[path="../../io.rs"] mod io;
 mod wasm_admission;
-use std::{env,fs::OpenOptions,io::Write};
+mod publish;
+use std::env;
 use sha2::{Digest,Sha256};
 use wasmtime::Module;
 const MAX_WASM:u64=16*1024*1024;
@@ -28,8 +29,9 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // and code generation pass through Engine::precompile_module.
  let aot=module.serialize()?;
  if aot.len()>MAX_AOT{return Err("native artifact too large".into());}
- let mut out=OpenOptions::new().create_new(true).write(true).open(&args[2])?;
- out.write_all(&aot)?;out.sync_all()?;
+ // Stage and sync full native code before it becomes visible at the
+ // final release pathname. Never overwrite an already-published artifact.
+ publish::publish_no_clobber(&args[2], &aot)?;
  println!("wasm_sha256={:x}",Sha256::digest(&wasm));
  println!("aot_sha256={:x}",Sha256::digest(&aot));
  Ok(())
