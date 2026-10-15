@@ -45,3 +45,6 @@ A fake or stub compiler exercising the linker does **not** count as real Oreslan
 See [isolation and roadmap](docs/ISOLATION.md), [portable guest build](docs/PORTABLE_GUEST_BUILD.md), and [atomic artifact publication](docs/ATOMIC_ARTIFACT_PUBLICATION.md).
 
 Related projects: [Oreslang LLVM compiler](https://github.com/ores-truffle-oreslang/oreslang-source.llvm), [earlier Wasm ABI prototype](https://github.com/ores-truffle-oreslang/oreslang-wasm), [target profiles](https://github.com/ores-truffle-oreslang/oreslang-target-profiles).
+
+See [value-boundary audit and admission tests](docs/VALUE_BOUNDARIES.md) for
+aggregate, call, string, conditional and async feature limits.
