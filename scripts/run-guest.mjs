@@ -1,4 +1,4 @@
-import {open} from "node:fs/promises";
+import {readBoundedRegularFile} from "./compile-ores.mjs";
 import {isAbsolute} from "node:path";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
@@ -16,30 +16,14 @@ try {
   if (!pinnedSha256 || !/^[a-f0-9]{64}$/.test(pinnedSha256)) {
     throw Error("--sha256=<64 lowercase hex digits> is required for executable admission");
   }
-  // Read with a hard budget; a path stat alone is susceptible to file growth.
-  // SHA-256 pinning ensures admitted bytes match the expected artifact.
+  // The CLI input path is not necessarily a regular file. Opening a FIFO
+  // with ordinary O_RDONLY can block forever BEFORE the guest timeout begins.
+  // Reuse the no-follow/nonblocking descriptor snapshot boundary used by the
+  // compiler bridge; it also rejects symlinks, devices and in-flight changes.
   const MAX_BYTES = 16 * 1024 * 1024;
-  const file = await open(path, "r");
-  let bytes;
-  try {
-    const info = await file.stat();
-    if (!info.isFile() || info.size < 8 || info.size > MAX_BYTES) {
-      throw Error("invalid or oversized guest Wasm file");
-    }
-    bytes = Buffer.allocUnsafe(info.size);
-    let at = 0;
-    while (at < bytes.length) {
-      const {bytesRead} = await file.read(bytes, at, bytes.length - at, at);
-      if (bytesRead === 0) throw Error("guest Wasm file changed or truncated while reading");
-      at += bytesRead;
-    }
-    const after = await file.stat();
-    if (after.size !== info.size || after.mtimeMs !== info.mtimeMs || after.ino !== info.ino) {
-      throw Error("guest Wasm file changed while reading");
-    }
-  } finally {
-    await file.close();
-  }
+  const {bytes} = await readBoundedRegularFile(path, MAX_BYTES,
+    "invalid or oversized guest Wasm file");
+  if (bytes.length < 8) throw Error("invalid or oversized guest Wasm file");
   const {value, admission} = await runIsolatedCoreGuest(bytes, {
     expectedSha256: pinnedSha256, timeoutMs
   });

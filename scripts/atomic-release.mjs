@@ -97,7 +97,10 @@ function descriptorFor(wasm,manifest,provenance){
  // Publication and runtime admission must agree on the sole executable API.
  // An otherwise hash-correct binary with hidden extra exports is not admitted
  // as the scalar guest profile, even if the entry itself is type-correct.
- const unexpected=WebAssembly.Module.exports(compiledModule).filter(item=>
+ const guestExports=WebAssembly.Module.exports(compiledModule);
+ if(!guestExports.some(item=>item.name==="memory"&&item.kind==="memory"))
+  fail("missing required bounded memory export");
+ const unexpected=guestExports.filter(item=>
    item.name!==provenance.exportName &&
    !(item.name==="memory"&&item.kind==="memory"));
  if(unexpected.length)fail("unexpected guest exports");

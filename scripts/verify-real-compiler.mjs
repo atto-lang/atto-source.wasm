@@ -1,12 +1,13 @@
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtemp, readFile, rm, writeFile, stat, readdir, chmod} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {compileOresToWasm, readBoundedRegularFile} from "./compile-ores.mjs";
 import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../examples/native-int.ores", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
@@ -41,6 +42,7 @@ export async function verifyRealCompiler({
     throw Error("native compiler SHA-256 mismatch");
 
   const work = await mkdtemp(join(tmpdir(), "oreslang-llvm-wasm-"));
+  let primaryError;
   try {
     const pinnedCompiler = join(work, "pinned-oreslang-llvmc");
     await writeFile(pinnedCompiler, compilerBytes, {flag:"wx",mode:0o500});
@@ -153,17 +155,21 @@ export async function verifyRealCompiler({
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
     });
+  } catch (error) {
+    primaryError = error;
+    throw error;
   } finally {
-    // Only this invocation owns these temporary releases. Production readers
-    // never unseal directories; the test must restore write permission before
-    // removing sealed 0500 releases on POSIX filesystems.
-    async function unseal(directory) {
-      await chmod(directory, 0o700);
-      for (const entry of await readdir(directory, {withFileTypes:true}))
-        if (entry.isDirectory()) await unseal(join(directory, entry.name));
+    // Published release directories are intentionally mode 0500. A bare
+    // recursive rm cannot unlink their children on Unix. Do not mask an
+    // actual compiler/admission failure with a secondary cleanup error.
+    try { await cleanupRealCompilerWorkspace(work); }
+    catch (cleanupError) {
+      if (primaryError) {
+        primaryError.cleanupFailure = String(cleanupError?.message || cleanupError).slice(0,256);
+      } else {
+        throw cleanupError;
+      }
     }
-    await unseal(work);
-    await rm(work,{recursive:true,force:true});
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

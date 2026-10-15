@@ -159,11 +159,13 @@ test("signed matching hashes alone cannot admit malformed or incompatible Wasm",
   const invalid=Uint8Array.from([0,97,115,109,1,0,0,0,5]);
   const i32=Uint8Array.from([
    0,97,115,109,1,0,0,0,1,5,1,0x60,0,1,0x7f,
-   3,2,1,0,7,8,1,4,109,97,105,110,0,0,
+   3,2,1,0,5,4,1,1,1,2,
+   7,17,2,4,109,97,105,110,0,0,6,109,101,109,111,114,121,2,0,
    10,6,1,4,0,0x41,42,0x0b
   ]);
+  assert.ok(WebAssembly.validate(i32), 'ABI-negative fixture must be valid Wasm with exported bounded memory');
   for(const [bytes,message] of [[invalid,/invalid executable Wasm/],
-    [i32,/invalid core i64 entry ABI|invalid bounded 2-page guest memory/]]){
+    [i32,/invalid core i64 entry ABI/]]){
    const h=sha(bytes);
    const producer={schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",
      compilerSha256:"1".repeat(64),sourceSha256:"2".repeat(64),

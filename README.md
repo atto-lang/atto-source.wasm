@@ -7,7 +7,7 @@ Dedicated compiler integration and **experimental zero-capability execution host
 - Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new Oreslang parser.
 - Build pipeline: `.ores` source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
 - Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
-- Deny all guest imports, reject start and table sections, bound private linear memory, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
+- Deny all guest imports, reject start and table sections, bound private linear memory with a required `memory` export, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
 - Run admitted modules in disposable Node worker threads. Validation and JIT compilation occur inside the worker's deadline, with a module-local four-worker admission quota; the worker is terminated before returning. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
 - Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
 
