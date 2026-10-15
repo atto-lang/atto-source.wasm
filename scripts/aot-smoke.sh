@@ -20,6 +20,12 @@ cargo build --release --manifest-path native/aot-builder/Cargo.toml
 cargo build --release --manifest-path native/aot-runner/Cargo.toml
 builder=native/aot-builder/target/release/oreslang-wasm-aot-build
 runner=native/aot-runner/target/release/oreslang-wasm-aot-run
+# A dedicated Cargo package should have no Cranelift/Winch implementation
+# anywhere in its resolved dependency graph.
+if cargo tree --manifest-path native/aot-runner/Cargo.toml | grep -E 'wasmtime-(cranelift|winch)'; then
+ echo "ERROR: runtime unexpectedly links a Wasm compiler" >&2
+ exit 1
+fi
 wasm_sha="$(sha256sum "$dir/scalar.wasm" | cut -d ' ' -f1)"
 "$builder" "$dir/scalar.wasm" "$wasm_sha" "$dir/scalar.cwasm"
 aot_sha="$(sha256sum "$dir/scalar.cwasm" | cut -d ' ' -f1)"
