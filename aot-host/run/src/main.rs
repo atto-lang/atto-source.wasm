@@ -9,15 +9,15 @@ const MAX_AOT:u64=128*1024*1024;
 // prototype execution path as a release/production binary. Replace the
 // release gate only after an independently authenticated deployment approval
 // and an OS-isolated process supervisor are implemented.
-#[cfg(not(all(debug_assertions, feature = "insecure-dev-caller-pin")))]
+#[cfg(not(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin")))]
 fn main()->Result<(),Box<dyn std::error::Error>>{
- Err("AOT execution is disabled unless a debug build explicitly enables insecure-dev-caller-pin; authenticated artifact approval and OS isolation are not implemented".into())
+ Err("AOT execution is disabled unless the Cargo debug profile explicitly enables insecure-dev-caller-pin; authenticated artifact approval and OS isolation are not implemented".into())
 }
 
 // This deliberately insecure caller-pin interface requires BOTH a debug
 // build AND an explicit insecure-dev-caller-pin Cargo feature. No execution
 // path is compiled into the ordinary debug or any ordinary release binary.
-#[cfg(all(debug_assertions, feature = "insecure-dev-caller-pin"))]
+#[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args=env::args().skip(1).collect::<Vec<_>>();
  if args.len()!=2 && args.len()!=3{
