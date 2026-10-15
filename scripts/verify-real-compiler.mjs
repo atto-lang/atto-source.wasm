@@ -7,6 +7,7 @@ import {fileURLToPath} from "node:url";
 import {compileOresToWasm, readBoundedRegularFile} from "./compile-ores.mjs";
 import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../examples/native-int.ores", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
@@ -41,6 +42,7 @@ export async function verifyRealCompiler({
     throw Error("native compiler SHA-256 mismatch");
 
   const work = await mkdtemp(join(tmpdir(), "oreslang-llvm-wasm-"));
+  let primaryError;
   try {
     const pinnedCompiler = join(work, "pinned-oreslang-llvmc");
     await writeFile(pinnedCompiler, compilerBytes, {flag:"wx",mode:0o500});
@@ -153,7 +155,22 @@ export async function verifyRealCompiler({
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
     });
-  } finally {await rm(work,{recursive:true,force:true});}
+  } catch (error) {
+    primaryError = error;
+    throw error;
+  } finally {
+    // Published release directories are intentionally mode 0500. A bare
+    // recursive rm cannot unlink their children on Unix. Do not mask an
+    // actual compiler/admission failure with a secondary cleanup error.
+    try { await cleanupRealCompilerWorkspace(work); }
+    catch (cleanupError) {
+      if (primaryError) {
+        primaryError.cleanupFailure = String(cleanupError?.message || cleanupError).slice(0,256);
+      } else {
+        throw cleanupError;
+      }
+    }
+  }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {console.log(JSON.stringify(await verifyRealCompiler(),null,2));}

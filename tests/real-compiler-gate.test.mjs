@@ -55,3 +55,28 @@ test("real frontend diagnostics require whitespace, not a literal backslash-s", 
     stderr:"oreslang-llvmc:\\\\s+forged"
   }), /diagnosed error/);
 });
+
+test("real compiler workspace cleanup unseals readonly releases without following links", {
+  skip: process.platform === "win32"
+}, async () => {
+  const {mkdtemp,mkdir,writeFile,chmod,symlink,readFile,stat,rm} =
+    await import("node:fs/promises");
+  const {tmpdir} = await import("node:os");
+  const {join} = await import("node:path");
+  const {cleanupRealCompilerWorkspace} = await import("../scripts/cleanup-real-compiler.mjs");
+  const privateRoot = await mkdtemp(join(tmpdir(),"ores-test-work-clean-"));
+  const outside = await mkdtemp(join(tmpdir(),"ores-test-outside-"));
+  try {
+    const sealed = join(privateRoot,"guest.wasm.releases","sealed");
+    await mkdir(sealed,{recursive:true});
+    await writeFile(join(sealed,"artifact.json"),"sealed");
+    await writeFile(join(outside,"do-not-touch"),"important");
+    await symlink(outside,join(sealed,"external-link"),"dir");
+    await chmod(sealed,0o500);
+    await cleanupRealCompilerWorkspace(privateRoot);
+    await assert.rejects(stat(privateRoot),{code:"ENOENT"});
+    assert.equal(await readFile(join(outside,"do-not-touch"),"utf8"),"important");
+  } finally {
+    await rm(outside,{recursive:true,force:true});
+  }
+});
