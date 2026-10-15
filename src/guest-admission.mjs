@@ -41,6 +41,10 @@ export function compileAdmittedCoreGuest(input, {
   if (!exports.some(x => x.name === entry && x.kind === "function")) {
     throw Error("missing guest entry function");
   }
+  // Match the native Wasmtime scalar ABI: memory is a required explicit export.
+  if (!exports.some(x => x.name === "memory" && x.kind === "memory")) {
+    throw Error("guest must export exactly one bounded memory");
+  }
   const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
   if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
   const admission = Object.freeze({
