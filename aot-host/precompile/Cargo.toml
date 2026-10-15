@@ -6,6 +6,6 @@ publish=false
 [dependencies]
 wasmtime={version="=49.0.3",default-features=false,features=["std","runtime","cranelift"]}
 sha2="=0.10.9"
-wasmparser="=0.258.0"
+wasmparser="=0.258.3"
 libc="=0.2.186"
 tempfile="=3.23.0"
