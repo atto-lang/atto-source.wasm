@@ -26,7 +26,7 @@ jobs:
       - name: Assert native runtime dependency tree contains no Wasm compiler
         shell: bash
         run: |
-          cargo tree --manifest-path aot-host/run/Cargo.toml > runtime-tree.txt
+          cargo tree --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin > runtime-tree.txt
           if grep -E 'wasmtime(-internal)?-(cranelift|winch)' runtime-tree.txt; then
             echo "runtime is not compiler-free" >&2
             exit 1

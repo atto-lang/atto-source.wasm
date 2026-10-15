@@ -5,20 +5,28 @@ The builder uses Wasmtime's Cranelift compilation in a trusted build job;
 the runner is a *separately built crate* without Cranelift or Winch features.
 Cargo feature unification across the two crates would defeat that design.
 
-Build and run with a Rust toolchain:
+Build and run **only in an isolated development environment** with a Rust
+toolchain. The caller can choose both the native artifact and its hash; this
+debug mode is deliberately insecure and **must not be deployed**:
 
 ```sh
 cargo build --manifest-path aot-host/precompile/Cargo.toml
-cargo build --manifest-path aot-host/run/Cargo.toml
+cargo build --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
 aot-host/precompile/target/debug/oreslang-aot-build VERIFIED.wasm NEW.cwasm
-# The expected SHA is provisioned out-of-band through authenticated deployment config:
-aot-host/run/target/debug/oreslang-aot-run APPROVED.cwasm TRUSTED_SHA256
+sha256sum NEW.cwasm
+aot-host/run/target/debug/oreslang-aot-run NEW.cwasm LOCAL_DEVELOPMENT_SHA256
 ```
+
+Without the insecure feature, even debug builds refuse execution; all
+ordinary release builds refuse execution whether the feature is enabled or
+not. An independently authenticated operator approval system is not yet
+implemented.
 
 The builder checks zero imports, exactly one exported `main:()->i64`,
 and a private bounded exported 2-page memory before precompiling.
-The runner checks the approved artifact digest *before* Wasmtime's unsafe
-`Module::deserialize`, checks the ABI again and executes with a fuel budget.
+Only the explicitly insecure debug runner compares the caller-provided
+artifact digest *before* Wasmtime's unsafe `Module::deserialize`, checks
+the ABI again and executes with a fuel budget.
 It never uses `Module::new` or any runtime Wasm compiler.
 
 **Critical boundary:** An SHA-256 digest is a comparison, not a signature.

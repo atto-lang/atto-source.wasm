@@ -20,10 +20,10 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
 #[cfg(all(debug_assertions, feature = "insecure-dev-caller-pin"))]
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args=env::args().skip(1).collect::<Vec<_>>();
- if args.len()!=2{return Err("usage: run-aot APPROVED.cwasm TRUSTED_DEPLOYMENT_SHA256".into());}
+ if args.len()!=2{return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256".into());}
  let pin=&args[1];
  if pin.len()!=64||!pin.bytes().all(|b|b.is_ascii_digit()||(b'a'..=b'f').contains(&b)){
-  return Err("trusted SHA-256 must be exactly 64 lowercase hex digits".into());
+  return Err("insecure development SHA-256 must be exactly 64 lowercase hex digits".into());
  }
  let bytes=io::bounded_regular_file(&args[0],MAX_AOT)?;
  if format!("{:x}",Sha256::digest(&bytes))!=*pin{
