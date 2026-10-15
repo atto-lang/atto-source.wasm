@@ -208,7 +208,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const module=new WebAssembly.Module(wasm);
  const imports=WebAssembly.Module.imports(module);
  if(imports.length)throw Error("guest Wasm unexpectedly imports host modules: "+imports.map(x=>x.module+"."+x.name).join(","));
- if(!WebAssembly.Module.exports(module).some(x=>x.name===exportName&&x.kind==="function"))throw Error("guest Wasm missing requested export");
+ const guestExports=WebAssembly.Module.exports(module);
+ if(!guestExports.some(x=>x.name===exportName&&x.kind==="function"))throw Error("guest Wasm missing requested export");
+ if(!guestExports.some(x=>x.name==="memory"&&x.kind==="memory"))throw Error("guest Wasm missing required bounded memory export");
  assertCoreI64Entry(wasm,exportName);
  // The artifact manifest advertises an exact 2-page memory maximum. Check
  // the binary rather than relying on Clang flags or its version string.
