@@ -20,13 +20,13 @@ jobs:
       - name: Inspect pinned toolchain
         run: rustc --version && cargo --version && rustup show active-toolchain
       - name: Build trusted AOT precompiler
-        run: cargo test --manifest-path aot-host/precompile/Cargo.toml
+        run: cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
       - name: Build compiler-free AOT runner
-        run: cargo check --manifest-path aot-host/run/Cargo.toml
+        run: cargo check --locked --manifest-path aot-host/run/Cargo.toml
       - name: Assert native runtime dependency tree contains no Wasm compiler
         shell: bash
         run: |
-          cargo tree --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin > runtime-tree.txt
+          cargo tree --locked --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin > runtime-tree.txt
           if grep -E 'wasmtime(-internal)?-(cranelift|winch)' runtime-tree.txt; then
             echo "runtime is not compiler-free" >&2
             exit 1

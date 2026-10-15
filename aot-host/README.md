@@ -154,3 +154,15 @@ file, but it cannot expose a partially written final artifact.
 The destination directory is a **trusted single-writer build directory**.
 Do not place it in a guest-writable or untrusted shared directory. The path
 publication protocol is not a signature, deployment approval, or OS sandbox.
+
+### Reproducible, independent Cargo dependency locks
+
+The trusted precompiler and compiler-free runtime now carry separate,
+Cargo-generated `Cargo.lock` files resolved by the verified private
+Rust 1.96 runner (2026-10-15). The precompiler lock includes
+`wasmtime-internal-cranelift` and the runner lock does **not**; both resolve
+Wasmtime 49.0.3. CI and native smoke builds use `--locked` to refuse any
+unexpected dependency resolution or missing lockfile. Cargo locks are
+reproducibility records, not security attestations.
+
+Verified private runner: https://github.com/benefactor-cc/backend.rs/actions/runs/38691712667 .

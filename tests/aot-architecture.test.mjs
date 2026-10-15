@@ -55,3 +55,19 @@ test("native runtime has guest resource limits and finite fuel",()=>{
   assert.match(smoke,/loop_status/);
   assert.match(smoke,/invalid fuel budget was admitted/);
 });
+
+test("committed independent Cargo locks pin Wasmtime without native runtime compiler",()=>{
+  const precompileLock=source("aot-host/precompile/Cargo.lock");
+  const runtimeLock=source("aot-host/run/Cargo.lock");
+  for(const contents of [precompileLock,runtimeLock]){
+    assert.match(contents,/name = "wasmtime"\nversion = "49\.0\.3"/);
+    assert.match(contents,/version = 4/);
+  }
+  assert.match(precompileLock,/name = "wasmtime-internal-cranelift"/);
+  assert.doesNotMatch(runtimeLock,/name = "wasmtime-internal-cranelift"/);
+  assert.doesNotMatch(runtimeLock,/name = "wasmtime-winch"/);
+  const workflow=source(".github/workflows/aot-host.yml");
+  assert.match(workflow,/cargo test --locked/);
+  assert.match(workflow,/cargo tree --locked/);
+  assert.match(source("aot-host/tests/smoke.sh"),/cargo build --locked/);
+});
