@@ -1,0 +1,31 @@
+name: Wasmtime AOT draft checks
+on:
+  pull_request:
+    paths:
+      - "aot-host/**"
+      - ".github/workflows/aot-host.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  aot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Inspect toolchain
+        run: rustc --version && cargo --version
+      - name: Build trusted AOT precompiler
+        run: cargo check --manifest-path aot-host/precompile/Cargo.toml
+      - name: Build compiler-free AOT runner
+        run: cargo check --manifest-path aot-host/run/Cargo.toml
+      - name: Assert native runtime dependency tree contains no Wasm compiler
+        shell: bash
+        run: |
+          cargo tree --manifest-path aot-host/run/Cargo.toml > runtime-tree.txt
+          if grep -E '(wasmtime-cranelift|wasmtime-winch)' runtime-tree.txt; then
+            echo "runtime is not compiler-free" >&2
+            exit 1
+          fi

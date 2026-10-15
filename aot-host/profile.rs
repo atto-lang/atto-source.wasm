@@ -12,7 +12,8 @@ pub fn check_abi(m:&Module)->Result<(),Box<dyn std::error::Error>> {
  for ex in m.exports(){
   match (ex.name(),ex.ty()){
    ("main",ExternType::Func(f))=>{
-    if f.params().count()!=0 || f.results().collect::<Vec<_>>()!=vec![ValType::I64]{
+    let mut result_types=f.results();
+    if f.params().count()!=0 || !matches!(result_types.next(),Some(ValType::I64)) || result_types.next().is_some(){
      return Err("main must have exact () -> i64 signature".into());
     }entry+=1;
    }
