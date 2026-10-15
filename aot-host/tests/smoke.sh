@@ -134,6 +134,15 @@ done
 # Prove the production runner refuses an otherwise authentic native artifact.
 cargo build --release --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
 release_runner="$repo_dir/aot-host/run/target/release/oreslang-aot-run"
+# The trusted build-stage input pin must reject a valid Wasm module when
+# the supplied digest is wrong; no native code should be published.
+wrong_src_pin="$(printf '0%.0s' {1..64})"
+if "$builder" "$tmp/42.wasm" "$wrong_src_pin" "$tmp/wrong-source.cwasm" > /dev/null 2>&1; then
+  echo "native precompiler accepted incorrect Wasm source pin" >&2; exit 1
+fi
+if [[ -e "$tmp/wrong-source.cwasm" ]]; then
+  echo "native precompiler published mismatched Wasm input" >&2; exit 1
+fi
 pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
 if "$release_runner" "$tmp/42.cwasm" "$pin" > "$tmp/release.stdout" 2> "$tmp/release.stderr"; then
   echo "release runner executed with caller-controlled approval" >&2; exit 1
