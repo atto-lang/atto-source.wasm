@@ -49,3 +49,31 @@ test("AOT gate rejects altered builder or runner bytes before execution",async()
       /native AOT runner digest mismatch/);
   }finally{await rm(dir,{recursive:true,force:true})}
 });
+
+test("native AOT verifier SHA is derived from a bounded no-follow regular-file snapshot",async()=>{
+  const {open,symlink} = await import("node:fs/promises");
+  const {sha256BoundedNativeArtifact} = await import("../scripts/verify-real-aot.mjs");
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-native-artifact-bound-"));
+  try{
+    const good=join(dir,"valid.cwasm");
+    const content=Buffer.from("verified small native test fixture");
+    await writeFile(good,content,{flag:"wx"});
+    assert.equal(await sha256BoundedNativeArtifact(good),
+      createHash("sha256").update(content).digest("hex"));
+
+    // Create a sparse oversized file: test the pre-allocation size gate
+    // without writing or loading 128 MiB of data into memory.
+    const oversized=join(dir,"oversized.cwasm");
+    const handle=await open(oversized,"wx");
+    try{await handle.truncate(128*1024*1024+1)}finally{await handle.close()}
+    await assert.rejects(sha256BoundedNativeArtifact(oversized),
+      /native AOT artifact exceeds 128 MiB verification budget/);
+
+    if(process.platform!=="win32"){
+      const alias=join(dir,"native-link.cwasm");
+      await symlink(good,alias);
+      await assert.rejects(sha256BoundedNativeArtifact(alias),
+        error=>["ELOOP","EMLINK"].includes(error?.code));
+    }
+  }finally{await rm(dir,{recursive:true,force:true})}
+});
