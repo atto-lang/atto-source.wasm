@@ -44,4 +44,26 @@ PY
    echo "raw wasm wrongly treated as native artifact" >&2; exit 1
  fi
 done
-echo 'AOT smoke: 3 scalars and rejection of wrong pins, corrupted AOT and raw Wasm passed'
+# Validate the native file admission boundary without depending on timeouts
+# to distinguish a refused FIFO from a blocked O_RDONLY open.
+ln -s "$tmp/42.wasm" "$tmp/source-symlink.wasm"
+if "$builder" "$tmp/source-symlink.wasm" "$tmp/source-symlink.cwasm" > /dev/null 2>&1; then
+  echo "builder followed symlinked Wasm input" >&2; exit 1
+fi
+ln -s "$tmp/42.cwasm" "$tmp/aot-symlink.cwasm"
+pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
+if "$runner" "$tmp/aot-symlink.cwasm" "$pin" > /dev/null 2>&1; then
+  echo "runner followed symlinked native artifact" >&2; exit 1
+fi
+mkfifo "$tmp/input.fifo"
+set +e
+timeout 4s "$builder" "$tmp/input.fifo" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
+build_status=$?
+timeout 4s "$runner" "$tmp/input.fifo" "$pin" > /dev/null 2>&1
+run_status=$?
+set -e
+if [[ "$build_status" -eq 0 || "$build_status" -eq 124 ||
+      "$run_status" -eq 0 || "$run_status" -eq 124 ]]; then
+  echo "FIFO input was admitted or blocked indefinitely" >&2; exit 1
+fi
+echo 'AOT smoke: scalars, digest tampering, wrong module kind, symlink and FIFO denial passed'
