@@ -51,3 +51,12 @@ alone: otherwise a hidden internal table/start function/extra memory would
 be invisible. The precompiler serializes the single already-validated native
 module instead of compiling it again. The source verifier includes unit tests;
 all native tests still require execution on a real Rust toolchain.
+
+### Native file-read boundary
+
+Both native binaries now use a single bounded no-follow, nonblocking file
+handle. Symlinks, pipes and sockets are refused before parsing or unsafe AOT
+loading; inode identity, length, mtime and ctime are checked around the copy.
+Unix is an explicit prototype requirement until equivalent Windows handle
+semantics are implemented. The separately provisioned trusted AOT artifact
+SHA-256 remains mandatory: file metadata alone does not authenticate content.

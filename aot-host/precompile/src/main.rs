@@ -1,6 +1,7 @@
 #[path="../../profile.rs"] mod profile;
+#[path="../../io.rs"] mod io;
 mod wasm_admission;
-use std::{env,fs::{self,OpenOptions},io::{Read,Write}};
+use std::{env,fs::OpenOptions,io::Write};
 use sha2::{Digest,Sha256};
 use wasmtime::Module;
 const MAX_WASM:u64=16*1024*1024;
@@ -8,11 +9,7 @@ const MAX_AOT:usize=128*1024*1024;
 fn main()->Result<(),Box<dyn std::error::Error>>{
  let args=env::args().skip(1).collect::<Vec<_>>();
  if args.len()!=2{return Err("usage: precompile VERIFIED.wasm NEW.cwasm".into());}
- let f=fs::File::open(&args[0])?;
- if !f.metadata()?.is_file(){return Err("expected regular Wasm file".into());}
- let mut wasm=Vec::new();
- f.take(MAX_WASM+1).read_to_end(&mut wasm)?;
- if wasm.len() as u64>MAX_WASM{return Err("Wasm input too large".into());}
+ let wasm=io::bounded_regular_file(&args[0],MAX_WASM)?;
  // Validate the raw byte-level admission profile before *any* expensive
  // native-code generation. Wasmtime exported ABI introspection alone does not
  // show hidden tables, start functions or unexported extra memories.
