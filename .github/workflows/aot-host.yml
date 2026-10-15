@@ -1,12 +1,22 @@
 name: Wasmtime AOT draft checks
 on:
+  push:
+    branches: [main]
   pull_request:
     paths:
       - "aot-host/**"
+      - "tests/aot-architecture.test.mjs"
+      - "tests/real-aot-gate.test.mjs"
+      - "scripts/verify-real-aot.mjs"
+      - "scripts/cleanup-real-compiler.mjs"
+      - "rust-toolchain.toml"
       - ".github/workflows/aot-host.yml"
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: wasm-aot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   aot:
     runs-on: ubuntu-24.04
@@ -15,6 +25,12 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Set up pinned Node 22 for architecture assertions
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Assert fail-closed AOT build gates and CI coverage
+        run: node --test tests/aot-architecture.test.mjs tests/real-aot-gate.test.mjs
       - name: Install Wasmtime 49 compatible Rust 1.96
         run: rustup toolchain install 1.96.0 --profile minimal
       - name: Inspect pinned toolchain

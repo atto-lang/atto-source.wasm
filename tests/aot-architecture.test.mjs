@@ -76,3 +76,27 @@ test("committed independent Cargo locks pin Wasmtime without native runtime comp
   assert.match(workflow,/cargo tree --locked/);
   assert.match(source("aot-host/tests/smoke.sh"),/cargo build --locked/);
 });
+
+test("AOT CI covers merged main, architecture changes, and the exact Rust toolchain",()=>{
+  const workflow=source(".github/workflows/aot-host.yml");
+  // A passing independent carrier run must never replace a missing source
+  // repository check after a merge. Verify both trigger classes are present.
+  assert.match(workflow,/on:\n  push:\n    branches: \[main\]/);
+  assert.match(workflow,/pull_request:\n    paths:/);
+  for(const path of [
+    "aot-host/**", "tests/aot-architecture.test.mjs",
+    "tests/real-aot-gate.test.mjs", "scripts/verify-real-aot.mjs",
+    "scripts/cleanup-real-compiler.mjs",
+    "rust-toolchain.toml", ".github/workflows/aot-host.yml"
+  ]){
+    assert.ok(workflow.includes('      - "'+path+'"'),"AOT CI must trigger for "+path);
+  }
+  assert.match(workflow,/permissions:\n  contents: read/);
+  assert.match(workflow,/persist-credentials: false/);
+  assert.match(workflow,/node-version: '22'/);
+  assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
+  assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
+  assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/bash aot-host\/tests\/smoke\.sh/);
+});

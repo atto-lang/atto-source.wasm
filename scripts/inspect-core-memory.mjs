@@ -32,6 +32,9 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
   const length=u32(bytes.length);
   const end=at+length;
   if(end>bytes.length)fail("section extends beyond module");
+  // Reject host import sections before validation or Wasm code compilation.
+  // Empty import sections are denied too: the scalar profile has no imports.
+  if(id===2)fail("host imports denied before Wasm compilation");
   if(id===8)fail("start section is forbidden (runs before host admission completes)");
   if(id===4)fail("table section is not yet admitted");
   if(id===9)fail("element sections are forbidden in the scalar profile");
