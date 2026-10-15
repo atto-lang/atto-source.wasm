@@ -111,3 +111,15 @@ an untrusted compiler binary or a reproducible-build proof.
 The diagnostic classifier requires a normal exit code of 1, empty LLVM
 IR stdout, and a genuine `oreslang-llvmc:` error prefix; shell crashes,
 unexpected exits and diagnostic spoofing fail the test.
+
+## Mandatory native compiler wasm32 declaration
+
+The bridge always invokes the native compiler using `--target=wasm32`, even
+when there is no portable environment/manifest flag. An explicitly declared
+`target triple = "wasm32-unknown-unknown"` must appear **exactly once** in
+LLVM IR. Comments, string content, contradictory or duplicate triples, and
+IR that merely happens to link with `clang --target=wasm32` are rejected
+before linking or publication. The check lives in
+`scripts/wasm32-ir-target.mjs` and has dedicated positive/negative unit
+regressions. This is **not** a complete LLVM IR verifier; the native frontend
+still must be pinned and its generated module verified.

@@ -10,7 +10,7 @@ test("real Clang wasm32 bridge accepts verified IR and records hashes (stub comp
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
  try{
   const compiler=join(dir,"stub-compiler.sh"),source=join(dir,"source.ores"),output=join(dir,"app.wasm");
-  const stub="#!/bin/sh\nprintf 'define i64 @main() { ret i64 42 }\\n'\n";
+  const stub="#!/bin/sh\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
   await writeFile(compiler,stub,{mode:0o700});
   await chmod(compiler,0o700);
   await writeFile(source,"pub fnc main(): int { return 42; }\n");

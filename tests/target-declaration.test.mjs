@@ -24,3 +24,17 @@ test("LLVM triple in comment cannot satisfy portable guest admission", async () 
     await rm(dir,{recursive:true,force:true});
   }
 });
+
+test("legacy/non-manifest builds cannot downgrade to unmarked native IR", async () => {
+  const dir = await mkdtemp(join(tmpdir(),"ores-wasm-legacy-target-"));
+  try {
+    const source = join(dir,"guest.ores"), compiler = join(dir,"stub-compiler.sh"), output = join(dir,"guest.wasm");
+    await writeFile(source,"pub fnc main(): int { return 42; }\n");
+    await writeFile(compiler,"#!/bin/sh\nprintf 'define i64 @main() { ret i64 42 }\\n'\n",{mode:0o700});
+    await assert.rejects(
+      compileOresToWasm({source,compiler,output,publication:"legacy"}),
+      /wasm32 target-marked IR/
+    );
+    await assert.rejects(stat(output),/ENOENT/);
+  } finally {await rm(dir,{recursive:true,force:true});}
+});

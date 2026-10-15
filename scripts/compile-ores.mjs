@@ -11,6 +11,7 @@ import {dirname,resolve,isAbsolute,join,basename} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
+import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -175,7 +176,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // The private scratch directory prevents pathname substitution by another
  // filesystem principal; this is not a sandbox for a malicious compiler.
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
- const ir=run(stagedCompiler,environment?["--target=wasm32",stagedSource]:[stagedSource]);
+ // This is a Wasm compiler bridge in every publication mode. Never
+ // accept host-targeted LLVM IR just because the linker targets wasm32.
+ const ir=run(stagedCompiler,["--target=wasm32",stagedSource]);
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -187,8 +190,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
  // Require a genuine LLVM triple declaration, not a comment or string.
- if(environment&&!/^target triple\\s*=\\s*"wasm32-unknown-unknown"\\s*$/m.test(ir))
-  throw Error("compiler did not emit wasm32 target-marked IR");
+ // Ensure an actual target triple exists, not a comment, duplicate, or
+ // native-target fallback masquerading as wasm32.
+ assertWasm32IrTarget(ir);
  if(!new RegExp("define\\s+i64\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected i64 @"+exportName+"() export");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
