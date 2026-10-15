@@ -6,6 +6,9 @@ on:
     paths:
       - "aot-host/**"
       - "tests/aot-architecture.test.mjs"
+      - "tests/real-aot-gate.test.mjs"
+      - "scripts/verify-real-aot.mjs"
+      - "scripts/cleanup-real-compiler.mjs"
       - "rust-toolchain.toml"
       - ".github/workflows/aot-host.yml"
   workflow_dispatch:
@@ -27,7 +30,7 @@ jobs:
         with:
           node-version: '22'
       - name: Assert fail-closed AOT build gates and CI coverage
-        run: node --test tests/aot-architecture.test.mjs
+        run: node --test tests/aot-architecture.test.mjs tests/real-aot-gate.test.mjs
       - name: Install Wasmtime 49 compatible Rust 1.96
         run: rustup toolchain install 1.96.0 --profile minimal
       - name: Inspect pinned toolchain
