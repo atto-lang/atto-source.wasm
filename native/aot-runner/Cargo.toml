@@ -1,0 +1,10 @@
+[package]
+name = "oreslang-wasm-aot-run"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Separate Cargo graph: NO cranelift, winch, runtime Wasm compiler.
+wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime"] }
+sha2 = "=0.10.9"

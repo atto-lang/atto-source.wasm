@@ -1,0 +1,10 @@
+[package]
+name = "oreslang-wasm-aot-build"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+# Compiler is linked only into the trusted build executable.
+wasmtime = { version = "=49.0.3", default-features = false, features = ["std", "runtime", "cranelift"] }
+sha2 = "=0.10.9"
