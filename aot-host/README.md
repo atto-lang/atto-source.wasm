@@ -99,3 +99,10 @@ release runner separately, supplies a genuinely generated artifact and its
 matching hash, and asserts the release binary rejects it for this specific
 policy reason. A full production implementation must replace—not bypass—this
 gate with an out-of-band signed approval and process isolation.
+
+The native debug executable now also **fails closed by default**. Deliberate
+local AOT execution requires both a debug build and Cargo's explicit
+`--features insecure-dev-caller-pin` flag. That feature never authorizes
+release-mode execution: CI builds a release runner **with the feature enabled**
+and verifies it still refuses a known-good artifact. The test suite first
+exercises the default-debug denial before enabling the development feature.

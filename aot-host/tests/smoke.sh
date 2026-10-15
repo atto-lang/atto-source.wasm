@@ -8,6 +8,8 @@ builder="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-build"
 runner="$repo_dir/aot-host/run/target/debug/oreslang-aot-run"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+# The default debug binary must fail closed, even for a genuine AOT artifact.
+# Build the deliberately insecure test-only feature after that assertion below.
 for spec in '42:42' 'zero:0' 'negative:-5'; do
  name="${spec%%:*}"
  result="${spec#*:}"
@@ -22,6 +24,15 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
  "$builder" "$tmp/$name.wasm" "$tmp/$name.cwasm" > "$tmp/$name.meta"
  pin="$(sed -n 's/^aot_sha256=//p' "$tmp/$name.meta")"
  [[ "$pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing AOT digest" >&2; exit 1; }
+ if [[ "$name" == 42 ]]; then
+   if "$runner" "$tmp/$name.cwasm" "$pin" > "$tmp/default.stdout" 2> "$tmp/default.stderr"; then
+     echo "default debug runner admitted caller-controlled AOT artifact" >&2; exit 1
+   fi
+   if ! grep -q 'AOT execution is disabled unless' "$tmp/default.stderr"; then
+     echo "default debug runner failed for unrelated reason" >&2; cat "$tmp/default.stderr" >&2; exit 1
+   fi
+   cargo build --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
+ fi
  actual="$("$runner" "$tmp/$name.cwasm" "$pin")"
  [[ "$actual" == "$result" ]] || { echo "AOT result mismatch: $name" >&2; exit 1; }
  if "$runner" "$tmp/$name.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
@@ -90,13 +101,13 @@ for reason in start table extra-memory import; do
 done
 # Production artifacts may not use the caller-supplied SHA as approval.
 # Prove the production runner refuses an otherwise authentic native artifact.
-cargo build --release --manifest-path aot-host/run/Cargo.toml
+cargo build --release --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
 release_runner="$repo_dir/aot-host/run/target/release/oreslang-aot-run"
 pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
 if "$release_runner" "$tmp/42.cwasm" "$pin" > "$tmp/release.stdout" 2> "$tmp/release.stderr"; then
   echo "release runner executed with caller-controlled approval" >&2; exit 1
 fi
-if ! grep -q 'AOT execution is disabled in release builds' "$tmp/release.stderr"; then
+if ! grep -q 'AOT execution is disabled unless' "$tmp/release.stderr"; then
   echo "release runner failed for an unrelated reason; production denial unverified" >&2
   cat "$tmp/release.stderr" >&2
   exit 1
