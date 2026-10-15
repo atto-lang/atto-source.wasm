@@ -109,10 +109,13 @@ policy reason. A full production implementation must replace—not bypass—this
 gate with an out-of-band signed approval and process isolation.
 
 The native debug executable now also **fails closed by default**. Deliberate
-local AOT execution requires both a debug build and Cargo's explicit
-`--features insecure-dev-caller-pin` flag. That feature never authorizes
-release-mode execution: CI builds a release runner **with the feature enabled**
-and verifies it still refuses a known-good artifact. The test suite first
+local AOT execution requires all three conditions: Cargo's `debug` build
+profile, Rust debug assertions, and the explicit
+`--features insecure-dev-caller-pin` flag. A new `build.rs` gate checks the
+Cargo build profile independently of `debug_assertions`, which can be forced
+on in a release build. That feature never authorizes release-mode execution:
+CI builds a release runner **with the feature enabled and release debug
+assertions forced on**, then verifies it still refuses a known-good artifact. The test suite first
 exercises the default-debug denial before enabling the development feature.
 
 ### PR #2 resource and compiler-pinning parity
