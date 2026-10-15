@@ -20,7 +20,8 @@ const fixtures=[
   ["forward-call", "47"],
   ["return-arithmetic", "28"],
   ["negative-result", "-5"],
-  ["zero-result", "0"]
+  ["zero-result", "0"],
+  ["class-scalar-constructor", "40"]
 ];
 function invoke(executable,args,expectedSuccess=true) {
   const r=spawnSync(executable,args,{
