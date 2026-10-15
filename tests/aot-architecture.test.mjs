@@ -24,8 +24,13 @@ test("native precompiler and runner use separate identically pinned Wasmtime gra
 });
 test("native runner cannot execute without debug plus explicit unsafe development feature",()=>{
   assert.match(runnerManifest,/insecure-dev-caller-pin\s*=\s*\[\]/);
-  assert.match(runner,/#\[cfg\(all\(debug_assertions, feature = "insecure-dev-caller-pin"\)\)\]/);
-  assert.match(runner,/#\[cfg\(not\(all\(debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
+  const buildGuard=source("aot-host/run/build.rs");
+  assert.match(buildGuard,/cargo:rustc-check-cfg=cfg\\(oreslang_debug_cargo_profile\\)/);
+  assert.match(buildGuard,/std::env::var\\("PROFILE"\\).+Ok\\("debug"\\)/);
+  assert.match(smoke,/profile\\.release\\.debug-assertions=true/);
+
+  assert.match(runner,/#\[cfg\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\]/);
+  assert.match(runner,/#\[cfg\(not\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
   assert.match(runner,/AOT execution is disabled unless/);
   assert.match(smoke,/cargo build --release[^\n]*--features insecure-dev-caller-pin/);
   assert.match(smoke,/release runner executed with caller-controlled approval/);
