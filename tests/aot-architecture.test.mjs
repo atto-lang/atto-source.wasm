@@ -11,7 +11,7 @@ const smoke=source("aot-host/tests/smoke.sh");
 
 test("native precompiler and runner use separate identically pinned Wasmtime graphs",()=>{
   for(const contents of [builderManifest,runnerManifest]){
-    assert.match(contents,/wasmtime\s*=\s*\{[^\n]*version\s*=\s*"=49\.0\.1"/);
+    assert.match(contents,/wasmtime\s*=\s*\{[^\n]*version\s*=\s*"=49\.0\.3"/);
     assert.match(contents,/default-features\s*=\s*false/);
   }
   assert.match(builderManifest,/["']cranelift["']/);

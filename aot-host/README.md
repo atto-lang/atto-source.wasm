@@ -129,3 +129,14 @@ fuel allowance between 1 and 100,000,000 (default 1,000,000). CI includes a
 valid LLVM-generated infinite-loop Wasm module that must fail with limited
 fuel rather than completing or timing out. These limits are not OS cgroups,
 process memory isolation, native RSS limits or a production approval service.
+
+### Patched Wasmtime runtime pin
+
+Both standalone Cargo graphs now pin the same `wasmtime = "=49.0.3"`
+release (October 14, 2026). This is a security-maintenance update from
+49.0.1; the upstream 49.0.3 release documents multiple corrected panics,
+resource-safety defects, and native runtime vulnerabilities. See
+https://github.com/bytecodealliance/wasmtime/releases/tag/v49.0.3 .
+Re-run the native build, source admission, serialization compatibility and
+compiler-free Cargo tree checks before merging. The runtime remains
+**non-production and release-mode disabled** in this PR.
