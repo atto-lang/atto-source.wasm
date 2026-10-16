@@ -168,6 +168,14 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                 type(job.get("run_attempt")) is not int or job["run_attempt"] != attempt
                 or job.get("status") != "completed" or job.get("conclusion") != "success"):
             raise Denied("workflow contains a failed, skipped, or unexecuted job")
+        # A successful workflow record with no actual runner allocation is
+        # not execution evidence. GitHub reports runner_id=0 or null, and a
+        # blank runner_name, for failed-before-start infrastructure jobs.
+        if (type(job.get("runner_id")) is not int
+                or job["runner_id"] <= 0
+                or not isinstance(job.get("runner_name"), str)
+                or not job["runner_name"].strip()):
+            raise Denied("workflow job lacks a real allocated runner")
         name = job.get("name")
         if not isinstance(name, str) or not name:
             raise Denied("missing workflow job name")
