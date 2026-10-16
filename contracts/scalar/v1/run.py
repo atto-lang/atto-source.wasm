@@ -163,18 +163,18 @@ def snapshot_suite(suite, verified_digest, destination):
 # A backend-prefixed IO/launcher error is NEVER semantic rejection evidence.
 NEGATIVE_DIAGNOSTICS = {
     "forge": {
-        "reject.unknown": r"oresforge: expected integer at byte [0-9]+",
-        "reject.division": r"oresforge: division requires float result lowering; unsupported in the i64 source subset at byte [0-9]+",
-        "reject.actor": r"oresforge: unexpected token at byte [0-9]+",
-        "reject.async": r"oresforge: unexpected token at byte [0-9]+",
-        "reject.structural": r"oresforge: expected integer at byte [0-9]+",
+        "reject.unknown": r"oresforge: expected integer at byte (?P<offset>[0-9]+)",
+        "reject.division": r"oresforge: division requires float result lowering; unsupported in the i64 source subset at byte (?P<offset>[0-9]+)",
+        "reject.actor": r"oresforge: unexpected token at byte (?P<offset>[0-9]+)",
+        "reject.async": r"oresforge: unexpected token at byte (?P<offset>[0-9]+)",
+        "reject.structural": r"oresforge: expected integer at byte (?P<offset>[0-9]+)",
     },
     "net": {
-        "reject.unknown": r"oresnet: Expected integer at offset [0-9]+",
+        "reject.unknown": r"oresnet: Expected integer at offset (?P<offset>[0-9]+)",
         "reject.division": r"oresnet: Division requires float result lowering; unsupported in the i64 source subset",
-        "reject.actor": r"oresnet: Expected 'fnc' at offset [0-9]+",
-        "reject.async": r"oresnet: Expected 'fnc' at offset [0-9]+",
-        "reject.structural": r"oresnet: Expected integer at offset [0-9]+",
+        "reject.actor": r"oresnet: Expected 'fnc' at offset (?P<offset>[0-9]+)",
+        "reject.async": r"oresnet: Expected 'fnc' at offset (?P<offset>[0-9]+)",
+        "reject.structural": r"oresnet: Expected integer at offset (?P<offset>[0-9]+)",
     },
 }
 
@@ -202,11 +202,17 @@ def run_case(command, source, kind, value, mode, timeout, backend=None, case_id=
     if kind == "reject":
         signature = NEGATIVE_DIAGNOSTICS.get(backend, {}).get(case_id)
         # Full-match disallows prefixed disk/launcher failures and extra errors.
-        diagnosed = signature is not None and re.fullmatch(
-            signature + r"(?:\r?\n)?", stderr) is not None
-        success = proc.returncode == 1 and not stdout and diagnosed
+        diagnostic = (re.fullmatch(signature + r"(?:\r?\n)?", stderr)
+                      if signature is not None else None)
+        # A parser offset outside the immutable fixture is an unrelated or
+        # fabricated failure, not source-specific negative evidence.
+        offset = diagnostic.groupdict().get("offset") if diagnostic else None
+        offset_valid = offset is None or int(offset) <= source.stat().st_size
+        success = (proc.returncode == 1 and not stdout and
+                   diagnostic is not None and offset_valid)
     elif mode == "stdout-i64":
-        success = proc.returncode == 0 and stdout.strip() == value and not stderr.strip()
+        success = (proc.returncode == 0 and stderr == "" and
+                   stdout in (value, value + "\n", value + "\r\n"))
     else:
         # .NET `check` must actually pass its typed-IR admission path. An
         # arbitrary exit-zero command is not proof of parser/type acceptance.
