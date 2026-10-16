@@ -11,10 +11,15 @@ import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 // This suite is intentionally NOT counted as parity unless the *real* native
 // LLVM compiler is supplied, pinned and used to execute actual wasm32 output.
 test("shared source-i64 numeric controls execute in real compiler -> wasm32 guest", {
-  skip: !process.env.ORESLANG_LLVM_COMPILER,
+  // A regular developer run may skip an unavailable external compiler.
+  // A dedicated parity job must fail closed instead of counting a skip.
+  skip: !process.env.ORESLANG_LLVM_COMPILER
+    && process.env.ORESLANG_NUMERIC_PARITY_REQUIRED !== "1",
   timeout: 180000
 }, async () => {
   const compiler = process.env.ORESLANG_LLVM_COMPILER;
+  assert.ok(compiler,
+    "numeric parity required: pinned real Oreslang LLVM compiler is missing");
   const expectedCompilerSha = process.env.ORESLANG_LLVM_COMPILER_SHA256;
   const declaredLlvmSourceSha = process.env.ORESLANG_LLVM_SOURCE_SHA;
   assert.match(expectedCompilerSha || "", /^[a-f0-9]{64}$/,
