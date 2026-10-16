@@ -1,0 +1,27 @@
+name: Scoped permission contract integrity (NOT runtime parity)
+
+on:
+  pull_request:
+    paths:
+      - "contracts/v1/SCOPED_PERMISSIONS_V1.md"
+      - "contracts/v1/scoped-permissions-v1.json"
+      - "contracts/v1/verify_scoped_permissions.py"
+      - "contracts/v1/test_verify_scoped_permissions.py"
+      - ".github/workflows/scoped-permission-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  schema-and-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+      - name: Validate shared vector schema only (not runtime proof)
+        run: python3 contracts/v1/verify_scoped_permissions.py --validate-only
+      - name: Negative report-gate unit tests only (not guest execution)
+        run: python3 -m unittest discover -s contracts/v1 -p 'test_verify_scoped_permissions.py' -v
