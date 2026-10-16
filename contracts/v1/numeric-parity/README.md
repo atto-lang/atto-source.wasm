@@ -41,10 +41,11 @@ https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1068.
   instead of lowering through binary64 or another incompatible domain.
 - `blocked_unsound`: a known mismatch (e.g. Java source f32 aliases float).
 - `needs_audit`: behavior not yet established against cross-backend contract.
-- `verified_compiled`: ONLY after exact-head source compiler/guest run,
-  positive and negative case counts, pinned fixture SHA, and independently
-  reviewed workflow evidence are recorded. The manifest gate validates
-  structure but **cannot authenticate external URLs**; security review is still required.
+- `verified_compiled`: **currently forbidden** by the fail-closed manifest gate.
+  A self-declared workflow URL and case counts in the same PR are not a trusted
+  proof. Implement independently approved/protected evidence verification that
+  authenticates source and runner commits, actual executed positive/negative
+  job steps and both fixture SHAs before enabling this state.
 
 No backend currently declares `verified_compiled` for these features.
 These manifests document current gaps, not fulfilled parity. Run:
