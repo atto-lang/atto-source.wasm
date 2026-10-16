@@ -4,9 +4,34 @@ import json
 import pathlib
 import sys
 
+# Contract JSON is a cross-backend trust boundary. Python's default decoder
+# silently keeps the final duplicate key and also accepts NaN/Infinity. Other
+# JSON implementations may reject or interpret those bytes differently.
+def load_contract(source: pathlib.Path) -> dict:
+    if source.stat().st_size > 256 * 1024:
+        raise ValueError("actor routing contract exceeds 256 KiB budget")
+
+    def unique_members(items):
+        decoded = {}
+        for key, value in items:
+            if key in decoded:
+                raise ValueError(f"duplicate actor routing JSON member: {key}")
+            decoded[key] = value
+        return decoded
+
+    def reject_nonfinite(value):
+        raise ValueError(f"non-finite actor routing JSON number: {value}")
+
+    result = json.loads(source.read_text(encoding="utf-8"),
+                        object_pairs_hook=unique_members,
+                        parse_constant=reject_nonfinite)
+    if not isinstance(result, dict):
+        raise ValueError("actor routing JSON root must be an object")
+    return result
+
 def main() -> int:
     source = pathlib.Path(sys.argv[1])
-    data = json.loads(source.read_text(encoding="utf-8"))
+    data = load_contract(source)
     if data["schema"] != "oreslang.actor-pipeline-routing.v1":
         raise AssertionError("wrong routing fixture schema")
     if data["operations"]["forward_all"] != ["worker-a", "worker-b", "worker-c"]:
