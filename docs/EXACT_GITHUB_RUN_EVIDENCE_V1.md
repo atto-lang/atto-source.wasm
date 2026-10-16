@@ -8,11 +8,11 @@ checks out private source, starts workflows, or changes repository policy.
 ## Purpose
 
 The verifier checks that a **real GitHub Actions run** corresponds to a
-specific immutable commit and its actual Git tree, in one of the five exact
+specific immutable commit and its actual Git tree **and approved workflow file path**, in one of the five exact
 private repositories with pinned numeric repository IDs. It independently
 fetches the repository, commit, run and *all* Actions jobs through GitHub's
 read-only API. It rejects nonprivate/mismatched/archived identities, wrong
-commit/tree, foreign run/head repository, wrong run SHA, uncompleted/failed
+commit/tree, foreign run/head repository, wrong run SHA, foreign/missing workflow path, uncompleted/failed
 runs, missing/failed/skipped jobs, zero-step jobs, missing or stale run-attempt IDs, missing expected jobs or
 expected executable steps, ambiguous duplicate job names, missing/zero/noninteger
 runner IDs, blank runner names and truncated job pagination.
@@ -43,7 +43,8 @@ python3 scripts/test_verify_ci_run.py
 # Example: exact-head source run; replace placeholders with GitHub-confirmed values.
 GH_TOKEN="$READ_ONLY_GITHUB_TOKEN" python3 scripts/verify_ci_run.py \
   --backend llvm --commit "$EXACT_RUN_HEAD_SHA" --tree "$EXACT_RUN_HEAD_TREE" \
-  --run-id "$RUN_ID" --require-job 'test' --require-step 'Run CTest'
+  --run-id "$RUN_ID" --workflow-path ".github/workflows/ci.yml" \
+  --require-job 'test' --require-step 'Run CTest'
 ```
 
 For multi-job validation, enumerate each required job, each required step, and
@@ -52,6 +53,15 @@ arguments. For example, `--require-job 'unit' --require-job 'native'
 --require-step 'Run pytest' --require-step 'Run CTest'
 --require-job-step 'unit::Run pytest' --require-job-step 'native::Run CTest'`.
 Missing, duplicated, or cross-job substituted bindings are rejected.
+
+A trusted release controller must supply `--workflow-path` from an independently
+reviewed policy, **never by copying `run.path` from the candidate's response**.
+The verifier rejects empty, malformed, traversal, ambiguous or unapproved paths,
+and requires the actual GitHub run's `path` to equal the supplied `.github/workflows/*.yml`
+or `*.yaml` path exactly. This ties evidence to the expected workflow filename,
+but does **not** prove the YAML bytes or its actions were independently reviewed.
+Branch protection, workflow-content SHA pins, and source export policy remain
+separate mandatory gates.
 
 Supported `--backend`: `java`, `llvm`, `net`, `wasm`, `forge`. Run it inside a
 trusted local environment or a **reviewed** source-scoped CI workflow with a
