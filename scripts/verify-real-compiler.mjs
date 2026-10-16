@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile, stat, lstat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -117,6 +117,68 @@ export async function verifyRealCompiler({
         wasmSha256:built.wasmSha256,sourceSha256:built.sourceSha256}));
     }
 
+
+    // Run precisely the same byte-identical signed-i64 scalar fixture sources
+    // used by the independent .NET and Forge bootstrap parity gates.
+    // The negative corpus is backend-specific: LLVM may implement constructs
+    // (e.g. structural match) that the bootstrap compilers must reject.
+    const sharedRoot = fileURLToPath(new URL("../contracts/scalar/v1/", import.meta.url));
+    const manifestBytes = await readFile(join(sharedRoot, "cases.json"));
+    const sharedCorpus = JSON.parse(manifestBytes.toString("utf8"));
+    if (sharedCorpus.schema_version !== "1.0.0" ||
+        !Array.isArray(sharedCorpus.cases) || sharedCorpus.cases.length !== 10)
+      throw Error("shared scalar corpus version or inventory drift");
+    const sharedHash = createHash("sha256").update(manifestBytes);
+    const sharedScalarResults = [];
+    const seenIds = new Set();
+    for (const testCase of sharedCorpus.cases) {
+      if (!/^[a-z][a-z0-9.-]{1,79}$/.test(testCase.id) ||
+          seenIds.has(testCase.id) ||
+          !/^fixtures\/[a-z0-9-]+\.ores$/.test(testCase.file))
+        throw Error("unsafe or duplicate shared scalar case identity");
+      seenIds.add(testCase.id);
+      const source = join(sharedRoot, testCase.file);
+      const sourceStat = await lstat(source);
+      if (!sourceStat.isFile() || sourceStat.isSymbolicLink() ||
+          sourceStat.size < 1 || sourceStat.size > 1048576)
+        throw Error("unsafe or oversized shared scalar fixture");
+      const sourceBytes = await readFile(source);
+      sharedHash.update(Buffer.from(testCase.file, "ascii"));
+      sharedHash.update(Buffer.from([0]));
+      sharedHash.update(sourceBytes);
+      if (testCase.kind === "reject") continue; // bootstrap admission only
+      if (testCase.kind !== "accept" || !/^-?(?:0|[1-9][0-9]*)$/.test(testCase.value))
+        throw Error("invalid shared scalar expected result");
+      const expected = BigInt(testCase.value);
+      if (expected < -(1n << 63n) || expected >= (1n << 63n))
+        throw Error("shared scalar expected value overflows i64");
+      const out = join(work, "shared-" + testCase.id + ".wasm");
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source, output:out,
+        environment:"browser", publication:"atomic"
+      });
+      const verified = await readAtomicRelease(out);
+      if (built.sourceSha256 !== sha256(sourceBytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(verified.wasm) ||
+          verified.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("shared scalar source/artifact provenance mismatch");
+      const observed = await runIsolatedCoreGuest(verified.wasm, {
+        expectedSha256:built.wasmSha256, timeoutMs:5000
+      });
+      if (observed.value !== expected ||
+          observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("shared scalar guest value or zero-import admission mismatch");
+      sharedScalarResults.push(Object.freeze({
+        name:testCase.id, expected:testCase.value, value:observed.value.toString(),
+        sourceSha256:built.sourceSha256, wasmSha256:built.wasmSha256
+      }));
+    }
+    if (sharedScalarResults.length !== 5)
+      throw Error("shared scalar suite must execute exactly five guest programs");
+    const sharedScalarSuiteSha256 = sharedHash.digest("hex");
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -154,7 +216,9 @@ export async function verifyRealCompiler({
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
-      scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
+      scalarFixtures:Object.freeze(scalarResults),
+      sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
+      negativeSourceRejected:true
     });
   } catch (error) {
     primaryError = error;
