@@ -12,8 +12,16 @@ export function compileAdmittedCoreGuest(input, {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
-  maxMemoryPages = 2
+  maxMemoryPages = 2,
+  ...unsupportedOptions
 } = {}) {
+  // The core Wasm profile has NO host I/O authority. Silently ignoring
+  // allowNet, WASI, env/import maps, etc. would mislead the embedding host.
+  // Opt-in scoped permissions require a distinct reviewed runtime profile.
+  const unknown = Object.keys(unsupportedOptions);
+  if (unknown.length !== 0) {
+    throw new TypeError("unsupported zero-capability guest option: " + unknown.sort().join(", "));
+  }
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
