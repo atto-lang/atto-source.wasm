@@ -57,9 +57,14 @@ Missing, duplicated, or cross-job substituted bindings are rejected.
 A trusted release controller must supply `--workflow-path` from an independently
 reviewed policy, **never by copying `run.path` from the candidate's response**.
 The verifier rejects empty, malformed, traversal, ambiguous or unapproved paths,
-and requires the actual GitHub run's `path` to equal the supplied `.github/workflows/*.yml`
-or `*.yaml` path exactly. This ties evidence to the expected workflow filename,
-but does **not** prove the YAML bytes or its actions were independently reviewed.
+and requires the actual GitHub run's `path` to identify the supplied
+`.github/workflows/*.yml` or `*.yaml` file exactly. The GitHub REST API may
+append an `@ref` qualifier (for example,
+`.github/workflows/ci.yml@main` or `@refs/pull/123/merge`); the verifier
+accepts a well-formed qualifier but rejects suffix-sharing filenames, empty
+qualifiers, traversal and malformed ref spellings. This ties evidence to the
+expected workflow **filename**, but does **not** independently attest the YAML
+bytes, the supplied ref or the reviewed actions.
 Branch protection, workflow-content SHA pins, and source export policy remain
 separate mandatory gates.
 
