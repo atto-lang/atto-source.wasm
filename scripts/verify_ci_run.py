@@ -73,7 +73,8 @@ def _api_get(path):
         raise Denied("malformed GitHub JSON response") from exc
 
 
-def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
+def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
+           job_step_pairs=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -91,6 +92,24 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
         raise Denied("invalid required job or step name")
     if len(set(required_jobs)) != len(required_jobs) or len(set(required_steps)) != len(required_steps):
         raise Denied("duplicate required CI proof name")
+    # Binding a test step to the specific required job prevents a passing
+    # unrelated job from laundering a required suite's execution evidence.
+    pairs = [] if job_step_pairs is None else job_step_pairs
+    if not isinstance(pairs, list):
+        raise Denied("job-step binding requirements must be a list")
+    if len(required_jobs) > 1 and not pairs:
+        raise Denied("multiple required jobs need explicit job-step bindings")
+    if len(pairs) > 100:
+        raise Denied("too many job-step binding requirements")
+    for pair in pairs:
+        if (not isinstance(pair, tuple) or len(pair) != 2
+                or pair[0] not in required_jobs or pair[1] not in required_steps):
+            raise Denied("invalid required job-step binding")
+    if len(set(pairs)) != len(pairs):
+        raise Denied("duplicate required job-step binding")
+    if pairs and (set(job for job, _ in pairs) != set(required_jobs)
+                  or not set(required_steps).issubset(step for _, step in pairs)):
+        raise Denied("all required jobs and steps must have explicit bindings")
     prefix = "repos/" + repo
     meta = _object(fetch(prefix), "repository")
     if (type(meta.get("id")) is not int or meta["id"] != repo_id
@@ -137,6 +156,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
     if not jobs or len(jobs) != total:
         raise Denied("not all GitHub Actions jobs were retrieved")
     seen_ids, job_names, required_job_steps = set(), set(), set()
+    steps_by_job = {}
     count = 0
     for item in jobs:
         job = _object(item, "workflow job")
@@ -145,13 +165,16 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
             raise Denied("duplicated workflow job id")
         seen_ids.add(job_id)
         if (job.get("run_id") != run_id or
-                (job.get("run_attempt") is not None and job.get("run_attempt") != attempt)
+                type(job.get("run_attempt")) is not int or job["run_attempt"] != attempt
                 or job.get("status") != "completed" or job.get("conclusion") != "success"):
             raise Denied("workflow contains a failed, skipped, or unexecuted job")
         name = job.get("name")
         if not isinstance(name, str) or not name:
             raise Denied("missing workflow job name")
+        if name in job_names:
+            raise Denied("ambiguous repeated workflow job name")
         job_names.add(name)
+        steps_by_job[name] = set()
         steps = job.get("steps")
         if not isinstance(steps, list) or not steps:
             raise Denied("workflow job has zero executed steps")
@@ -165,6 +188,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
                 raise Denied("workflow step has no name")
             if name in required_jobs:
                 required_job_steps.add(step_name)
+                steps_by_job[name].add(step_name)
             if step_name not in ("Set up job", "Complete job") and not step_name.startswith("Post "):
                 ran_useful_step = True
                 count += 1
@@ -174,6 +198,9 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps):
         raise Denied("required workflow job is missing")
     if not set(required_steps).issubset(required_job_steps):
         raise Denied("required executable CI step is missing")
+    if pairs and any(step not in steps_by_job.get(job, set())
+                     for job, step in pairs):
+        raise Denied("required executable step did not run in its bound CI job")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "head_commit": commit,
             "head_tree": tree, "verified_jobs": len(jobs),
@@ -189,10 +216,20 @@ def main(argv=None):
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--require-job", action="append", default=[])
     parser.add_argument("--require-step", action="append", default=[])
+    parser.add_argument("--require-job-step", action="append", default=[],
+                        metavar="JOB::STEP",
+                        help="Require this exact step inside this exact job")
     args = parser.parse_args(argv)
     try:
+        pairs = []
+        for binding in args.require_job_step:
+            if "::" not in binding:
+                raise Denied("job-step binding must use JOB::STEP")
+            pair = tuple(binding.split("::", 1))
+            pairs.append(pair)
         result = verify(_api_get, args.backend, args.commit, args.tree,
-                        args.run_id, args.require_job, args.require_step)
+                        args.run_id, args.require_job, args.require_step,
+                        job_step_pairs=pairs)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
