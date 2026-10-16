@@ -55,6 +55,31 @@ test("valid supported options retain normal snapshot validation path", async () 
     /expected core WebAssembly bytes/);
 });
 
+test("hidden known options are rejected by all guest APIs", async () => {
+  // A name on the allowlist is not sufficient: invisible descriptor metadata
+  // must not silently change options in an otherwise ordinary options object.
+  for (const [key, value] of [
+    ["entry", "main"], ["maxMemoryPages", 2], ["maxModuleBytes", 65536],
+    ["expectedSha256", "0".repeat(64)]
+  ]) {
+    for (const prototype of [Object.prototype, null]) {
+      const options = Object.defineProperty(Object.create(prototype), key, {
+        value, enumerable: false, configurable: true
+      });
+      assert.throws(() => admitCoreGuest(null, options), /non-enumerable/);
+      assert.throws(() => compileAdmittedCoreGuest(null, options), /non-enumerable/);
+      await assert.rejects(runIsolatedCoreGuest(null, options), /non-enumerable/);
+    }
+  }
+  const timeout = Object.defineProperty({}, "timeoutMs", {
+    value: 1000, enumerable: false
+  });
+  await assert.rejects(runIsolatedCoreGuest(null, timeout), /non-enumerable/);
+  // Public data descriptors are still accepted up to the normal byte check.
+  assert.throws(() => admitCoreGuest(null, {entry: "main"}),
+    /expected core WebAssembly bytes/);
+});
+
 test("prototype-polluted normal options fail before guest compilation", async () => {
   const original = Object.getOwnPropertyDescriptor(Object.prototype, "allowNet");
   Object.defineProperty(Object.prototype, "allowNet", {
