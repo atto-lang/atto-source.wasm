@@ -165,14 +165,56 @@ def validate_workflow(raw):
     return True
 
 
+
+def strict_json_document(path, *, limit=2 * 1024 * 1024):
+    """Load bounded JSON while rejecting ambiguous keys and nonstandard constants."""
+    with open(path, "rb") as source:
+        data = source.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("security JSON exceeds size limit")
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate security JSON key: " + key)
+            result[key] = value
+        return result
+
+    def deny_constant(value):
+        raise ValueError("nonstandard security JSON number: " + value)
+
+    try:
+        return json.loads(data.decode("utf-8"), object_pairs_hook=unique_pairs,
+                          parse_constant=deny_constant)
+    except UnicodeDecodeError as error:
+        raise ValueError("invalid security JSON encoding") from error
+
+
+
+def strict_contract_equal(actual, expected):
+    """Compare security policy values without bool/int equivalence."""
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return (actual.keys() == expected.keys() and
+                all(strict_contract_equal(actual[k], value)
+                    for k, value in expected.items()))
+    if isinstance(expected, list):
+        return (len(actual) == len(expected) and
+                all(strict_contract_equal(a, b) for a, b in zip(actual, expected)))
+    return actual == expected
+
+
 def verify(backend):
     if backend not in IDS:
         raise ValueError("unknown Oreslang backend")
-    doc = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    if (type(doc) is not dict or doc.get("schema_version") != 1
+    doc = strict_json_document(MANIFEST)
+    if (type(doc) is not dict or type(doc.get("schema_version")) is not int
+            or doc.get("schema_version") != 1
             or doc.get("contract") != CONTRACT
             or doc.get("organization") != "ores-truffle-oreslang"
-            or doc.get("repository_ids") != IDS):
+            or not strict_contract_equal(doc.get("repository_ids"), IDS)):
         raise ValueError("security contract identity or schema drift")
     expected = {
         "source_transfer": {
@@ -199,7 +241,8 @@ def verify(backend):
             "cross_backend_feature_parity_not_assumed": True,
         },
     }
-    if any(doc.get(section) != content for section, content in expected.items()):
+    if any(not strict_contract_equal(doc.get(section), content)
+           for section, content in expected.items()):
         raise ValueError("critical deny-by-default/evidence invariants changed")
     if set(doc) != {"schema_version", "contract", "organization",
                     "repository_ids", *expected}:
@@ -215,7 +258,7 @@ def verify(backend):
         event_path = os.getenv("GITHUB_EVENT_PATH")
         if not event_path:
             raise ValueError("GitHub repository event identity unavailable")
-        event = json.loads(Path(event_path).read_text(encoding="utf-8"))
+        event = strict_json_document(Path(event_path))
         repo = event.get("repository")
         if (not isinstance(repo, dict) or repo.get("private") is not True
                 or type(repo.get("id")) is not int
