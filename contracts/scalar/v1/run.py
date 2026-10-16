@@ -61,7 +61,9 @@ def same_fixture_identity(before, after):
 
 
 def load_suite():
-    suite_bytes = (HERE / "cases.json").read_bytes()
+    # The manifest is as security-sensitive as each source fixture: reject
+    # FIFO/symlink/device substitution and oversized files before parsing.
+    suite_bytes = read_bounded_regular_fixture(HERE / "cases.json")
     suite = json.loads(suite_bytes)
     if not isinstance(suite, dict) or set(suite) != {"schema_version", "cases"} or suite["schema_version"] != "1.0.0":
         raise ValueError("unsupported manifest fields or version")
@@ -106,7 +108,7 @@ def load_suite():
     return suite, digest.hexdigest()
 
 
-def run_case(command, source, kind, value, mode, timeout):
+def run_case(command, source, kind, value, mode, timeout, backend=None):
     argv = [s.replace("{source}", str(source)) for s in command]
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         try:
@@ -127,7 +129,12 @@ def run_case(command, source, kind, value, mode, timeout):
         except UnicodeDecodeError:
             return False, "infrastructure: invalid UTF-8 in compiler output"
     if kind == "reject":
-        success = proc.returncode == 1 and not stdout and bool(stderr.strip())
+        # An arbitrary exit-1 error is not proof that the compiler rejected
+        # an unsupported language construct. The bootstrap compilers emit
+        # distinct diagnostic prefixes on their own frontend failure paths.
+        prefix = {"net": "oresnet:", "forge": "oresforge:"}.get(backend)
+        diagnosed = bool(stderr.strip()) and (prefix is None or stderr.startswith(prefix))
+        success = proc.returncode == 1 and not stdout and diagnosed
     elif mode == "stdout-i64":
         success = proc.returncode == 0 and stdout.strip() == value and not stderr.strip()
     else:
@@ -158,7 +165,7 @@ def main():
     records, failures = [], 0
     for case in suite["cases"]:
         ok, details = run_case(cmd, HERE / case["file"], case["kind"],
-                               case.get("value"), opts.mode, opts.timeout)
+                               case.get("value"), opts.mode, opts.timeout, opts.backend)
         records.append({"id": case["id"], "status": "pass" if ok else "fail"})
         if not ok:
             failures += 1
