@@ -33,7 +33,8 @@ class RunContract(unittest.TestCase):
                 "total_count": 1, "jobs": [
                     {"id": 31, "name": "unit", "run_id": 17, "run_attempt": 2,
                      "status": "completed", "conclusion": "success",
-                     "runner_name": None, "steps": [
+                     "runner_id": 1000002089, "runner_name": "GitHub Actions 1",
+                     "steps": [
                          {"name": "Set up job", "status": "completed", "conclusion": "success"},
                          {"name": "Execute test suite", "status": "completed", "conclusion": "success"},
                          {"name": "Complete job", "status": "completed", "conclusion": "success"}]}
@@ -101,6 +102,31 @@ class RunContract(unittest.TestCase):
     def test_failed_run(self):
         self.values[self.prefix+"/actions/runs/17"]["conclusion"] = "failure"
         self.rejected()
+
+    def test_missing_runner_identity(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for field in ("runner_id", "runner_name"):
+            with self.subTest(field=field):
+                saved = job.pop(field)
+                self.rejected()
+                job[field] = saved
+
+    def test_zero_or_forged_runner_id(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for value in (0, -1, True, False, None, "1000002089"):
+            with self.subTest(value=value):
+                job["runner_id"] = value
+                self.rejected()
+
+    def test_blank_or_wrong_type_runner_name(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for value in ("", "  ", None, False, 123):
+            with self.subTest(value=value):
+                job["runner_name"] = value
+                self.rejected()
 
     def test_zero_step_jobs(self):
         self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"] = []
