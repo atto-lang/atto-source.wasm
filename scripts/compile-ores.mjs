@@ -23,20 +23,32 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
  const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ // A NUL byte is invalid source, even if a downstream scalar compiler
+ // chooses to truncate or ignore it before resolving the source graph.
+ if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
  let i=0;
  while(i<source.length){
   const ch=source[i],next=source[i+1];
   if(ch==="/"&&next==="/"){
-   i+=2;while(i<source.length&&source[i]!=="\n")i++;
+   // A CR-only line ending is still a new source line. Otherwise an import
+   // after \\r could be hidden from this pre-publication admission check.
+   i+=2;
+   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
    continue;
   }
   if(ch==="/"&&next==="*"){
-   i+=2;let closed=false;
-   while(i+1<source.length){
-    if(source[i]==="*"&&source[i+1]==="/"){i+=2;closed=true;break}
+   // The Java and LLVM source lexers admit nested comments. Keep this
+   // preflight aligned instead of treating the first inner */ as the end.
+   i+=2;let depth=1;
+   while(i<source.length&&depth>0){
+    if(source[i]==="/"&&source[i+1]==="*"){
+     if(++depth>128)throw Error("Oreslang block comment nesting limit exceeded");
+     i+=2;continue;
+    }
+    if(source[i]==="*"&&source[i+1]==="/"){depth--;i+=2;continue;}
     i++;
    }
-   if(!closed)throw Error("unterminated Oreslang block comment");
+   if(depth!==0)throw Error("unterminated Oreslang block comment");
    continue;
   }
   if(ch==='"'||ch==="'"||ch==="`"){
