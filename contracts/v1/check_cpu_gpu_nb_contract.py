@@ -48,19 +48,24 @@ def reject_nonfinite(value):
     raise ValueError(f"nonfinite JSON value {value}")
 
 
-def check(root):
-    contents = {name: read_checked(root / name, sha) for name, sha in PINNED_BLOBS.items()}
-    cases = json.loads(contents["cpu-gpu-nb-unsupported-v1.json"],
-                       object_pairs_hook=unique_object, parse_constant=reject_nonfinite)
+def validate_registry_text(text):
+    cases = json.loads(text, object_pairs_hook=unique_object,
+                       parse_constant=reject_nonfinite)
     require(type(cases) is dict and set(cases) == CASE_NAMES,
             "CPU/GPU/nb corpus case names differ from the pinned 10-case registry")
     require(all(type(source) is str and source.strip() for source in cases.values()),
             "every CPU/GPU/nb case must contain nonempty source text")
+    return len(cases)
+
+
+def check(root):
+    contents = {name: read_checked(root / name, sha) for name, sha in PINNED_BLOBS.items()}
+    count = validate_registry_text(contents["cpu-gpu-nb-unsupported-v1.json"])
     contract = contents["CPU_GPU_NB_V1.md"]
     require("NOT executable five-backend parity" in contract and
             "Future<T>" in contract and "not multi-item streaming" in contract,
             "CPU/GPU/nb document must remain a rejection-only, non-stream contract")
-    return len(cases)
+    return count
 
 
 def self_test(root):
@@ -107,6 +112,26 @@ def self_test(root):
     names.append(scenario("symlink-substitution", link))
     names.append(scenario("missing-contract", lambda p:
         (p / "CPU_GPU_NB_V1.md").unlink()))
+    # Exercise JSON validation independently: digest mismatches must not mask
+    # bugs in duplicate-key and unsupported-value admission checks.
+    original = (root / "cpu-gpu-nb-unsupported-v1.json").read_text(encoding="utf-8")
+    def direct(label, text, should_pass=False):
+        try:
+            validate_registry_text(text)
+        except (ValueError, json.JSONDecodeError):
+            if should_pass:
+                raise AssertionError(f"{label}: valid registry rejected")
+        else:
+            if not should_pass:
+                raise AssertionError(f"{label}: malformed registry admitted")
+        names.append(label)
+    direct("parser-original-valid", original, should_pass=True)
+    direct("parser-duplicate-keys", '{"cpu-value":"x","cpu-value":"y"}')
+    direct("parser-nonfinite", '{"cpu-value":NaN}')
+    direct("parser-empty-registry", '{}')
+    direct("parser-array-instead-of-object", '[]')
+    direct("parser-numeric-source", json.dumps({k: 7 for k in CASE_NAMES}))
+    direct("parser-empty-source", json.dumps({k: "" for k in CASE_NAMES}))
     print(f"CPU/GPU/nb pinned corpus self-tests: {len(names)}/{len(names)} passed")
 
 
