@@ -18,3 +18,13 @@ execute this manifest as a shell script or count negative compiler crashes as re
 
 `python3 contracts/scalar/v1/run.py --backend forge --mode stdout-i64 --command './build/oresforge run {source}'`
 `python3 contracts/scalar/v1/run.py --backend net --mode admission --command './artifacts/compiler/win-x64/oresnet.exe check {source}'`
+
+## WebAssembly interpretation
+
+`npm test` verifies the shared manifest, exact source inventory and digest without
+claiming guest execution. The separately authorized `npm run test:real-compiler`
+gate compiles and runs **only the five positive scalar programs** with the
+hash-pinned LLVM compiler in the zero-import core Wasm host. The five
+negative cases are expected *rejections by the .NET and Forge bootstrap
+compilers*; a more complete LLVM compiler may implement those constructs.
+Never report them as universal LLVM/WASM frontend rejection requirements.
