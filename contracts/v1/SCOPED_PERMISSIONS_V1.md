@@ -15,6 +15,21 @@
 9. The standalone CLI must use the project's approved `flags-2-env` flag parsing contract where integrated; no independent ad hoc parser should be considered permission parity.
 10. An unsupported implementation slice MUST fail closed; it cannot report `allow` based on a mock evaluator or a contract-only test.
 
+## Canonical test-vector integrity
+
+The checked-in reference data is pinned to SHA-256
+`b481b72d9e5fdb2c1a4d4de7745a02f7ec3af8a937b0f067885d184efc3cb308`.
+The CLI verifier checks the **exact file bytes** before validating the schema
+or accepting a runtime report. A modified allow/deny expectation, even one
+with syntactically valid JSON, must fail instead of silently changing the oracle.
+Any deliberate v1 vector revision requires independent review and a matching
+pin update **in all five backends**; do not replace expected results to make
+an implementation's failing runtime test appear green.
+
+This digest check does not authenticate the code producing runtime reports.
+It must be combined with an independently reviewed backend adapter,
+immutable source commit/tree checks, and actual runner-executed host I/O tests.
+
 ## Canonical vectors and evidence
 
 `scoped-permissions-v1.json` contains **44** authorization/serialization outcomes. `verify_scoped_permissions.py` checks the corpus and requires complete, non-skipped, exact-head results for the selected backend.
