@@ -99,3 +99,24 @@ test("API rejects invalid budget and byte types", async () => {
   await assert.rejects(runIsolatedCoreGuest("not wasm"), /expected core WebAssembly bytes/);
   await assert.rejects(runIsolatedCoreGuest(Buffer.from([]), {timeoutMs: 0}), /timeoutMs/);
 });
+
+
+test("checked guest trap is distinguishable from invalid guest admission", async () => {
+  const trapIr='target triple = "wasm32-unknown-unknown"\n' +
+    'declare void @llvm.trap()\n' +
+    'define i64 @main() { call void @llvm.trap()\n unreachable }\n';
+  const trapped=compile(trapIr,{optimize:"-O0"});
+  await assert.rejects(
+    runIsolatedCoreGuest(trapped),
+    /^Error: guest rejected or failed: wasm runtime trap: /,
+    "real WebAssembly.RuntimeError must be recognized as a guest trap"
+  );
+  const invalid=compile(simple,{maxMemory:false});
+  await assert.rejects(
+    runIsolatedCoreGuest(invalid),
+    error=>error instanceof Error &&
+      !/wasm runtime trap: /.test(error.message) &&
+      /memory requires fixed|bounded/.test(error.message),
+    "guest admission failure must not impersonate overflow trap"
+  );
+});
