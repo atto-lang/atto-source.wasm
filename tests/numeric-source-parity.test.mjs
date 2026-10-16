@@ -84,6 +84,21 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     assert.equal(overflowCorpus.status,"requires-executable-negative-tests");
     assert.equal(overflowCorpus.policy,"no-wrapping-i64");
     assert.equal(overflowCorpus.cases.length,4);
+    // Near-boundary companions must return the exact signed-i64 value if
+    // the overflow input was lowered to a runtime trap. An unconditional
+    // trap (or another fault path unrelated to arithmetic) cannot pass.
+    const checkedOperations=Object.freeze({
+      "positive-add-overflow":"sadd",
+      "negative-sub-overflow":"ssub",
+      "positive-multiply-overflow":"smul",
+      "negative-unary-overflow":"ssub"
+    });
+    const safeControls=Object.freeze({
+      "positive-add-overflow":["(9223372036854775807-1)+1",(1n<<63n)-1n],
+      "negative-sub-overflow":["(-9223372036854775808+1)-1",-(1n<<63n)],
+      "positive-multiply-overflow":["3037000499*3037000499",3037000499n*3037000499n],
+      "negative-unary-overflow":["-(-9223372036854775808+1)",(1n<<63n)-1n]
+    });
     const negativeIds=new Set();
     const overflowNegatives=overflowCorpus.cases.map(entry=>{
       assert.match(entry.id,/^[a-z0-9-]{1,60}$/);
@@ -91,6 +106,9 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       negativeIds.add(entry.id);
       assert.equal(entry.expected,"reject-or-runtime-error");
       assert.match(entry.source,/^[0-9()+* -]{1,128}$/);
+      assert.ok(Object.hasOwn(checkedOperations,entry.id) &&
+        Object.hasOwn(safeControls,entry.id),
+        "unreviewed overflow fixture cannot be attributed to an arithmetic operation");
       return "pub fnc main():int{return "+entry.source+";}\n";
     });
     const negatives=[
@@ -127,7 +145,8 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       try {
         compiled=await compileOresToWasm({
           compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
-          environment:"browser",publication:"atomic"
+          environment:"browser",publication:"atomic",
+          checkedOverflowOperation:checkedOperations[overflowCorpus.cases[i].id]
         });
       } catch (error) {
         // Toolchain setup/link failures are NOT arithmetic rejection. Only
@@ -158,9 +177,27 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
           expectedSha256:compiled.wasmSha256,timeoutMs:5000
         }),
         error=>error instanceof Error &&
-          /^guest rejected or failed: wasm runtime trap: /.test(error.message),
-        "overflow source must trap at runtime instead of wrapping i64"
+          /^guest rejected or failed: wasm runtime trap: unreachable\b/.test(error.message),
+        "overflow source must execute its signed-checked arithmetic guard, not a different fault"
       );
+      const [safeExpression,safeValue]=safeControls[overflowCorpus.cases[i].id];
+      const safeSource="pub fnc main():int{return "+safeExpression+";}\n";
+      const safeTarget=join(dir,"overflow-safe-"+i+".wasm");
+      await writeFile(input,safeSource);
+      const safeBuilt=await compileOresToWasm({
+        compiler,compilerSha256:expectedCompilerSha,source:input,
+        output:safeTarget,environment:"browser",publication:"atomic"
+      });
+      const safeReleased=await readAtomicRelease(safeTarget);
+      assert.equal(safeBuilt.compilerSha256,expectedCompilerSha);
+      assert.equal(safeReleased.manifest.producer.sourceSha256,
+        createHash("sha256").update(Buffer.from(safeSource,"utf8")).digest("hex"));
+      const safeResult=await runIsolatedCoreGuest(safeReleased.wasm,{
+        expectedSha256:safeBuilt.wasmSha256,timeoutMs:5000
+      });
+      assert.equal(safeResult.value,safeValue,
+        "near-boundary non-overflow source must produce exact i64, not an unconditional trap");
+      assert.equal(safeResult.admission.hostCapabilities,0);
     }
   } finally {
     await rm(dir,{recursive:true,force:true});
