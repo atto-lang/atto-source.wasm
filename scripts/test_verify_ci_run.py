@@ -27,7 +27,8 @@ class RunContract(unittest.TestCase):
             self.prefix + "/actions/runs/17": {
                 "id": 17, "repository": {"id": self.repo_id},
                 "head_repository": {"id": self.repo_id},
-                "head_sha": self.commit, "status": "completed",
+                "head_sha": self.commit, "path": ".github/workflows/ci.yml",
+                "status": "completed",
                 "conclusion": "success", "run_attempt": 2},
             self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
                 "total_count": 1, "jobs": [
@@ -49,11 +50,14 @@ class RunContract(unittest.TestCase):
                 ]}
         }
 
+    def verify(self, *args, **kwargs):
+        return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
+
     def fetch(self, path):
         return copy.deepcopy(self.values[path])
 
     def validate(self):
-        return module.verify(self.fetch, self.backend, self.commit, self.tree,
+        return self.verify(self.fetch, self.backend, self.commit, self.tree,
                              self.run_id, ["unit"], ["Execute test suite"])
 
     def rejected(self):
@@ -63,6 +67,7 @@ class RunContract(unittest.TestCase):
     def test_success_is_explicitly_not_guest_certification(self):
         self.assertIn("NOT_GUEST", self.validate()["statement"])
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
+        self.assertEqual(self.validate()["workflow_path"], ".github/workflows/ci.yml")
 
     def test_inventory_has_all_five_distinct_pinned_repositories(self):
         self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge"})
@@ -94,6 +99,30 @@ class RunContract(unittest.TestCase):
     def test_wrong_run_head(self):
         self.values[self.prefix+"/actions/runs/17"]["head_sha"] = "c"*40
         self.rejected()
+
+    def test_workflow_path_missing_or_wrong_in_actual_run(self):
+        key = self.prefix + "/actions/runs/17"
+        for value in (None, "", ".github/workflows/other.yml",
+                      ".github/workflows/ci.yaml@main", 7):
+            with self.subTest(value=value):
+                self.setUp()
+                self.values[key]["path"] = value
+                self.rejected()
+
+    def test_trusted_workflow_path_is_mandatory(self):
+        with self.assertRaisesRegex(module.Denied, "trusted workflow path"):
+            module.verify(self.fetch, self.backend, self.commit, self.tree,
+                          self.run_id, ["unit"], ["Execute test suite"])
+
+    def test_untrusted_or_traversing_workflow_paths_denied(self):
+        for value in ("", "ci.yml", ".github/workflows/../ci.yml",
+                      ".github/workflows//ci.yml", ".github/workflows/ci.yml@main",
+                      ".github/workflows/ci.txt", None, False):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(module.Denied, "trusted workflow path"):
+                    module.verify(self.fetch, self.backend, self.commit, self.tree,
+                                  self.run_id, ["unit"], ["Execute test suite"],
+                                  workflow_path=value)
 
     def test_wrong_run_repository(self):
         self.values[self.prefix+"/actions/runs/17"]["repository"]["id"] += 1
@@ -161,10 +190,10 @@ class RunContract(unittest.TestCase):
                      "Start containers", "Stop containers"):
             with self.subTest(name=name):
                 with self.assertRaisesRegex(module.Denied, "runner housekeeping"):
-                    module.verify(self.fetch, self.backend, self.commit,
+                    self.verify(self.fetch, self.backend, self.commit,
                                   self.tree, self.run_id, ["unit"], [name])
                 with self.assertRaisesRegex(module.Denied, "runner housekeeping"):
-                    module.verify(self.fetch, self.backend, self.commit,
+                    self.verify(self.fetch, self.backend, self.commit,
                                   self.tree, self.run_id, ["unit"], [name],
                                   job_step_pairs=[("unit", name)])
 
@@ -244,17 +273,17 @@ class RunContract(unittest.TestCase):
         self.values[page]["jobs"].append(other)
         self.values[page]["total_count"] = 2
         with self.assertRaisesRegex(module.Denied, "explicit job-step"):
-            module.verify(self.fetch, self.backend, self.commit, self.tree,
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
                           self.run_id, ["unit", "native"],
                           ["Execute unit suite", "Execute native suite"])
-        result = module.verify(
+        result = self.verify(
             self.fetch, self.backend, self.commit, self.tree,
             self.run_id, ["unit", "native"],
             ["Execute unit suite", "Execute native suite"],
             [("unit", "Execute unit suite"), ("native", "Execute native suite")])
         self.assertEqual(result["verified_jobs"], 2)
         with self.assertRaisesRegex(module.Denied, "bound CI job"):
-            module.verify(
+            self.verify(
                 self.fetch, self.backend, self.commit, self.tree,
                 self.run_id, ["unit", "native"],
                 ["Execute unit suite", "Execute native suite"],
@@ -277,7 +306,7 @@ class RunContract(unittest.TestCase):
                       [("unit",)], [("unit", 0)], "wrong-type"):
             with self.subTest(pairs=pairs):
                 with self.assertRaises(module.Denied):
-                    module.verify(self.fetch, self.backend, self.commit,
+                    self.verify(self.fetch, self.backend, self.commit,
                                   self.tree, self.run_id, ["unit"],
                                   ["Execute test suite"], job_step_pairs=pairs)
 
@@ -299,11 +328,11 @@ class RunContract(unittest.TestCase):
 
     def test_missing_execution_requirement(self):
         with self.assertRaises(module.Denied):
-            module.verify(self.fetch,self.backend,self.commit,self.tree,self.run_id,[],[])
+            self.verify(self.fetch,self.backend,self.commit,self.tree,self.run_id,[],[])
 
     def test_duplicate_job_names_request(self):
         with self.assertRaises(module.Denied):
-            module.verify(self.fetch,self.backend,self.commit,self.tree,self.run_id,["unit","unit"],["Execute test suite"])
+            self.verify(self.fetch,self.backend,self.commit,self.tree,self.run_id,["unit","unit"],["Execute test suite"])
 
     def test_incomplete_paginated_jobs(self):
         self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["total_count"] = 2
@@ -321,13 +350,13 @@ class RunContract(unittest.TestCase):
 
     def test_boolean_run_id_is_not_integer(self):
         with self.assertRaises(module.Denied):
-            module.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
+            self.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
 
     def test_negative_or_uppercase_sha(self):
         for sha in ("A"*40,"zz"*20,"a"*39):
             with self.subTest(sha=sha):
                 with self.assertRaises(module.Denied):
-                    module.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
+                    self.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
 
 
 if __name__ == "__main__":
