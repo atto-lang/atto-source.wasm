@@ -43,6 +43,44 @@ test("v1 deterministic DAG fanout, named, strict RR and generation reset", () =>
   assert.throws(()=>p.advanceGeneration(8,{aborted:true}));
   assert.throws(()=>p.forwardAll("worker-a"));
 });
+test("reject graph getter reentrancy and snapshot alias mutation", () => {
+  let calls = 0;
+  const getterStage = {
+    ...stages()[0],
+    get id() { calls++; return calls === 1 ? "source" : "forged"; }
+  };
+  assert.throws(() => new ActorPipelineSelector(
+    [getterStage, ...stages().slice(1)], edges()), /own data fields/);
+  assert.equal(calls, 0, "graph must never invoke identity getters");
+
+  let edgeCalls = 0;
+  const getterEdge = {
+    ...edges()[0],
+    get target() { edgeCalls++; return "worker-a"; }
+  };
+  assert.throws(() => new ActorPipelineSelector(
+    stages(), [getterEdge, ...edges().slice(1)]), /own data fields/);
+  assert.equal(edgeCalls, 0, "graph must never invoke edge getters");
+
+  const inherited = Object.create({id:"source"});
+  Object.assign(inherited, {actorType:"Producer", role:"readable",
+    inbound:"", outbound:"Event"});
+  assert.throws(() => new ActorPipelineSelector(
+    [inherited, ...stages().slice(1)], edges()), /own data fields/);
+
+  const ownStages = stages(), ownEdges = edges();
+  const selected = new ActorPipelineSelector(ownStages, ownEdges);
+  ownStages[0].id = "rewritten";
+  ownStages[0].role = "writable";
+  ownEdges[0].source = "forged";
+  ownEdges[0].target = "worker-c";
+  assert.equal(selected.forwardAll("source")[0].target, "worker-a");
+  assert.equal(selected.forwardRoundRobin("source").target, "worker-a");
+  assert.throws(() => selected.forwardAll("rewritten"));
+  assert.ok(Object.isFrozen(selected.forwardAll("source")));
+  assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
+});
+
 test("v1 rejects malformed nominal graph components and cycles", () => {
   const invalid = (fn) => assert.throws(fn);
   invalid(()=>new ActorPipelineSelector([...stages(),stages()[1]],edges()));
