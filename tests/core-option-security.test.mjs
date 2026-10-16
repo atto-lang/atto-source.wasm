@@ -54,6 +54,23 @@ test("valid supported options retain normal snapshot validation path", async () 
     /expected core WebAssembly bytes/);
 });
 
+test("prototype-polluted normal options fail before guest compilation", async () => {
+  const original = Object.getOwnPropertyDescriptor(Object.prototype, "allowNet");
+  Object.defineProperty(Object.prototype, "allowNet", {
+    configurable: true, value: ["api.example.com:443"]
+  });
+  try {
+    assert.throws(() => admitCoreGuest(null, {}), /inherited settings/);
+    await assert.rejects(runIsolatedCoreGuest(null, {}), /inherited settings/);
+    // Null-prototype options remain isolated from Object.prototype.
+    assert.throws(() => admitCoreGuest(null, Object.create(null)),
+      /expected core WebAssembly bytes/);
+  } finally {
+    if (original) Object.defineProperty(Object.prototype, "allowNet", original);
+    else delete Object.prototype.allowNet;
+  }
+});
+
 test("invalid known identity types never invoke caller coercion", async () => {
   let coerced = 0;
   const malicious = {
