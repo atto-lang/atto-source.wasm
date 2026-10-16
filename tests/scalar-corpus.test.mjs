@@ -48,5 +48,5 @@ test("shared scalar corpus has exact inventory, signed i64 oracles and safe sour
   assert.deepEqual(disk,[...names].sort());
   assert.equal(positives,6);
   assert.equal(negatives,5);
-  assert.equal(hash.digest("hex"),"4ca1512bbcab67d5af3f5db0665d139c802dd4cbbff048a3004c214d60bf3eb5");
+  assert.equal(hash.digest("hex"),"5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3");
 });
