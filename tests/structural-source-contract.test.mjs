@@ -35,3 +35,30 @@ test("LLVM-backed Wasm never mislabels unsupported structural source as compiled
     await rm(work,{recursive:true,force:true});
   }
 });
+
+ 
+// A distinct negative gate for the proposed positional width contract.
+// It must be replaced with a positive wasm32 guest test when LLVM lowers it.
+test("Wasm bridge refuses unimplemented structural tuple width and optional-tail code", {
+  skip: !process.env.ORESLANG_LLVM_COMPILER
+}, async () => {
+  const work = await mkdtemp(join(tmpdir(), "ores-wasm-tuple-width-"));
+  try {
+    const source = join(work, "tuple-width.ores");
+    await writeFile(source, `
+      fnc take(structural (int, int, string?) value): int { return 1; }
+      fnc main(): int { return take(...(5, 3, "foo", "start")); }
+    `, {flag: "wx"});
+    const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [source], {
+      encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024
+    });
+    assert.equal(compile.error, undefined, "native compiler must actually run");
+    assert.equal(compile.signal, null, "compiler must diagnose instead of crashing");
+    assert.ok(Number.isInteger(compile.status) && compile.status > 0,
+      "unimplemented tuple-width source must not publish a guest artifact");
+    assert.notEqual(compile.stderr.trim(), "", "rejection requires a diagnostic");
+    assert.equal(compile.stdout.trim(), "", "rejected source must not emit LLVM IR");
+  } finally {
+    await rm(work, {recursive: true, force: true});
+  }
+});
