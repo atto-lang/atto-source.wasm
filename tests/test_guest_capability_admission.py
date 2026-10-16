@@ -47,7 +47,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                     return type("Result", (), {
                         "returncode": 0 if success else 1,
                         "stdout": marker if success else "",
-                        "stderr": "" if success else "unsupported guest capability"
+                        "stderr": "" if success else mod.REJECTION_PREFIXES[backend] + " unsupported guest capability"
                     })()
                 with patch.object(mod.subprocess, "run", side_effect=fake_run):
                     rows = mod.check(backend, "mock-compiler", timeout=3)
@@ -94,7 +94,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             accepted = len(captured) == 1
             return type("Result", (), {"returncode": 0 if accepted else 1,
                         "stdout": "verified IR" if accepted else "",
-                        "stderr": "unsupported" if not accepted else ""})()
+                        "stderr": mod.REJECTION_PREFIXES["llvm"] + " unsupported" if not accepted else ""})()
         with patch.dict(os.environ, {
             "GITHUB_TOKEN": "should-not-leak",
             "AWS_SECRET_ACCESS_KEY": "should-not-leak",
@@ -109,6 +109,31 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             self.assertNotIn("AWS_SECRET_ACCESS_KEY", env)
             self.assertEqual(env.get("PATH"), "/bin")
             self.assertEqual(env.get("DOTNET_ROOT"), "/opt/dotnet")
+
+    def test_usage_and_build_failure_are_not_capability_rejection(self):
+        for backend in ("llvm", "forge", "net"):
+            for status, diagnostic in (
+                (2, "usage: wrong invocation"),
+                (1, "error: SDK or linker unavailable"),
+                (1, ""),
+            ):
+                with self.subTest(backend=backend, status=status,
+                                  diagnostic=diagnostic):
+                    attempts = []
+                    def fake_run(argv, **kwargs):
+                        attempts.append(argv)
+                        if len(attempts) == 1:
+                            output = ("Oreslang subset syntax and typed OresIR: OK"
+                                      if backend == "net" else "verified IR")
+                            return type("Result", (), {
+                                "returncode": 0, "stdout": output, "stderr": ""})()
+                        return type("Result", (), {
+                            "returncode": status,
+                            "stdout": "", "stderr": diagnostic})()
+                    with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                        with self.assertRaisesRegex(RuntimeError, "ambient_filesystem"):
+                            mod.check(backend, "mock-compiler")
+                    self.assertEqual(len(attempts), 2)
 
     def test_missing_compiler_is_a_hard_failure(self):
         with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError("missing")):
