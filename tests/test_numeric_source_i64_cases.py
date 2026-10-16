@@ -10,6 +10,8 @@ import unittest
 
 FILE = Path(__file__).resolve().parents[1] / "contracts/v1/numeric-parity/source-i64-cases.json"
 BLOB = "bbc319c19ecd007109d33592e210091eb267e5a2"
+OVERFLOW_FILE = FILE.with_name("source-i64-overflow-cases.json")
+OVERFLOW_BLOB = "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a"
 LO = -(1 << 63)
 HI = (1 << 63) - 1
 
@@ -56,6 +58,25 @@ class PortableI64ReferenceTest(unittest.TestCase):
                                  int(case["expected"]))
                 self.assertTrue(LO <= int(case["expected"]) <= HI)
 
+
+    def test_shared_overflow_corpus_is_pinned_and_rejected_by_reference(self):
+        raw = OVERFLOW_FILE.read_bytes()
+        digest = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") +
+                              bytes((0,)) + raw).hexdigest()
+        self.assertEqual(digest, OVERFLOW_BLOB)
+        corpus = json.loads(raw)
+        self.assertEqual(corpus["schema_version"], "1.0.0")
+        self.assertEqual(corpus["status"], "requires-executable-negative-tests")
+        self.assertEqual(corpus["policy"], "no-wrapping-i64")
+        self.assertEqual(len(corpus["cases"]), 4)
+        identifiers = set()
+        for case in corpus["cases"]:
+            with self.subTest(case=case["id"]):
+                self.assertNotIn(case["id"], identifiers)
+                identifiers.add(case["id"])
+                self.assertEqual(case["expected"], "reject-or-runtime-error")
+                with self.assertRaises(ValueError):
+                    interpret(ast.parse(case["source"], mode="eval").body)
 
     def test_i64_minimum_has_no_positive_out_of_range_intermediate(self):
         for expression, expected in (
