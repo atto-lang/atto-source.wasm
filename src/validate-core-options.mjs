@@ -32,6 +32,8 @@ export function validateCoreOptions(options, allowedNames) {
     if (typeof key !== 'string' || !allowedNames.includes(key))
       throw new TypeError('unsupported zero-capability guest option: ' + String(key));
     const descriptor = descriptors[key];
+    if (descriptor.enumerable !== true)
+      throw new TypeError('non-enumerable zero-capability guest options are forbidden: ' + key);
     if (!Object.hasOwn(descriptor, 'value'))
       throw new TypeError('zero-capability guest option accessors are forbidden: ' + key);
     approved[key] = descriptor.value;
