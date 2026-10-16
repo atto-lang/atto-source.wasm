@@ -121,6 +121,35 @@ This is exercised by the WASM repository's existing `npm test` workflow;
 actual GitHub runner evidence is still required. Neither backend can be
 certified by the other three bootstraps' parser rejection results.
 
+### Hardened regression and workflow integrity (October 16, 2026)
+
+The shared guest compiler admission harness requires **normal exit code 1
+plus a real backend diagnostic** (`oreslang-llvmc:`, `oresforge:` or
+`oresnet:`) before treating rejected source as evidence. A command-line
+usage exit, build/SDK/linker failure, crash, missing compiler, or other
+non-compiler failure cannot produce a successful denial verdict. LLVM and
+Forge additionally require **zero partial IR output** for rejected programs.
+
+The nine source fixtures are SHA-256 pinned, category names and case schemas
+are fixed, and the compiler subprocess receives only narrowly allowlisted
+toolchain environment variables (no inherited GitHub tokens or cloud secrets).
+These controls are backed by adversarial unit tests.
+
+The source-local CI workflow is pinned by exact SHA-256 to reject commented
+out tests, commented validation commands, unexpected trigger additions, or
+weakened checkout/token settings. Its own checkout inspection explicitly
+recognizes the reviewed *named* checkout step, with a separate `uses:` line.
+This fixes an earlier regex that incorrectly required a `- uses:` line and
+would have rejected the valid workflow on every backend.
+
+**Execution evidence:** On October 16, 2026, all **16 local Python regression
+test methods** passed using materialized files checked against the exact Git
+blob IDs committed to the five coordinated PR branches. These are mocked
+compiler/policy tests only; native LLVM/Forge/.NET compiler execution, Java
+permissions JUnit, and the WASM worker's real runtime tests remain to be
+verified by authorized runners. No source export to another organization
+was performed.
+
 ## Security review and merge gate
 
 Require security-owner review, branch protection with mandatory code-owner
