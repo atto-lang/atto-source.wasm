@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {ActorPipelineSelector, routeKeySlot} from "../src/actor-pipeline-selector.mjs";
 
 const stages = () => [
@@ -10,6 +11,12 @@ const stages = () => [
 const edges = () => ["worker-a","worker-b","worker-c"].map(target => (
   {source:"source", target, payload:"Event"}));
 test("v1 exact unsigned FNV-1a 64-bit slot vectors", () => {
+  const contract = JSON.parse(readFileSync(new URL(
+    "../contracts/v1/actor-pipeline-routing-v1.json", import.meta.url), "utf8"));
+  assert.equal(contract.schema, "oreslang.actor-pipeline-routing.v1");
+  for (const vector of contract.operations.by_key)
+    assert.equal(["worker-a","worker-b","worker-c"][routeKeySlot(vector.key,3)],
+      vector.target, vector.key);
   for (const [key, slot] of [["customer-7",0],["alpha",0],["beta",2],["🌍",0],["",2]])
     assert.equal(routeKeySlot(key, 3), slot, key);
   assert.throws(() => routeKeySlot("\ud800",3));
