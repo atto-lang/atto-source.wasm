@@ -164,8 +164,9 @@ def run_compiler_process(argv, *, cwd, timeout, env):
     POSIX child processes share a fresh process group for cancellation.
     """
     process = subprocess.Popen(
-        argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, start_new_session=(os.name == "posix"))
+        argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, close_fds=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=(os.name == "posix"))
     streams = [bytearray(), bytearray()]
     overflow = threading.Event()
     read_errors = []
