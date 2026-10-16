@@ -13,11 +13,12 @@ private repositories with pinned numeric repository IDs. It independently
 fetches the repository, commit, run and *all* Actions jobs through GitHub's
 read-only API. It rejects nonprivate/mismatched/archived identities, wrong
 commit/tree, foreign run/head repository, wrong run SHA, uncompleted/failed
-runs, missing/failed/skipped jobs, zero-step jobs, missing expected jobs or
-expected executable steps, duplicate jobs and truncated job pagination.
+runs, missing/failed/skipped jobs, zero-step jobs, missing or stale run-attempt IDs, missing expected jobs or
+expected executable steps, ambiguous duplicate job names and truncated job pagination.
 Housekeeping-only steps are not proof of meaningful execution. A required
 step must belong to a named **required job**; an unrelated job cannot satisfy
-it.
+it. With multiple named jobs, explicit per-job step bindings are mandatory: a
+passing step in job A may not stand in for the required test step in job B.
 
 This is a **run execution and Git provenance check**, not proof that all
 expected tests executed, or a guest-runtime feature-parity certification.
@@ -40,6 +41,13 @@ GH_TOKEN="$READ_ONLY_GITHUB_TOKEN" python3 scripts/verify_ci_run.py \
   --backend llvm --commit "$EXACT_RUN_HEAD_SHA" --tree "$EXACT_RUN_HEAD_TREE" \
   --run-id "$RUN_ID" --require-job 'test' --require-step 'Run CTest'
 ```
+
+For multi-job validation, enumerate each required job, each required step, and
+bind the exact combinations using repeated `--require-job-step 'JOB::STEP'`
+arguments. For example, `--require-job 'unit' --require-job 'native'
+--require-step 'Run pytest' --require-step 'Run CTest'
+--require-job-step 'unit::Run pytest' --require-job-step 'native::Run CTest'`.
+Missing, duplicated, or cross-job substituted bindings are rejected.
 
 Supported `--backend`: `java`, `llvm`, `net`, `wasm`, `forge`. Run it inside a
 trusted local environment or a **reviewed** source-scoped CI workflow with a
