@@ -54,6 +54,13 @@ new admission; accepted mail and terminal cleanup obey supervisor policy;
 DONE follows complete cleanup. No actor carrier may block on a host
 retirement gate.
 
+**Keyed route validation order:** validate the active graph generation and
+caller-authorized downstream source **before** inspecting or hashing the
+user-supplied UTF-8 key. Unknown sources and retired generations must fail
+with their routing/retirement diagnostic even if the key is malformed.
+The scheduler's actor identity authorization remains a separate, stronger
+precondition before any selector operation.
+
 ## Fixed cross-backend selector vectors
 
 Three downstream edges, in publication order: `worker-a`, `worker-b`,
