@@ -193,5 +193,64 @@ class BackendPrivateCIContractTests(unittest.TestCase):
             policy.validate_workflow(modified)
 
 
+    def test_duplicate_manifest_keys_rejected(self):
+        original = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(original.replace(
+            '"schema_version": 1,', '"schema_version": 1, "schema_version": 1,', 1),
+            encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicate security JSON key"):
+            policy.verify("java")
+
+    def test_nested_duplicate_manifest_keys_rejected(self):
+        original = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(original.replace(
+            '"default_deny": true,', '"default_deny": false, "default_deny": true,', 1),
+            encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicate security JSON key"):
+            policy.verify("java")
+
+    def test_manifest_schema_version_cannot_be_boolean(self):
+        original = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(original.replace(
+            '"schema_version": 1,', '"schema_version": true,', 1),
+            encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "schema drift"):
+            policy.verify("java")
+
+    def test_manifest_rejects_nonstandard_json_numbers(self):
+        original = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(original.replace(
+            '"schema_version": 1,', '"schema_version": NaN,', 1),
+            encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "nonstandard security JSON"):
+            policy.verify("java")
+
+    def test_json_loader_bounds_input(self):
+        with self.assertRaisesRegex(ValueError, "size limit"):
+            policy.strict_json_document(self.manifest, limit=8)
+
+    def test_duplicate_github_event_keys_rejected(self):
+        event = self.manifest.parent / "event.json"
+        event.write_text('{"repository":{"id":1400792274,"id":1400792274, '
+                         '"full_name":"ores-truffle-oreslang/oreslang-source.java",'
+                         '"private":true}}', encoding="utf-8")
+        with patch.dict(os.environ, {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": "ores-truffle-oreslang/oreslang-source.java",
+            "GITHUB_REPOSITORY_ID": "1400792274",
+            "GITHUB_EVENT_PATH": str(event),
+        }):
+            with self.assertRaisesRegex(ValueError, "duplicate security JSON key"):
+                policy.verify("java")
+
+
+    def test_numeric_values_cannot_impersonate_boolean_policy(self):
+        original = self.manifest.read_text(encoding="utf-8")
+        self.manifest.write_text(original.replace(
+            '"default_deny": true,', '"default_deny": 1,', 1), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "invariants changed"):
+            policy.verify("java")
+
+
 if __name__ == "__main__":
     unittest.main()
