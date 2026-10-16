@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import {admitCoreGuest, compileAdmittedCoreGuest} from "../src/guest-admission.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
@@ -94,6 +95,15 @@ test("revoked proxies are rejected without their traps", async () => {
   revoke();
   assert.throws(() => admitCoreGuest(null, proxy), /option proxies are forbidden/);
   await assert.rejects(runIsolatedCoreGuest(null, proxy),
+    /option proxies are forbidden/);
+});
+
+test("cross-realm proxy options cannot reach malicious traps", async () => {
+  const foreignProxy = vm.runInNewContext(
+    'new Proxy({entry:"main"}, { getPrototypeOf() { throw Error("foreign trap executed"); } })'
+  );
+  assert.throws(() => admitCoreGuest(null, foreignProxy), /option proxies are forbidden/);
+  await assert.rejects(runIsolatedCoreGuest(null, foreignProxy),
     /option proxies are forbidden/);
 });
 
