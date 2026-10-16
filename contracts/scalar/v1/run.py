@@ -141,6 +141,8 @@ def main():
     opts = ap.parse_args()
     if opts.revision and not re.fullmatch(r"[0-9a-f]{40}", opts.revision):
         ap.error("--revision must be a full lowercase Git commit SHA")
+    if opts.report and not opts.revision:
+        ap.error("--report requires --revision; unpinned execution evidence is not publishable")
     if not (1 <= opts.timeout <= 300):
         ap.error("--timeout must be 1..300 seconds")
     cmd = shlex.split(opts.command)
