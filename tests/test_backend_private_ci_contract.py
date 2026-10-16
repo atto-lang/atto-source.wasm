@@ -77,8 +77,25 @@ class BackendPrivateCIContractTests(unittest.TestCase):
         ]:
             with self.subTest(rewrite=rewrite[:90]):
                 self.workflow.write_text(rewrite, encoding="utf-8")
-                with self.assertRaisesRegex(ValueError, "(token|permissions|checkout|event|actually execute)"):
+                with self.assertRaisesRegex(ValueError, "(integrity|token|permissions|checkout|event|actually execute)"):
                     policy.verify("net")
+
+    def test_commented_out_or_removed_execution_cannot_appear_green(self):
+        baseline = self.workflow.read_text(encoding="utf-8")
+        for obsolete in [
+            baseline.replace(
+                '          python3 scripts/check_backend_private_ci_contract.py --backend',
+                '          # python3 scripts/check_backend_private_ci_contract.py --backend'),
+            baseline.replace(
+                '        run: python3 -m unittest discover -s tests -p test_guest_capability_admission.py -v',
+                '        run: echo mocked-pass'),
+            baseline.replace('  contents: read', '  contents: read\n# contents: write'),
+            baseline.replace('  pull_request:', '  pull_request:\n  schedule:'),
+        ]:
+            with self.subTest(workflow=obsolete[-90:]):
+                self.workflow.write_text(obsolete, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "workflow integrity"):
+                    policy.verify("java")
 
     def test_github_actions_requires_pinned_private_repo_identity(self):
         with patch.dict(os.environ, {
