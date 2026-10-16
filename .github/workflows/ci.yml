@@ -22,5 +22,7 @@ jobs:
           node-version: '22'
       - name: Install wasm32 toolchain
         run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Adversarial shared scalar runner self-tests
+        run: python3 contracts/scalar/v1/selftest.py
       - name: Test guest admission and compiler bridge
         run: npm test
