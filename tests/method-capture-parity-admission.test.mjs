@@ -32,7 +32,17 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
     "fnc main():int {val int x=1; val f=lex[x] || -> x; return 1;}",
     "fnc main():int {val int x=1; val f=nlex[x] || -> x; return 1;}",
     "fnc main():int {val int x=1; val f=lex[self] || -> 1; return 1;}",
-    "fnc main():int {val int x=1; val f=nlex[self] critical |state| -> {state.count=1;};return 1;}"
+    "fnc main():int {val int x=1; val f=nlex[self] critical |state| -> {state.count=1;};return 1;}",
+    "fnc main():int {val int x=1; val f=lex[x,x] || -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=lex[missing] || -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=lex[] || -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=nlex[] || -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=nlex[self] || -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=lex[x] |x| -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=|y| -> x; return 1;}",
+    "fnc main():int {val int x=1; val f=lex[x] || -> nlex || -> x; return 1;}",
+    "define class Foo as fnc read(mut self, int x): int {return x;} end fnc main():int{return 1;}",
+    "define actor Foo as receive(self, int x): void {return;} end fnc main():int{return 1;}"
   ];
   const dir = mkdtempSync(join(tmpdir(),"ores-method-capture-wasm-"));
   try {
@@ -48,6 +58,11 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
       });
       assert.equal(assertNativeFrontendRejection(result),true,
         `unsupported source was not rejected: ${i}`);
+      // A compiler must remain byte-identical after every negative case.
+      // The next case must never execute a mutated/replaced binary.
+      assert.equal(createHash("sha256").update(readFileSync(pinned)).digest("hex"),
+        process.env.ORESLANG_LLVM_COMPILER_SHA256,
+        `pinned compiler mutated during rejection probe ${i}`);
     }
   } finally {
     rmSync(dir,{recursive:true,force:true});
