@@ -35,6 +35,35 @@ test("scalar guest really compiles to Wasm and runs in a disposable worker", asy
   assert.equal(result.admission.hostCapabilities, 0);
   assert.match(result.admission.sha256, /^[a-f0-9]{64}$/);
 });
+test("zero-capability profile rejects unsupported scoped I/O options instead of ignoring them", async () => {
+  const wasm = compile(simple);
+  for (const extra of [
+    {permissions: {net: ["api.example.com:443"]}},
+    {allowNet: ["api.example.com:443"]},
+    {allowRead: ["/workspace"]},
+    {allowRun: ["git"]},
+    {allowEnv: ["API_KEY"]},
+    {allowFfi: true},
+    {wasi: {inheritEnv: true}},
+    {imports: {env: {dangerous: () => 42}}},
+    {allowImport: ["/workspace"]}
+  ]) {
+    assert.throws(
+      () => admitCoreGuest(wasm, extra),
+      /unsupported zero-capability guest option/,
+      "host authority flags must not be silently ignored"
+    );
+    await assert.rejects(
+      runIsolatedCoreGuest(wasm, extra),
+      /unsupported zero-capability guest option/,
+      "runtime must reject unsupported host authority flags"
+    );
+  }
+  const result = await runIsolatedCoreGuest(wasm, {entry: "main", timeoutMs: 1000});
+  assert.equal(result.value, 42n, "documented zero-import scalar mode must remain usable");
+  assert.equal(result.admission.hostCapabilities, 0);
+});
+
 test("admission rejects incorrect expected content hash", async () => {
   const wasm = compile(simple);
   assert.throws(() => admitCoreGuest(wasm, {expectedSha256: "0".repeat(64)}), /SHA-256 mismatch/);
