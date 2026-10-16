@@ -15,6 +15,18 @@
 9. The standalone CLI must use the project's approved `flags-2-env` flag parsing contract where integrated; no independent ad hoc parser should be considered permission parity.
 10. An unsupported implementation slice MUST fail closed; it cannot report `allow` based on a mock evaluator or a contract-only test.
 
+## Selected TCP peer identity
+
+An unspecified IPv4 address (`0.0.0.0`) is a **bind** sentinel, not a safe
+outbound peer identity. All trusted host socket adapters MUST reject it as the
+requested numeric destination or DNS-selected numeric address, even under an
+explicit wildcard `net` grant. On some Linux systems an outbound connect to
+`0.0.0.0` can reach `127.0.0.1`, circumventing a loopback-specific deny if
+policy checking assumes the unspecified address is the actual peer. Check
+this condition before socket creation; preserve valid canonical IPv4 peers.
+Unsupported guest socket surfaces (notably WASM's current zero-import slice)
+continue to deny network access rather than claim host-I/O parity.
+
 ## Canonical test-vector integrity
 
 The checked-in reference data is pinned to SHA-256
