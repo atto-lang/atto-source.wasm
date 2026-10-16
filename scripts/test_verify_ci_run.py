@@ -141,6 +141,59 @@ class RunContract(unittest.TestCase):
         self.values[p]["total_count"] = 2
         self.rejected()
 
+    def test_missing_job_attempt_is_not_execution_evidence(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        del self.values[page]["jobs"][0]["run_attempt"]
+        self.rejected()
+
+    def test_multi_job_requires_explicit_step_bindings(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        original = self.values[page]["jobs"][0]
+        other = copy.deepcopy(original)
+        other["id"] = 32
+        other["name"] = "native"
+        original["steps"][1]["name"] = "Execute unit suite"
+        other["steps"][1]["name"] = "Execute native suite"
+        self.values[page]["jobs"].append(other)
+        self.values[page]["total_count"] = 2
+        with self.assertRaisesRegex(module.Denied, "explicit job-step"):
+            module.verify(self.fetch, self.backend, self.commit, self.tree,
+                          self.run_id, ["unit", "native"],
+                          ["Execute unit suite", "Execute native suite"])
+        result = module.verify(
+            self.fetch, self.backend, self.commit, self.tree,
+            self.run_id, ["unit", "native"],
+            ["Execute unit suite", "Execute native suite"],
+            [("unit", "Execute unit suite"), ("native", "Execute native suite")])
+        self.assertEqual(result["verified_jobs"], 2)
+        with self.assertRaisesRegex(module.Denied, "bound CI job"):
+            module.verify(
+                self.fetch, self.backend, self.commit, self.tree,
+                self.run_id, ["unit", "native"],
+                ["Execute unit suite", "Execute native suite"],
+                [("unit", "Execute native suite"),
+                 ("native", "Execute unit suite")])
+
+    def test_duplicate_job_names_are_ambiguous(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        other = copy.deepcopy(self.values[page]["jobs"][0])
+        other["id"] = 32
+        self.values[page]["jobs"].append(other)
+        self.values[page]["total_count"] = 2
+        self.rejected()
+
+    def test_malformed_job_step_bindings_rejected(self):
+        for pairs in ([ ("unit", "Other step") ],
+                      [ ("missing-job", "Execute test suite") ],
+                      [ ("unit", "Execute test suite"),
+                        ("unit", "Execute test suite") ],
+                      [("unit",)], [("unit", 0)], "wrong-type"):
+            with self.subTest(pairs=pairs):
+                with self.assertRaises(module.Denied):
+                    module.verify(self.fetch, self.backend, self.commit,
+                                  self.tree, self.run_id, ["unit"],
+                                  ["Execute test suite"], job_step_pairs=pairs)
+
     def test_success_for_all_five_pinned_backend_ids(self):
         for backend, (repo, numeric_id) in module.REPOS.items():
             with self.subTest(backend=backend):
