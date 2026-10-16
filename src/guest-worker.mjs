@@ -19,5 +19,13 @@ try {
   if (typeof result !== "bigint") throw Error("guest entry did not return i64");
   parentPort.postMessage({ok: true, result, admission});
 } catch (error) {
-  parentPort.postMessage({ok: false, error: String(error?.message || error).slice(0, 500)});
+  // Distinguish a verified module's *execution* trap from admission,
+  // compilation, quota or host errors. Numerical parity must never count
+  // a failed validation, worker crash or deadline as overflow semantics.
+  const trap = error instanceof WebAssembly.RuntimeError;
+  const message = String(error?.message || error).slice(0, 450);
+  parentPort.postMessage({
+    ok: false,
+    error: (trap ? "wasm runtime trap: " : "") + message
+  });
 }
