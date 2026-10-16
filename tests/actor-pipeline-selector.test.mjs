@@ -81,6 +81,32 @@ test("reject graph getter reentrancy and snapshot alias mutation", () => {
   assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
 });
 
+test("v1 maximum 1024 actors and 4096 connections stay bounded", () => {
+  const count = 1024;
+  const chain = Array.from({length:count}, (_, i) => ({
+    id:"node-"+i, actorType:i===0?"Ingress":i===count-1?"Sink":"Worker",
+    role:i===0?"readable":i===count-1?"writable":"transform",
+    inbound:i===0?"":"Event",outbound:i===count-1?"":"Event"
+  }));
+  const links = Array.from({length:count-1}, (_, i) => ({
+    source:"node-"+i,target:"node-"+(i+1),payload:"Event"
+  }));
+  outer: for (let i=0; i<count; i++) {
+    for (let j=i+2; j<count; j++) {
+      links.push({source:"node-"+i,target:"node-"+j,payload:"Event"});
+      if (links.length===4096) break outer;
+    }
+  }
+  assert.equal(links.length,4096);
+  const p = new ActorPipelineSelector(chain,links);
+  assert.equal(p.forwardAll("node-0").length,1023);
+  assert.equal(p.forwardTo("node-0","node-1023").target,"node-1023");
+  assert.throws(()=>new ActorPipelineSelector(chain,
+    [...links,{source:"node-1",target:"node-1023",payload:"Event"}]));
+  assert.throws(()=>new ActorPipelineSelector([...chain,
+    {id:"over-limit",actorType:"Sink",role:"writable",inbound:"Event",outbound:""}],links));
+});
+
 test("terminal selector retirement never reopens by generation", () => {
   const plan = new ActorPipelineSelector(stages(), edges(), 9);
   assert.equal(plan.forwardAll("source").length, 3);
