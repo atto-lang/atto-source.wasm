@@ -14,7 +14,8 @@ fetches the repository, commit, run and *all* Actions jobs through GitHub's
 read-only API. It rejects nonprivate/mismatched/archived identities, wrong
 commit/tree, foreign run/head repository, wrong run SHA, uncompleted/failed
 runs, missing/failed/skipped jobs, zero-step jobs, missing or stale run-attempt IDs, missing expected jobs or
-expected executable steps, ambiguous duplicate job names and truncated job pagination.
+expected executable steps, ambiguous duplicate job names, missing/zero/noninteger
+runner IDs, blank runner names and truncated job pagination.
 Housekeeping-only steps are not proof of meaningful execution. A required
 step must belong to a named **required job**; an unrelated job cannot satisfy
 it. With multiple named jobs, explicit per-job step bindings are mandatory: a
@@ -65,6 +66,9 @@ nonzero and a `CI_RUN_EVIDENCE_REJECTED` explanation without printing tokens.
 * Historical successful runs prove neither current Actions budget nor
   suitability to receive private source.
 * Zero-step `failure` or `success` is never evidence of tests executing.
+  Every completed-success job must also report a positive numeric `runner_id`
+  and a nonempty `runner_name`. This checks actual allocation metadata,
+  not that the requested compiler binary ran or that the runner is trusted.
 * Run SHA/tree and required job/step names must be selected from independently
   reviewed release policy; untrusted candidates cannot choose easy smoke jobs.
 * For backend parity, require the **same semantic test vector IDs and behavior**
