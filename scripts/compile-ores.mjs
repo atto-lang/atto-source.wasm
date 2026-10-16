@@ -12,6 +12,7 @@ import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
+import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -108,7 +109,7 @@ function run(command,args,{input}={}){
  if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",checkedOverflowOperation}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -123,6 +124,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
+ if(checkedOverflowOperation!==undefined&&!["sadd","ssub","smul"].includes(checkedOverflowOperation))
+  throw Error("invalid checked overflow witness operation");
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases",published+".publication.lock"]){
   if(protectedInputs.has(destination))
    throw Error("output or artifact metadata path overlaps a compiler/source input");
@@ -189,6 +192,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
+ // A fixture claiming runtime checked-overflow semantics must carry an
+ // explicit signed-i64 intrinsic, overflow-flag branch and trap in the
+ // EXACT source compiler IR that this function hands to the Wasm linker.
+ // Fail before publishing anything if the witness is missing.
+ if(checkedOverflowOperation!==undefined)assertCheckedOverflowIr(ir,checkedOverflowOperation);
  // Require a genuine LLVM triple declaration, not a comment or string.
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
