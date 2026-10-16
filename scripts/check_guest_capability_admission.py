@@ -25,6 +25,21 @@ COMMANDS = {
 }
 DEFAULTS = {"llvm": "build/oreslang-llvmc", "forge": "build/oresforge",
             "net": "dotnet"}
+# Deliberately avoid inheriting Actions tokens, CI secrets, SSH agents,
+# injected compilers, or private cloud credentials into tested subprocesses.
+TOOLCHAIN_ENV_KEYS = frozenset({
+    "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "COMSPEC",
+    "TEMP", "TMP", "TMPDIR", "DOTNET_ROOT", "DOTNET_CLI_HOME",
+    "DOTNET_NOLOGO", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "NUGET_PACKAGES",
+    "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL",
+})
+
+
+def sanitized_toolchain_environment():
+    return {key: value for key, value in os.environ.items()
+            if key.upper() in TOOLCHAIN_ENV_KEYS}
+
+
 CASES = ("scalar_arithmetic_14", "ambient_filesystem", "ambient_network",
          "ambient_process", "ambient_host_interop", "unsupported_actor",
          "unsupported_async", "unsupported_channel",
@@ -90,7 +105,8 @@ def check(backend, tool=None, timeout=60):
             # Never run arbitrary guest programs to test unsupported syntax.
             try:
                 done = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True,
-                                      timeout=timeout, check=False)
+                                      timeout=timeout, check=False,
+                                      env=sanitized_toolchain_environment())
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
             # Parser rejection is not the same as process termination or
