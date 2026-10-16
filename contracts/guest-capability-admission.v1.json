@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "contract": "oreslang-guest-admission-bootstrap-v1",
+  "proof_scope": "source-compiler-acceptance-or-rejection-only",
+  "runnable_backends": [
+    "llvm",
+    "net",
+    "forge"
+  ],
+  "unimplemented_adapters": [
+    "java",
+    "wasm"
+  ],
+  "cases": [
+    {
+      "id": "scalar_arithmetic_14",
+      "category": "scalar",
+      "source": "define pub fnc main() : int {\n    return 2 + 3 * 4;\n}\n",
+      "bootstrap": "accept",
+      "expected_output": "14"
+    },
+    {
+      "id": "ambient_filesystem",
+      "category": "filesystem",
+      "source": "define pub fnc main() : int {\n    return fs.read_file(\"/etc/passwd\");\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "ambient_network",
+      "category": "network",
+      "source": "define pub fnc main() : int {\n    return net.connect(\"127.0.0.1\", 80);\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "ambient_process",
+      "category": "process",
+      "source": "define pub fnc main() : int {\n    return process.exec(\"sh\");\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "ambient_host_interop",
+      "category": "ffi",
+      "source": "define pub fnc main() : int {\n    return java.lang.Runtime.getRuntime();\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "unsupported_actor",
+      "category": "actors",
+      "source": "define actor Worker as\nend\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "unsupported_async",
+      "category": "async",
+      "source": "define pub async fnc main() : int {\n    return await work();\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "unsupported_channel",
+      "category": "channels",
+      "source": "define pub fnc main() : int {\n    return readch(inbox);\n}\n",
+      "bootstrap": "reject"
+    },
+    {
+      "id": "unsupported_wire_serialization",
+      "category": "serialization",
+      "source": "define pub fnc main() : int {\n    return protobuf.encode(42);\n}\n",
+      "bootstrap": "reject"
+    }
+  ]
+}
