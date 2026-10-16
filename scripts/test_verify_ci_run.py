@@ -34,10 +34,18 @@ class RunContract(unittest.TestCase):
                     {"id": 31, "name": "unit", "run_id": 17, "run_attempt": 2,
                      "status": "completed", "conclusion": "success",
                      "runner_id": 1000002089, "runner_name": "GitHub Actions 1",
+                     "started_at": "2026-10-16T10:00:00Z",
+                     "completed_at": "2026-10-16T10:03:00Z",
                      "steps": [
-                         {"name": "Set up job", "status": "completed", "conclusion": "success"},
-                         {"name": "Execute test suite", "status": "completed", "conclusion": "success"},
-                         {"name": "Complete job", "status": "completed", "conclusion": "success"}]}
+                         {"name": "Set up job", "status": "completed", "conclusion": "success",
+                          "number": 1, "started_at": "2026-10-16T10:00:00Z",
+                          "completed_at": "2026-10-16T10:00:59Z"},
+                         {"name": "Execute test suite", "status": "completed", "conclusion": "success",
+                          "number": 2, "started_at": "2026-10-16T10:01:00Z",
+                          "completed_at": "2026-10-16T10:01:59Z"},
+                         {"name": "Complete job", "status": "completed", "conclusion": "success",
+                          "number": 3, "started_at": "2026-10-16T10:02:00Z",
+                          "completed_at": "2026-10-16T10:03:00Z"}]}
                 ]}
         }
 
@@ -162,6 +170,40 @@ class RunContract(unittest.TestCase):
 
     def test_actual_executable_proof_still_passes(self):
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
+
+    def test_job_execution_timestamps_required(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        original = copy.deepcopy(job)
+        for field, value in (
+                ("started_at", None),
+                ("completed_at", "not-a-time"),
+                ("completed_at", "2026-10-16T09:59:59Z")):
+            with self.subTest(field=field, value=value):
+                job.clear()
+                job.update(copy.deepcopy(original))
+                job[field] = value
+                self.rejected()
+
+    def test_step_execution_numbers_and_timestamps_required(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        original = copy.deepcopy(job)
+        def mutate(field, value):
+            job.clear()
+            job.update(copy.deepcopy(original))
+            job["steps"][1][field] = value
+        for field, value in (
+                ("number", 1),
+                ("number", 0),
+                ("number", True),
+                ("started_at", None),
+                ("started_at", "2026-10-16T09:59:59Z"),
+                ("completed_at", "2026-10-16T10:00:00Z"),
+                ("completed_at", "2026-10-16T10:04:00Z")):
+            with self.subTest(field=field, value=value):
+                mutate(field, value)
+                self.rejected()
 
     def test_wrong_attempt(self):
         self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["run_attempt"] = 1
