@@ -250,3 +250,43 @@ region planner and owned CPU regions plus LLVM exclusive write loans;
 `nb` actor-safe, cancellable and bounded without conflating Future and
 Channel; (5) implement real GPU device allocation/transfer/fence dispatch,
 with hardware evidence and no silent CPU fallback.
+
+## 2026-10-16 executor and ownership race hardening
+
+**Current source PR status:** these feature branches remain draft. Java,
+LLVM, .NET and Forge now atomically claim a submitted one-shot CPU graph
+task before evaluation. Duplicate executor dispatch cannot run the same
+task twice. LLVM, Forge and .NET also revoke a queued-but-unstarted task
+when the external executor throws an admission error after enqueue.
+
+Java `ExecutionGraphV1.executeCpu()` now refuses synchronous execution
+on an active actor carrier. Its asynchronously supplied CPU work also
+checks the carrier context, detecting unsafe inline executors instead
+of silently pinning an actor's execution lane.
+
+.NET `Plan` now deep-freezes every caller-owned operand list before
+typed admission; a shallow `Node[]` clone did not establish ownership
+or prevent post-admission edge mutation. The verification harness now
+contains a regression for mutable operand aliases, two-thread duplicate
+dispatch and late executor rejection.
+
+LLVM and Forge conformance tests include concurrent duplicate dispatch
+and rejection-after-enqueue regressions alongside typed IR validation.
+The local **reconstructed native header** passed GCC Debug/Release and
+Clang ASan/UBSan for 83 directed assertions, 20,000 malformed IR
+rejections, 1,024 duplicate-dispatch pairs and late executor rejection.
+This local reproduction is **not** the exact committed branch head;
+do not report it as complete CMake/compiler parity.
+
+Wasm remains a capability-gated *delegate* of the real LLVM frontend.
+It has no independent source-level graph evaluator, GPU driver or async
+device stream. The host Future/Channel abstractions also remain distinct.
+
+**Release/security gate:** Current source-repository Actions jobs failed
+before a runner was assigned (`runner_id=null`, `steps=null`).
+There is no verified full exact-head Java Maven, LLVM/Forge CTest,
+.NET Native AOT, LLVM-to-Wasm or physical GPU CI pass on these new
+commits. The private-source export allowlist on Java `main` remains
+empty, `main` is reported unprotected, and the open P0 public-carrier
+exposure incident must be contained. **Do not transfer more private
+source to another organization solely to obtain Actions minutes.**
