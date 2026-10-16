@@ -71,7 +71,7 @@ def verify(backend):
         raise ValueError("token must be explicitly read-only")
     if len(re.findall(r"(?m)^\s*permissions:", wf)) != 1:
         raise ValueError("workflow permissions overrides are forbidden")
-    checkout = re.findall(r"(?m)^\s+- uses: actions/checkout@([a-f0-9]{40})", wf)
+    checkout = re.findall(r"(?m)^ {8}uses: actions/checkout@([a-f0-9]{40})(?:[ \t]+#[^\n]*)?$", wf)
     if checkout != ["11bd71901bbe5b1630ceea73d27597364c9af683"]:
         raise ValueError("require one SHA-pinned own-repo checkout")
     if wf.count("persist-credentials: false") != 1:
