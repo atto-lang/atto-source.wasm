@@ -147,7 +147,9 @@ export async function verifyRealCompiler({
       if (!sourceStat.isFile() || sourceStat.isSymbolicLink() ||
           sourceStat.size < 1 || sourceStat.size > 1048576)
         throw Error("unsafe or oversized shared scalar fixture");
-      const sourceBytes = await readFile(source);
+      const sourceBytes = (await readBoundedRegularFile(
+        source, 1048576, "shared scalar fixture is not a bounded regular file"
+      )).bytes;
       sharedHash.update(Buffer.from(testCase.file, "ascii"));
       sharedHash.update(Buffer.from([0]));
       sharedHash.update(sourceBytes);
@@ -157,9 +159,13 @@ export async function verifyRealCompiler({
       const expected = BigInt(testCase.value);
       if (expected < -(1n << 63n) || expected >= (1n << 63n))
         throw Error("shared scalar expected value overflows i64");
+      // The compiler must never race the original checkout fixture after
+      // its content hash has been admitted. Compile a private, pinned copy.
+      const stagedSource = join(work, "shared-" + testCase.id + ".ores");
+      await writeFile(stagedSource, sourceBytes, {flag:"wx",mode:0o400});
       const out = join(work, "shared-" + testCase.id + ".wasm");
       const built = await compileOresToWasm({
-        compiler:pinnedCompiler, compilerSha256, source, output:out,
+        compiler:pinnedCompiler, compilerSha256, source:stagedSource, output:out,
         environment:"browser", publication:"atomic"
       });
       const verified = await readAtomicRelease(out);
