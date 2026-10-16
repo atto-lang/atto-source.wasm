@@ -133,12 +133,18 @@ def run_case(command, source, kind, value, mode, timeout, backend=None):
         # an unsupported language construct. The bootstrap compilers emit
         # distinct diagnostic prefixes on their own frontend failure paths.
         prefix = {"net": "oresnet:", "forge": "oresforge:"}.get(backend)
-        diagnosed = bool(stderr.strip()) and (prefix is None or stderr.startswith(prefix))
+        # No negative-test evidence until an independently reviewed frontend
+        # diagnostic signature is defined for the selected backend.
+        diagnosed = prefix is not None and stderr.startswith(prefix) and bool(stderr.strip())
         success = proc.returncode == 1 and not stdout and diagnosed
     elif mode == "stdout-i64":
         success = proc.returncode == 0 and stdout.strip() == value and not stderr.strip()
     else:
-        success = proc.returncode == 0 and not stderr.strip()
+        # .NET `check` must actually pass its typed-IR admission path. An
+        # arbitrary exit-zero command is not proof of parser/type acceptance.
+        net_admission = "Oreslang subset syntax and typed OresIR: OK"
+        stdout_ok = (stdout.strip() == net_admission) if backend == "net" else True
+        success = proc.returncode == 0 and stdout_ok and not stderr.strip()
     return success, ("exit=" + str(proc.returncode) + " stderr=" + repr(stderr[:160])
                      + " stdout=" + repr(stdout[:160]))
 
