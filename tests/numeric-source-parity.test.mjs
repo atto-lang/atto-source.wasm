@@ -4,7 +4,7 @@ import {createHash} from "node:crypto";
 import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
 // This suite is intentionally NOT counted as parity unless the *real* native
@@ -20,14 +20,18 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     "real numeric conformance requires pinned compiler SHA-256");
   assert.match(declaredLlvmSourceSha || "", /^[a-f0-9]{40}$/,
     "real numeric conformance requires independently reviewed LLVM source SHA");
-  const actualCompilerSha = createHash("sha256").update(await readFile(compiler)).digest("hex");
+  // Snapshot the compiler through the same no-follow, regular-file and
+  // 256 MiB admission boundary as the production Wasm bridge.
+  const compilerSnapshot = await readBoundedRegularFile(
+    compiler,256*1024*1024,"invalid or oversized native compiler");
+  const actualCompilerSha = createHash("sha256").update(compilerSnapshot.bytes).digest("hex");
   assert.equal(actualCompilerSha, expectedCompilerSha);
-  const controls = [
-    ["2+3*4",14n],["(2+3)*4",20n],["(8-3)*5+2",27n],
-    ["100-(3+2)-19",76n],["3*4-2*5-7",-5n],
-    ["9223372036854775807-1",9223372036854775806n],
-    ["-9223372036854775808",-9223372036854775808n]
-  ];
+  const corpus = JSON.parse(await readFile(new URL(
+    "../contracts/v1/numeric-parity/source-i64-cases.json",import.meta.url),"utf8"));
+  assert.equal(corpus.schema_version,"1.0.0");
+  assert.equal(corpus.status,"reference-only-not-compiled-execution");
+  assert.equal(corpus.cases.length,7);
+  const controls = corpus.cases.map(c=>[c.expression,BigInt(c.expected)]);
   const dir = await mkdtemp(join(tmpdir(),"ores-numeric-parity-"));
   try {
     const input = join(dir,"source.ores");
