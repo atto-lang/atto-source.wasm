@@ -204,3 +204,37 @@ test("host monkeypatches cannot hide inherited permission metadata", () => {
     else delete Object.prototype.allowNet;
   }
 });
+
+test("late overrides of reflection intrinsics cannot change admission", () => {
+  const originalPrototype = Object.getPrototypeOf;
+  const originalDescriptors = Object.getOwnPropertyDescriptors;
+  const originalKeys = Reflect.ownKeys;
+  try {
+    Object.getPrototypeOf = () => { throw Error("patched prototype inspection"); };
+    Object.getOwnPropertyDescriptors = () => { throw Error("patched descriptors"); };
+    Reflect.ownKeys = () => { throw Error("patched keys inspection"); };
+    assert.throws(() => admitCoreGuest(null, {entry: "main"}),
+      /expected core WebAssembly bytes/);
+  } finally {
+    Object.getPrototypeOf = originalPrototype;
+    Object.getOwnPropertyDescriptors = originalDescriptors;
+    Reflect.ownKeys = originalKeys;
+  }
+});
+
+test("overriding Set.has cannot hide inherited authorization", () => {
+  const originalHas = Set.prototype.has;
+  const originalDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, "allowRun");
+  try {
+    Object.defineProperty(Object.prototype, "allowRun", {
+      value: ["*"], configurable: true
+    });
+    Set.prototype.has = () => true;
+    assert.throws(() => admitCoreGuest(null, {}),
+      /zero-capability guest options must have no inherited settings/);
+  } finally {
+    Set.prototype.has = originalHas;
+    if (originalDescriptor) Object.defineProperty(Object.prototype, "allowRun", originalDescriptor);
+    else delete Object.prototype.allowRun;
+  }
+});
