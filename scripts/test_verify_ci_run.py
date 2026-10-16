@@ -109,6 +109,25 @@ class RunContract(unittest.TestCase):
                 self.values[key]["path"] = value
                 self.rejected()
 
+    def test_qualified_workflow_ref_preserves_exact_file(self):
+        key = self.prefix + "/actions/runs/17"
+        for value in (".github/workflows/ci.yml",
+                      ".github/workflows/ci.yml@main",
+                      ".github/workflows/ci.yml@refs/heads/main",
+                      ".github/workflows/ci.yml@refs/pull/123/merge"):
+            with self.subTest(value=value):
+                self.values[key]["path"] = value
+                self.assertEqual(self.validate()["verified_jobs"], 1)
+        for value in (".github/workflows/ci.yml@", 
+                      ".github/workflows/ci.yml@../main",
+                      ".github/workflows/ci.yml@main@wrong",
+                      ".github/workflows/ci.yml@refs//heads/main",
+                      ".github/workflows/ci.yml.bak@main",
+                      ".github/workflows/ci.yml@/refs/heads/main"):
+            with self.subTest(value=value):
+                self.values[key]["path"] = value
+                self.rejected()
+
     def test_trusted_workflow_path_is_mandatory(self):
         with self.assertRaisesRegex(module.Denied, "trusted workflow path"):
             module.verify(self.fetch, self.backend, self.commit, self.tree,
