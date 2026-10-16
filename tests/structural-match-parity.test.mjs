@@ -16,8 +16,14 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
     const cases = [
       ["callable", "structural fnc main(): int { return 1; }",
         /native structural callable requires/],
+      ["routine-callable", "structural routine main(): int { return 1; }",
+        /native structural callable requires/],
       ["parameter", "fnc check(structural Shape s): int { return 1; }\nfnc main(): int { return 1; }",
         /native structural parameter requires/],
+      ["routine-parameter", "routine check(structural Shape s): int { return 1; }\nfnc main(): int { return 1; }",
+        /native structural parameter requires/],
+      ["statement-match", "fnc main(): int { match 1 over on _ -> { return 1; } end return 1; }",
+        /native structural match expression requires/],
       ["value-match", "fnc main(): int { return match 1 over on _ -> { return 1; } end; }",
         /native structural match expression requires/]
     ];
@@ -29,6 +35,28 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
         compileOresToWasm({compiler:resolve(compiler),source:input,output}),
         diagnostic, "unsupported "+name+" must not emit Wasm");
       await assert.rejects(stat(output),{code:"ENOENT"});
+    }
+  } finally {
+    await rm(dir,{recursive:true,force:true});
+  }
+});
+
+
+test("missing LLVM compiler cannot publish a success-shaped structural artifact", {
+  skip: !!compiler && "configured compiler is covered by the real bridge test"
+}, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "ores-wasm-structural-absent-"));
+  try {
+    const input = join(dir, "structural.ores");
+    const output = join(dir, "structural.wasm");
+    await writeFile(input, "structural fnc main(): int { return 1; }");
+    await assert.rejects(
+      compileOresToWasm({compiler:join(dir,"missing-oreslang-llvmc"),
+                         source:input,output}),
+      /ENOENT|no such file/i);
+    for (const artifact of [output, output+".provenance.json",
+                            output+".artifact.json",output+".current.json"]) {
+      await assert.rejects(stat(artifact), {code:"ENOENT"});
     }
   } finally {
     await rm(dir,{recursive:true,force:true});
