@@ -9,7 +9,7 @@ import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-const realSource = fileURLToPath(new URL("../examples/native-int.ores", import.meta.url));
+const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
