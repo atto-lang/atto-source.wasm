@@ -44,6 +44,7 @@ export class ActorPipelineSelector {
   #roots = new Set();
   #rr = new Map();
   #generation;
+  #retired = false;
   constructor(stages, links, generation = 1) {
     if (!Array.isArray(stages) || !Array.isArray(links) ||
         stages.length < 2 || stages.length > 1024 ||
@@ -122,10 +123,20 @@ export class ActorPipelineSelector {
     this.#generation = generation;
   }
   get generation() { return this.#generation; }
+  retire() {
+    // Terminal host-only selector seal. A new generation requires a new
+    // validated selector instance, never reopens a retired graph.
+    this.#retired = true;
+  }
+  #ensureActive() {
+    if (this.#retired) throw new TypeError("actor routing selector is retired");
+  }
   requireIngressRoot(source) {
+    this.#ensureActive();
     if (!this.#roots.has(source)) throw new TypeError("not an ingress root");
   }
   #connected(source) {
+    this.#ensureActive();
     const edges = this.#out.get(source);
     if (!edges?.length) throw new TypeError("source has no downstream");
     return edges;
@@ -152,6 +163,7 @@ export class ActorPipelineSelector {
     return edges[routeKeySlot(key, edges.length)];
   }
   advanceGeneration(successor, {quiescent = false, aborted = false} = {}) {
+    this.#ensureActive();
     if (!Number.isSafeInteger(successor) || successor <= this.#generation ||
         (!quiescent && !aborted))
       throw new TypeError("actor routing generation barrier required");
