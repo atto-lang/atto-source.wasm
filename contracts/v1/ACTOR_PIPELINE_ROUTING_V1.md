@@ -16,6 +16,9 @@ ownership, message admission and single-flight execution in that backend.
   missing port. Edges must match the exact nominal output/input payload type.
 - `readable`: outgoing only, no inbound; `writable`: incoming only,
   no outbound; `transform` and `duplex`: both typed ports.
+- A `transform` must have at least one **actual connected inbound edge** and
+  at least one **actual connected outbound edge**. Merely declaring a typed
+  output port does not make a terminal transform a valid pipeline sink.
 - Reject duplicate, self, unknown, mismatched, cyclic, isolated and
   wrongly directed edges. Graphs must have an authorized ingress root.
 - Actor instance identities are compared as **exact UTF-8 sequences**, not
