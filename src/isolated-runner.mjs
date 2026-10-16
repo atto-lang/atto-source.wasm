@@ -30,10 +30,11 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   if (!Number.isSafeInteger(maxMemoryPages) || maxMemoryPages < 1 || maxMemoryPages > 256) {
     throw new TypeError("invalid maximum memory pages");
   }
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
+  if (typeof entry !== "string" || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
     throw new TypeError("invalid guest entry");
   }
-  if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+  if (expectedSha256 !== undefined &&
+      (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256))) {
     throw new TypeError("invalid pinned SHA-256");
   }
   // Reject shared backing stores and oversize before any worker allocation.
