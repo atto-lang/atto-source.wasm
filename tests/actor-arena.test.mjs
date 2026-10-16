@@ -61,3 +61,55 @@ test("bounded allocations and foreign incarnation reject closed handles", () => 
   restarted.endTurn(tr);
   restarted.retire();
 });
+
+test('persistent drop reclaims memory without reviving stale handles', () => {
+  const arena = new ActorArena({actorId: 31, incarnation: 1});
+  const turn = arena.beginTurn();
+  const first = arena.allocPersistent(turn, 65536);
+  arena.write(turn, first, new Uint8Array(65536).fill(77));
+  assert.throws(() => arena.allocPersistent(turn, 1), /quota exhausted/);
+  arena.dropPersistent(turn, first);
+  assert.throws(() => arena.read(turn, first), /foreign or stale/);
+  assert.throws(() => arena.dropPersistent(turn, first), /foreign, stale/);
+  const replacement = arena.allocPersistent(turn, 65536);
+  assert.deepEqual([...arena.read(turn, replacement)].slice(0, 16), Array(16).fill(0));
+  assert.throws(() => arena.dropPersistent(turn, arena.allocScratch(turn, 8)), /scratch arena handle/);
+  arena.endTurn(turn);
+  const next = arena.beginTurn();
+  assert.equal(arena.read(next, replacement).length, 65536);
+  arena.endTurn(next);
+  arena.retire();
+});
+
+test('many allocation/drop cycles reuse space and reject stale handles', () => {
+  const arena = new ActorArena({actorId: 32, incarnation: 1});
+  const turn = arena.beginTurn();
+  let old;
+  for (let i = 0; i < 12000; i++) {
+    const handle = arena.allocPersistent(turn, (i % 31) + 1);
+    const data = new Uint8Array((i % 31) + 1).fill(i % 251);
+    arena.write(turn, handle, data);
+    assert.deepEqual([...arena.read(turn, handle)], [...data]);
+    if (old) assert.throws(() => arena.read(turn, old), /foreign or stale/);
+    arena.dropPersistent(turn, handle);
+    old = handle;
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('persistent and scratch handles have bounded metadata quotas', () => {
+  const arena = new ActorArena({actorId: 33, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handles = Array.from({length: 4096}, () => arena.allocPersistent(turn, 1));
+  assert.throws(() => arena.allocPersistent(turn, 1), /handle quota exhausted/);
+  arena.dropPersistent(turn, handles[0]);
+  assert.equal(arena.read(turn, arena.allocPersistent(turn, 1))[0], 0);
+  const scratch = Array.from({length: 4096}, () => arena.allocScratch(turn, 1));
+  assert.throws(() => arena.allocScratch(turn, 1), /handle quota exhausted/);
+  arena.endTurn(turn);
+  const next = arena.beginTurn();
+  assert.throws(() => arena.read(next, scratch[0]), /foreign or stale/);
+  arena.endTurn(next);
+  arena.retire();
+});
