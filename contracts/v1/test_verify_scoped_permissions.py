@@ -54,6 +54,19 @@ class ScopedPermissionGateTests(unittest.TestCase):
                          "endpoint-deny-portless", "serialized-no-escalation"}
                         .issubset(self.expected))
 
+    def test_canonical_fixture_pin_rejects_changed_expected_outcome(self):
+        gate.check_canonical_vectors(VECTORS)
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "modified-vectors.json"
+            original = VECTORS.read_text(encoding="utf-8")
+            # Keep the JSON parseable and its schema valid while changing
+            # one expected outcome: schema validation alone would miss this.
+            modified = original.replace('"expected": "deny"', '"expected": "allow"', 1)
+            self.assertNotEqual(original, modified)
+            path.write_text(modified, encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "canonical permission vectors SHA-256 mismatch"):
+                gate.check_canonical_vectors(path)
+
     def test_synthetic_complete_report_only_exercises_gate(self):
         self.validate(self.report())  # Explicitly NOT actual guest execution.
 
