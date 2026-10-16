@@ -25,6 +25,11 @@ COMMANDS = {
 }
 DEFAULTS = {"llvm": "build/oreslang-llvmc", "forge": "build/oresforge",
             "net": "dotnet"}
+# Source-level diagnostic prefix from the REAL compiler. Build failures,
+# CLI usage failures, and shell errors must never count as deny evidence.
+REJECTION_PREFIXES = {
+    "llvm": "oreslang-llvmc:", "forge": "oresforge:", "net": "oresnet:",
+}
 # Deliberately avoid inheriting Actions tokens, CI secrets, SSH agents,
 # injected compilers, or private cloud credentials into tested subprocesses.
 TOOLCHAIN_ENV_KEYS = frozenset({
@@ -112,11 +117,17 @@ def check(backend, tool=None, timeout=60):
             # Parser rejection is not the same as process termination or
             # infrastructure failure. Never accept segfaults, signals, or
             # unknown exit statuses as evidence of safe compiler admission.
-            if done.returncode not in (0, 1, 2):
+            if done.returncode not in (0, 1):
                 raise RuntimeError(item["id"] +
                     ": compiler crashed or returned unknown status " +
                     str(done.returncode))
             accepted = done.returncode == 0
+            if not accepted and not done.stderr.strip().startswith(
+                    REJECTION_PREFIXES[backend]):
+                raise RuntimeError(item["id"] +
+                    ": non-compiler failure cannot prove capability rejection; " +
+                    "status=" + str(done.returncode) +
+                    " stderr=" + done.stderr[:400])
             expected_accept = item["bootstrap"] == "accept"
             if accepted != expected_accept:
                 raise RuntimeError(item["id"] +
