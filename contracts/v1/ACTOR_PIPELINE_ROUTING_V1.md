@@ -34,6 +34,13 @@ ownership, message admission and single-flight execution in that backend.
 | `self.backward(value)` | one correlated immediate authenticated upstream hop |
 | `self.reply(value)` | correlated reverse path to the original sender, preserving branch identity |
 
+Graph identifiers prohibit embedded NUL. **Routing keys are different**:
+they may be empty or contain U+0000, hashed as their exact UTF-8 bytes.
+Reject malformed Unicode; do not replace invalid code points or treat the
+first NUL as string termination. The canonical `"\\u0000"` vector
+hashes to `af63bd4c8601b7df`, which selects `worker-a` in the
+three-consumer fixture.
+
 `forward_all` is **not transactional**. A successful receipt is only
 mailbox admission, not processing or exactly-once delivery. Partial success
 is returned per edge, never hidden. A moved unique value cannot be fanned
