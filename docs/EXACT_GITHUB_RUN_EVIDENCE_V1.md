@@ -17,8 +17,11 @@ runs, missing/failed/skipped jobs, zero-step jobs, missing or stale run-attempt 
 expected executable steps, ambiguous duplicate job names, missing/zero/noninteger
 runner IDs, blank runner names and truncated job pagination.
 Housekeeping-only steps are not proof of meaningful execution. A required
-step must belong to a named **required job**; an unrelated job cannot satisfy
-it. With multiple named jobs, explicit per-job step bindings are mandatory: a
+proof step must itself be executable: GitHub runner lifecycle names such as
+`Set up job`, `Complete job`, `Post ...`, `Pre ...`, and container setup/
+teardown are **invalid proof requirements**, even when some unrelated command
+succeeded in the same job. A required step must belong to a named **required
+job**; an unrelated job cannot satisfy it. With multiple named jobs, explicit per-job step bindings are mandatory: a
 passing step in job A may not stand in for the required test step in job B.
 
 This is a **run execution and Git provenance check**, not proof that all
