@@ -24,6 +24,14 @@ BACKENDS = frozenset(("java", "llvm", "net", "wasm", "forge"))
 EXPECTED_BACKEND = "wasm"  # fixed by repository identity, not user-editable manifest
 
 
+def check_claim_is_not_self_attested(status, proof):
+    if status == "verified_compiled":
+        raise ValueError(
+            "compiled parity requires independently verified protected CI evidence")
+    if proof != {}:
+        raise ValueError("unverified feature cannot attach self-reported test evidence")
+
+
 class NumericParityAdmissionTest(unittest.TestCase):
     def test_reference_fixture_is_byte_identical_across_backends(self):
         raw = GOLDEN.read_bytes()
@@ -49,14 +57,25 @@ class NumericParityAdmissionTest(unittest.TestCase):
                 self.assertIn(status, STATUSES)
                 proof = d["evidence"][name]
                 self.assertIsInstance(proof, dict)
-                if status == "verified_compiled":
-                    # A URL, a SHA and test counts stored in the SAME PR can be
-                    # invented by an unreviewed author. Refuse self-attested
-                    # parity until an independently trusted, protected runner
-                    # evidence verifier is implemented and security approved.
-                    self.fail("self-attested verified_compiled is forbidden; "
-                              "external protected evidence verification required")
-                self.assertEqual(proof, {}, "unverified feature must not attach a forged pass")
+                # A manifest, URL and case counts from this same PR cannot
+                # attest to their own compiler execution.
+                check_claim_is_not_self_attested(status, proof)
+
+    def test_forged_compiled_status_and_proofs_are_refused(self):
+        # Synthetic malicious/self-reported metadata must never promote a
+        # capability even when its URL and SHA appear well-formed.
+        fabricated = {
+            "exact_source_commit_sha": "f" * 40,
+            "workflow_run_url": "https://github.com/example/verify/actions/runs/123",
+            "executed_positive_cases": 1000,
+            "executed_negative_cases": 1000,
+            "actual_compiler_guest_execution": True
+        }
+        with self.assertRaisesRegex(ValueError, "independently verified"):
+            check_claim_is_not_self_attested("verified_compiled", fabricated)
+        with self.assertRaisesRegex(ValueError, "self-reported"):
+            check_claim_is_not_self_attested("implemented_unverified", fabricated)
+        check_claim_is_not_self_attested("implemented_unverified", {})
 
     def test_manifest_states_are_conservatively_scoped(self):
         d = json.loads(MANIFEST.read_text(encoding="utf-8"))
