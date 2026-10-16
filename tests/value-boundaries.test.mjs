@@ -7,6 +7,16 @@ import {join} from 'node:path';
 import {compileOresToWasm} from '../scripts/compile-ores.mjs';
 
 const cases = JSON.parse(await readFile(new URL('./value-boundary-rejections.json', import.meta.url)));
+// This corpus admission test runs even without an LLVM compiler. It does
+// not substitute for the real-source fail-closed compilation test below.
+test('actor and ActorRef source boundary cases are pinned', () => {
+  assert.equal(Object.keys(cases).length, 17);
+  assert.match(cases['actor-mailbox-unsupported'], /define actor Worker/);
+  assert.match(cases['actor-mailbox-unsupported'], /ActorMail<int>/);
+  assert.match(cases['actor-ref-wire-unsupported'], /ActorRef<int>/);
+  assert.notEqual(cases['actor-mailbox-unsupported'],
+    cases['actor-ref-wire-unsupported']);
+});
 test('real source value boundaries reject before publishing a Wasm artifact', {
   skip: !process.env.ORESLANG_LLVM_COMPILER,
   timeout: 60000
