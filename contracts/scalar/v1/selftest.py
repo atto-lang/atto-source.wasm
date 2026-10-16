@@ -178,5 +178,24 @@ class ScalarHarnessTest(unittest.TestCase):
         self.assertFalse(crash[0])
 
 
+    def test_invalid_utf8_rejection_is_not_semantic_success(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        result = runner.run_case(
+            [sys.executable, "-c",
+             "import os,sys; os.write(2,bytes([255])); sys.exit(1)"],
+            source, "reject", None, "admission", 2)
+        self.assertFalse(result[0], "malformed compiler bytes cannot pass rejection")
+        self.assertIn("invalid UTF-8", result[1])
+
+    def test_invalid_utf8_guest_output_is_not_scalar_success(self):
+        source = runner.HERE / "fixtures" / "literal-42.ores"
+        result = runner.run_case(
+            [sys.executable, "-c",
+             "import os; os.write(1,b'42'+bytes([255]))"],
+            source, "accept", "42", "stdout-i64", 2)
+        self.assertFalse(result[0])
+        self.assertIn("invalid UTF-8", result[1])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
