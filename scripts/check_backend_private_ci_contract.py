@@ -39,86 +39,10 @@ EXPECTED_WORKFLOW = {
             {"name": "Exercise compiler-admission harness controls (mock-only, no native proof)",
              "run": "python3 -m unittest discover -s tests -p test_guest_capability_admission.py -v"},
             {"name": "Validate immutable repository identity and shared deny-by-default contract",
-             "run": 'python3 scripts/check_backend_private_ci_contract.py --backend "
-    if backend not in IDS:
-        raise ValueError("unknown Oreslang backend")
-    doc = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    if (type(doc) is not dict or doc.get("schema_version") != 1
-            or doc.get("contract") != CONTRACT
-            or doc.get("organization") != "ores-truffle-oreslang"
-            or doc.get("repository_ids") != IDS):
-        raise ValueError("security contract identity or schema drift")
-    expected = {
-        "source_transfer": {
-            "default_deny": True,
-            "private_destination_only": True,
-            "require_destination_approval_on_protected_source_main": True,
-            "require_independent_security_code_owner_review": True,
-            "require_pinned_numeric_repo_ids": True,
-            "require_exact_source_commit_and_complete_git_tree": True,
-            "require_destination_blob_tree_commit_ref_attestation": True,
-            "never_infer_approval_from_actions_minutes": True,
-        },
-        "runtime_gate": {
-            "ambient_file_network_process_env_and_ffi_authority":
-                "denied_without_explicit_capability",
-            "unsupported_features": "reject_before_guest_execution",
-            "actor_messages": "must_preserve_owned_sendable_boundary_where_implemented",
-            "no_claim_of_os_sandbox_without_os_enforcement": True,
-        },
-        "validation_evidence": {
-            "exact_tested_commit_and_tree_required": True,
-            "runner_executed_steps_required": True,
-            "offline_structural_checks_not_equivalent_to_native_backend_tests": True,
-            "cross_backend_feature_parity_not_assumed": True,
-        },
-    }
-    if any(doc.get(section) != content for section, content in expected.items()):
-        raise ValueError("critical deny-by-default/evidence invariants changed")
-    if set(doc) != {"schema_version", "contract", "organization",
-                    "repository_ids", *expected}:
-        raise ValueError("unknown top-level contract fields")
-
-    validate_workflow(WORKFLOW.read_text(encoding="utf-8"))
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        name = "ores-truffle-oreslang/oreslang-source." + backend
-        if os.getenv("GITHUB_REPOSITORY") != name:
-            raise ValueError("untrusted repository slug")
-        if os.getenv("GITHUB_REPOSITORY_ID") != str(IDS[backend]):
-            raise ValueError("untrusted immutable repository ID")
-        event_path = os.getenv("GITHUB_EVENT_PATH")
-        if not event_path:
-            raise ValueError("GitHub repository event identity unavailable")
-        event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-        repo = event.get("repository")
-        if (not isinstance(repo, dict) or repo.get("private") is not True
-                or type(repo.get("id")) is not int
-                or repo.get("id") != IDS[backend]
-                or repo.get("full_name") != name):
-            raise ValueError("GitHub event identifies the wrong/private-status repository")
-    return True
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", required=True, choices=sorted(IDS))
-    args = parser.parse_args()
-    try:
-        verify(args.backend)
-    except (ValueError, OSError, json.JSONDecodeError) as error:
-        print("BACKEND_PRIVATE_CI_CONTRACT_FAILED: " + str(error), file=sys.stderr)
-        return 1
-    print("BACKEND_PRIVATE_CI_CONTRACT_OK: " + args.backend)
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
- + '{GITHUB_REPOSITORY##*.}"\n'},
+             "run": "python3 scripts/check_backend_private_ci_contract.py --backend \"${GITHUB_REPOSITORY##*.}\"\n"},
         ],
     }},
 }
-
 
 def parse_strict_workflow_yaml(raw):
     """Parse only the reviewed safe YAML subset into mappings, lists and scalars.
