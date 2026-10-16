@@ -169,7 +169,7 @@ def run_case(command, source, kind, value, mode, timeout, backend=None, case_id=
         signature = NEGATIVE_DIAGNOSTICS.get(backend, {}).get(case_id)
         # Full-match disallows prefixed disk/launcher failures and extra errors.
         diagnosed = signature is not None and re.fullmatch(
-            signature + r"\\n?", stderr) is not None
+            signature + r"\n?", stderr) is not None
         success = proc.returncode == 1 and not stdout and diagnosed
     elif mode == "stdout-i64":
         success = proc.returncode == 0 and stdout.strip() == value and not stderr.strip()
