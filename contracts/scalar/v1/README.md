@@ -28,6 +28,12 @@ execute this manifest as a shell script or count negative compiler crashes as re
 - Every report includes a SHA-256 over the manifest and byte-exact fixtures. Exact
   candidate commit provenance is provided by CI; standalone runs without a report may omit --revision.
   For a written --report, --revision is mandatory; the value is a declaration, not proof of the compiler's provenance.
+- Scalar execution output must be exactly the canonical signed-i64 decimal
+  token, optionally followed by one LF or CRLF; leading/trailing spaces and
+  additional lines are rejected.
+- If a negative frontend diagnostic declares a source byte offset, that offset
+  must be within the verified source fixture (including its EOF boundary).
+  Out-of-range offsets cannot be counted as valid compiler refusal.
 - Real native/AOT execution must be verified by independent release workflows.
 
 `python3 contracts/scalar/v1/run.py --backend forge --mode stdout-i64 --command './build/oresforge run {source}'`
