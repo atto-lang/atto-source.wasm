@@ -80,7 +80,7 @@ test("scalar bridge rejects every source-import spelling even with a valid-looki
  try{
   const source=join(dir,"source.ores"),compiler=join(dir,"compiler.sh");
   const marker=join(dir,"compiler-executed"),output=join(dir,"guest.wasm");
-  await writeFile(source,'// harmless comment\\rimport fnc helper from "+/lib/helper";\\nfnc main():int{return 42;}\\n'.replaceAll('\\r','\r').replaceAll('\\n','\n'));
+  await writeFile(source,'// harmless comment\rimport fnc helper from "+/lib/helper";\nfnc main():int{return 42;}\n');
   await writeFile(compiler,'#!/bin/sh\ntouch "'+marker+'"\nprintf "target triple = \\"wasm32-unknown-unknown\\"\\n"\n',{mode:0o700});
   await chmod(compiler,0o700);
   await assert.rejects(()=>compileOresToWasm({compiler,source,output}),
