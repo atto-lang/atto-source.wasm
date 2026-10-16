@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
+import {types} from "node:util";
 import {admitCoreGuest, compileAdmittedCoreGuest} from "../src/guest-admission.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
@@ -151,4 +152,55 @@ test("invalid known identity types never invoke caller coercion", async () => {
 test("only isolated runner admits the timeout option", () => {
   assert.throws(() => admitCoreGuest(null, {timeoutMs: 1000}),
     /unsupported zero-capability guest option/);
+});
+
+test("host monkeypatches do not disable the proxy guard", () => {
+  // The host process may load other code after this module imports the
+  // validator. A patched exported util.types method must not revive traps.
+  let traps = 0;
+  const dangerous = new Proxy({}, {
+    getPrototypeOf() { traps++; throw Error("hostile proxy trap executed"); }
+  });
+  const original = types.isProxy;
+  try {
+    types.isProxy = () => false;
+    assert.throws(() => admitCoreGuest(null, dangerous), /option proxies are forbidden/);
+    assert.throws(() => compileAdmittedCoreGuest(null, dangerous),
+      /option proxies are forbidden/);
+    assert.equal(traps, 0, "no proxy traps should execute");
+  } finally {
+    types.isProxy = original;
+  }
+});
+
+test("host monkeypatches cannot make unsupported permissions appear valid", () => {
+  const original = Array.prototype.includes;
+  try {
+    Array.prototype.includes = () => true;
+    assert.throws(() => admitCoreGuest(null, {allowNet: ["*"]}),
+      /unsupported zero-capability guest option/);
+    assert.throws(() => compileAdmittedCoreGuest(null, {permissions: {net: ["*"]}}),
+      /unsupported zero-capability guest option/);
+  } finally {
+    Array.prototype.includes = original;
+  }
+});
+
+test("host monkeypatches cannot hide inherited permission metadata", () => {
+  const originalSome = Array.prototype.some;
+  const originalDescriptor = Object.getOwnPropertyDescriptor(Object.prototype, "allowNet");
+  try {
+    Object.defineProperty(Object.prototype, "allowNet", {
+      value: ["*"], configurable: true
+    });
+    Array.prototype.some = () => false;
+    assert.throws(() => admitCoreGuest(null, {}),
+      /zero-capability guest options must have no inherited settings/);
+    assert.throws(() => compileAdmittedCoreGuest(null, {}),
+      /zero-capability guest options must have no inherited settings/);
+  } finally {
+    Array.prototype.some = originalSome;
+    if (originalDescriptor) Object.defineProperty(Object.prototype, "allowNet", originalDescriptor);
+    else delete Object.prototype.allowNet;
+  }
 });
