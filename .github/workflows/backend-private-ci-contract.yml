@@ -1,0 +1,22 @@
+name: Backend private CI contract
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout same private repository without credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate immutable repository identity and shared deny-by-default contract
+        run: |
+          python3 scripts/check_backend_private_ci_contract.py --backend "${GITHUB_REPOSITORY##*.}"
