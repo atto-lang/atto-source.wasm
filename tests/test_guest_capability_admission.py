@@ -82,12 +82,14 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
 
     def test_manifest_cannot_silently_drop_cases_or_change_expectations(self):
         source = json.loads(self.contract.read_text(encoding="utf-8"))
-        for mutation in ("drop-case", "accept-network", "change-proof-scope"):
+        for mutation in ("drop-case", "accept-network", "change-proof-scope", "mutate-source"):
             data = copy.deepcopy(source)
             if mutation == "drop-case":
                 data["cases"].pop()
             elif mutation == "accept-network":
                 data["cases"][2]["bootstrap"] = "accept"
+            elif mutation == "mutate-source":
+                data["cases"][1]["source"] = "pub fnc main(): int { return invalid; }"
             else:
                 data["proof_scope"] = "runtime-security-proven"
             self.contract.write_text(json.dumps(data), encoding="utf-8")
