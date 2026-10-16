@@ -19,7 +19,10 @@ def require(ok, reason):
         raise ValueError(reason)
 
 def parse_shape(text):
-    def parse(i):
+    visited = [0]
+    def parse(i, depth=0):
+        visited[0] += 1
+        require(depth <= 64 and visited[0] <= 100_000, "shape depth/node budget")
         require(i < len(text), "truncated shape")
         for kind in ("FA", "FL", "T", "A", "L"):
             if text.startswith(kind + "[", i):
@@ -29,7 +32,7 @@ def parse_shape(text):
                     require(i < len(text), "unterminated shape")
                     if text[i] == "]":
                         return (kind, children), i + 1
-                    child, i = parse(i)
+                    child, i = parse(i, depth + 1)
                     children.append(child)
                     require(i < len(text), "unterminated shape")
                     if text[i] == ",":
