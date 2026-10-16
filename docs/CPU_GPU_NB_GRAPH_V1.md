@@ -201,3 +201,52 @@ CPU region lowering through the real compiler, actor-owned continuation
 scheduling, owned DOP HostBuffer/GpuBuffer transfer ABI, trusted GPU
 OpenCL backend and physical hardware generation fences, and explicit
 multi-batch streaming with bounded byte credits and failure propagation.
+
+## Audited parity hardening (2026-10-16, second pass)
+
+This section records **committed code**, not claims of complete source-language
+execution. All five feature branches remain draft and unsupported domains
+continue to fail closed.
+
+- **Java**: `ExecutionGraphV1.Plan` now verifies full node signatures,
+  dependencies, host/device value kinds, and output kind before execution.
+  `ExecutionSurfaceV1` still only *recognizes* eager regions versus
+  anonymous GPU callables; `Parser.parseProgram` still refuses general
+  cpu/gpu/nb source lowering. `ExecutionGraphChannelV1` has one-value
+  CPU-to-bounded-channel delivery, **not** an implicit Stream.
+- **LLVM and Forge**: each native `Plan` constructor validates the complete
+  typed graph before an unchecked node ID could reach its execution buffer.
+  Registered dedicated CTest cases include malformed opcodes, forged IDs,
+  forward edges, operand/domain mismatch, no-device fallback, and 20,000
+  deterministic invalid graph inputs. This protects host IR admission; it
+  does **not** implement GPU hardware dispatch.
+- **.NET**: `ExecutionGraphV1.Plan` now independently validates every
+  opcode signature, operand, graph/output index, and value kind before
+  storing a defensive copy. Native AOT and entire .NET test suite still
+  require current-branch execution.
+- **Wasm**: delegated native LLVM compiler negative test now requires a
+  domain-specific diagnostic, exact failed-exit behavior, zero IR stdout
+  and no unexpected sidecar file; a valid scalar LLVM IR control remains.
+  An absent compiler is a **skip**, not verified Wasm guest parity.
+- The native validator has passed reconstructed local GCC Debug/Release
+  and Clang ASan/UBSan checks (83 directed assertions and 20,000 malformed
+  admissions). This is **not an exact GitHub PR-head test run**, and
+  no Java full Maven, .NET Native AOT, LLVM whole-tree, Wasm real-compiler,
+  or physical GPU release gate is certified.
+
+**Private CI boundary**: The Java source repository's protected-branch
+metadata currently reports unprotected main, the reviewed private source
+export allowlist on main contains no approved destination, and an earlier
+public-carrier disclosure remains open. Until those conditions are reviewed
+and corrected, do not transfer any further private source Git blobs or
+trees to another organization, even when a private carrier has Actions
+minutes. Source-org workflow failures with missing runner IDs and no steps
+are *infrastructure unknown*, not passing/failing source tests.
+
+**Merge order**: (1) independently review native graph admission and
+run exact-head tests on authorized runners; (2) reconcile Java checked DOP
+region planner and owned CPU regions plus LLVM exclusive write loans;
+(3) implement typed source AST/effect-to-graph CPU lowering; (4) make
+`nb` actor-safe, cancellable and bounded without conflating Future and
+Channel; (5) implement real GPU device allocation/transfer/fence dispatch,
+with hardware evidence and no silent CPU fallback.
