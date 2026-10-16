@@ -1,0 +1,28 @@
+name: Exact GitHub run evidence contract
+
+on:
+  pull_request:
+    paths:
+      - scripts/verify_ci_run.py
+      - scripts/test_verify_ci_run.py
+      - docs/EXACT_GITHUB_RUN_EVIDENCE_V1.md
+      - .github/workflows/ci-run-evidence-contract.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-run-evidence-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current repository only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+      - name: Run all five-backend source-free security regressions
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/verify_ci_run.py scripts/test_verify_ci_run.py
+          python3 scripts/test_verify_ci_run.py
