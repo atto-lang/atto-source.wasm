@@ -160,6 +160,69 @@ class ScalarHarnessTest(unittest.TestCase):
         self.assertEqual(data["evidence_level"], "source-executed-scalar")
         self.assertEqual(len(data["results"]), 11)
 
+    def test_manifest_fifo_and_directory_refused_without_reading(self):
+        import os
+        manifest = runner.HERE / "cases.json"
+        manifest.unlink()
+        if hasattr(os, "mkfifo"):
+            try:
+                os.mkfifo(manifest)
+            except OSError:
+                pass
+            else:
+                with self.assertRaisesRegex(ValueError, "unique regular file"):
+                    runner.load_suite()
+                manifest.unlink()
+        manifest.mkdir()
+        with self.assertRaisesRegex(ValueError, "unique regular file"):
+            runner.load_suite()
+
+    def test_manifest_symlink_hardlink_and_sparse_oversize_refused(self):
+        import os
+        manifest = runner.HERE / "cases.json"
+        other = runner.HERE / "manifest-alias.json"
+        manifest.rename(other)
+        try:
+            manifest.symlink_to(other)
+        except (OSError, NotImplementedError):
+            pass
+        else:
+            with self.assertRaisesRegex(ValueError, "unique regular file"):
+                runner.load_suite()
+            manifest.unlink()
+        try:
+            os.link(other, manifest)
+        except OSError:
+            pass
+        else:
+            with self.assertRaisesRegex(ValueError, "unique regular file"):
+                runner.load_suite()
+            manifest.unlink()
+        with manifest.open("wb") as stream:
+            stream.truncate(runner.MAX_FIXTURE_BYTES + 1)
+        with self.assertRaisesRegex(ValueError, "invalid source length"):
+            runner.load_suite()
+
+    def test_bootstrap_negative_requires_own_diagnostic_prefix(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        for backend, good_prefix, other_prefix in (
+            ("net", "oresnet:", "oresforge:"),
+            ("forge", "oresforge:", "oresnet:"),
+        ):
+            for message, success in (
+                (good_prefix + " unknown identifier", True),
+                ("FileNotFoundError: compiler missing", False),
+                (other_prefix + " unknown identifier", False),
+                ("error: parser error", False),
+                ("", False),
+            ):
+                with self.subTest(backend=backend, message=message):
+                    code = "import sys;sys.stderr.write(" + repr(message) + ");sys.exit(1)"
+                    ok, _ = runner.run_case(
+                        [sys.executable, "-c", code], source, "reject", None,
+                        "admission", 3, backend)
+                    self.assertEqual(ok, success)
+
     def test_false_success_and_missing_compiler_denied(self):
         source = runner.HERE / "fixtures" / "literal-42.ores"
         missing = runner.run_case([str(runner.HERE / "missing-tool")], source, "accept", "42", "stdout-i64", 2)
