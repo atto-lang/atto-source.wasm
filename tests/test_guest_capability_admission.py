@@ -110,6 +110,23 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             self.assertEqual(env.get("PATH"), "/bin")
             self.assertEqual(env.get("DOTNET_ROOT"), "/opt/dotnet")
 
+    def test_rejected_source_cannot_emit_partial_ir(self):
+        for backend in ("llvm", "forge"):
+            with self.subTest(backend=backend):
+                attempts = []
+                def fake_run(argv, **kwargs):
+                    attempts.append(argv)
+                    if len(attempts) == 1:
+                        return type("Result", (), {
+                            "returncode": 0, "stdout": "verified IR", "stderr": ""})()
+                    return type("Result", (), {
+                        "returncode": 1, "stdout": "define i64 @main() { }",
+                        "stderr": mod.REJECTION_PREFIXES[backend] + " unsupported"})()
+                with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                    with self.assertRaisesRegex(RuntimeError, "partial compiler IR"):
+                        mod.check(backend, "mock-compiler")
+                self.assertEqual(len(attempts), 2)
+
     def test_usage_and_build_failure_are_not_capability_rejection(self):
         for backend in ("llvm", "forge", "net"):
             for status, diagnostic in (
@@ -142,7 +159,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
 
     def test_manifest_cannot_silently_drop_cases_or_change_expectations(self):
         source = json.loads(self.contract.read_text(encoding="utf-8"))
-        for mutation in ("drop-case", "accept-network", "change-proof-scope", "mutate-source"):
+        for mutation in ("drop-case", "accept-network", "change-proof-scope", "mutate-source", "change-category", "inject-field"):
             data = copy.deepcopy(source)
             if mutation == "drop-case":
                 data["cases"].pop()
@@ -150,6 +167,10 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                 data["cases"][2]["bootstrap"] = "accept"
             elif mutation == "mutate-source":
                 data["cases"][1]["source"] = "pub fnc main(): int { return invalid; }"
+            elif mutation == "change-category":
+                data["cases"][1]["category"] = "scalar"
+            elif mutation == "inject-field":
+                data["cases"][1]["skip_backend"] = "forge"
             else:
                 data["proof_scope"] = "runtime-security-proven"
             self.contract.write_text(json.dumps(data), encoding="utf-8")
