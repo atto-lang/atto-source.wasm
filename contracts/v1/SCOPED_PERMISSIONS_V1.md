@@ -15,6 +15,19 @@
 9. The standalone CLI must use the project's approved `flags-2-env` flag parsing contract where integrated; no independent ad hoc parser should be considered permission parity.
 10. An unsupported implementation slice MUST fail closed; it cannot report `allow` based on a mock evaluator or a contract-only test.
 
+## Network port canonicality
+
+All backends that parse scoped network endpoints MUST reject malformed or
+unrepresentable numeric port spellings before arithmetic: use **1–5 ASCII
+decimal digits** representing an integer from **1 through 65535**. In
+particular, `4294967739` (2^32 + 443) MUST NOT wrap around and authorize
+port 443; a valid spelling such as `0443` may canonicalize to port 443.
+Apply this check to both permission rules and requested/selected endpoints,
+including bracketed IPv6 syntax. Trusted socket adapters must independently
+enforce port bounds before constructing an OS socket address. A backend
+without scoped network guest I/O (currently WASM) must continue to deny
+unsupported network authority; host-only tests are not runtime parity proof.
+
 ## Selected TCP peer identity
 
 An unspecified IPv4 address (`0.0.0.0`) is a **bind** sentinel, not a safe
