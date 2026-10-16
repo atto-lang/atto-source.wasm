@@ -5,6 +5,7 @@ These tests use mocked compiler statuses and are NOT guest compiler evidence.
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -85,6 +86,29 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
         with patch.object(mod.subprocess, "run", side_effect=crashed):
             with self.assertRaisesRegex(RuntimeError, "compiler crashed"):
                 mod.check("llvm", "mock-compiler")
+
+    def test_ci_secrets_are_never_inherited_by_compiler(self):
+        captured = []
+        def fake_run(argv, **kwargs):
+            captured.append(kwargs.get("env", {}))
+            accepted = len(captured) == 1
+            return type("Result", (), {"returncode": 0 if accepted else 1,
+                        "stdout": "verified IR" if accepted else "",
+                        "stderr": "unsupported" if not accepted else ""})()
+        with patch.dict(os.environ, {
+            "GITHUB_TOKEN": "should-not-leak",
+            "AWS_SECRET_ACCESS_KEY": "should-not-leak",
+            "PATH": "/bin",
+            "DOTNET_ROOT": "/opt/dotnet",
+        }):
+            with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                mod.check("llvm", "mock-compiler")
+        self.assertEqual(len(captured), 9)
+        for env in captured:
+            self.assertNotIn("GITHUB_TOKEN", env)
+            self.assertNotIn("AWS_SECRET_ACCESS_KEY", env)
+            self.assertEqual(env.get("PATH"), "/bin")
+            self.assertEqual(env.get("DOTNET_ROOT"), "/opt/dotnet")
 
     def test_missing_compiler_is_a_hard_failure(self):
         with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError("missing")):
