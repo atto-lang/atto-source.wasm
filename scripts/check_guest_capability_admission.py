@@ -1,0 +1,108 @@
+#!/usr/bin/env python3
+"""Exercise real bootstrap compiler frontends against shared Oreslang sources.
+
+No generated guest runs and no source copies leave this repository. This is
+compile-time admission only: reject != proof of runtime OS sandboxing.
+Java and WASM intentionally have no adapter and MUST NOT be marked green.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACT = ROOT / "contracts/guest-capability-admission.v1.json"
+COMMANDS = {
+    "llvm": lambda program, tool: [tool, str(program)],
+    "forge": lambda program, tool: [tool, "ir", str(program)],
+    "net": lambda program, tool: [tool, "run", "--project",
+                  "compiler/Ores.Net.Compiler/Ores.Net.Compiler.csproj",
+                  "-c", "Release", "--", "check", str(program)],
+}
+DEFAULTS = {"llvm": "build/oreslang-llvmc", "forge": "build/oresforge",
+            "net": "dotnet"}
+CASES = ("scalar_arithmetic_14", "ambient_filesystem", "ambient_network",
+         "ambient_process", "ambient_host_interop", "unsupported_actor",
+         "unsupported_async", "unsupported_channel",
+         "unsupported_wire_serialization")
+
+
+def load_cases():
+    doc = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    if (doc.get("schema_version") != 1 or
+            doc.get("contract") != "oreslang-guest-admission-bootstrap-v1" or
+            doc.get("proof_scope") != "source-compiler-acceptance-or-rejection-only" or
+            doc.get("runnable_backends") != ["llvm", "net", "forge"] or
+            doc.get("unimplemented_adapters") != ["java", "wasm"]):
+        raise ValueError("unknown or weakened guest admission contract")
+    items = doc.get("cases")
+    if not isinstance(items, list) or tuple(item.get("id") for item in items) != CASES:
+        raise ValueError("incomplete guest admission case list")
+    for item in items:
+        if (item.get("bootstrap") not in ("accept", "reject")
+                or not isinstance(item.get("source"), str)
+                or not item["source"].strip()
+                or item.get("category") is None):
+            raise ValueError("malformed guest source or expected admission")
+    if items[0].get("expected_output") != "14" or any(
+            item.get("bootstrap") != "reject" for item in items[1:]):
+        raise ValueError("bootstrap test expectations changed")
+    return items
+
+
+def check(backend, tool=None, timeout=60):
+    cases = load_cases()
+    if backend not in COMMANDS:
+        raise ValueError("no executable source-compiler adapter: " + backend)
+    tool = tool or DEFAULTS[backend]
+    if not isinstance(tool, str) or not tool.strip():
+        raise ValueError("compiler path must be supplied")
+    results = []
+    with tempfile.TemporaryDirectory(prefix="ores-admission-") as directory:
+        for item in cases:
+            source = Path(directory) / (item["id"] + ".ores")
+            source.write_text(item["source"], encoding="utf-8")
+            argv = COMMANDS[backend](source, tool)
+            # Compiler *only*: LLVM IR output, Forge IR output, .NET 'check'.
+            # Never run arbitrary guest programs to test unsupported syntax.
+            try:
+                done = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True,
+                                      timeout=timeout, check=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
+            accepted = done.returncode == 0
+            expected_accept = item["bootstrap"] == "accept"
+            if accepted != expected_accept:
+                raise RuntimeError(item["id"] +
+                    ": expected " + item["bootstrap"] +
+                    ", compiler status " + str(done.returncode) +
+                    "; stdout=" + done.stdout[:400] +
+                    "; stderr=" + done.stderr[:400])
+            if accepted and (not done.stdout.strip() or
+                    (backend == "net" and "typed OresIR: OK" not in done.stdout)):
+                raise RuntimeError(item["id"] + ": empty/ambiguous compiler output")
+            results.append((item["id"], item["bootstrap"]))
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", choices=["llvm","net","forge","java","wasm"],
+                        required=True)
+    parser.add_argument("--tool", default=None)
+    args = parser.parse_args()
+    try:
+        for name, state in check(args.backend, args.tool):
+            print("GUEST_ADMISSION_OK " + args.backend + " " + name + " " + state)
+    except (ValueError, OSError, RuntimeError) as exc:
+        print("GUEST_ADMISSION_NOT_VERIFIED: " + str(exc), file=sys.stderr)
+        return 1
+    print("GUEST_ADMISSION_CONTRACT_PASSED: compile-time subset ONLY")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
