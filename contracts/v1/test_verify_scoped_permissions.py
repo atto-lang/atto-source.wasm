@@ -56,6 +56,7 @@ class ScopedPermissionGateTests(unittest.TestCase):
 
     def test_canonical_fixture_pin_rejects_changed_expected_outcome(self):
         gate.check_canonical_vectors(VECTORS)
+        self.assertEqual(gate.load_vectors(VECTORS, enforce_digest=True), self.expected)
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / "modified-vectors.json"
             original = VECTORS.read_text(encoding="utf-8")
@@ -66,6 +67,8 @@ class ScopedPermissionGateTests(unittest.TestCase):
             path.write_text(modified, encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "canonical permission vectors SHA-256 mismatch"):
                 gate.check_canonical_vectors(path)
+            with self.assertRaisesRegex(ValueError, "canonical permission vectors SHA-256 mismatch"):
+                gate.load_vectors(path, enforce_digest=True)
 
     def test_synthetic_complete_report_only_exercises_gate(self):
         self.validate(self.report())  # Explicitly NOT actual guest execution.
