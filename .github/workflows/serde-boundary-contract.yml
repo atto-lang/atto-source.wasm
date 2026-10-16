@@ -1,0 +1,34 @@
+name: Sealed serialization boundary policy (static only)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: serde-static-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  serde-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source head and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          test -z "$(git status --porcelain)"
+          printf 'source=%s tree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+      - name: Verify byte-pinned DATA CONTROL contract
+        run: python3 scripts/verify_serde_contract.py
+      - name: Run 18 policy-mutation regressions
+        run: python3 -m unittest discover -s scripts -p 'test_serde_contract.py' -v
