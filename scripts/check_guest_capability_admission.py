@@ -70,8 +70,34 @@ CASE_SHA256 = (
 
 
 def load_cases():
-    doc = json.loads(CONTRACT.read_text(encoding="utf-8"))
-    if (doc.get("schema_version") != 1 or
+    # Treat the checked-in manifest as a security boundary, not generic JSON.
+    # JSON decoders normally permit duplicate keys and NaN/Infinity values.
+    with open(CONTRACT, "rb") as source:
+        raw = source.read(128 * 1024 + 1)
+    if len(raw) > 128 * 1024:
+        raise ValueError("guest admission contract exceeds size limit")
+
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate guest admission key: " + key)
+            result[key] = value
+        return result
+
+    def deny_constant(value):
+        raise ValueError("nonstandard guest admission number: " + value)
+
+    try:
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys,
+                         parse_constant=deny_constant)
+    except UnicodeDecodeError as error:
+        raise ValueError("invalid guest admission encoding") from error
+    if (type(doc) is not dict or
+            set(doc) != {"schema_version", "contract", "proof_scope",
+                         "runnable_backends", "unimplemented_adapters", "cases"} or
+            type(doc.get("schema_version")) is not int or
+            doc.get("schema_version") != 1 or
             doc.get("contract") != "oreslang-guest-admission-bootstrap-v1" or
             doc.get("proof_scope") != "source-compiler-acceptance-or-rejection-only" or
             doc.get("runnable_backends") != ["llvm", "net", "forge"] or
@@ -80,7 +106,7 @@ def load_cases():
     items = doc.get("cases")
     if (not isinstance(items, list) or len(items) != len(CASES)
             or not all(isinstance(item, dict) for item in items)
-            or tuple(item["id"] for item in items) != CASES):
+            or tuple(item.get("id") for item in items) != CASES):
         raise ValueError("incomplete guest admission case list")
     for index, item in enumerate(items):
         if (item.get("category") != CATEGORIES[index]
