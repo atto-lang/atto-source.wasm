@@ -48,3 +48,5 @@ Related projects: [Oreslang LLVM compiler](https://github.com/ores-truffle-oresl
 
 See [value-boundary audit and admission tests](docs/VALUE_BOUNDARIES.md) for
 aggregate, call, string, conditional and async feature limits.
+
+CPU/GPU execution expressions, nested placement and `nb`/stream parity: see [proposed v1 contract](docs/CPU_GPU_NB_GRAPH_V1.md). This is **not** a claim that the backend executes GPU or streamed source blocks.
