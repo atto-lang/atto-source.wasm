@@ -73,6 +73,16 @@ pub routine main(): void {
 if one exists. A one-tuple-parameter overload never shadows the direct
 two-argument overload.
 
+## Conservative static proof limits
+
+The initial static tuple/overload proof is bounded to **64 positional slots**
+and **128 overload candidates**. Exceeding those limits is a diagnosed
+compile-time rejection, not fallback to runtime shape comparison.
+Unresolved/generic, mutable-borrowed or otherwise unproven tuple slot types
+cannot certify a readonly positional view. A proof handle also requires a
+nonempty compiler-bound callable ID. Future capability widening requires
+separately verified ownership, borrow and ABI proofs.
+
 ## Required gates
 
 All five repositories carry identical normative fixtures in
