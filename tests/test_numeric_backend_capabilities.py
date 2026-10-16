@@ -42,6 +42,8 @@ class NumericParityAdmissionTest(unittest.TestCase):
         self.assertIn(d["backend"], BACKENDS)
         self.assertEqual(d["backend"], EXPECTED_BACKEND)
         self.assertEqual(d["reference_fixture_git_blob_sha"], SHA)
+        self.assertEqual(d["source_i64_fixture_git_blob_sha"],
+                         "bbc319c19ecd007109d33592e210091eb267e5a2")
         self.assertEqual(set(d["capabilities"]), FEATURES)
         self.assertEqual(set(d["evidence"]), FEATURES)
         for name, status in d["capabilities"].items():
@@ -62,6 +64,8 @@ class NumericParityAdmissionTest(unittest.TestCase):
                     self.assertGreater(proof["executed_negative_cases"], 0)
                     self.assertTrue(proof["actual_compiler_guest_execution"] is True)
                     self.assertEqual(proof["reviewed_reference_git_blob_sha"], SHA)
+                    self.assertEqual(proof["reviewed_source_i64_blob_sha"],
+                                     "bbc319c19ecd007109d33592e210091eb267e5a2")
 
     def test_manifest_states_are_conservatively_scoped(self):
         d = json.loads(MANIFEST.read_text(encoding="utf-8"))
