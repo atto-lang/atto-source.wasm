@@ -79,8 +79,11 @@ def verify_document(doc):
     require(type(invariants) is dict and invariants, 'missing invariants')
     require(all(value is True for value in invariants.values()), 'invariant disabled')
     for key in ('sendable_is_not_serializable', 'serializable_is_not_sendable',
-                'codec_objects_are_not_data', 'incoming_bytes_never_select_type_or_codec',
+                'shared_safe_is_not_sendable', 'codec_objects_are_not_data',
+                'source_imports_and_generics_are_resolved_before_admission',
+                'incoming_bytes_never_select_type_or_codec',
                 'schema_hash_is_not_an_authentication_mac',
+                'receiver_pins_schema_before_first_send',
                 'failed_admission_does_not_consume_sender_ownership',
                 'partial_mailbox_admission_is_forbidden',
                 'capabilities_cannot_be_nested_in_data', 'unsupported_shapes_fail_closed'):
