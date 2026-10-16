@@ -118,3 +118,47 @@ test("diamond fan-in is valid while cycles, dangling ports and self-edges are re
   assert.throws(()=>new ActorPipelinePolicy([...v,{id:"orphan",type:"Orphan",
     role:"readable",outbound:"P"}],e),/missing port/);
 });
+
+test("endpoint tuples cannot collide through delimiters or Unicode normalization", () => {
+  const s = [
+    {id:"a:b",type:"Source",role:"readable",outbound:"E"},
+    {id:"a",type:"Source",role:"readable",outbound:"E"},
+    {id:"c",type:"Sink",role:"writable",inbound:"E"},
+    {id:"b:c",type:"Sink",role:"writable",inbound:"E"}
+  ];
+  const e = [
+    {source:"a:b",target:"c",payload:"E"},
+    {source:"a",target:"b:c",payload:"E"}
+  ];
+  const plan = new ActorPipelinePolicy(s,e);
+  assert.equal(plan.forward("a:b").target,"c");
+  assert.equal(plan.forward("a").target,"b:c");
+  assert.throws(()=>new ActorPipelinePolicy(s,[...e,e[0]]),/duplicate/);
+  // Canonically equivalent user strings are still distinct instance IDs.
+  const visuallySimilar=[
+    {id:"é",type:"Source",role:"readable",outbound:"E"},
+    {id:"e\u0301",type:"Source",role:"readable",outbound:"E"},
+    {id:"c",type:"Sink",role:"writable",inbound:"E"},
+    {id:"d",type:"Sink",role:"writable",inbound:"E"}
+  ];
+  const unicode=new ActorPipelinePolicy(visuallySimilar,[
+    {source:"é",target:"c",payload:"E"},
+    {source:"e\u0301",target:"d",payload:"E"}]);
+  assert.equal(unicode.forward("é").target,"c");
+  assert.equal(unicode.forward("e\u0301").target,"d");
+});
+test("bound graph size before topology allocation and reject unknown role", () => {
+  assert.throws(()=>new ActorPipelinePolicy(
+    Array.from({length:1025},(_,i)=>({id:"s"+i,type:"S",role:"readable",outbound:"E"})),
+    edges),/budget/);
+  assert.throws(()=>new ActorPipelinePolicy(stages,
+    Array.from({length:4097},()=>edges[0])),/budget/);
+  assert.throws(()=>new ActorPipelinePolicy(
+    [{...stages[0],role:"controller"},...stages.slice(1)],edges),/role/);
+  assert.throws(()=>new ActorPipelinePolicy(
+    [{...stages[0],id:"🌍".repeat(65)},...stages.slice(1)],edges),/byte budget/);
+  const exactly256="🌍".repeat(64);
+  assert.doesNotThrow(()=>new ActorPipelinePolicy(
+    [{...stages[0],id:exactly256},...stages.slice(1)],
+    edges.map(e=>({...e,source:exactly256}))));
+});
