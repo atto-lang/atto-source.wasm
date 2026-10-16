@@ -49,7 +49,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                         "stdout": marker if success else "",
                         "stderr": "" if success else mod.REJECTION_PREFIXES[backend] + " unsupported guest capability"
                     })()
-                with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                with patch.object(mod, "run_compiler_process", side_effect=fake_run):
                     rows = mod.check(backend, "mock-compiler", timeout=3)
                 self.assertEqual(len(rows), len(cases))
                 self.assertEqual([v[1] for v in rows], ["accept"] + ["reject"] * 8)
@@ -64,7 +64,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
         def always_accept(argv, **kwargs):
             return type("Result", (), {"returncode": 0, "stdout": "verified IR",
                                          "stderr": ""})()
-        with patch.object(mod.subprocess, "run", side_effect=always_accept):
+        with patch.object(mod, "run_compiler_process", side_effect=always_accept):
             with self.assertRaisesRegex(RuntimeError, "ambient_filesystem"):
                 mod.check("llvm", "mock-compiler")
 
@@ -72,7 +72,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
         def always_reject(argv, **kwargs):
             return type("Result", (), {"returncode": 1, "stdout": "",
                                          "stderr": "unsupported"})()
-        with patch.object(mod.subprocess, "run", side_effect=always_reject):
+        with patch.object(mod, "run_compiler_process", side_effect=always_reject):
             with self.assertRaisesRegex(RuntimeError, "scalar_arithmetic_14"):
                 mod.check("forge", "mock-compiler")
 
@@ -83,7 +83,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                                              "stderr": ""})()
             return type("Result", (), {"returncode": -11, "stdout": "",
                                          "stderr": "segfault"})()
-        with patch.object(mod.subprocess, "run", side_effect=crashed):
+        with patch.object(mod, "run_compiler_process", side_effect=crashed):
             with self.assertRaisesRegex(RuntimeError, "compiler crashed"):
                 mod.check("llvm", "mock-compiler")
 
@@ -101,7 +101,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             "PATH": "/bin",
             "DOTNET_ROOT": "/opt/dotnet",
         }):
-            with patch.object(mod.subprocess, "run", side_effect=fake_run):
+            with patch.object(mod, "run_compiler_process", side_effect=fake_run):
                 mod.check("llvm", "mock-compiler")
         self.assertEqual(len(captured), 9)
         for env in captured:
@@ -122,7 +122,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                     return type("Result", (), {
                         "returncode": 1, "stdout": "define i64 @main() { }",
                         "stderr": mod.REJECTION_PREFIXES[backend] + " unsupported"})()
-                with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                with patch.object(mod, "run_compiler_process", side_effect=fake_run):
                     with self.assertRaisesRegex(RuntimeError, "partial compiler IR"):
                         mod.check(backend, "mock-compiler")
                 self.assertEqual(len(attempts), 2)
@@ -147,13 +147,13 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                         return type("Result", (), {
                             "returncode": status,
                             "stdout": "", "stderr": diagnostic})()
-                    with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                    with patch.object(mod, "run_compiler_process", side_effect=fake_run):
                         with self.assertRaisesRegex(RuntimeError, "ambient_filesystem"):
                             mod.check(backend, "mock-compiler")
                     self.assertEqual(len(attempts), 2)
 
     def test_missing_compiler_is_a_hard_failure(self):
-        with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError("missing")):
+        with patch.object(mod, "run_compiler_process", side_effect=FileNotFoundError("missing")):
             with self.assertRaisesRegex(RuntimeError, "compiler unavailable"):
                 mod.check("llvm", "absent")
 
@@ -224,6 +224,52 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             mod.load_cases()
 
 
+    @unittest.skipIf(os.name == "nt", "POSIX synthetic subprocess")
+    def test_real_infinite_output_is_killed_before_disk_growth(self):
+        compiler = Path(self.tmp.name) / "infinite-compiler"
+        compiler.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os\n"
+            "while True: os.write(1, b'x' * 65536)\n", encoding="utf-8")
+        compiler.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "output exceeds size limit"):
+            mod.check("llvm", str(compiler), timeout=3)
+
+    @unittest.skipIf(os.name == "nt", "POSIX synthetic subprocess")
+    def test_real_infinite_stderr_is_killed_without_stdout_deadlock(self):
+        compiler = Path(self.tmp.name) / "infinite-compiler-stderr"
+        compiler.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os\n"
+            "while True: os.write(2, b'x' * 65536)\n", encoding="utf-8")
+        compiler.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "output exceeds size limit"):
+            mod.check("llvm", str(compiler), timeout=3)
+
+    @unittest.skipIf(os.name == "nt", "POSIX synthetic subprocess")
+    def test_real_hung_compiler_is_terminated(self):
+        compiler = Path(self.tmp.name) / "hanging-compiler"
+        compiler.write_text(
+            "#!/usr/bin/env python3\n"
+            "import time\n"
+            "time.sleep(30)\n", encoding="utf-8")
+        compiler.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            mod.check("llvm", str(compiler), timeout=.2)
+
+    @unittest.skipIf(os.name == "nt", "POSIX synthetic subprocess")
+    def test_real_simultaneous_stdout_stderr_flood_does_not_deadlock(self):
+        compiler = Path(self.tmp.name) / "dual-stream-compiler"
+        compiler.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os\n"
+            "while True:\n"
+            "    os.write(1, b'x' * 65536)\n"
+            "    os.write(2, b'y' * 65536)\n", encoding="utf-8")
+        compiler.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "output exceeds size limit"):
+            mod.check("llvm", str(compiler), timeout=3)
+
     def test_reject_bounded_diagnostic_output_and_invalid_encoding(self):
         for reported, channel in (("x" * (mod.MAX_DIAGNOSTIC_BYTES + 1), "stdout"),
                                   (b"\xff", "stdout"),
@@ -232,7 +278,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                 def fake_run(argv, **kwargs):
                     return type("Result", (), {"returncode": 0,
                         "stdout": reported, "stderr": ""})()
-                with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                with patch.object(mod, "run_compiler_process", side_effect=fake_run):
                     with self.assertRaisesRegex(RuntimeError, "compiler stdout"):
                         mod.check("llvm", "mock-compiler")
 
@@ -243,13 +289,13 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             if len(attempts) == 1:
                 return type("Result", (), {"returncode": 0, "stdout": "verified IR", "stderr": ""})()
             return type("Result", (), {"returncode": 1, "stdout": "", "stderr": b"\xff"})()
-        with patch.object(mod.subprocess, "run", side_effect=fake_run):
+        with patch.object(mod, "run_compiler_process", side_effect=fake_run):
             with self.assertRaisesRegex(RuntimeError, "invalid compiler stderr encoding"):
                 mod.check("llvm", "mock-compiler")
         self.assertEqual(len(attempts), 2)
 
     def test_bool_exit_code_does_not_impersonate_real_process_status(self):
-        with patch.object(mod.subprocess, "run", return_value=type("Result", (), {
+        with patch.object(mod, "run_compiler_process", return_value=type("Result", (), {
                 "returncode": True, "stdout": "", "stderr": "oreslang-llvmc: denied"})()):
             with self.assertRaisesRegex(RuntimeError, "unknown status"):
                 mod.check("llvm", "mock-compiler")
@@ -280,7 +326,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             "import sys\n"
             "sys.stdout.write('X' * 1048577)\n", encoding="utf-8")
         interpreter.chmod(0o700)
-        with self.assertRaisesRegex(RuntimeError, "stdout exceeds size limit"):
+        with self.assertRaisesRegex(RuntimeError, "output exceeds size limit"):
             mod.check("llvm", str(interpreter), timeout=3)
 
 
