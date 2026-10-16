@@ -89,7 +89,10 @@ export async function verifyRealCompiler({
       {name:"return-arithmetic",expected:28n},
       {name:"negative-result",expected:-5n},
       {name:"zero-result",expected:0n},
-      {name:"class-scalar-constructor",expected:40n}
+      {name:"class-scalar-constructor",expected:40n},
+      // Byte-identical to the shared value-pipeline conformance source.
+      // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
+      {name:"value-pipe-scalar",expected:7n}
     ];
     const scalarResults=[];
     for (const {name,expected} of scalarMatrix) {
