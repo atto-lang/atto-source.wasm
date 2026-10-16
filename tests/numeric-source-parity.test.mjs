@@ -100,8 +100,7 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       "pub fnc main():decimal{return 1;}",
       // The bare +2^63 literal remains invalid independently of the
       // four checked arithmetic overflow cases in the shared corpus.
-      "pub fnc main():int{return 9223372036854775808;}",
-      ...overflowNegatives
+      "pub fnc main():int{return 9223372036854775808;}"
     ];
     for (let i=0;i<negatives.length;i++) {
       const source=negatives[i];
@@ -117,6 +116,43 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       );
       await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
         "failed numeric compilation must not publish a release pointer");
+    }
+    // Unlike unsupported types/syntax, the shared i64 overflow contract
+    // explicitly permits *either* compile-time refusal OR a checked trap
+    // during real guest execution. Never accept normal wrapped results.
+    for (let i=0;i<overflowNegatives.length;i++) {
+      const target=join(dir,"overflow-"+i+".wasm");
+      await writeFile(input,overflowNegatives[i]);
+      let compiled;
+      try {
+        compiled=await compileOresToWasm({
+          compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
+          environment:"browser",publication:"atomic"
+        });
+      } catch (error) {
+        // Toolchain setup/link failures are NOT arithmetic rejection. Only
+        // the real Oreslang frontend's explicit diagnostic is admissible.
+        assert.match(String(error?.message || error),/oreslang-llvmc:/,
+          "overflow fixture failed outside the real compiler's diagnostic path");
+        await assert.rejects(stat(target+".current.json"),{code:"ENOENT"},
+          "compile-time overflow refusal must not publish an artifact");
+        continue;
+      }
+      // A compiler that emits a value-producing Wasm guest MUST implement a
+      // real checked runtime trap. A wrapped i64 result is a parity failure,
+      // as are validation errors, import denials, worker crashes and timeout.
+      const released=await readAtomicRelease(target);
+      assert.equal(released.manifest.wasmSha256,compiled.wasmSha256);
+      assert.equal(released.manifest.imports.length,0);
+      assert.deepEqual(released.manifest.requiredCapabilities,[]);
+      await assert.rejects(
+        runIsolatedCoreGuest(released.wasm,{
+          expectedSha256:compiled.wasmSha256,timeoutMs:5000
+        }),
+        error=>error instanceof Error &&
+          /^guest rejected or failed: wasm runtime trap: /.test(error.message),
+        "overflow source must trap at runtime instead of wrapping i64"
+      );
     }
   } finally {
     await rm(dir,{recursive:true,force:true});
