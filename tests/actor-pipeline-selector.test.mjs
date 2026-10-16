@@ -42,6 +42,8 @@ test("v1 deterministic DAG fanout, named, strict RR and generation reset", () =>
   assert.equal(p.forwardRoundRobin("source").target,"worker-a");
   assert.throws(()=>p.advanceGeneration(8,{aborted:true}));
   assert.throws(()=>p.forwardAll("worker-a"));
+  assert.throws(() => p.forwardByKey("worker-a", "\ud800"),
+    /source has no downstream/);
 });
 test("reject graph getter reentrancy and snapshot alias mutation", () => {
   let calls = 0;
@@ -126,6 +128,7 @@ test("terminal selector retirement never reopens by generation", () => {
   assert.equal(plan.generation, 9);
   plan.retire(); // idempotent STOP
   assert.throws(() => plan.forwardAll("source"), /retired/);
+  assert.throws(() => plan.forwardByKey("source", "\ud800"), /retired/);
   const replacement = new ActorPipelineSelector(stages(),edges(),10);
   assert.equal(replacement.forwardRoundRobin("source").target,"worker-a");
 });
