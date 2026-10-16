@@ -57,6 +57,22 @@ def _int(value, label):
     return value
 
 
+def _run_workflow_path_matches(actual, expected):
+    # GitHub returns workflow run 'path' as .github/workflows/foo.yml@main
+    # or with a refs/* qualifier (see the REST example). Match the exact
+    # trusted workflow *file*, not a suffix-sharing or arbitrary URL path.
+    if not isinstance(actual, str):
+        return False
+    if actual == expected:
+        return True
+    prefix = expected + "@"
+    if not actual.startswith(prefix):
+        return False
+    ref = actual[len(prefix):]
+    return bool(re.fullmatch(r"[A-Za-z0-9_./-]+", ref)
+                and not any(p in ("", ".", "..") for p in ref.split("/")))
+
+
 def _timestamp(value, label):
     # GitHub Actions reports UTC RFC3339 second-precision timestamps.
     if not isinstance(value, str) or not re.fullmatch(
@@ -97,7 +113,7 @@ def _api_get(path):
 
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
-           job_step_pairs=None):
+           job_step_pairs=None, workflow_path=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -108,6 +124,10 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("unrecognized Oreslang backend")
     repo, repo_id = REPOS[backend]
     commit, tree, run_id = _sha(commit), _sha(tree), _int(run_id, "run id")
+    if (not isinstance(workflow_path, str)
+            or not re.fullmatch(r"\.github/workflows/[A-Za-z0-9._/-]+\.ya?ml", workflow_path)
+            or any(part in ("", ".", "..") for part in workflow_path.split("/"))):
+        raise Denied("expected an exact trusted workflow path under .github/workflows")
     if not required_jobs or not required_steps:
         raise Denied("explicit job and executable step names are required")
     if any(not isinstance(x, str) or not x.strip() or len(x) > 180
@@ -154,6 +174,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or type(run_repo.get("id")) is not int or run_repo["id"] != repo_id
             or type(head_repo.get("id")) is not int or head_repo["id"] != repo_id
             or run.get("head_sha") != commit
+            or not _run_workflow_path_matches(run.get("path"), workflow_path)
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"):
         raise Denied("workflow run is not a successful exact-repository HEAD execution")
@@ -248,7 +269,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                      for job, step in pairs):
         raise Denied("required executable step did not run in its bound CI job")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
-            "run_id": run_id, "run_attempt": attempt, "head_commit": commit,
+            "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
+            "head_commit": commit,
             "head_tree": tree, "verified_jobs": len(jobs),
             "successful_non_housekeeping_steps": count,
             "statement": "GITHUB_RUN_EXECUTION_VERIFIED_NOT_GUEST_PARITY_CERTIFIED"}
@@ -260,6 +282,8 @@ def main(argv=None):
     parser.add_argument("--commit", required=True)
     parser.add_argument("--tree", required=True)
     parser.add_argument("--run-id", required=True, type=int)
+    parser.add_argument("--workflow-path", required=True,
+                        help="Exact independently reviewed .github/workflows/*.yml path")
     parser.add_argument("--require-job", action="append", default=[])
     parser.add_argument("--require-step", action="append", default=[])
     parser.add_argument("--require-job-step", action="append", default=[],
@@ -275,7 +299,7 @@ def main(argv=None):
             pairs.append(pair)
         result = verify(_api_get, args.backend, args.commit, args.tree,
                         args.run_id, args.require_job, args.require_step,
-                        job_step_pairs=pairs)
+                        job_step_pairs=pairs, workflow_path=args.workflow_path)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
