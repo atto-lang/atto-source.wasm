@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {assertCheckedOverflowIr} from "../scripts/checked-overflow-ir.mjs";
+import {assertCheckedOverflowIr,isSignedI64OverflowDiagnostic} from "../scripts/checked-overflow-ir.mjs";
 
 // Independent hand-authored LLVM fixture; no private Oreslang source or stub
 // compiler. These checks only establish that the IR admission logic rejects
@@ -63,4 +63,22 @@ test("checked intrinsics in an uncalled helper cannot certify main",()=>{
   assert.throws(()=>assertCheckedOverflowIr(decoy,"sadd"),/required signed-i64/);
   assert.throws(()=>assertCheckedOverflowIr(valid+valid,
     "sadd"),/exactly one i64 guest main body/);
+});
+
+
+test("only an i64-specific compiler diagnostic qualifies as overflow refusal",()=>{
+  for (const error of [
+    "command failed (/tmp/compiler-exact): oreslang-llvmc: checked i64 overflow",
+    "oreslang-llvmc: signed integer out of range",
+    "oreslang-llvmc: invalid i64 literal",
+    "oreslang-llvmc: arithmetic out of bounds"
+  ]) assert.equal(isSignedI64OverflowDiagnostic(Error(error)),true,error);
+  for (const unrelated of [
+    "command failed (/tmp/compiler-exact): oreslang-llvmc: input file missing",
+    "oreslang-llvmc: unknown compiler flag",
+    "oreslang-llvmc: wasm32 target unsupported",
+    "clang: arithmetic overflow",
+    "worker failed: wasm runtime trap: unreachable",
+    "oreslang-llvmc: invalid syntax\nother tool: overflow"
+  ]) assert.equal(isSignedI64OverflowDiagnostic(Error(unrelated)),false,unrelated);
 });
