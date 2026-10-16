@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync, rmSync, writeFileSync} from "node:fs";
+import {mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
@@ -77,4 +77,27 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
 test("no independent JavaScript parser claims scoped capture semantics", () => {
   assert.equal(hasCompiler || process.env.ORESLANG_METHOD_PARITY_REQUIRED !== "1",true,
     "required real compiler unavailable; do not substitute a fake compiler");
+});
+
+test("compiler admission rejects a symlink and oversized sparse file before reading", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ores-compiler-snapshot-safety-"));
+  try {
+    const real = join(dir, "compiler");
+    const link = join(dir, "compiler-link");
+    const huge = join(dir, "oversized-sparse-compiler");
+    writeFileSync(real, Buffer.from([0x7f, 0x45, 0x4c, 0x46]));
+    symlinkSync(real, link);
+    await assert.rejects(
+      readBoundedRegularFile(link, 256 * 1024 * 1024, "compiler exceeds maximum"),
+      /symlink or special input file is forbidden/
+    );
+    writeFileSync(huge, "");
+    truncateSync(huge, 256 * 1024 * 1024 + 1);
+    await assert.rejects(
+      readBoundedRegularFile(huge, 256 * 1024 * 1024, "compiler exceeds maximum"),
+      /compiler exceeds maximum/
+    );
+  } finally {
+    rmSync(dir, {recursive:true,force:true});
+  }
 });
