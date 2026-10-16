@@ -29,8 +29,9 @@ below compile, type-check, and (where applicable) execute natively.
   parameter/return signatures and mutability modes, not just member names.
   Function parameter variance is contravariant, result variance covariant
   where type-system rules prove safety.
-- Never substitute numeric/string coercions for type compatibility. Do not
-  collapse actor identities into structural shapes.
+- Apply only language-defined safe numeric widening in read-only views;
+  never use host coercion or writable-field covariance. Do not collapse actor
+  identities into structural shapes.
 - A structural parameter is a non-escaping, read-only synchronous view.
   No mutating structural arguments, actor-mailbox crossing, async/generator
   suspension, or escaping borrows until explicitly proven safe by an
