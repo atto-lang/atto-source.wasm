@@ -1,6 +1,7 @@
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {validateCoreOptions} from "./validate-core-options.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
 // also enforce an aggregate per-tenant/process-level limit at its broker.
@@ -14,17 +15,12 @@ let activeGuestWorkers = 0;
  * Resolves only after the guest worker has terminated.
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
-export async function runIsolatedCoreGuest(input, {
-  expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000,
-  ...unsupportedOptions
-} = {}) {
-  // Reject permission flags not implemented by the strictly zero-import
-  // core guest profile instead of silently ignoring caller-supplied grants.
-  const unknown = Object.keys(unsupportedOptions);
-  if (unknown.length !== 0) {
-    throw new TypeError("unsupported zero-capability guest option: " + unknown.sort().join(", "));
-  }
+export async function runIsolatedCoreGuest(input, options = {}) {
+  // Validate descriptors, inherited names and symbols before reading values.
+  const {expectedSha256, entry = "main", maxMemoryPages = 2,
+    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000} =
+    validateCoreOptions(options,
+      ["expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes", "timeoutMs"]);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
