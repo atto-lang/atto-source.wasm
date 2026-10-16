@@ -5,6 +5,7 @@ This confirms real *GitHub job execution*, not guest semantics or test coverage.
 It never copies source, triggers CI, or mutates GitHub state.
 """
 import argparse
+from datetime import datetime
 import json
 import os
 import re
@@ -54,6 +55,17 @@ def _int(value, label):
     if type(value) is not int or value <= 0:
         raise Denied(label + " is not a positive integer")
     return value
+
+
+def _timestamp(value, label):
+    # GitHub Actions reports UTC RFC3339 second-precision timestamps.
+    if not isinstance(value, str) or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z", value):
+        raise Denied(label + " lacks a UTC execution timestamp")
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as exc:
+        raise Denied(label + " has an invalid execution timestamp") from exc
 
 
 def _api_get(path):
@@ -189,6 +201,10 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                 or not isinstance(job.get("runner_name"), str)
                 or not job["runner_name"].strip()):
             raise Denied("workflow job lacks a real allocated runner")
+        job_start = _timestamp(job.get("started_at"), "job start")
+        job_end = _timestamp(job.get("completed_at"), "job completion")
+        if job_end < job_start:
+            raise Denied("workflow job completion precedes its start")
         name = job.get("name")
         if not isinstance(name, str) or not name:
             raise Denied("missing workflow job name")
@@ -200,10 +216,19 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if not isinstance(steps, list) or not steps:
             raise Denied("workflow job has zero executed steps")
         ran_useful_step = False
+        last_number = 0
         for item_step in steps:
             step = _object(item_step, "workflow step")
             if step.get("status") != "completed" or step.get("conclusion") != "success":
                 raise Denied("workflow step was not completed successfully")
+            number = _int(step.get("number"), "step number")
+            if number <= last_number:
+                raise Denied("workflow steps have duplicate or out-of-order numbers")
+            last_number = number
+            step_start = _timestamp(step.get("started_at"), "step start")
+            step_end = _timestamp(step.get("completed_at"), "step completion")
+            if not (job_start <= step_start <= step_end <= job_end):
+                raise Denied("workflow step timing falls outside completed job")
             step_name = step.get("name")
             if not isinstance(step_name, str) or not step_name:
                 raise Denied("workflow step has no name")
