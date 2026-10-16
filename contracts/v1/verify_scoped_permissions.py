@@ -5,6 +5,7 @@ This is a gate, not a permission evaluator. It cannot prove a report came
 from guest execution: separate CI provenance and native boundary tests must.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -15,6 +16,7 @@ REPORT_SCHEMA = "oreslang.scoped-permissions.report.v1"
 BACKENDS = {"llvm", "net", "wasm", "forge", "java"}
 SHA = re.compile(r"[0-9a-f]{40}")
 VALID_DECISIONS = {"allow", "deny", "accept", "reject"}
+CANONICAL_VECTORS_SHA256 = "b481b72d9e5fdb2c1a4d4de7745a02f7ec3af8a937b0f067885d184efc3cb308"
 
 def pairs_no_duplicates(pairs):
     obj = {}
@@ -31,6 +33,21 @@ def read_json(path):
     if p.stat().st_size > 1024 * 1024:
         raise ValueError("oversized conformance data")
     return json.loads(p.read_text(encoding="utf-8"), object_pairs_hook=pairs_no_duplicates)
+
+def check_canonical_vectors(path):
+    """Reject a changed allow/deny oracle even if its JSON schema is valid.
+
+    This check cannot prove backend execution or establish runtime parity.
+    """
+    p = Path(path)
+    if p.is_symlink() or not p.is_file():
+        raise ValueError("missing, nonregular, or symlinked conformance JSON")
+    raw = p.read_bytes()
+    if len(raw) > 1024 * 1024:
+        raise ValueError("oversized conformance data")
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != CANONICAL_VECTORS_SHA256:
+        raise ValueError("canonical permission vectors SHA-256 mismatch")
 
 def load_vectors(path):
     data = read_json(path)
@@ -112,6 +129,7 @@ def main():
     p.add_argument("--source-tree")
     args = p.parse_args()
     try:
+        check_canonical_vectors(args.vectors)
         ids = load_vectors(args.vectors)
         if args.validate_only:
             if args.report or args.backend or args.source_commit or args.source_tree:
