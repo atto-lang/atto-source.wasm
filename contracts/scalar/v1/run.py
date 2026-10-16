@@ -21,14 +21,17 @@ MAX_OUTPUT_BYTES = 65536
 def load_suite():
     suite_bytes = (HERE / "cases.json").read_bytes()
     suite = json.loads(suite_bytes)
-    if set(suite) != {"schema_version", "cases"} or suite["schema_version"] != "1.0.0":
+    if not isinstance(suite, dict) or set(suite) != {"schema_version", "cases"} or suite["schema_version"] != "1.0.0":
         raise ValueError("unsupported manifest fields or version")
     if not isinstance(suite["cases"], list) or not (1 <= len(suite["cases"]) <= 100):
         raise ValueError("invalid case inventory")
     digest = hashlib.sha256(suite_bytes)
     seen, declared = set(), set()
+    fixture_root = HERE / "fixtures"
+    if fixture_root.is_symlink() or not fixture_root.is_dir():
+        raise ValueError("fixture directory must be an ordinary directory")
     for case in suite["cases"]:
-        if set(case) not in ({"id", "file", "kind", "value"}, {"id", "file", "kind"}):
+        if not isinstance(case, dict) or set(case) not in ({"id", "file", "kind", "value"}, {"id", "file", "kind"}):
             raise ValueError("unexpected case fields")
         cid, filename, kind = case["id"], case["file"], case["kind"]
         if not isinstance(cid, str) or not re.fullmatch(r"[a-z][a-z0-9.-]{1,79}", cid) or cid in seen:
@@ -36,8 +39,10 @@ def load_suite():
         seen.add(cid)
         if not isinstance(filename, str) or not re.fullmatch(r"fixtures/[a-z0-9-]+\.ores", filename):
             raise ValueError("invalid fixture filename")
+        if filename in declared:
+            raise ValueError("duplicate source fixture: " + filename)
         source = HERE / filename
-        if source.is_symlink() or source.resolve().parent != (HERE / "fixtures").resolve():
+        if source.is_symlink() or source.resolve().parent != fixture_root.resolve():
             raise ValueError("fixture path escapes fixture root")
         data = source.read_bytes()
         if not (0 < len(data) <= 1048576) or b"\x00" in data:
@@ -53,7 +58,7 @@ def load_suite():
                 raise ValueError("expected i64 outside range")
         elif kind != "reject" or "value" in case:
             raise ValueError("negative case may not specify a value")
-    disk = {"fixtures/" + p.name for p in (HERE / "fixtures").iterdir()}
+    disk = {"fixtures/" + p.name for p in fixture_root.iterdir()}
     if disk != declared:
         raise ValueError("orphan/missing fixture: " + str(sorted(disk ^ declared)))
     return suite, digest.hexdigest()
