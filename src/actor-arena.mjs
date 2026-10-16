@@ -139,6 +139,11 @@ export class ActorArena {
     if (!(data instanceof Uint8Array) || data.byteLength !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
+    // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
+    // tearing the actor's snapshot. Require owned, non-shared input bytes.
+    if (typeof SharedArrayBuffer !== "undefined" && data.buffer instanceof SharedArrayBuffer) {
+      throw new TypeError("arena write rejects shared backing memory");
+    }
     // Never return live memory views; callers cannot retain a raw alias.
     this.#bytes().set(data, offset);
   }
