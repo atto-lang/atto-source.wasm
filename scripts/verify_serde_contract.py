@@ -106,9 +106,10 @@ def verify_document(doc):
             'static policy cannot certify runtimes')
     require(verification.get('unimplemented_feature_must_be_marked_unsupported') is True,
             'unsupported features cannot silently pass')
-    require({'positive_scalar', 'nested_capability_reject', 'control_in_data_reject',
-             'rejected_send_ownership_rollback', 'bounded_decode', 'generation_replay_reject',
-             'cross_backend_golden_bytes'} <=
+    require({'positive_scalar', 'nested_capability_reject', 'network_without_permission_reject',
+             'control_in_data_reject', 'schema_version_mismatch_reject',
+             'sender_snapshot_mutation', 'rejected_send_ownership_rollback',
+             'bounded_decode', 'generation_replay_reject', 'cross_backend_golden_bytes'} <=
             unique_set(verification.get('categories'), 'verification categories'),
             'missing runtime conformance category')
     return True
@@ -118,6 +119,9 @@ def verify_file(path=CONTRACT):
     path = Path(path)
     require(stat.S_ISREG(path.lstat().st_mode) and not path.is_symlink(),
             'contract must be a regular file, not a symlink')
+    # Reject giant inputs before allocating a copy in memory. lstat above also
+    # makes a checked-out symlinked contract an explicit error.
+    require(path.stat().st_size <= MAX_CONTRACT_BYTES, 'oversized contract')
     raw = path.read_bytes()
     require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
     digest = hashlib.sha256(raw).hexdigest()
