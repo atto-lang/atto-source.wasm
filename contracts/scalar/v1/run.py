@@ -20,6 +20,31 @@ HERE = Path(__file__).resolve().parent
 MAX_OUTPUT_BYTES = 65536
 MAX_FIXTURE_BYTES = 1048576
 
+# Contract v1 is a closed reference inventory. New cases require a reviewed
+# revision, not silent substitution/shrinkage under the same schema version.
+EXPECTED_V1_CASES = {
+    "scalar.literal-42": ("accept", "42"),
+    "scalar.precedence": ("accept", "28"),
+    "scalar.unary": ("accept", "-21"),
+    "scalar.i64-min": ("accept", "-9223372036854775808"),
+    "scalar.i64-max": ("accept", "9223372036854775807"),
+    "scalar.i64-max-minus-one": ("accept", "9223372036854775806"),
+    "reject.unknown": ("reject", None),
+    "reject.division": ("reject", None),
+    "reject.actor": ("reject", None),
+    "reject.async": ("reject", None),
+    "reject.structural": ("reject", None),
+}
+
+
+def reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate manifest JSON key: " + key)
+        result[key] = value
+    return result
+
 
 def read_bounded_regular_fixture(source):
     """Read a fixture through its opened file descriptor, never a FIFO.
@@ -64,7 +89,7 @@ def load_suite():
     # The manifest is as security-sensitive as each source fixture: reject
     # FIFO/symlink/device substitution and oversized files before parsing.
     suite_bytes = read_bounded_regular_fixture(HERE / "cases.json")
-    suite = json.loads(suite_bytes)
+    suite = json.loads(suite_bytes, object_pairs_hook=reject_duplicate_json_keys)
     if not isinstance(suite, dict) or set(suite) != {"schema_version", "cases"} or suite["schema_version"] != "1.0.0":
         raise ValueError("unsupported manifest fields or version")
     if not isinstance(suite["cases"], list) or not (1 <= len(suite["cases"]) <= 100):
@@ -102,6 +127,15 @@ def load_suite():
                 raise ValueError("expected i64 outside range")
         elif kind != "reject" or "value" in case:
             raise ValueError("negative case may not specify a value")
+        expected = EXPECTED_V1_CASES.get(cid)
+        if expected is None or (kind, case.get("value")) != expected:
+            raise ValueError("unknown or redefined v1 case: " + cid)
+        suffix = cid.split(".", 1)[1]
+        expected_file = "fixtures/" + ("reject-" if kind == "reject" else "") + suffix + ".ores"
+        if filename != expected_file:
+            raise ValueError("v1 case filename does not match its identity")
+    if seen != set(EXPECTED_V1_CASES):
+        raise ValueError("v1 case inventory changed")
     disk = {"fixtures/" + p.name for p in fixture_root.iterdir()}
     if disk != declared:
         raise ValueError("orphan/missing fixture: " + str(sorted(disk ^ declared)))
@@ -192,6 +226,11 @@ def main():
     ap.add_argument("--report", type=Path)
     ap.add_argument("--timeout", type=int, default=20)
     opts = ap.parse_args()
+    # Only independently reviewed backend/mode pairs can issue this evidence.
+    # In particular a generic exit-zero is not admissible Java/LLVM/Wasm proof.
+    supported = {"forge": "stdout-i64", "net": "admission"}
+    if supported.get(opts.backend) != opts.mode:
+        ap.error("unsupported backend/mode evidence pair")
     if opts.revision and not re.fullmatch(r"[0-9a-f]{40}", opts.revision):
         ap.error("--revision must be a full lowercase Git commit SHA")
     if opts.report and not opts.revision:
