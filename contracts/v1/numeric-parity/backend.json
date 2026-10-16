@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0.0",
+  "backend": "wasm",
+  "reference_fixture_git_blob_sha": "cb28b5678d380f02c5e4e43bd763da04bdb996fe",
+  "capabilities": {
+    "source_i64": "delegated_unverified",
+    "checked_i64_overflow": "delegated_unverified",
+    "binary64_ordering": "unsupported_explicit",
+    "binary32_arithmetic": "unsupported_explicit",
+    "bigint_exact": "unsupported_explicit",
+    "decimal_exact": "unsupported_explicit",
+    "complex_binary64": "unsupported_explicit",
+    "decimal_matrix": "unsupported_explicit",
+    "source_division_to_float": "unsupported_explicit"
+  },
+  "evidence": {
+    "source_i64": {},
+    "checked_i64_overflow": {},
+    "binary64_ordering": {},
+    "binary32_arithmetic": {},
+    "bigint_exact": {},
+    "decimal_exact": {},
+    "complex_binary64": {},
+    "decimal_matrix": {},
+    "source_division_to_float": {}
+  }
+}
