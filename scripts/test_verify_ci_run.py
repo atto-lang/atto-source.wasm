@@ -144,6 +144,25 @@ class RunContract(unittest.TestCase):
         self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"].pop(1)
         self.rejected()
 
+    def test_required_proof_step_cannot_be_runner_housekeeping(self):
+        # This job also ran "Execute test suite": older verification would
+        # accept "Set up job" as the required step and let the unrelated
+        # executable step launder that proof.
+        for name in ("Set up job", "Complete job", "Post actions/checkout",
+                     "Pre actions/checkout", "Initialize containers",
+                     "Start containers", "Stop containers"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(module.Denied, "runner housekeeping"):
+                    module.verify(self.fetch, self.backend, self.commit,
+                                  self.tree, self.run_id, ["unit"], [name])
+                with self.assertRaisesRegex(module.Denied, "runner housekeeping"):
+                    module.verify(self.fetch, self.backend, self.commit,
+                                  self.tree, self.run_id, ["unit"], [name],
+                                  job_step_pairs=[("unit", name)])
+
+    def test_actual_executable_proof_still_passes(self):
+        self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
+
     def test_wrong_attempt(self):
         self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["run_attempt"] = 1
         self.rejected()
