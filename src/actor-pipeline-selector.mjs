@@ -20,6 +20,17 @@ function bytes(value, limit, optional = false, forbidNul = true) {
   if (encoded.length > limit) throw new TypeError("routing component byte budget");
   return encoded;
 }
+// Snapshot a plain data property once. Never invoke getter callbacks while
+// validating supervisor topology: getter values could differ between checks
+// and the graph snapshot, or execute arbitrary work during admission.
+function ownData(object, name) {
+  if ((typeof object !== "object" && typeof object !== "function") || object === null)
+    throw new TypeError("invalid routing object");
+  const descriptor = Object.getOwnPropertyDescriptor(object, name);
+  if (!descriptor || !Object.hasOwn(descriptor, "value"))
+    throw new TypeError("routing graph requires own data fields");
+  return descriptor.value;
+}
 export function routeKeySlot(key, count) {
   if (!Number.isSafeInteger(count) || count < 1 || count > 4096)
     throw new RangeError("invalid downstream edge count");
@@ -40,8 +51,16 @@ export class ActorPipelineSelector {
         !Number.isSafeInteger(generation) || generation < 1)
       throw new RangeError("invalid actor graph or generation budget");
     const ids = new Map(), indegree = new Map();
-    for (const s of stages) {
-      if (!s || typeof s !== "object") throw new TypeError("missing stage");
+    for (const candidate of stages) {
+      // Each field is read once before validation. Reject inherited fields,
+      // accessors, functions, and mutable getter-produced values.
+      const s = Object.freeze({
+        id: ownData(candidate, "id"),
+        actorType: ownData(candidate, "actorType"),
+        role: ownData(candidate, "role"),
+        inbound: ownData(candidate, "inbound"),
+        outbound: ownData(candidate, "outbound")
+      });
       for (const n of [s.id, s.actorType]) bytes(n, MAX_NAME);
       for (const n of [s.inbound, s.outbound]) bytes(n, MAX_NAME, true);
       if (ids.has(s.id)) throw new TypeError("duplicate actor instance");
@@ -49,14 +68,20 @@ export class ActorPipelineSelector {
       const roles = {readable: !incoming && outgoing,
         writable: incoming && !outgoing, transform: incoming && outgoing,
         duplex: incoming && outgoing};
-      if (roles[s.role] !== true) throw new TypeError("invalid actor port role");
-      ids.set(s.id, Object.freeze({...s}));
+      if (typeof s.role !== "string" || !Object.hasOwn(roles, s.role) ||
+          roles[s.role] !== true)
+        throw new TypeError("invalid actor port role");
+      ids.set(s.id, s);
       indegree.set(s.id, 0);
     }
     const pairs = new Set(), inboundCount = new Map(), outgoingCount = new Map();
     for (const id of ids.keys()) { this.#out.set(id, []); inboundCount.set(id, 0); outgoingCount.set(id, 0); }
-    for (const edge of links) {
-      if (!edge || typeof edge !== "object") throw new TypeError("missing link");
+    for (const candidate of links) {
+      const edge = Object.freeze({
+        source: ownData(candidate, "source"),
+        target: ownData(candidate, "target"),
+        payload: ownData(candidate, "payload")
+      });
       for (const n of [edge.source, edge.target, edge.payload]) bytes(n, MAX_NAME);
       const source = ids.get(edge.source), target = ids.get(edge.target);
       if (!source || !target || source.id === target.id) throw new TypeError("invalid edge endpoints");
@@ -66,7 +91,7 @@ export class ActorPipelineSelector {
       const pair = JSON.stringify([edge.source, edge.target]);
       if (pairs.has(pair)) throw new TypeError("duplicate actor edge");
       pairs.add(pair);
-      this.#out.get(edge.source).push(Object.freeze({...edge}));
+      this.#out.get(edge.source).push(edge);
       indegree.set(edge.target, indegree.get(edge.target) + 1);
       inboundCount.set(edge.target, inboundCount.get(edge.target) + 1);
       outgoingCount.set(edge.source, outgoingCount.get(edge.source) + 1);
