@@ -57,7 +57,11 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
     "fnc main():int {val int x=1; val f=|y| -> x; return 1;}",
     "fnc main():int {val int x=1; val f=lex[x] || -> nlex || -> x; return 1;}",
     "define class Foo as fnc read(mut self, int x): int {return x;} end fnc main():int{return 1;}",
-    "define actor Foo as receive(self, int x): void {return;} end fnc main():int{return 1;}"
+    "define actor Foo as receive(self, int x): void {return;} end fnc main():int{return 1;}",
+    "define actor Foo as on_start(self): void {return;} end fnc main():int{return 1;}",
+    "define actor Foo as receive(ActorMail<int> mail): void {self.receive(mail);return;} end fnc main():int{return 1;}",
+    "define abstract class Framework as private abstract receive(int x): int; end fnc main():int{return 1;}",
+    "define class Worker as private abstract receive(int x): int; end fnc main():int{return 1;}"
   ];
   const dir = mkdtempSync(join(tmpdir(),"ores-method-capture-wasm-"));
   try {
