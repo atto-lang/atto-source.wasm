@@ -25,6 +25,21 @@ immutable fixtures, **not compiled source**. Implemented guest adapters:
   capabilities and verify full-width `BigInt` results; **skips when the
   real compiler is not supplied**, and a skip never counts as parity.
 
+## Shared signed-i64 overflow corpus
+
+`source-i64-overflow-cases.json` is byte-identical to the Java, LLVM,
+.NET and Forge corpus (Git blob
+`2ce0b0ff5c52e54a788280fd64d67fa8dc32614a`), and is pinned in
+`backend.json`. The four cases cover positive addition overflow,
+negative subtraction overflow, multiplication overflow and nested unary
+negation overflow. The Python gate validates the pinned bytes and
+independent rejecting oracle. `numeric-source-parity.test.mjs` additionally
+feeds each source through the pinned real LLVM->wasm32 compiler and checks
+that rejected compilation never publishes an atomic release pointer.
+The latter test **skips when a real pinned compiler is unavailable**;
+it must not be counted as guest parity. `checked_i64_overflow` remains
+`delegated_unverified`.
+
 Actual-feature parity is **not established**: Actions attempts in the
 source org have zero executed steps, and the bootstrap engines still
 lack f32, f64, BigInt, Decimal, Complex, and Matrix implementations.
