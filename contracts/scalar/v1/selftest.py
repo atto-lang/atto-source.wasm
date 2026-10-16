@@ -54,6 +54,52 @@ class ScalarHarnessTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "changed during snapshot"):
                 runner.snapshot_suite(suite, digest, Path(work))
 
+    def test_duplicate_json_keys_rejected_at_every_depth(self):
+        manifest = runner.HERE / "cases.json"
+        raw = manifest.read_text(encoding="utf-8")
+        for mutated in (
+            raw.replace('"schema_version": "1.0.0",',
+                        '"schema_version": "1.0.0", "schema_version": "1.0.0",', 1),
+            raw.replace('"id": "scalar.literal-42",',
+                        '"id": "scalar.literal-42", "id": "scalar.literal-42",', 1),
+        ):
+            with self.subTest(mutated=mutated[:130]):
+                manifest.write_text(mutated, encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "duplicate manifest JSON key"):
+                    runner.load_suite()
+
+    def test_v1_inventory_cannot_shrink_or_substitute_semantics(self):
+        baseline = self.case_data()
+        cases = (
+            lambda d: d["cases"].pop(),
+            lambda d: d["cases"][0].update(value="43"),
+            lambda d: d["cases"][0].update(id="scalar.alternate-42"),
+        )
+        import copy
+        for mutate in cases:
+            doc = copy.deepcopy(baseline)
+            mutate(doc)
+            self.write(doc)
+            with self.assertRaisesRegex(ValueError, "v1 case"):
+                runner.load_suite()
+
+    def test_backend_mode_pairs_fail_closed(self):
+        import io
+        from contextlib import redirect_stderr
+        from unittest.mock import patch
+        bad_pairs = (("wasm", "admission"), ("llvm", "admission"),
+                     ("java", "stdout-i64"), ("net", "stdout-i64"),
+                     ("forge", "admission"))
+        for backend, mode in bad_pairs:
+            with self.subTest(backend=backend, mode=mode):
+                argv = ["run.py", "--backend", backend, "--mode", mode,
+                        "--command", "python {source}"]
+                with patch.object(sys, "argv", argv), redirect_stderr(io.StringIO()) as err:
+                    with self.assertRaises(SystemExit) as failure:
+                        runner.main()
+                self.assertEqual(failure.exception.code, 2)
+                self.assertIn("unsupported backend/mode", err.getvalue())
+
     def test_canonical_digest_and_inventory(self):
         suite, digest = runner.load_suite()
         self.assertEqual(digest, CANONICAL_SUITE_SHA256)
