@@ -19,6 +19,8 @@ jobs:
           persist-credentials: false
       - name: Adversarial policy and workflow regression tests
         run: python3 -m unittest discover -s tests -p test_backend_private_ci_contract.py -v
+      - name: Exercise compiler-admission harness controls (mock-only, no native proof)
+        run: python3 -m unittest discover -s tests -p test_guest_capability_admission.py -v
       - name: Validate immutable repository identity and shared deny-by-default contract
         run: |
           python3 scripts/check_backend_private_ci_contract.py --backend "${GITHUB_REPOSITORY##*.}"
