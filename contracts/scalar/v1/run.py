@@ -7,6 +7,8 @@ Do not interpret admission as compiled guest/runtime parity.
 import argparse
 import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 import re
 import shlex
@@ -16,6 +18,46 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 MAX_OUTPUT_BYTES = 65536
+MAX_FIXTURE_BYTES = 1048576
+
+
+def read_bounded_regular_fixture(source):
+    """Read a fixture through its opened file descriptor, never a FIFO.
+
+    POSIX no-follow/nonblocking flags prevent symlink and FIFO substitutions
+    from turning a manifest check into an unbounded read or a hang. Windows
+    uses regular-file lstat/fstat checks; these are not an atomic trust boundary.
+    """
+    original = source.lstat()
+    if not stat.S_ISREG(original.st_mode) or original.st_nlink != 1:
+        raise ValueError("source fixture must be a unique regular file")
+    if not 0 < original.st_size <= MAX_FIXTURE_BYTES:
+        raise ValueError("invalid source length")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(source, flags)
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+            raise ValueError("fixture replaced by nonregular file")
+        if not same_fixture_identity(original, opened):
+            raise ValueError("fixture changed before read")
+        data = stream.read(MAX_FIXTURE_BYTES + 1)
+        after = os.fstat(stream.fileno())
+        if not same_fixture_identity(opened, after):
+            raise ValueError("fixture changed during read")
+    final = source.lstat()
+    if not same_fixture_identity(after, final):
+        raise ValueError("fixture path changed during read")
+    if not 0 < len(data) <= MAX_FIXTURE_BYTES:
+        raise ValueError("invalid source length")
+    return data
+
+
+def same_fixture_identity(before, after):
+    return all(getattr(before, attr) == getattr(after, attr) for attr in (
+        "st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
+        "st_mtime_ns", "st_ctime_ns"
+    ))
 
 
 def load_suite():
@@ -44,9 +86,9 @@ def load_suite():
         source = HERE / filename
         if source.is_symlink() or source.resolve().parent != fixture_root.resolve():
             raise ValueError("fixture path escapes fixture root")
-        data = source.read_bytes()
-        if not (0 < len(data) <= 1048576) or b"\x00" in data:
-            raise ValueError("invalid source length or embedded NUL")
+        data = read_bounded_regular_fixture(source)
+        if b"\x00" in data:
+            raise ValueError("embedded NUL in source fixture")
         data.decode("utf-8", errors="strict")
         digest.update(filename.encode("ascii") + b"\x00" + data)
         declared.add(filename)
