@@ -87,6 +87,9 @@ export async function verifyRealCompiler({
     // mistakes that a constant-42 smoke test cannot expose.
     const scalarMatrix = [
       {name:"return-arithmetic",expected:28n},
+      // Git blob a8165323a8aa40e7cec613fdb7e645c41a901965:
+      // byte-identical with the shared five-backend Wave 2 source fixture.
+      {name:"arithmetic-76",expected:76n},
       {name:"negative-result",expected:-5n},
       {name:"zero-result",expected:0n},
       {name:"class-scalar-constructor",expected:40n}
