@@ -330,5 +330,59 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             mod.check("llvm", str(interpreter), timeout=3)
 
 
+    @unittest.skipIf(os.name == "nt", "POSIX compiler process tree regression")
+    def test_exited_compiler_cannot_leave_background_child_holding_pipes(self):
+        # The initial launcher exits immediately; a descendant retains both
+        # output pipes. The test would otherwise hang past the deadline and
+        # could let the child run after the admission check rejects the case.
+        marker = Path(self.tmp.name) / "escaped-child-marker"
+        started = Path(self.tmp.name) / "launcher-started"
+        payload = ("from pathlib import Path; import time; time.sleep(1.2); "
+                   + "Path(" + repr(str(marker)) + ").write_text('escaped')")
+        fake = Path(self.tmp.name) / "forking-compiler"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import subprocess, sys\n"
+            "from pathlib import Path\n"
+            "subprocess.Popen([sys.executable, '-c', " + repr(payload) + "], "
+            "stdin=subprocess.DEVNULL, stdout=sys.stdout, stderr=sys.stderr)\n"
+            "Path(" + repr(str(started)) + ").write_text('started')\n",
+            encoding="utf-8")
+        fake.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            mod.run_compiler_process([str(fake)], cwd=mod.ROOT, timeout=.35,
+                                     env=mod.sanitized_toolchain_environment())
+        self.assertTrue(started.exists(),
+                        "fixture launcher must have spawned a descendant")
+        import time
+        time.sleep(1.4)
+        self.assertFalse(marker.exists(),
+                         "timed-out compiler grandchild survived the process-group kill")
+
+    @unittest.skipIf(os.name == "nt", "POSIX fake executable regression")
+    def test_compiler_stdin_is_devnull_and_unrelated_file_descriptors_are_closed(self):
+        fake = Path(self.tmp.name) / "stdin-checking-compiler"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "if sys.stdin.buffer.read(1) != b'':\n"
+            "    sys.exit(3)\n"
+            "name=os.path.basename(sys.argv[1])\n"
+            "if name == 'scalar_arithmetic_14.ores':\n"
+            "    print('define i64 @main() { ret i64 14 }')\n"
+            "else:\n"
+            "    print('oreslang-llvmc: unsupported guest source', file=sys.stderr)\n"
+            "    sys.exit(1)\n", encoding="utf-8")
+        fake.chmod(0o700)
+        original_popen = mod.subprocess.Popen
+        with patch.object(mod.subprocess, "Popen", wraps=original_popen) as launch:
+            rows = mod.check("llvm", str(fake), timeout=3)
+        self.assertEqual(len(rows), 9)
+        self.assertEqual(launch.call_count, 9)
+        for args, kwargs in launch.call_args_list:
+            self.assertIs(kwargs.get("stdin"), mod.subprocess.DEVNULL)
+            self.assertIs(kwargs.get("close_fds"), True)
+
+
 if __name__ == "__main__":
     unittest.main()
