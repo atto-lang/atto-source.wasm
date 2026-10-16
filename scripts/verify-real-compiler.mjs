@@ -186,6 +186,25 @@ export async function verifyRealCompiler({
     if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
       throw Error("shared scalar corpus digest differs from pinned parity contract");
 
+    // +/ import graph linking is not implemented for the wasm32 compiler
+    // target. A scalar guest or bridge must never silently discard imports.
+    // This is an executable fail-closed guard, not a parity success claim.
+    for (const [name, imported] of [
+      ["project-root", "+/src/lib/helper"],
+      ["retired-root", "@/src/lib/helper"],
+      ["package", "pkg:math/src/helper"],
+      ["relative", "./helper"]
+    ]) {
+      const source = join(work, "deny-import-" + name + ".ores");
+      await writeFile(source,
+        'import fnc helper from "' + imported +
+        '";\npub fnc main(): int { return helper(); }\n', {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(frontendResult);
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
