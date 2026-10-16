@@ -9,5 +9,10 @@
   "postfix-option-return": "fnc get_value():Option<int>{val Option<int> x=None;val int n=x?;return Some(n); } pub fnc main():int{return 42;}",
   "postfix-try-catch-throw": "fnc get_value():int throws Error {try {val Result<int,Error> x=Err(Error(\"bad\"));return x?;} catch(err) {return 42;}} pub fnc main():int{return get_value();}",
   "raise-bypasses-catch": "pub fnc main():int{try {raise Error(\"raised\");}catch(err){return 42;}return 0;}",
-  "panic-supervisor": "pub fnc main():int{panic Error(\"fatal\");return 42;}"
+  "panic-supervisor": "pub fnc main():int{panic Error(\"fatal\");return 42;}",
+  "postfix-result-to-option": "fnc bad():Option<int>{val Result<int,string> x=Err(\"bad\");val int n=x?;return Some(n);} pub fnc main():int{return 42;}",
+  "postfix-option-to-result": "fnc bad():Result<int,string>{val Option<int> x=None;val int n=x?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-result-error-mismatch": "fnc bad():Result<int,bool>{val Result<int,string> x=Err(\"bad\");val int n=x?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-future-without-await": "fnc bad(Future<Result<int,string>> f):Result<int,string>{val int n=f?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-result-scalar-throws": "fnc bad():int throws Error{val Result<int,Error> x=Err(Error(\"bad\"));return x?;} pub fnc main():int{return 42;}"
 }
