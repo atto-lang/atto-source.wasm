@@ -4,6 +4,14 @@
  * LLVM verifier, owner/actor safety proof, or substitute for guest execution.
  */
 const OPS=new Set(["sadd","ssub","smul"]);
+
+// Only numeric-specific frontend admission errors can count as an overflow
+// rejection. Generic "oreslang-llvmc:" setup, syntax or CLI errors cannot.
+export function isSignedI64OverflowDiagnostic(error) {
+  const diagnostic=String(error?.message || error);
+  return /\boreslang-llvmc:[^\n]*(?:\boverflow\b|out.of.range|out.of.bounds|invalid i64)/i
+    .test(diagnostic);
+}
 const PAIR=/^\s*(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*=\s*call\s+\{\s*i64\s*,\s*i1\s*\}\s+@llvm\.(sadd|ssub|smul)\.with\.overflow\.i64\s*\(/gm;
 const FLAG=/^\s*(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*=\s*extractvalue\s+\{\s*i64\s*,\s*i1\s*\}\s+(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*,\s*1\b/gm;
 const GUARD=/^\s*br\s+i1\s+(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*,\s*label\s+%(i64\.overflow\.trap(?:\.\d+)?)\s*,\s*label\s+%i64\.checked\.continue(?:\.\d+)?\b/gm;
