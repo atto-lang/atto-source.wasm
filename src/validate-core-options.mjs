@@ -1,5 +1,37 @@
 import {types} from "node:util";
 
+// A caller in the embedding Node process can modify mutable globals after
+// this module loads. Pin the inspection intrinsics at module initialization;
+// otherwise a replacement isProxy/includes/some can bypass fail-closed checks.
+const isProxy = types.isProxy;
+const isArray = Array.isArray;
+const getPrototypeOf = Object.getPrototypeOf;
+const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+const ownKeys = Reflect.ownKeys;
+const hasOwn = Object.hasOwn;
+const createObject = Object.create;
+const plainObjectPrototype = Object.prototype;
+const setHas = Function.prototype.call.bind(Set.prototype.has);
+const toString = String;
+
+function isAllowedName(allowedNames, key) {
+  // Do not call overridable Array.prototype.includes or @@iterator.
+  for (let i = 0; i < allowedNames.length; i++) {
+    if (allowedNames[i] === key) return true;
+  }
+  return false;
+}
+
+function hasNonstandardPrototypeKeys(prototype) {
+  const keys = ownKeys(prototype);
+  // Do not call overridable Array.prototype.some or @@iterator.
+  for (let i = 0; i < keys.length; i++) {
+    if (typeof keys[i] !== 'string' || !setHas(STANDARD_OBJECT_KEYS, keys[i]))
+      return true;
+  }
+  return false;
+}
+
 /** Only explicit, inert caller options are accepted for zero-import guest APIs.
  * Unknown metadata must never look like an enforced host capability grant.
  */
@@ -12,29 +44,29 @@ const STANDARD_OBJECT_KEYS = new Set([
 ]);
 
 export function validateCoreOptions(options, allowedNames) {
-  if (options === undefined) return Object.create(null);
+  if (options === undefined) return createObject(null);
   // Proxy traps can execute arbitrary caller code during prototype/key inspection.
   // util.types.isProxy recognizes proxies without invoking those traps.
-  if (types.isProxy(options))
+  if (isProxy(options))
     throw new TypeError('zero-capability guest option proxies are forbidden');
-  if (options === null || typeof options !== 'object' || Array.isArray(options))
+  if (options === null || typeof options !== 'object' || isArray(options))
     throw new TypeError('zero-capability guest options must be a plain object');
-  const prototype = Object.getPrototypeOf(options);
-  if (prototype !== Object.prototype && prototype !== null)
+  const prototype = getPrototypeOf(options);
+  if (prototype !== plainObjectPrototype && prototype !== null)
     throw new TypeError('zero-capability guest options must have no inherited settings');
-  if (prototype === Object.prototype &&
-      Reflect.ownKeys(prototype).some(key => typeof key !== 'string' ||
-        !STANDARD_OBJECT_KEYS.has(key)))
+  if (prototype === plainObjectPrototype && hasNonstandardPrototypeKeys(prototype))
     throw new TypeError('zero-capability guest options must have no inherited settings');
-  const descriptors = Object.getOwnPropertyDescriptors(options);
+  const descriptors = getOwnPropertyDescriptors(options);
   const approved = Object.create(null);
-  for (const key of Reflect.ownKeys(descriptors)) {
-    if (typeof key !== 'string' || !allowedNames.includes(key))
-      throw new TypeError('unsupported zero-capability guest option: ' + String(key));
+  const keys = ownKeys(descriptors);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    if (typeof key !== 'string' || !isAllowedName(allowedNames, key))
+      throw new TypeError('unsupported zero-capability guest option: ' + toString(key));
     const descriptor = descriptors[key];
     if (descriptor.enumerable !== true)
       throw new TypeError('non-enumerable zero-capability guest options are forbidden: ' + key);
-    if (!Object.hasOwn(descriptor, 'value'))
+    if (!hasOwn(descriptor, 'value'))
       throw new TypeError('zero-capability guest option accessors are forbidden: ' + key);
     approved[key] = descriptor.value;
   }
