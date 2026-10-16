@@ -13,6 +13,17 @@ import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 // host must never synthesize success when the real compiler cannot lower them.
 const hasCompiler = Boolean(process.env.ORESLANG_LLVM_COMPILER);
 
+// The compiler is a separate native process. Never inherit CI credentials,
+// Node injection hooks, GitHub tokens, cloud credentials or loader overrides.
+function compilerEnvironment(tmpdir) {
+  return {
+    PATH: process.env.PATH || "/usr/bin:/bin",
+    LANG: "C.UTF-8",
+    LC_ALL: "C.UTF-8",
+    TMPDIR: tmpdir
+  };
+}
+
 test("method/capture parity gate requires independently pinned LLVM compiler", {
   skip: !hasCompiler && process.env.ORESLANG_METHOD_PARITY_REQUIRED !== "1"
 }, async () => {
@@ -58,7 +69,8 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
       const input = join(dir, `unsupported-${i}.ores`);
       writeFileSync(input, sources[i], {mode:0o600});
       const result = spawnSync(pinned,["--target=wasm32", input],{
-        encoding:"utf8",timeout:30000,maxBuffer:1024*1024
+        encoding:"utf8",timeout:30000,maxBuffer:1024*1024,
+        env:compilerEnvironment(dir)
       });
       assert.equal(assertNativeFrontendRejection(result),true,
         `unsupported source was not rejected: ${i}`);
@@ -99,5 +111,15 @@ test("compiler admission rejects a symlink and oversized sparse file before read
     );
   } finally {
     rmSync(dir, {recursive:true,force:true});
+  }
+});
+
+test("LLVM frontend subprocess environment excludes CI credentials and loader hooks", () => {
+  const keys = Object.keys(compilerEnvironment("/tmp/ores-test"));
+  assert.deepEqual(keys.sort(), ["LANG","LC_ALL","PATH","TMPDIR"].sort());
+  for (const sensitive of ["GITHUB_TOKEN","GH_TOKEN","AWS_SECRET_ACCESS_KEY",
+    "AZURE_CLIENT_SECRET","GOOGLE_APPLICATION_CREDENTIALS",
+    "NODE_OPTIONS","LD_PRELOAD","DYLD_INSERT_LIBRARIES","HOME"]) {
+    assert.equal(Object.hasOwn(compilerEnvironment("/tmp/ores-test"),sensitive), false);
   }
 });
