@@ -26,13 +26,17 @@ def pairs_no_duplicates(pairs):
 
 def read_json(path):
     p = Path(path)
+    if p.is_symlink() or not p.is_file():
+        raise ValueError("missing, nonregular, or symlinked conformance JSON")
     if p.stat().st_size > 1024 * 1024:
         raise ValueError("oversized conformance data")
     return json.loads(p.read_text(encoding="utf-8"), object_pairs_hook=pairs_no_duplicates)
 
 def load_vectors(path):
     data = read_json(path)
-    if data.get("schema") != SCHEMA or data.get("version") != 1:
+    if not isinstance(data, dict):
+        raise ValueError("permission corpus must be a JSON object")
+    if data.get("schema") != SCHEMA or type(data.get("version")) is not int or data["version"] != 1:
         raise ValueError("wrong permission corpus schema")
     if sorted(data.get("backends", [])) != sorted(BACKENDS):
         raise ValueError("backend coverage mismatch")
@@ -41,6 +45,8 @@ def load_vectors(path):
         raise ValueError("missing permission conformance cases")
     ids = {}
     for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("permission case must be an object")
         cid, kind, expected = case.get("id"), case.get("kind"), case.get("expected")
         if not isinstance(cid, str) or not re.fullmatch(r"[a-z0-9-]+", cid):
             raise ValueError("invalid case identifier")
@@ -67,6 +73,8 @@ def load_vectors(path):
     return ids
 
 def validate_report(report, backend, ids, source_commit, source_tree):
+    if not isinstance(report, dict):
+        raise ValueError("runtime report must be an object")
     if report.get("schema") != REPORT_SCHEMA or report.get("backend") != backend:
         raise ValueError("wrong backend report schema")
     if report.get("source_commit") != source_commit or report.get("source_tree") != source_tree:
@@ -81,6 +89,8 @@ def validate_report(report, backend, ids, source_commit, source_tree):
         raise ValueError("incomplete runtime result count")
     seen = set()
     for result in results:
+        if not isinstance(result, dict):
+            raise ValueError("runtime result must be an object")
         cid = result.get("id")
         if cid not in ids or cid in seen:
             raise ValueError("unexpected/duplicate test case")
@@ -104,7 +114,7 @@ def main():
     try:
         ids = load_vectors(args.vectors)
         if args.validate_only:
-            if args.report or args.backend:
+            if args.report or args.backend or args.source_commit or args.source_tree:
                 raise ValueError("validate-only cannot claim runtime evidence")
             print(f"VECTOR_SCHEMA_OK {len(ids)} cases; RUNTIME_PARITY_NOT_VERIFIED")
             return 0
