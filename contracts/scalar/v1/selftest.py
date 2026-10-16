@@ -13,7 +13,7 @@ RUN = ROOT / "run.py"
 SPEC = importlib.util.spec_from_file_location("ores_scalar_gate", RUN)
 runner = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(runner)
-CANONICAL_SUITE_SHA256 = "4ca1512bbcab67d5af3f5db0665d139c802dd4cbbff048a3004c214d60bf3eb5"
+CANONICAL_SUITE_SHA256 = "5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3"
 
 
 class ScalarHarnessTest(unittest.TestCase):
@@ -38,7 +38,7 @@ class ScalarHarnessTest(unittest.TestCase):
     def test_canonical_digest_and_inventory(self):
         suite, digest = runner.load_suite()
         self.assertEqual(digest, CANONICAL_SUITE_SHA256)
-        self.assertEqual(len(suite["cases"]), 10)
+        self.assertEqual(len(suite["cases"]), 11)
 
     def test_non_object_manifest_or_entry_denied(self):
         for bad in [[], None, {"schema_version": "1.0.0", "cases": [None]},
