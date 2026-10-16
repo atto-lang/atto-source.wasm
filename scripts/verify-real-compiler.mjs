@@ -126,7 +126,7 @@ export async function verifyRealCompiler({
     const manifestBytes = await readFile(join(sharedRoot, "cases.json"));
     const sharedCorpus = JSON.parse(manifestBytes.toString("utf8"));
     if (sharedCorpus.schema_version !== "1.0.0" ||
-        !Array.isArray(sharedCorpus.cases) || sharedCorpus.cases.length !== 10)
+        !Array.isArray(sharedCorpus.cases) || sharedCorpus.cases.length !== 11)
       throw Error("shared scalar corpus version or inventory drift");
     const sharedHash = createHash("sha256").update(manifestBytes);
     const sharedScalarResults = [];
@@ -175,14 +175,14 @@ export async function verifyRealCompiler({
         sourceSha256:built.sourceSha256, wasmSha256:built.wasmSha256
       }));
     }
-    if (sharedScalarResults.length !== 5)
-      throw Error("shared scalar suite must execute exactly five guest programs");
+    if (sharedScalarResults.length !== 6)
+      throw Error("shared scalar suite must execute exactly six guest programs");
     const sharedScalarSuiteSha256 = sharedHash.digest("hex");
     // The shared corpus is an immutable, exact-byte contract across backends.
     // Merely returning the computed hash in a report is insufficient: a
     // modified fixture could otherwise pass as established parity evidence.
     const expectedScalarSuiteSha256 =
-      "4ca1512bbcab67d5af3f5db0665d139c802dd4cbbff048a3004c214d60bf3eb5";
+      "5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3";
     if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
       throw Error("shared scalar corpus digest differs from pinned parity contract");
 
