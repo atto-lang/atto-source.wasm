@@ -2,26 +2,20 @@ import {createHash} from "node:crypto";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {validateCoreOptions} from "./validate-core-options.mjs";
 
 /**
  * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
-  expectedSha256,
-  entry = "main",
-  maxModuleBytes = 16 * 1024 * 1024,
-  maxMemoryPages = 2,
-  ...unsupportedOptions
-} = {}) {
-  // The core Wasm profile has NO host I/O authority. Silently ignoring
-  // allowNet, WASI, env/import maps, etc. would mislead the embedding host.
-  // Opt-in scoped permissions require a distinct reviewed runtime profile.
-  const unknown = Object.keys(unsupportedOptions);
-  if (unknown.length !== 0) {
-    throw new TypeError("unsupported zero-capability guest option: " + unknown.sort().join(", "));
-  }
+export function compileAdmittedCoreGuest(input, options = {}) {
+  // Validate before destructuring, so hidden/symbol/inherited keys or
+  // getters cannot masquerade as enforced zero-import host capabilities.
+  const {expectedSha256, entry = "main",
+    maxModuleBytes = 16 * 1024 * 1024, maxMemoryPages = 2} =
+    validateCoreOptions(options,
+      ["expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages"]);
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
