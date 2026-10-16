@@ -77,6 +77,59 @@ class ScalarHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fixture path escapes"):
             runner.load_suite()
 
+    def test_fifo_source_refused_before_open(self):
+        if not hasattr(__import__("os"), "mkfifo"):
+            self.skipTest("named pipes are not supported on this platform")
+        import os
+        path = runner.HERE / "fixtures" / "literal-42.ores"
+        path.unlink()
+        try:
+            os.mkfifo(path)
+        except OSError:
+            self.skipTest("named-pipe creation unavailable")
+        with self.assertRaisesRegex(ValueError, "unique regular file"):
+            runner.load_suite()
+
+    def test_directory_in_place_of_source_is_rejected(self):
+        path = runner.HERE / "fixtures" / "literal-42.ores"
+        path.unlink()
+        path.mkdir()
+        with self.assertRaisesRegex(ValueError, "unique regular file"):
+            runner.load_suite()
+
+    def test_oversized_sparse_source_rejected_before_read(self):
+        path = runner.HERE / "fixtures" / "literal-42.ores"
+        with path.open("wb") as stream:
+            stream.truncate(runner.MAX_FIXTURE_BYTES + 1)
+        with self.assertRaisesRegex(ValueError, "invalid source length"):
+            runner.load_suite()
+
+    def test_hardlinked_fixture_cannot_alias_other_source(self):
+        import os
+        path = runner.HERE / "fixtures" / "literal-42.ores"
+        other = runner.HERE / "fixture-alias"
+        try:
+            os.link(path, other)
+        except OSError:
+            self.skipTest("hardlinks unavailable")
+        with self.assertRaisesRegex(ValueError, "unique regular file"):
+            runner.load_suite()
+
+    def test_substituted_open_file_descriptor_rejected(self):
+        import os
+        from unittest.mock import patch
+        path = runner.HERE / "fixtures" / "literal-42.ores"
+        other = runner.HERE / "another-fixture.ores"
+        other.write_bytes(path.read_bytes())
+        real_open = os.open
+        def substituted_open(filename, flags):
+            if str(filename) == str(path):
+                return real_open(other, flags)
+            return real_open(filename, flags)
+        with patch.object(runner.os, "open", side_effect=substituted_open):
+            with self.assertRaisesRegex(ValueError, "fixture changed before read"):
+                runner.load_suite()
+
     def test_false_success_and_missing_compiler_denied(self):
         source = runner.HERE / "fixtures" / "literal-42.ores"
         missing = runner.run_case([str(runner.HERE / "missing-tool")], source, "accept", "42", "stdout-i64", 2)
