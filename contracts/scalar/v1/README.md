@@ -13,7 +13,7 @@ execute this manifest as a shell script or count negative compiler crashes as re
   stdout and a nonempty diagnostic. A signal, timeout, exit 2, missing tool or empty
   diagnostic fails the gate.
 - Every report includes a SHA-256 over the manifest and byte-exact fixtures. Exact
-  candidate commit provenance is provided by CI; standalone runs may omit --revision.
+  candidate commit provenance is provided by CI; standalone runs without a report may omit --revision.\nFor a written --report, --revision is mandatory; the value is a declaration, not proof of the compiler's provenance.
 - Real native/AOT execution must be verified by independent release workflows.
 
 `python3 contracts/scalar/v1/run.py --backend forge --mode stdout-i64 --command './build/oresforge run {source}'`
