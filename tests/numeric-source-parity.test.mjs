@@ -142,6 +142,14 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       // real checked runtime trap. A wrapped i64 result is a parity failure,
       // as are validation errors, import denials, worker crashes and timeout.
       const released=await readAtomicRelease(target);
+      const expectedSourceSha=createHash("sha256")
+        .update(Buffer.from(overflowNegatives[i],"utf8")).digest("hex");
+      assert.equal(compiled.compilerSha256,expectedCompilerSha,
+        "checked-overflow Wasm was not built by the pinned native compiler");
+      assert.equal(compiled.sourceSha256,expectedSourceSha,
+        "checked-overflow Wasm came from a different source snapshot");
+      assert.equal(released.manifest.producer.compilerSha256,expectedCompilerSha);
+      assert.equal(released.manifest.producer.sourceSha256,expectedSourceSha);
       assert.equal(released.manifest.wasmSha256,compiled.wasmSha256);
       assert.equal(released.manifest.imports.length,0);
       assert.deepEqual(released.manifest.requiredCapabilities,[]);
