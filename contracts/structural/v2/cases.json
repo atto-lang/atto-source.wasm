@@ -1,0 +1,169 @@
+{
+  "contract": "oreslang.structural-positional-tuple.v2",
+  "status": "target-only",
+  "backend_ids": [
+    "java",
+    "llvm",
+    "net",
+    "wasm",
+    "forge"
+  ],
+  "cases": [
+    {
+      "id": "syn.explicit",
+      "expect": "accept",
+      "source": "tuple (int, int, string?) v",
+      "reason": "same AST as parenthesized shorthand"
+    },
+    {
+      "id": "syn.shorthand",
+      "expect": "accept",
+      "source": "(int, int, string?) v",
+      "reason": "same AST as explicit tuple type"
+    },
+    {
+      "id": "syn.structural",
+      "expect": "accept",
+      "source": "structural (int, int, string?) v",
+      "reason": "readonly width view"
+    },
+    {
+      "id": "syn.optional.middle",
+      "expect": "reject",
+      "source": "(int?, string, int) v",
+      "reason": "omittable suffix only"
+    },
+    {
+      "id": "syn.optional.value",
+      "expect": "accept",
+      "source": "(int, Option<string>) v",
+      "reason": "Option<T> alone never omits physical slot"
+    },
+    {
+      "id": "shape.two",
+      "expect": "accept",
+      "source": "run(...(5,3))",
+      "reason": "pack only if no arity-2 target"
+    },
+    {
+      "id": "shape.three",
+      "expect": "accept",
+      "source": "run(...(5,3,\"foo\"))",
+      "reason": "optional present"
+    },
+    {
+      "id": "shape.four",
+      "expect": "accept",
+      "source": "run(...(5,3,\"foo\",\"start\"))",
+      "reason": "structural extra tail hidden"
+    },
+    {
+      "id": "shape.direct",
+      "expect": "accept",
+      "source": "run((5,3))",
+      "reason": "one value direct call"
+    },
+    {
+      "id": "shape.one",
+      "expect": "reject",
+      "source": "run(...(5))",
+      "reason": "missing second int"
+    },
+    {
+      "id": "shape.wrong.required",
+      "expect": "reject",
+      "source": "run(...(5,\"foo\"))",
+      "reason": "wrong required type"
+    },
+    {
+      "id": "shape.wrong.optional",
+      "expect": "reject",
+      "source": "run(...(5,3,123))",
+      "reason": "wrong optional slot type"
+    },
+    {
+      "id": "shape.exact.extra",
+      "expect": "reject",
+      "source": "exact(...(5,3,\"foo\",\"start\"))",
+      "reason": "exact upper bound 3"
+    },
+    {
+      "id": "shape.non.tuple",
+      "expect": "reject",
+      "source": "run(...arr[5,3])",
+      "reason": "must be typed tuple"
+    },
+    {
+      "id": "shape.unknown.spread",
+      "expect": "reject",
+      "source": "run(...unknownSize)",
+      "reason": "static extent required"
+    },
+    {
+      "id": "shape.private.extra",
+      "expect": "reject",
+      "source": "v[3]",
+      "reason": "cannot access hidden extra slot through view"
+    },
+    {
+      "id": "overload.arity.first",
+      "expect": "accept",
+      "source": "run(...(5,3)) with arity-2 run and tuple run",
+      "reason": "exact arity-2 wins"
+    },
+    {
+      "id": "overload.same.arity",
+      "expect": "reject",
+      "source": "run((int,int) v), run(structural (int,int) v)",
+      "reason": "same arity same name ambiguous"
+    },
+    {
+      "id": "overload.primitive",
+      "expect": "reject",
+      "source": "run((int,int) v), run((string,int) v)",
+      "reason": "primitive difference no overload"
+    },
+    {
+      "id": "overload.ambiguous.pack",
+      "expect": "reject",
+      "source": "multiple eligible tuple pack candidates",
+      "reason": "no runtime shape dispatch"
+    },
+    {
+      "id": "safety.mutable",
+      "expect": "reject",
+      "source": "structural (int,int) mut v",
+      "reason": "readonly only"
+    },
+    {
+      "id": "safety.async",
+      "expect": "reject",
+      "source": "async fnc f(structural (int,int) v)",
+      "reason": "non escaping sync only"
+    },
+    {
+      "id": "safety.actor",
+      "expect": "reject",
+      "source": "actor fnc f(structural (int,int) v)",
+      "reason": "no mailbox escape"
+    },
+    {
+      "id": "safety.fixed.array",
+      "expect": "reject",
+      "source": "run(...FixedArray[int,int])",
+      "reason": "no tuple/fixed-array interchange"
+    },
+    {
+      "id": "safety.eval.once",
+      "expect": "accept",
+      "source": "run(...tuple(sideEffect(),3))",
+      "reason": "evaluate once"
+    },
+    {
+      "id": "safety.no.implicit.pack",
+      "expect": "reject",
+      "source": "run(5,3) with tuple-only overload",
+      "reason": "only explicit spread permits pack"
+    }
+  ]
+}
