@@ -95,6 +95,13 @@ crashes/returns an unknown status rather than issuing normal rejection.
   `python scripts/check_guest_capability_admission.py --backend net`
   (use `python3` on Linux)
 
+The compiler subprocess gets a narrowly allowlisted toolchain
+environment rather than the full GitHub Actions process environment.
+Variables such as `GITHUB_TOKEN`, cloud API credentials and SSH tokens are
+not forwarded; a regression fixture checks for these leaks. Compiler
+timeouts, process crashes and unknown exit codes are never successful
+capability-denial results.
+
 The shared, read-only policy CI runs
 `tests/test_guest_capability_admission.py` with mocked compiler responses.
 **These mock tests are test-runner integrity checks only, not guest compiler
