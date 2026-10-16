@@ -7,6 +7,10 @@ const target = fileURLToPath(new URL("./value-boundaries.test.mjs", import.meta.
 
 function testRealCompilerAdmission(required) {
   const env = {...process.env};
+  // Node's parent test worker marks itself with NODE_TEST_CONTEXT=child-v8.
+  // A nested `node --test` inheriting it silently skips the child test files
+  // and returns exit 0, invalidating both admission assertions.
+  delete env.NODE_TEST_CONTEXT;
   delete env.ORESLANG_LLVM_COMPILER;
   delete env.ORESLANG_LLVM_COMPILER_SHA256;
   delete env.ORESLANG_LLVM_SOURCE_SHA;
