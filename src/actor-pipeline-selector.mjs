@@ -2,9 +2,9 @@
 // mailbox admission, Oreslang self.* lowering or reply transport is exposed.
 const encoder = new TextEncoder();
 const MAX_NAME = 256, MAX_KEY = 4096;
-function bytes(value, limit, optional = false) {
+function bytes(value, limit, optional = false, forbidNul = true) {
   if (typeof value !== "string" || (!optional && value.length === 0) ||
-      value.length > limit || value.includes("\0"))
+      value.length > limit || (forbidNul && value.includes("\0")))
     throw new TypeError("invalid routing component");
   for (let i = 0; i < value.length; i++) {
     const n = value.charCodeAt(i);
@@ -23,7 +23,7 @@ function bytes(value, limit, optional = false) {
 export function routeKeySlot(key, count) {
   if (!Number.isSafeInteger(count) || count < 1 || count > 4096)
     throw new RangeError("invalid downstream edge count");
-  const encoded = bytes(key, MAX_KEY, true);
+  const encoded = bytes(key, MAX_KEY, true, false);
   let hash = 0xcbf29ce484222325n;
   for (const byte of encoded) hash = ((hash ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn;
   return Number(hash % BigInt(count));
