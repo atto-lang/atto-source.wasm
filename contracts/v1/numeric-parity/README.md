@@ -42,6 +42,15 @@ zero-import Wasm guest that raises an actual `WebAssembly.RuntimeError`
 when executed. Guest validation failures, timeouts, toolchain errors and
 normal wrapped i64 results are **not** accepted as an overflow proof.
 The worker identifies actual runtime traps separately from admission errors.
+Before accepting a runtime trap, the compiler bridge also verifies that the
+**exact IR handed to Clang** contains the expected signed-i64 overflow
+intrinsic, the associated extracted overflow flag, a conditional branch
+using that flag, and its matching `llvm.trap` block. Unrelated instructions
+and comment-spoofed guards are rejected. Four source-level safe near-boundary
+companions must execute and return full-width i64 values. This is a
+conservative attribution gate, not a formal proof of general arithmetic or
+actor/ownership correctness. Its structural self-tests use independently
+authored IR and do **not** establish compiled Oreslang parity.
 The latter test **skips when a real pinned compiler is unavailable**;
 it must not be counted as guest parity. `checked_i64_overflow` remains
 `delegated_unverified`.
