@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {mkdtempSync, rmSync, writeFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
+import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 
 // This is a negative admission gate, NOT proof of positive language parity.
 // Wasm sources compile through the pinned native LLVM compiler; the Wasm
@@ -14,14 +15,17 @@ const hasCompiler = Boolean(process.env.ORESLANG_LLVM_COMPILER);
 
 test("method/capture parity gate requires independently pinned LLVM compiler", {
   skip: !hasCompiler && process.env.ORESLANG_METHOD_PARITY_REQUIRED !== "1"
-}, () => {
+}, async () => {
   const path = process.env.ORESLANG_LLVM_COMPILER;
   assert.match(path || "", /^\//, "real compiler absolute path required");
   assert.match(process.env.ORESLANG_LLVM_COMPILER_SHA256 || "", /^[a-f0-9]{64}$/,
     "real compiler artifact hash required");
   assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA || "", /^[a-f0-9]{40}$/,
     "reviewed LLVM source commit required");
-  const bytes = readFileSync(path);
+  // Bound the snapshot before reading: a regular-file path alone does not
+  // prevent a large or special-file OOM/hang in the validation runner.
+  const bytes = (await readBoundedRegularFile(path, 256 * 1024 * 1024,
+    "real compiler must be a regular file <= 256 MiB")).bytes;
   assert.ok(bytes.length > 0 && bytes.length <= 256 * 1024 * 1024,
     "real compiler must be a bounded executable file");
   assert.equal(createHash("sha256").update(bytes).digest("hex"),
@@ -60,7 +64,8 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
         `unsupported source was not rejected: ${i}`);
       // A compiler must remain byte-identical after every negative case.
       // The next case must never execute a mutated/replaced binary.
-      assert.equal(createHash("sha256").update(readFileSync(pinned)).digest("hex"),
+      assert.equal(createHash("sha256").update((await readBoundedRegularFile(pinned,
+        256 * 1024 * 1024, "pinned compiler grew beyond its budget")).bytes).digest("hex"),
         process.env.ORESLANG_LLVM_COMPILER_SHA256,
         `pinned compiler mutated during rejection probe ${i}`);
     }
