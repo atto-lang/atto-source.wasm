@@ -187,13 +187,50 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    // Nominal enum overloading is a future executable ABI, not a wasm32
+    // source feature today. Require the *real, pinned LLVM frontend* to
+    // reject it without producing IR or publishing a release artifact.
+    // When a full nominal virtual-slot ABI lands, replace this negative
+    // gate with positive differential execution against Java.
+    const nominalSource = fileURLToPath(new URL(
+      "../examples/nominal-overload-unsupported.ores", import.meta.url));
+    const nominalOutput = join(work, "nominal-overload.wasm");
+    const nominalFrontend = spawnSync(pinnedCompiler,
+      ["--target=wasm32", nominalSource], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(nominalFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during nominal overload denial");
+    let nominalDenied = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:nominalSource, output:nominalOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      nominalDenied = true;
+    }
+    if (!nominalDenied)
+      throw Error("Wasm nominal overload ABI unimplemented, but compiler admitted source");
+    try {
+      await stat(nominalOutput + ".current.json");
+      throw Error("unsupported nominal overload published a Wasm release");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     return Object.freeze({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true,
-      unsupportedPipelineRejected:true
+      unsupportedPipelineRejected:true, nominalOverloadRejected:true
     });
   } catch (error) {
     primaryError = error;
