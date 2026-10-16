@@ -91,6 +91,17 @@ class PersistentActorPolicyTest(unittest.TestCase):
         with self.assertRaises(ContractError):
             validate_raw(b'{"version": NaN}')
 
+    def test_oversized_json_integer_must_fail_closed(self):
+        # CPython 3.11+ can raise ValueError before schema validation.
+        with self.assertRaises(ContractError):
+            validate_raw(b'{"version":' + b'9' * 5000 + b'}')
+
+    def test_extreme_json_depth_must_fail_closed(self):
+        nested = b'[' * 5000 + b'0' + b']' * 5000
+        with self.assertRaises(ContractError):
+            validate_raw(nested)
+
+
 
 
 if __name__ == "__main__":
