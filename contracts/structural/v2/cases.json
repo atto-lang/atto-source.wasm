@@ -164,6 +164,30 @@
       "expect": "reject",
       "source": "run(5,3) with tuple-only overload",
       "reason": "only explicit spread permits pack"
+    },
+    {
+      "id": "safety.tuple.width.65",
+      "expect": "reject",
+      "source": "tuple (65 positional slots) v",
+      "reason": "static tuple slot work bounded to 64"
+    },
+    {
+      "id": "safety.family.size.129",
+      "expect": "reject",
+      "source": "129 same-name overload candidates",
+      "reason": "compile-time overload family bounded to 128"
+    },
+    {
+      "id": "safety.unknown.slot",
+      "expect": "reject",
+      "source": "structural (Unknown, int) v",
+      "reason": "cannot certify unresolved type"
+    },
+    {
+      "id": "safety.mutable.borrow.slot",
+      "expect": "reject",
+      "source": "structural (&mut int, int) v",
+      "reason": "cannot forge readonly tuple proof from mutable borrow"
     }
   ]
 }
