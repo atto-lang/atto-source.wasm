@@ -1,3 +1,5 @@
+import {types} from "node:util";
+
 /** Only explicit, inert caller options are accepted for zero-import guest APIs.
  * Unknown metadata must never look like an enforced host capability grant.
  */
@@ -11,6 +13,10 @@ const STANDARD_OBJECT_KEYS = new Set([
 
 export function validateCoreOptions(options, allowedNames) {
   if (options === undefined) return Object.create(null);
+  // Proxy traps can execute arbitrary caller code during prototype/key inspection.
+  // util.types.isProxy recognizes proxies without invoking those traps.
+  if (types.isProxy(options))
+    throw new TypeError('zero-capability guest option proxies are forbidden');
   if (options === null || typeof options !== 'object' || Array.isArray(options))
     throw new TypeError('zero-capability guest options must be a plain object');
   const prototype = Object.getPrototypeOf(options);
