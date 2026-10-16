@@ -83,6 +83,54 @@ test("reject graph getter reentrancy and snapshot alias mutation", () => {
   assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
 });
 
+test("bounded DAG snapshots reject holes and accessors without executing iterators", () => {
+  const stageData = stages(), linkData = edges();
+  let iterations = 0;
+  Object.defineProperty(stageData, Symbol.iterator, {value() {
+    iterations++;
+    throw new Error("caller iterator must not run");
+  }});
+  Object.defineProperty(linkData, Symbol.iterator, {value() {
+    iterations++;
+    throw new Error("caller edge iterator must not run");
+  }});
+  const plan = new ActorPipelineSelector(stageData, linkData);
+  assert.equal(iterations, 0, "untrusted iterators must never execute");
+  assert.deepEqual(plan.forwardAll("source").map(x => x.target),
+    ["worker-a","worker-b","worker-c"]);
+
+  const sparse = stages();
+  delete sparse[1];
+  assert.throws(() => new ActorPipelineSelector(sparse, edges()), /own data fields/);
+  let getterCalls = 0;
+  const accessor = stages();
+  Object.defineProperty(accessor, "1", {configurable: true, get() {
+    getterCalls++;
+    return stages()[1];
+  }});
+  assert.throws(() => new ActorPipelineSelector(accessor, edges()), /own data fields/);
+  assert.equal(getterCalls, 0, "array element getters must not execute");
+
+  const inherited = stages();
+  delete inherited[1];
+  const prototype = Object.create(Array.prototype);
+  Object.defineProperty(prototype, "1", {value: stages()[1], configurable: true});
+  Object.setPrototypeOf(inherited, prototype);
+  assert.throws(() => new ActorPipelineSelector(inherited, edges()), /own data fields/);
+
+  const sparseEdges = edges();
+  delete sparseEdges[0];
+  assert.throws(() => new ActorPipelineSelector(stages(), sparseEdges), /own data fields/);
+  let edgeGetterCalls = 0;
+  const accessorEdges = edges();
+  Object.defineProperty(accessorEdges, "0", {configurable: true, get() {
+    edgeGetterCalls++;
+    return edges()[0];
+  }});
+  assert.throws(() => new ActorPipelineSelector(stages(), accessorEdges), /own data fields/);
+  assert.equal(edgeGetterCalls, 0, "edge array getters must not execute");
+});
+
 test("seeded UTF-8 affinity differential across 2,048 Unicode keys", () => {
   // Independent encoder based on URI scalar escaping, not TextEncoder;
   // this catches normalization, NUL truncation and surrogate mishandling.
