@@ -1,7 +1,7 @@
 // Host-only checked route selector; does not expose guest imports or actor execution.
 const encoder = new TextEncoder();
-function utf8(value, limit, optional = false) {
-  if (typeof value !== "string" || (!optional && !value) || value.includes("\0"))
+function utf8(value, limit, optional = false, allowNul = false) {
+  if (typeof value !== "string" || (!optional && !value) || (!allowNul && value.includes("\0")))
     throw new TypeError("invalid pipeline identifier");
   if (value.length > limit) throw new RangeError("pipeline byte limit");
   for (let i = 0; i < value.length; ++i) {
@@ -17,7 +17,7 @@ function utf8(value, limit, optional = false) {
 }
 export function actorRouteHash64(key) {
   let hash = 0xcbf29ce484222325n;
-  for (const b of utf8(key, 4096, true))
+  for (const b of utf8(key, 4096, true, true))
     hash = ((hash ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
   return hash;
 }
