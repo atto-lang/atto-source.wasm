@@ -282,10 +282,10 @@ class BackendPrivateCIContractTests(unittest.TestCase):
         for backend in policy.IDS:
             with self.subTest(backend=backend):
                 repo = self._repo_event(backend)
-                event = {"repository": repo, "pull_request": {
+                event = {"repository": repo, "number": 42, "pull_request": {
                     "number": 42,
                     "head": {"repo": dict(repo)},
-                    "base": {"repo": dict(repo)}}}
+                    "base": {"repo": dict(repo), "ref": "main"}}}
                 self.assertTrue(self._verify_github_event(
                     backend, "pull_request", "refs/pull/42/merge", event))
 
@@ -300,10 +300,10 @@ class BackendPrivateCIContractTests(unittest.TestCase):
             ("base", {"private": False}),
         ):
             with self.subTest(part=part, change=change):
-                event = {"repository": dict(repo), "pull_request": {
+                event = {"repository": dict(repo), "number": 42, "pull_request": {
                     "number": 42,
                     "head": {"repo": dict(repo)},
-                    "base": {"repo": dict(repo)}}}
+                    "base": {"repo": dict(repo), "ref": "main"}}}
                 event["pull_request"][part]["repo"].update(change)
                 with self.assertRaisesRegex(ValueError,
                                             "foreign or unverifiable pull request"):
@@ -336,11 +336,45 @@ class BackendPrivateCIContractTests(unittest.TestCase):
                             (42, "refs/pull/41/merge"),
                             (42, "refs/heads/main")):
             with self.subTest(number=number, ref=ref):
-                event = {"repository": repo, "pull_request": {
+                event = {"repository": repo, "number": number, "pull_request": {
                     "number": number, "head": {"repo": dict(repo)},
-                    "base": {"repo": dict(repo)}}}
+                    "base": {"repo": dict(repo), "ref": "main"}}}
                 with self.assertRaises(ValueError):
                     self._verify_github_event("net", "pull_request", ref, event)
+
+
+    def test_nested_pr_number_must_match_top_level_and_merge_ref(self):
+        repo = self._repo_event("llvm")
+        valid = {"repository": repo, "number": 42, "pull_request": {
+            "number": 42, "head": {"repo": dict(repo)},
+            "base": {"repo": dict(repo), "ref": "main"}}}
+        for mutation in ("missing", "different", "bool", "float"):
+            with self.subTest(mutation=mutation):
+                event = json.loads(json.dumps(valid))
+                if mutation == "missing":
+                    del event["number"]
+                elif mutation == "different":
+                    event["number"] = 41
+                elif mutation == "bool":
+                    event["number"] = True
+                else:
+                    event["number"] = 42.0
+                with self.assertRaisesRegex(ValueError, "merge ref"):
+                    self._verify_github_event(
+                        "llvm", "pull_request", "refs/pull/42/merge", event)
+
+    def test_pull_request_must_target_main(self):
+        repo = self._repo_event("java")
+        valid = {"repository": repo, "number": 42, "pull_request": {
+            "number": 42, "head": {"repo": dict(repo)},
+            "base": {"repo": dict(repo), "ref": "main"}}}
+        for unexpected in ("topic", "release", None, True):
+            with self.subTest(base=unexpected):
+                event = json.loads(json.dumps(valid))
+                event["pull_request"]["base"]["ref"] = unexpected
+                with self.assertRaisesRegex(ValueError, "target reviewed main"):
+                    self._verify_github_event(
+                        "java", "pull_request", "refs/pull/42/merge", event)
 
     def test_workflow_dispatch_only_allows_main(self):
         repo = self._repo_event("wasm")
