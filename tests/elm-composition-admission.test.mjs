@@ -11,14 +11,22 @@ const cases = JSON.parse(await readFile(
 
 test('composition admission corpus has explicit snake_case and distinct families', () => {
   assert.deepEqual(Object.keys(cases).sort(), [
-    'channel-observable-no-implicit-bridge', 'future-and-then',
-    'observable-filter-map', 'option-flat-map', 'panic-supervisor',
-    'postfix-option-return', 'postfix-result-return',
-    'postfix-try-catch-throw', 'raise-bypasses-catch',
-    'postfix-future-without-await', 'postfix-option-to-result',
-    'postfix-result-error-mismatch', 'postfix-result-scalar-throws',
+    'channel-observable-no-implicit-bridge',
+    'future-and-then',
+    'observable-filter-map',
+    'option-flat-map',
+    'panic-supervisor',
+    'postfix-future-without-await',
+    'postfix-option-return',
+    'postfix-option-to-result',
+    'postfix-result-error-mismatch',
+    'postfix-result-return',
+    'postfix-result-scalar-throws',
     'postfix-result-to-option',
-    'result-map-err', 'stream-filter-map'
+    'postfix-try-catch-throw',
+    'raise-bypasses-catch',
+    'result-map-err',
+    'stream-filter-map',
   ]);
   for (const [name, source] of Object.entries(cases)) {
     assert.match(name, /^[a-z]+(?:-[a-z]+)*$/);
