@@ -17,6 +17,15 @@ def run(verifier: pathlib.Path, data: dict):
                               stderr=subprocess.PIPE, timeout=10)
 
 
+def run_raw(verifier: pathlib.Path, contents: str):
+    with tempfile.TemporaryDirectory(prefix="ores-v1-json-") as temp:
+        fixture = pathlib.Path(temp) / "routing.json"
+        fixture.write_text(contents, encoding="utf-8")
+        return subprocess.run([sys.executable, str(verifier), str(fixture)],
+                              text=True, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, timeout=10)
+
+
 def main():
     root = pathlib.Path(__file__).resolve().parent
     verifier = root / "verify_actor_pipeline_v1.py"
@@ -59,7 +68,23 @@ def main():
     mutation("isolated extra actor", lambda d: d["graph"]["stages"].append(dict(id="orphan",actor_type="T",role="readable",inbound="",outbound="Event")))
     mutation("vertex quota exceeded", lambda d: d["graph"]["stages"].extend(copy.deepcopy(d["graph"]["stages"][0]) for _ in range(1022)))
     mutation("edge quota exceeded", lambda d: d["graph"]["connections"].extend(copy.deepcopy(d["graph"]["connections"][0]) for _ in range(4094)))
+    # Raw JSON tests: regular dict/json.dumps cannot represent duplicate
+    # keys. Each of these parses successfully with json.loads defaults and
+    # would otherwise be accepted as the canonical fixture.
+    raw = json.dumps(original, ensure_ascii=True)
+    malformed_json = [
+        ("duplicate top-level schema key",
+         '{"schema":"ignored",' + raw[1:]),
+        ("duplicate nested target key",
+         raw.replace('"target": "worker-a"',
+                     '"target":"worker-z","target": "worker-a"', 1)),
+        ("nonfinite extension",
+         '{"untrusted_extension":NaN,' + raw[1:]),
+    ]
     failures = []
+    for name, contents in malformed_json:
+        if run_raw(verifier, contents).returncode == 0:
+            failures.append(name)
     for name, case in samples:
         result = run(verifier, case)
         if result.returncode == 0:
@@ -67,7 +92,7 @@ def main():
     if failures:
         print("Unsafe fixtures ACCEPTED:", failures, file=sys.stderr)
         raise SystemExit(1)
-    print(f"ORES_ACTOR_PIPELINE_CONTRACT_MUTATION_PASS rejected={len(samples)}")
+    print(f"ORES_ACTOR_PIPELINE_CONTRACT_MUTATION_PASS rejected={len(samples) + len(malformed_json)}")
 
 
 if __name__ == "__main__":
