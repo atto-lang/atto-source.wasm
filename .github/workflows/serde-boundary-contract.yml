@@ -30,5 +30,5 @@ jobs:
           printf 'source=%s tree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
       - name: Verify byte-pinned DATA CONTROL contract
         run: python3 scripts/verify_serde_contract.py
-      - name: Run 18 policy-mutation regressions
-        run: python3 -m unittest discover -s scripts -p 'test_serde_contract.py' -v
+      - name: Run exactly 22 security regressions without skips
+        run: python3 scripts/test_serde_contract.py
