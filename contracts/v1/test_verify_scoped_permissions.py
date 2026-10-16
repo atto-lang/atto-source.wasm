@@ -120,6 +120,37 @@ class ScopedPermissionGateTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unexpected runtime result fields"):
                     self.validate(report)
 
+    def test_ambiguous_top_level_and_execution_fields_fail_closed(self):
+        # Top-level or execution-level flags cannot contradict successful
+        # per-case results. V1 evidence is intentionally a closed schema.
+        markers = (("status", "pending"), ("skipped", True),
+                   ("pending", True), ("synthetic", True),
+                   ("error", "compiler crashed"))
+        for level, error in (("report", "unexpected runtime report fields"),
+                             ("execution", "unexpected execution metadata fields")):
+            for field, value in markers:
+                with self.subTest(level=level, field=field):
+                    report = self.report()
+                    target = report if level == "report" else report["execution"]
+                    target[field] = value
+                    with self.assertRaisesRegex(ValueError, error):
+                        self.validate(report)
+
+    def test_missing_report_and_execution_keys_fail_closed(self):
+        for field in ("schema", "backend", "source_commit", "source_tree",
+                      "execution", "results"):
+            with self.subTest(level="report", missing=field):
+                report = self.report()
+                del report[field]
+                with self.assertRaisesRegex(ValueError, "unexpected runtime report fields"):
+                    self.validate(report)
+        for field in ("runner", "command", "url"):
+            with self.subTest(level="execution", missing=field):
+                report = self.report()
+                del report["execution"][field]
+                with self.assertRaisesRegex(ValueError, "unexpected execution metadata fields"):
+                    self.validate(report)
+
     def test_missing_or_extra_result_fields_fail_closed(self):
         for key in ("id", "decision", "executed"):
             with self.subTest(missing=key):
