@@ -1,0 +1,7 @@
+# Mandatory owner review requires protected-main branch settings.
+/.github/CODEOWNERS @ORESoftware
+/contracts/private-ci-security.v1.json @ORESoftware
+/scripts/check_backend_private_ci_contract.py @ORESoftware
+/tests/test_backend_private_ci_contract.py @ORESoftware
+/.github/workflows/backend-private-ci-contract.yml @ORESoftware
+/docs/security/BACKEND_SECURITY_PARITY.md @ORESoftware
