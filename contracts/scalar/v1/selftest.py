@@ -242,7 +242,7 @@ class ScalarHarnessTest(unittest.TestCase):
         }
         for backend, cases in diagnostics.items():
             for case_id, message in cases.items():
-                code = "import sys;sys.stderr.write(" + repr(message + "\\n") + ");sys.exit(1)"
+                code = "import sys;sys.stderr.write(" + repr(message + "\n") + ");sys.exit(1)"
                 with self.subTest(backend=backend, case_id=case_id):
                     good, _ = runner.run_case(
                         [sys.executable, "-c", code], source, "reject", None,
@@ -254,7 +254,7 @@ class ScalarHarnessTest(unittest.TestCase):
                             "usage error", "unexpected token in tool setup"):
                     code = "import sys;sys.stderr.write(" + repr(
                         backend.replace("forge", "oresforge").replace("net", "oresnet") +
-                        ": " + bad + "\\n") + ");sys.exit(1)"
+                        ": " + bad + "\n") + ");sys.exit(1)"
                     rejected, _ = runner.run_case(
                         [sys.executable, "-c", code], source, "reject", None,
                         "admission", 3, backend, case_id)
