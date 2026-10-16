@@ -1,0 +1,29 @@
+name: Persistent actor data v1 policy conformance
+on:
+  pull_request:
+    paths:
+      - 'contracts/v1/persistent_actor_data_v1.json'
+      - 'scripts/verify_persistent_actor_data_contract.py'
+      - 'scripts/test_persistent_actor_data_contract.py'
+      - '.github/workflows/persistent-actor-data-contract.yml'
+  push:
+    paths:
+      - 'contracts/v1/persistent_actor_data_v1.json'
+      - 'scripts/verify_persistent_actor_data_contract.py'
+      - 'scripts/test_persistent_actor_data_contract.py'
+      - '.github/workflows/persistent-actor-data-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Reject capability and fixture drift
+        run: python3 scripts/verify_persistent_actor_data_contract.py
+      - name: Execute negative policy mutation suite
+        run: python3 scripts/test_persistent_actor_data_contract.py -v
