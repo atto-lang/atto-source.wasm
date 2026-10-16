@@ -46,13 +46,20 @@ export class ActorPipelineSelector {
   #generation;
   #retired = false;
   constructor(stages, links, generation = 1) {
-    if (!Array.isArray(stages) || !Array.isArray(links) ||
-        stages.length < 2 || stages.length > 1024 ||
-        links.length < 1 || links.length > 4096 ||
+    // Capture array extents once and visit only own numeric DATA slots.
+    // A bounded Array may have a hostile/custom Symbol.iterator that yields
+    // indefinitely, or inherited/accessor numeric entries. Neither should
+    // execute while the supervisor validates an untrusted topology snapshot.
+    if (!Array.isArray(stages) || !Array.isArray(links))
+      throw new RangeError("invalid actor graph or generation budget");
+    const stageCount = stages.length, linkCount = links.length;
+    if (stageCount < 2 || stageCount > 1024 ||
+        linkCount < 1 || linkCount > 4096 ||
         !Number.isSafeInteger(generation) || generation < 1)
       throw new RangeError("invalid actor graph or generation budget");
     const ids = new Map(), indegree = new Map();
-    for (const candidate of stages) {
+    for (let i = 0; i < stageCount; i++) {
+      const candidate = ownData(stages, String(i));
       // Each field is read once before validation. Reject inherited fields,
       // accessors, functions, and mutable getter-produced values.
       const s = Object.freeze({
@@ -77,7 +84,8 @@ export class ActorPipelineSelector {
     }
     const pairs = new Set(), inboundCount = new Map(), outgoingCount = new Map();
     for (const id of ids.keys()) { this.#out.set(id, []); inboundCount.set(id, 0); outgoingCount.set(id, 0); }
-    for (const candidate of links) {
+    for (let i = 0; i < linkCount; i++) {
+      const candidate = ownData(links, String(i));
       const edge = Object.freeze({
         source: ownData(candidate, "source"),
         target: ownData(candidate, "target"),
