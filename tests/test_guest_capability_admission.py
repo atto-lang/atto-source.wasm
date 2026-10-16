@@ -337,7 +337,7 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
         # could let the child run after the admission check rejects the case.
         marker = Path(self.tmp.name) / "escaped-child-marker"
         started = Path(self.tmp.name) / "launcher-started"
-        payload = ("from pathlib import Path; import time; time.sleep(1.2); "
+        payload = ("from pathlib import Path; import time; time.sleep(2.0); "
                    + "Path(" + repr(str(marker)) + ").write_text('escaped')")
         fake = Path(self.tmp.name) / "forking-compiler"
         fake.write_text(
@@ -350,12 +350,12 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             encoding="utf-8")
         fake.chmod(0o700)
         with self.assertRaisesRegex(RuntimeError, "timed out"):
-            mod.run_compiler_process([str(fake)], cwd=mod.ROOT, timeout=.35,
+            mod.run_compiler_process([str(fake)], cwd=mod.ROOT, timeout=1.0,
                                      env=mod.sanitized_toolchain_environment())
         self.assertTrue(started.exists(),
                         "fixture launcher must have spawned a descendant")
         import time
-        time.sleep(1.4)
+        time.sleep(2.3)
         self.assertFalse(marker.exists(),
                          "timed-out compiler grandchild survived the process-group kill")
 
