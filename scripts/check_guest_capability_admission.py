@@ -93,6 +93,13 @@ def check(backend, tool=None, timeout=60):
                                       timeout=timeout, check=False)
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
+            # Parser rejection is not the same as process termination or
+            # infrastructure failure. Never accept segfaults, signals, or
+            # unknown exit statuses as evidence of safe compiler admission.
+            if done.returncode not in (0, 1, 2):
+                raise RuntimeError(item["id"] +
+                    ": compiler crashed or returned unknown status " +
+                    str(done.returncode))
             accepted = done.returncode == 0
             expected_accept = item["bootstrap"] == "accept"
             if accepted != expected_accept:
