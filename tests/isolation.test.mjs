@@ -80,6 +80,9 @@ test("admission rejects any host import", () => {
     {allowUndefined: true});
   assert.ok(WebAssembly.Module.imports(new WebAssembly.Module(wasm)).length > 0);
   assert.throws(() => admitCoreGuest(wasm), /host imports denied/);
+  // Exercise the *running* worker boundary too, not only the synchronous
+  // admission/inspection helper. No imports can be supplied to the worker.
+  await assert.rejects(runIsolatedCoreGuest(wasm), /host imports denied/);
 });
 test("admission rejects unexpected start section and wrong result signature", () => {
   const wasm = compile(simple);
