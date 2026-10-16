@@ -39,7 +39,7 @@ jobs:
           for round_id in range(1, 4):
               suite = unittest.defaultTestLoader.loadTestsFromModule(module)
               discovered = suite.countTestCases()
-              if discovered < 37:
+              if discovered < 43:
                   raise SystemExit(f"CI verifier tests shrank: {discovered}")
               result = unittest.TextTestRunner(verbosity=1).run(suite)
               if (result.testsRun != discovered or not result.wasSuccessful()
