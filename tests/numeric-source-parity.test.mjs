@@ -6,6 +6,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 
 // This suite is intentionally NOT counted as parity unless the *real* native
 // LLVM compiler is supplied, pinned and used to execute actual wasm32 output.
@@ -44,30 +45,44 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     for (let i=0;i<controls.length;i++) {
       const [expression,expected]=controls[i], target=join(dir,"guest-"+i+".wasm");
       await writeFile(input,"pub fnc main():int{return "+expression+";}\n");
+      const sourceHash = createHash("sha256").update(await readFile(input)).digest("hex");
       const compiled=await compileOresToWasm({
-        compiler,compilerSha256:expectedCompilerSha,source:input,output:target
+        compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
+        environment:"browser",publication:"atomic"
       });
-      const code=await readFile(target);
-      const observed=await runIsolatedCoreGuest(code,{
+      const released=await readAtomicRelease(target);
+      assert.equal(compiled.compilerSha256,expectedCompilerSha);
+      assert.equal(compiled.sourceSha256,sourceHash);
+      assert.equal(compiled.wasmSha256,released.manifest.wasmSha256);
+      assert.equal(released.manifest.environment,"browser");
+      assert.deepEqual(released.manifest.imports,[]);
+      assert.deepEqual(released.manifest.requiredCapabilities,[]);
+      const observed=await runIsolatedCoreGuest(released.wasm,{
         expectedSha256:compiled.wasmSha256,timeoutMs:5000
       });
       assert.equal(observed.value,expected,"numeric source-i64 "+expression);
       assert.equal(observed.admission.hostCapabilities,0);
     }
-    for (let i=0;i<3;i++) {
-      const source=["pub fnc main():int{return 1.25;}",
-                    "pub fnc main():bigint{return 1;}",
-                    "pub fnc main():decimal{return 1;}"][i];
+    const negatives=[
+      "pub fnc main():int{return 3/2;}",
+      "pub fnc main():int{return 1.25;}",
+      "pub fnc main():bigint{return 1;}",
+      "pub fnc main():decimal{return 1;}"
+    ];
+    for (let i=0;i<negatives.length;i++) {
+      const source=negatives[i];
       const target=join(dir,"invalid-"+i+".wasm");
       await writeFile(input,source);
       await assert.rejects(
         compileOresToWasm({
-          compiler,compilerSha256:expectedCompilerSha,source:input,output:target
+          compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
+          environment:"browser",publication:"atomic"
         }),
         error=>/oreslang-llvmc:/.test(error.message),
         "unsupported precision must be rejected by the real frontend"
       );
-      await assert.rejects(stat(target),{code:"ENOENT"});
+      await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
+        "failed numeric compilation must not publish a release pointer");
     }
   } finally {
     await rm(dir,{recursive:true,force:true});
