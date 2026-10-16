@@ -93,6 +93,14 @@ test("routing identity is immutable after graph publication and round-robin rema
   assert.throws(() => plan.forwardTo("source","worker-a"), /retired/);
   assert.throws(() => plan.forwardRoundRobin("source"), /retired/);
 });
+test("reject unknown or retired keyed routes before parsing invalid key bytes", () => {
+  const plan = new ActorPipelinePolicy(stages, edges);
+  assert.throws(() => plan.forwardByKey("unknown-source", "\ud800"),
+    /no downstream/);
+  plan.close();
+  assert.throws(() => plan.forwardByKey("source", "\ud800"),
+    /retired/);
+});
 test("diamond fan-in is valid while cycles, dangling ports and self-edges are rejected", () => {
   const v=[
     {id:"src",type:"Producer",role:"readable",outbound:"P"},
