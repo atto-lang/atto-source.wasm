@@ -125,7 +125,27 @@ def snapshot_suite(suite, verified_digest, destination):
     return snapshot
 
 
-def run_case(command, source, kind, value, mode, timeout, backend=None):
+# Match independently reviewed frontend diagnostics for each negative case.
+# A backend-prefixed IO/launcher error is NEVER semantic rejection evidence.
+NEGATIVE_DIAGNOSTICS = {
+    "forge": {
+        "reject.unknown": r"oresforge: expected integer at byte [0-9]+",
+        "reject.division": r"oresforge: division requires float result lowering; unsupported in the i64 source subset at byte [0-9]+",
+        "reject.actor": r"oresforge: unexpected token at byte [0-9]+",
+        "reject.async": r"oresforge: unexpected token at byte [0-9]+",
+        "reject.structural": r"oresforge: expected integer at byte [0-9]+",
+    },
+    "net": {
+        "reject.unknown": r"oresnet: Expected integer at offset [0-9]+",
+        "reject.division": r"oresnet: Division requires float result lowering; unsupported in the i64 source subset",
+        "reject.actor": r"oresnet: Expected 'fnc' at offset [0-9]+",
+        "reject.async": r"oresnet: Expected 'fnc' at offset [0-9]+",
+        "reject.structural": r"oresnet: Expected integer at offset [0-9]+",
+    },
+}
+
+
+def run_case(command, source, kind, value, mode, timeout, backend=None, case_id=None):
     argv = [s.replace("{source}", str(source)) for s in command]
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
         try:
@@ -146,13 +166,10 @@ def run_case(command, source, kind, value, mode, timeout, backend=None):
         except UnicodeDecodeError:
             return False, "infrastructure: invalid UTF-8 in compiler output"
     if kind == "reject":
-        # An arbitrary exit-1 error is not proof that the compiler rejected
-        # an unsupported language construct. The bootstrap compilers emit
-        # distinct diagnostic prefixes on their own frontend failure paths.
-        prefix = {"net": "oresnet:", "forge": "oresforge:"}.get(backend)
-        # No negative-test evidence until an independently reviewed frontend
-        # diagnostic signature is defined for the selected backend.
-        diagnosed = prefix is not None and stderr.startswith(prefix) and bool(stderr.strip())
+        signature = NEGATIVE_DIAGNOSTICS.get(backend, {}).get(case_id)
+        # Full-match disallows prefixed disk/launcher failures and extra errors.
+        diagnosed = signature is not None and re.fullmatch(
+            signature + r"\\n?", stderr) is not None
         success = proc.returncode == 1 and not stdout and diagnosed
     elif mode == "stdout-i64":
         success = proc.returncode == 0 and stdout.strip() == value and not stderr.strip()
@@ -191,7 +208,7 @@ def main():
         for case in suite["cases"]:
             source = snapshot / Path(case["file"]).name
             ok, details = run_case(cmd, source, case["kind"], case.get("value"),
-                                   opts.mode, opts.timeout, opts.backend)
+                                   opts.mode, opts.timeout, opts.backend, case["id"])
             records.append({"id": case["id"], "status": "pass" if ok else "fail"})
             if not ok:
                 failures += 1
