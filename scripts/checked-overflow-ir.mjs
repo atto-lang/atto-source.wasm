@@ -21,11 +21,11 @@ export function assertCheckedOverflowIr(ir,operation){
   if(!/^\s*target triple = "wasm32-[^"\n]+"\s*$/m.test(ir))
     throw Error("checked overflow IR lacks real wasm32 target triple");
   const pairs=[...ir.matchAll(PAIR)];
-  if(!pairs.some(match=>match[2]===operation))
+  const pairOps=new Map(pairs.map(match=>[match[1],match[2]]));
+  if(![...pairOps.values()].includes(operation))
     throw Error("checked overflow IR lacks required signed-i64 overflow intrinsic "+operation);
-  const pairSymbols=new Set(pairs.map(match=>match[1]));
   const flags=new Map([...ir.matchAll(FLAG)]
-    .filter(match=>pairSymbols.has(match[2])).map(match=>[match[1],match[2]]));
+    .filter(match=>pairOps.has(match[2])).map(match=>[match[1],match[2]]));
   const guards=[...ir.matchAll(GUARD)];
   const traps=[...ir.matchAll(TRAP)];
   const failures=[...ir.matchAll(FAILURE)];
@@ -33,8 +33,9 @@ export function assertCheckedOverflowIr(ir,operation){
   if(!flags.size||!guards.length||!traps.length||
      guards.length!==traps.length||failures.length!==traps.length||
      new Set(guards.map(match=>match[2])).size!==guards.length||
-     guards.some(match=>!flags.has(match[1])||!names.has(match[2])))
-    throw Error("checked overflow IR lacks complete flag-derived conditional trap path");
+     guards.some(match=>!flags.has(match[1])||!names.has(match[2])) ||
+     !guards.some(match=>pairOps.get(flags.get(match[1]))===operation))
+    throw Error("checked overflow IR lacks complete operation-specific flag-derived conditional trap path");
   const unreachable=[...ir.matchAll(/^\s*unreachable\b/gm)];
   if(unreachable.length!==failures.length)
     throw Error("checked overflow IR contains unrelated unreachable control flow");
