@@ -158,7 +158,7 @@ class ScalarHarnessTest(unittest.TestCase):
         data = json.loads(report.read_text())
         self.assertEqual(data["source_revision"], "a" * 40)
         self.assertEqual(data["evidence_level"], "source-executed-scalar")
-        self.assertEqual(len(data["results"]), 10)
+        self.assertEqual(len(data["results"]), 11)
 
     def test_false_success_and_missing_compiler_denied(self):
         source = runner.HERE / "fixtures" / "literal-42.ores"
