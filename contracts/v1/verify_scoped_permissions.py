@@ -120,6 +120,11 @@ def load_vectors(path, *, enforce_digest=False):
 def validate_report(report, backend, ids, source_commit, source_tree):
     if not isinstance(report, dict):
         raise ValueError("runtime report must be an object")
+    # v1 top-level evidence is closed: extra pending/skipped/error markers
+    # must not contradict an otherwise complete report.
+    if set(report) != {"schema", "backend", "source_commit", "source_tree",
+                       "execution", "results"}:
+        raise ValueError("unexpected runtime report fields")
     # Callers may use this validator directly, without the CLI argument gate.
     # Never let an unpinned or malformed source identity count as evidence.
     if not all(isinstance(value, str) and SHA.fullmatch(value)
@@ -130,6 +135,8 @@ def validate_report(report, backend, ids, source_commit, source_tree):
     if report.get("source_commit") != source_commit or report.get("source_tree") != source_tree:
         raise ValueError("source commit/tree mismatch")
     execution = report.get("execution")
+    if not isinstance(execution, dict) or set(execution) != {"runner", "command", "url"}:
+        raise ValueError("unexpected execution metadata fields")
     if not isinstance(execution, dict) or not all(
             isinstance(execution.get(k), str) and execution[k].strip()
             for k in ("runner", "command", "url")):
