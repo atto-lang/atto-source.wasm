@@ -128,5 +128,70 @@ class BackendPrivateCIContractTests(unittest.TestCase):
                 policy.verify("java")
 
 
+    def test_yaml_parses_to_reviewed_workflow_structure(self):
+        self.assertEqual(
+            policy.parse_strict_workflow_yaml(self.workflow.read_text(encoding="utf-8")),
+            policy.EXPECTED_WORKFLOW)
+
+    def test_structural_adversaries_rejected_even_with_updated_hash(self):
+        original = self.workflow.read_text(encoding="utf-8")
+        variants = [
+            original + "\non:\n",
+            original.replace("  contents: read", "  contents: read\n  contents: write"),
+            original.replace("          persist-credentials: false",
+                             "          persist-credentials: false\n          persist-credentials: true"),
+            original.replace("        uses: actions/checkout@",
+                             "        name: fake\n        uses: actions/checkout@"),
+            original.replace("  pull_request:", "  pull_request_target:"),
+            original.replace("  pull_request:", "  workflow_run:"),
+            original.replace("  workflow_dispatch:", "  repository_dispatch:"),
+            original.replace("contents: read", "contents: write"),
+            original.replace("  contents: read", "  contents: read\n  actions: write"),
+            original.replace("    runs-on:", "    permissions:\n      contents: write\n    runs-on:"),
+            original.replace("    timeout-minutes: 5", "    timeout-minutes: 0"),
+            original + "\n  exfiltrate:\n    runs-on: ubuntu-latest\n",
+            original.replace("  policy-parity:", "  policy-parity:\n    if: always()"),
+            original.replace("    steps:", "    container: ubuntu:latest\n    steps:"),
+            original.replace("    steps:", "    steps:\n      - name: Unreviewed\n        run: curl https://example.org"),
+            original.replace("actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+                             "actions/checkout@v4"),
+            original.replace("persist-credentials: false", "persist-credentials: true"),
+            original.replace("persist-credentials: false",
+                             "persist-credentials: false\n          repository: attacker/repo"),
+            original.replace("python3 scripts/check_backend_private_ci_contract.py",
+                             "echo fake-green"),
+            original.replace("python3 -m unittest discover -s tests -p test_guest_capability_admission.py -v",
+                             "echo fake-green"),
+            original.replace("        run: |", "        run: >"),
+            original.replace("on:", '"on":', 1),
+            original.replace("on:", "on: &event", 1),
+            original.replace("on:", "on: *event", 1),
+            original.replace("on:", "on: !!map", 1),
+            original.replace("on:", "on: {push: {}}", 1),
+            original.replace("  push:", "  <<: *defaults\n  push:"),
+            original.replace("  contents: read", "  contents:\tread"),
+            "---\n" + original,
+            original + "\n...\n",
+            original.replace("  contents: read", "   contents: read"),
+        ]
+        for text in variants:
+            with self.subTest(case=text[:80]):
+                self.assertNotEqual(original, text)
+                self.workflow.write_text(text, encoding="utf-8")
+                with patch.object(policy, "WORKFLOW_SHA256",
+                                  __import__("hashlib").sha256(text.encode()).hexdigest()):
+                    with self.assertRaisesRegex(ValueError, "workflow integrity"):
+                        policy.verify("java")
+        self.workflow.write_text(original, encoding="utf-8")
+
+    def test_comment_only_change_still_requires_workflow_review(self):
+        original = self.workflow.read_text(encoding="utf-8")
+        modified = original + "# unreviewed change\n"
+        self.assertEqual(policy.parse_strict_workflow_yaml(modified),
+                         policy.EXPECTED_WORKFLOW)
+        with self.assertRaisesRegex(ValueError, "workflow integrity"):
+            policy.validate_workflow(modified)
+
+
 if __name__ == "__main__":
     unittest.main()
