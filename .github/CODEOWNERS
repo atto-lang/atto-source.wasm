@@ -8,3 +8,4 @@
 /contracts/guest-capability-admission.v1.json @ORESoftware
 /scripts/check_guest_capability_admission.py @ORESoftware
 /tests/test_guest_capability_admission.py @ORESoftware
+/tests/parity-zero-import-admission.test.mjs @ORESoftware
