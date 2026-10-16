@@ -1,0 +1,17 @@
+// Shared-language target: distinct enum overloads at the same arity.
+// Wasm must not claim execution parity until its pinned native LLVM compiler
+// produces a verified artifact for the canonical nominal-slot semantics.
+define enum Color as
+    Red
+end
+
+define enum Mode as
+    Fast
+end
+
+fnc pick(Color value): int { return 11; }
+fnc pick(Mode value): int { return 22; }
+
+pub fnc main(): int {
+    return pick(Color.Red);
+}
