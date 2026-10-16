@@ -9,8 +9,11 @@ const OPS=new Set(["sadd","ssub","smul"]);
 // rejection. Generic "oreslang-llvmc:" setup, syntax or CLI errors cannot.
 export function isSignedI64OverflowDiagnostic(error) {
   const diagnostic=String(error?.message || error);
-  return /\boreslang-llvmc:[^\n]*(?:\boverflow\b|out.of.range|out.of.bounds|invalid i64)/i
-    .test(diagnostic);
+  const line=/\boreslang-llvmc:\s*([^\r\n]*)/i.exec(diagnostic)?.[1];
+  if(!line || /(?:no such file|not found|failed to (?:open|read)|unknown (?:option|flag)|unsupported target)/i.test(line))
+    return false;
+  // "overflow.ores" is a filename, not an arithmetic overflow diagnosis.
+  return /(?:\boverflow\b(?![.\/_-])|out[- ]of[- ](?:range|bounds)|invalid[- ]i64)/i.test(line);
 }
 const PAIR=/^\s*(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*=\s*call\s+\{\s*i64\s*,\s*i1\s*\}\s+@llvm\.(sadd|ssub|smul)\.with\.overflow\.i64\s*\(/gm;
 const FLAG=/^\s*(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*=\s*extractvalue\s+\{\s*i64\s*,\s*i1\s*\}\s+(%[A-Za-z_.$][A-Za-z_0-9.$]*)\s*,\s*1\b/gm;
