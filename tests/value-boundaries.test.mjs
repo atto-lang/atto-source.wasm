@@ -27,7 +27,8 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
   try {
     const source = join(dir, 'main.ores');
     const output = join(dir, 'good.wasm');
-    await writeFile(source, 'pub fnc main():int{return (5+3)*7-14;}');
+    // Real executed positive control uses exactly the normative Java/LLVM Oreslang bytes.
+    await writeFile(source, await readFile(new URL('../contracts/v1/semantics/fixtures/add.ores', import.meta.url)));
     await compileOresToWasm({compiler, compilerSha256, source, output});
     const good = await readFile(output);
     assert.equal(new WebAssembly.Instance(new WebAssembly.Module(good)).exports.main(), 42n);
