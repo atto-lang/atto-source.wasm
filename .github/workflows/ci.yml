@@ -18,6 +18,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact actor PR-head checkout and Git tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          git hash-object contracts/v1/verify_actor_pipeline_v1.py contracts/v1/test_actor_pipeline_v1.py
       - name: Verify exact-blob actor routing fixture
         run: |
           python3 contracts/v1/verify_actor_pipeline_v1.py contracts/v1/actor-pipeline-routing-v1.json
