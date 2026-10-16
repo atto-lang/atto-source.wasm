@@ -18,6 +18,13 @@ ownership, message admission and single-flight execution in that backend.
   no outbound; `transform` and `duplex`: both typed ports.
 - Reject duplicate, self, unknown, mismatched, cyclic, isolated and
   wrongly directed edges. Graphs must have an authorized ingress root.
+- Actor instance identities are compared as **exact UTF-8 sequences**, not
+  Unicode-normalized or case-folded strings. For example, composed `é` and
+  decomposed `e + U+0301` remain distinct instances. The supervisor must
+  avoid visually ambiguous names in administrative interfaces.
+- An edge's identity is the **structural tuple** `(source instance ID,
+  target instance ID)`, never string concatenation using user-controlled
+  delimiters. `(a:b, c)` and `(a, b:c)` are separate valid connections.
 - Connection order is the supervisor-published edge order, never hash map
   iteration order or task scheduling order. On topology generation change,
   rebuild selectors only after quiescence or an explicit abort barrier.
