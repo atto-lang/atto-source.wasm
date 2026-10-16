@@ -223,6 +223,31 @@ class ScalarHarnessTest(unittest.TestCase):
                         "admission", 3, backend)
                     self.assertEqual(ok, success)
 
+    def test_unsupported_backend_diagnostic_evidence_fails_closed(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        code = "import sys;sys.stderr.write('oresnet: unknown identifier');sys.exit(1)"
+        for backend in ("java", "llvm", "wasm", None):
+            with self.subTest(backend=backend):
+                passed, _ = runner.run_case(
+                    [sys.executable, "-c", code], source, "reject", None,
+                    "admission", 3, backend)
+                self.assertFalse(passed)
+
+    def test_net_admission_requires_typed_ir_success_message(self):
+        source = runner.HERE / "fixtures" / "literal-42.ores"
+        for message, accepted in (
+            ("Oreslang subset syntax and typed OresIR: OK", True),
+            ("", False),
+            ("ok", False),
+            ("Oreslang subset syntax and typed OresIR: INCOMPLETE", False),
+        ):
+            code = "print(" + repr(message) + ")"
+            with self.subTest(message=message):
+                passed, _ = runner.run_case(
+                    [sys.executable, "-c", code], source, "accept", "42",
+                    "admission", 3, "net")
+                self.assertEqual(passed, accepted)
+
     def test_false_success_and_missing_compiler_denied(self):
         source = runner.HERE / "fixtures" / "literal-42.ores"
         missing = runner.run_case([str(runner.HERE / "missing-tool")], source, "accept", "42", "stdout-i64", 2)
