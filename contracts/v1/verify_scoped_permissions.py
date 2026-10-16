@@ -95,6 +95,11 @@ def load_vectors(path, *, enforce_digest=False):
 def validate_report(report, backend, ids, source_commit, source_tree):
     if not isinstance(report, dict):
         raise ValueError("runtime report must be an object")
+    # Callers may use this validator directly, without the CLI argument gate.
+    # Never let an unpinned or malformed source identity count as evidence.
+    if not all(isinstance(value, str) and SHA.fullmatch(value)
+               for value in (source_commit, source_tree)):
+        raise ValueError("invalid source commit/tree identifiers")
     if report.get("schema") != REPORT_SCHEMA or report.get("backend") != backend:
         raise ValueError("wrong backend report schema")
     if report.get("source_commit") != source_commit or report.get("source_tree") != source_tree:
@@ -111,6 +116,12 @@ def validate_report(report, backend, ids, source_commit, source_tree):
     for result in results:
         if not isinstance(result, dict):
             raise ValueError("runtime result must be an object")
+        # A report with executed=true and a conflicting status=skipped,
+        # pending=true or error marker is not unambiguous execution proof.
+        # v1 intentionally has just three result fields. Any extensions
+        # require a reviewed schema revision across all five backends.
+        if set(result) != {"id", "decision", "executed"}:
+            raise ValueError("unexpected runtime result fields")
         cid = result.get("id")
         if cid not in ids or cid in seen:
             raise ValueError("unexpected/duplicate test case")
