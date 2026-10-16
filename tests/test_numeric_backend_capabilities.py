@@ -22,6 +22,7 @@ STATUSES = frozenset((
     "implemented_unverified", "reference_only", "blocked_unsound",
     "needs_audit", "verified_compiled"))
 BACKENDS = frozenset(("java", "llvm", "net", "wasm", "forge"))
+EXPECTED_BACKEND = "wasm"  # fixed by repository identity, not user-editable manifest
 SHA40 = re.compile(r"[0-9a-f]{40}")
 
 
@@ -39,6 +40,7 @@ class NumericParityAdmissionTest(unittest.TestCase):
         d = json.loads(MANIFEST.read_text(encoding="utf-8"))
         self.assertEqual(d["schema_version"], "1.0.0")
         self.assertIn(d["backend"], BACKENDS)
+        self.assertEqual(d["backend"], EXPECTED_BACKEND)
         self.assertEqual(d["reference_fixture_git_blob_sha"], SHA)
         self.assertEqual(set(d["capabilities"]), FEATURES)
         self.assertEqual(set(d["evidence"]), FEATURES)
