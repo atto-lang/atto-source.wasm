@@ -48,6 +48,28 @@ test("scalar bridge rejects every source-import spelling even with a valid-looki
  ]){
   assert.doesNotThrow(()=>assertScalarSourceHasNoImports(Buffer.from(src)));
  }
+ // CR, CRLF, Unicode line separators must not make imports disappear
+ // inside the source graph gate. No compiler invocation is needed here.
+ for(const ending of ['\\r','\\r\\n','\\n','\\u2028','\\u2029']){
+  const newline=JSON.parse('"'+ending+'"');
+  assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from(
+   '// pretend import in a comment'+newline+'import fnc helper from "./other";')),
+   /source imports require verified complete Wasm module graph/,ending);
+ }
+ for(const src of [
+  '/* outer /* inner */ import in outer */ fnc main():int{return 42;}',
+  '/* first /* second /* third */ still second */ still first */ fnc main():int{return 42;}',
+ ])assert.doesNotThrow(()=>assertScalarSourceHasNoImports(Buffer.from(src)),
+  'nested Oreslang comments must not create phantom imports');
+ assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from(
+  '/* outer /* inner */ rest */ import fnc helper from "./real";')),
+  /source imports require verified complete Wasm module graph/);
+ assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from('/* outer /* inner */')),
+  /unterminated Oreslang block comment/);
+ assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from('/*'.repeat(129)+'*/'.repeat(129))),
+  /nesting limit exceeded/);
+ assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from('fnc main():int{return 42;} // \\0')), 
+  /NUL byte/);
  assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from('/* unclosed')),
   /unterminated Oreslang block comment/);
  assert.throws(()=>assertScalarSourceHasNoImports(Buffer.from('fnc main():int { "unclosed')),
