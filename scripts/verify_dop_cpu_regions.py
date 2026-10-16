@@ -205,7 +205,42 @@ def self_test(contract):
     must_reject(lambda r: r.update(version=True))
     must_reject(lambda r: r["cases"][0].update(status=[]))
     must_reject(lambda r: r.update(backend=[]))
-    print("DOP CPU v1: 22 canonical cases, 16 fail-closed mutants PASS")
+
+    # Prove that the verifier accepts coherent report shapes, not only rejects
+    # bad ones. Evidence here is deliberately synthetic, not CI attestation.
+    def mark_pass(record):
+        record.update(status="pass", executed=True, passed=True, evidence=[{
+            "source_commit": "0" * 40,
+            "run_url": "https://github.com/example/private-ci/actions/runs/1",
+            "backend": "java",
+        }])
+
+    partial = copy.deepcopy(example)
+    partial["implementation"] = "partial"
+    mark_pass(partial["cases"][0])
+    require(check_report(partial, names) == 1, "valid partial report rejected")
+    complete = copy.deepcopy(example)
+    complete["implementation"] = "implemented"
+    for item in complete["cases"]:
+        mark_pass(item)
+    require(check_report(complete, names) == len(names),
+            "valid full synthetic report rejected")
+
+    class FakeDocument:
+        def __init__(self, content):
+            self.content = content
+        def read_text(self, encoding="utf-8"):
+            return self.content
+
+    require(load_json_strict(FakeDocument('{"ok":true}')) == {"ok": True},
+            "valid JSON rejected")
+    for invalid in ('{"case":1,"case":2}', '{"quantity":NaN}'):
+        try:
+            load_json_strict(FakeDocument(invalid))
+        except ValueError:
+            continue
+        raise AssertionError("decoder accepted duplicate keys or nonstandard numbers")
+    print("DOP CPU v1: 22 canonical cases, 18 fail-closed mutants; valid report shapes PASS")
 
 def main():
     parser = argparse.ArgumentParser()
