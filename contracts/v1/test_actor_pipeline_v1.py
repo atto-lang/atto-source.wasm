@@ -21,7 +21,8 @@ def main():
     root = pathlib.Path(__file__).resolve().parent
     verifier = root / "verify_actor_pipeline_v1.py"
     original = json.loads((root / "actor-pipeline-routing-v1.json").read_text())
-    assert run(verifier, original).returncode == 0
+    if run(verifier, original).returncode != 0:
+        raise AssertionError("canonical routing fixture fails the baseline validator")
     samples = []
     def mutation(name, apply):
         altered = copy.deepcopy(original)
@@ -40,6 +41,14 @@ def main():
     mutation("duplicate worker instance", lambda d: d["graph"]["stages"][2].update(id="worker-a"))
     mutation("NUL actor instance", lambda d: d["graph"]["stages"][1].update(id="worker\0x"))
     mutation("overlong UTF-8 instance", lambda d: d["graph"]["stages"][1].update(id="🌍"*65))
+    mutation("invalid supervisor actor role", lambda d: d["graph"]["stages"][1].update(role="supervisor"))
+    def add_cycle(d):
+        for index in (1, 2):
+            d["graph"]["stages"][index].update(role="transform", outbound="Event")
+        d["graph"]["connections"].extend([
+            {"source": "worker-a", "target": "worker-b", "payload": "Event"},
+            {"source": "worker-b", "target": "worker-a", "payload": "Event"}])
+    mutation("genuine transform cycle", add_cycle)
     mutation("nominal payload mismatch", lambda d: d["graph"]["connections"][0].update(payload="Wrong"))
     mutation("duplicate endpoint pair", lambda d: d["graph"]["connections"].append(copy.deepcopy(d["graph"]["connections"][0])))
     mutation("unknown destination", lambda d: d["graph"]["connections"][0].update(target="unknown"))
