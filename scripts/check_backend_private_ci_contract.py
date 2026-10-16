@@ -206,6 +206,45 @@ def strict_contract_equal(actual, expected):
     return actual == expected
 
 
+def verify_ci_event_identity(backend, event):
+    """Bind the read-only policy check to its reviewed GitHub event source.
+
+    A pull_request event can carry a foreign head repository even when the
+    base/event repository is the expected private backend. Such a run is not
+    evidence of a trusted same-repository contract check.
+    """
+    event_name = os.getenv("GITHUB_EVENT_NAME")
+    ref = os.getenv("GITHUB_REF")
+    name = "ores-truffle-oreslang/oreslang-source." + backend
+    expected_id = IDS[backend]
+    if event_name not in ("push", "pull_request", "workflow_dispatch"):
+        raise ValueError("unsupported GitHub event cannot establish CI provenance")
+    if event_name == "push":
+        if ref != "refs/heads/main" or event.get("ref") != "refs/heads/main":
+            raise ValueError("GitHub push does not identify protected main")
+        return True
+    if event_name == "workflow_dispatch":
+        if ref != "refs/heads/main" or event.get("ref") not in (
+                "main", "refs/heads/main"):
+            raise ValueError("GitHub manual dispatch must target main")
+        return True
+    request = event.get("pull_request")
+    if type(request) is not dict or type(request.get("number")) is not int:
+        raise ValueError("GitHub pull request identity unavailable")
+    number = request["number"]
+    if number < 1 or ref != "refs/pull/" + str(number) + "/merge":
+        raise ValueError("GitHub pull request merge ref is not bound to event")
+    for side in ("head", "base"):
+        target = request.get(side)
+        source = target.get("repo") if type(target) is dict else None
+        if (type(source) is not dict or source.get("full_name") != name
+                or type(source.get("id")) is not int
+                or source.get("id") != expected_id
+                or source.get("private") is not True):
+            raise ValueError("foreign or unverifiable pull request " + side)
+    return True
+
+
 def verify(backend):
     if backend not in IDS:
         raise ValueError("unknown Oreslang backend")
@@ -265,6 +304,7 @@ def verify(backend):
                 or repo.get("id") != IDS[backend]
                 or repo.get("full_name") != name):
             raise ValueError("GitHub event identifies the wrong/private-status repository")
+        verify_ci_event_identity(backend, event)
     return True
 
 
