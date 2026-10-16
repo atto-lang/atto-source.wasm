@@ -40,6 +40,19 @@ this condition before socket creation; preserve valid canonical IPv4 peers.
 Unsupported guest socket surfaces (notably WASM's current zero-import slice)
 continue to deny network access rather than claim host-I/O parity.
 
+## Dynamic HTTP listener ports
+
+Java `http.listen(host, 0, ...)` requests an OS-assigned port. Port 0 is an API
+sentinel, not a valid `net` permission-scope port. Before binding, the runtime
+requires a port-independent grant for the requested host and checks the
+resolved numeric IPv4 address. While port selection and DNS aliases cannot be
+proved disjoint from every denied endpoint, **any configured NET denial**
+prevents a port-zero listener, even if the denial appears unrelated.
+The all-interfaces address `0.0.0.0` is not one selected IP and is rejected
+for dynamic ports. A fixed-port-only grant does not authorize a dynamic-port listener.
+
+Unsupported listener address families remain denied until implemented.
+
 ## Canonical test-vector integrity
 
 The checked-in reference data is pinned to SHA-256
@@ -87,7 +100,6 @@ malformed or nonimmutable source commit/tree arguments (lowercase 40-hex
 Git identifiers only). These **shape checks are not proof of real execution**:
 an independent runner, source-tree identity, production adapter and genuine
 guest/host tests are still required.
-
 
 Run:
 ```sh
