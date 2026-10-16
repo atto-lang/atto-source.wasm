@@ -157,3 +157,40 @@ reviews, and runner-executed tests on the final integrated head. Do not merge
 a policy change or authorize private source transfer merely because the
 manifest matches across repositories. Actual backend conformance requires
 language/runtime tests that exercise the real compiled/executed guest code.
+
+
+## Cross-backend compiler-admission diagnostic hardening (October 16, 2026)
+
+The five repositories share **byte-identical** versions of the guest admission
+checker and its tests. The checker now uses binary temporary files for compiler
+stdout and stderr instead of unbounded capture_output=True memory buffers.
+It reads at most 1 MiB plus one byte from each stream, requires strict UTF-8
+without NUL characters, and rejects oversized or malformed diagnostics.
+Timeouts must be numeric, positive and at most 300 seconds; return codes must
+be genuine integers with value 0 (accepted) or 1 (rejected). Process crashes,
+timeouts, partial IR, absent compilers, invalid diagnostics and unknown statuses
+remain hard failures, never a successful capability-denial verdict.
+
+This change is covered by five new Python test methods, including an **actual
+synthetic Python compiler subprocess** that first emits valid accept/reject
+results, then floods stdout to prove bounded diagnostic handling. On a local
+executor, the shared security-contract suite passed 16/16 methods and the
+guest-admission suite passed 19/19. Compiler-native proof is **not** established
+by this synthetic compiler or by the mocks.
+
+Existing native CI entrypoints (execution still requires an assigned runner):
+
+| Backend | Real CI integration | Honest proof boundary |
+| --- | --- | --- |
+| LLVM | .github/workflows/ci.yml: CMake build, guest-admission checker, CTest | Native compiler parsing only if job actually runs |
+| .NET | .github/workflows/windows-native-aot.yml: Windows and Linux diagnostic checker steps | Native AOT and compiler checks, not guest actor execution |
+| Forge | .github/workflows/ci.yml: CMake build, guest-admission checker, CTest | Compiler and limited interpreter paths, not Java actor parity |
+| Wasm | .github/workflows/ci.yml: npm test | Zero-import host checks; no guest admission adapter |
+| Java | .github/workflows/ci.yml: Maven/GraalVM tests | Reference runtime suite; shared guest-admission adapter intentionally absent |
+
+A successful source-free canary on a different GitHub organization demonstrates
+runner capacity **only**. It does not establish authorization to export private
+Oreslang source. Private-source transfer remains forbidden unless a protected,
+independently reviewed source policy approves the exact destination and source
+commit/tree. Do not mark no-runner or zero-step jobs as passing, and do not
+substitute static policy parity for native compiler and actor/runtime parity.
