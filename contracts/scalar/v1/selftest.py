@@ -35,6 +35,25 @@ class ScalarHarnessTest(unittest.TestCase):
     def write(self, value):
         (runner.HERE / "cases.json").write_text(json.dumps(value) + "\n")
 
+    def test_verified_snapshot_is_independent_of_mutated_checkout(self):
+        suite, digest = runner.load_suite()
+        with tempfile.TemporaryDirectory() as work:
+            snapshot = runner.snapshot_suite(suite, digest, Path(work))
+            saved = (snapshot / "literal-42.ores").read_bytes()
+            original = runner.HERE / "fixtures" / "literal-42.ores"
+            self.assertNotEqual(snapshot.resolve(), original.parent.resolve())
+            self.assertEqual(saved, original.read_bytes())
+            original.write_text("pub fnc main(): int { return 999; }\\n")
+            self.assertEqual((snapshot / "literal-42.ores").read_bytes(), saved)
+
+    def test_verified_snapshot_rejects_changed_corpus(self):
+        suite, digest = runner.load_suite()
+        original = runner.HERE / "fixtures" / "literal-42.ores"
+        original.write_text("pub fnc main(): int { return 999; }\\n")
+        with tempfile.TemporaryDirectory() as work:
+            with self.assertRaisesRegex(ValueError, "changed during snapshot"):
+                runner.snapshot_suite(suite, digest, Path(work))
+
     def test_canonical_digest_and_inventory(self):
         suite, digest = runner.load_suite()
         self.assertEqual(digest, CANONICAL_SUITE_SHA256)
