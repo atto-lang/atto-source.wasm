@@ -6,6 +6,7 @@ compile-time admission only: reject != proof of runtime OS sandboxing.
 Java and WASM intentionally have no adapter and MUST NOT be marked green.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -30,6 +31,20 @@ CASES = ("scalar_arithmetic_14", "ambient_filesystem", "ambient_network",
          "unsupported_wire_serialization")
 
 
+CASE_SHA256 = (
+    "061f49bda81fae44d8d96b04791a85bf3d115287b204a55812a60bae253ec784",
+    "c767dda0c5276f4b1a0438ee5f121606bc168aa9a33fd9956ee5ce160f26d83f",
+    "72a8cd8e83a0d3eaa7d4499b52083ac19194c3db24eb146e302c642e1d60eb68",
+    "3027b667e5aa3720e3d01b4095c4d93c0adb066ad5397eec97955bf491aa8121",
+    "329503b1dcf448f5f5c86e6443872fecf6db2b2017445b0c2bd05749c4688e96",
+    "fd95da702c0b0a2ea315b8975564ab34a5d73b085dfe056a0d048349bb69f8bc",
+    "dd67bdd566f1ca06a9d16c494584a6ab37daf3be7eaa0cb7ecc14872974d9056",
+    "9a172a9cea204792f3fdf1edcbc747f1c1356fb47756780910815d66559116a8",
+    "2320bc4bc38d33cc824225f3848255d0f8ce722ebf2026365bbf693cbc5d6e6b",
+)
+
+
+
 def load_cases():
     doc = json.loads(CONTRACT.read_text(encoding="utf-8"))
     if (doc.get("schema_version") != 1 or
@@ -41,6 +56,11 @@ def load_cases():
     items = doc.get("cases")
     if not isinstance(items, list) or tuple(item.get("id") for item in items) != CASES:
         raise ValueError("incomplete guest admission case list")
+    for item, expected_digest in zip(items, CASE_SHA256):
+        if not isinstance(item.get("source"), str) or (
+                hashlib.sha256(item["source"].encode("utf-8")).hexdigest()
+                != expected_digest):
+            raise ValueError("guest fixture bytes differ from reviewed source")
     for item in items:
         if (item.get("bootstrap") not in ("accept", "reject")
                 or not isinstance(item.get("source"), str)
