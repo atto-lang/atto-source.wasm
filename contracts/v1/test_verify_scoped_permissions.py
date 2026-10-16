@@ -105,6 +105,40 @@ class ScopedPermissionGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "runtime result must"):
             self.validate(report)
 
+    def test_extra_result_flags_fail_closed(self):
+        # These fields used to be ignored even alongside executed=true.
+        # A pending/skipped/failed result must never be reported as green.
+        for key, value in [
+            ("status", "pending"), ("skipped", True),
+            ("pending", True), ("synthetic", True),
+            ("error", "runtime failure"),
+        ]:
+            with self.subTest(field=key):
+                report = self.report()
+                report["results"][0][key] = value
+                with self.assertRaisesRegex(ValueError, "unexpected runtime result fields"):
+                    self.validate(report)
+
+    def test_missing_or_extra_result_fields_fail_closed(self):
+        for key in ("id", "decision", "executed"):
+            with self.subTest(missing=key):
+                report = self.report()
+                del report["results"][0][key]
+                with self.assertRaisesRegex(ValueError, "unexpected runtime result fields"):
+                    self.validate(report)
+        report = self.report()
+        report["results"][0]["duration_ms"] = 0
+        with self.assertRaisesRegex(ValueError, "unexpected runtime result fields"):
+            self.validate(report)
+
+    def test_direct_validator_cannot_use_nonimmutable_source_id(self):
+        for bad in (None, True, "", "main", "f" * 39, "g" * 40):
+            with self.subTest(identifier=repr(bad)):
+                with self.assertRaisesRegex(ValueError, "invalid source commit/tree"):
+                    gate.validate_report(self.report(), "llvm", self.expected, bad, TREE)
+                with self.assertRaisesRegex(ValueError, "invalid source commit/tree"):
+                    gate.validate_report(self.report(), "llvm", self.expected, COMMIT, bad)
+
     def test_wrong_commit_or_tree_fails(self):
         for key in ["source_commit", "source_tree"]:
             report = self.report()
