@@ -5,3 +5,6 @@
 /tests/test_backend_private_ci_contract.py @ORESoftware
 /.github/workflows/backend-private-ci-contract.yml @ORESoftware
 /docs/security/BACKEND_SECURITY_PARITY.md @ORESoftware
+/contracts/guest-capability-admission.v1.json @ORESoftware
+/scripts/check_guest_capability_admission.py @ORESoftware
+/tests/test_guest_capability_admission.py @ORESoftware
