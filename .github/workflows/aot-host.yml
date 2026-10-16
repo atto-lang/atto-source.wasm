@@ -5,10 +5,11 @@ on:
   pull_request:
     paths:
       - "aot-host/**"
-      - "tests/aot-architecture.test.mjs"
-      - "tests/real-aot-gate.test.mjs"
-      - "scripts/verify-real-aot.mjs"
-      - "scripts/cleanup-real-compiler.mjs"
+      - "scripts/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "package.json"
       - "rust-toolchain.toml"
       - ".github/workflows/aot-host.yml"
   workflow_dispatch:

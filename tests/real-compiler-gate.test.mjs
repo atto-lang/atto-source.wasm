@@ -80,3 +80,19 @@ test("real compiler workspace cleanup unseals readonly releases without followin
     await rm(outside,{recursive:true,force:true});
   }
 });
+
+
+test("value-pipeline source fixture is byte-identical to shared conformance", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const content = await readFile(new URL("../examples/value-pipe-scalar.ores", import.meta.url));
+  const gitSha = createHash("sha1")
+    .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
+    .update(content).digest("hex");
+  assert.equal(gitSha, "1ce089ef1592b2c263a44bb6a71067f5785c6f58");
+  const invalid = await readFile(new URL("../examples/value-pipe-invalid.ores", import.meta.url));
+  const invalidGitSha = createHash("sha1")
+    .update(Buffer.from("blob " + invalid.length + String.fromCharCode(0)))
+    .update(invalid).digest("hex");
+  assert.equal(invalidGitSha, "7d0bb7f4984f22eb44d6d2c05c8008128aaed15a");
+});
