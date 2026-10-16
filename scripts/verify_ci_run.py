@@ -21,6 +21,17 @@ REPOS = {
 }
 SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_PAGES = 10
+HOUSEKEEPING_STEPS = frozenset({
+    "Set up job", "Complete job", "Initialize containers",
+    "Start containers", "Stop containers",
+})
+
+
+def executable_step_name(name):
+    # Runner-generated lifecycle steps cannot substitute for a required
+    # build, test, or native guest-execution step.
+    return (isinstance(name, str) and name not in HOUSEKEEPING_STEPS
+            and not name.startswith(("Post ", "Pre ")))
 
 
 class Denied(ValueError):
@@ -92,6 +103,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("invalid required job or step name")
     if len(set(required_jobs)) != len(required_jobs) or len(set(required_steps)) != len(required_steps):
         raise Denied("duplicate required CI proof name")
+    if any(not executable_step_name(step) for step in required_steps):
+        raise Denied("required CI step must not be runner housekeeping")
     # Binding a test step to the specific required job prevents a passing
     # unrelated job from laundering a required suite's execution evidence.
     pairs = [] if job_step_pairs is None else job_step_pairs
@@ -197,7 +210,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             if name in required_jobs:
                 required_job_steps.add(step_name)
                 steps_by_job[name].add(step_name)
-            if step_name not in ("Set up job", "Complete job") and not step_name.startswith("Post "):
+            if executable_step_name(step_name):
                 ran_useful_step = True
                 count += 1
         if not ran_useful_step:
