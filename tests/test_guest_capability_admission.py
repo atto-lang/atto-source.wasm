@@ -179,5 +179,50 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
                     mod.load_cases()
 
 
+    def test_strict_manifest_rejects_duplicate_and_unknown_keys(self):
+        original = self.contract.read_text(encoding="utf-8")
+        for mutant in (
+            original.replace('"schema_version": 1,',
+                             '"schema_version": 1, "schema_version": 1,', 1),
+            original.replace('"bootstrap": "accept",',
+                             '"bootstrap": "reject", "bootstrap": "accept",', 1),
+            original.replace('"proof_scope":', '"unexpected": true, "proof_scope":', 1),
+        ):
+            with self.subTest(mutant=mutant[:80]):
+                self.contract.write_text(mutant, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    mod.load_cases()
+        self.contract.write_text(original, encoding="utf-8")
+
+    def test_manifest_rejects_type_coercion_and_nonstandard_numbers(self):
+        original = self.contract.read_text(encoding="utf-8")
+        for mutant in (
+            original.replace('"schema_version": 1,', '"schema_version": true,', 1),
+            original.replace('"schema_version": 1,', '"schema_version": NaN,', 1),
+            original.replace('"schema_version": 1,', '"schema_version": Infinity,', 1),
+            original.replace('"schema_version": 1,', '"schema_version": {},', 1),
+        ):
+            with self.subTest(mutant=mutant[:80]):
+                self.contract.write_text(mutant, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    mod.load_cases()
+        self.contract.write_text(original, encoding="utf-8")
+
+    def test_malformed_case_missing_id_is_controlled_rejection(self):
+        original = json.loads(self.contract.read_text(encoding="utf-8"))
+        del original["cases"][0]["id"]
+        self.contract.write_text(json.dumps(original), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "incomplete guest admission case list"):
+            mod.load_cases()
+
+    def test_manifest_size_and_utf8_limits(self):
+        self.contract.write_bytes(b" " * (128 * 1024 + 1))
+        with self.assertRaisesRegex(ValueError, "size limit"):
+            mod.load_cases()
+        self.contract.write_bytes(b"\xff")
+        with self.assertRaisesRegex(ValueError, "encoding"):
+            mod.load_cases()
+
+
 if __name__ == "__main__":
     unittest.main()
