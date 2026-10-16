@@ -232,8 +232,13 @@ def verify_ci_event_identity(backend, event):
     if type(request) is not dict or type(request.get("number")) is not int:
         raise ValueError("GitHub pull request identity unavailable")
     number = request["number"]
-    if number < 1 or ref != "refs/pull/" + str(number) + "/merge":
+    if (number < 1 or type(event.get("number")) is not int
+            or event["number"] != number
+            or ref != "refs/pull/" + str(number) + "/merge"):
         raise ValueError("GitHub pull request merge ref is not bound to event")
+    base = request.get("base")
+    if type(base) is not dict or base.get("ref") != "main":
+        raise ValueError("GitHub pull request does not target reviewed main")
     for side in ("head", "base"):
         target = request.get(side)
         source = target.get("repo") if type(target) is dict else None
