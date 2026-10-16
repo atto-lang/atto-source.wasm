@@ -19,10 +19,67 @@ def require(predicate, reason):
     if not predicate:
         raise ValueError(reason)
 
+
+# Freeze the normative case inventory independently of the on-disk JSON.
+CANONICAL_SCOPE = "Backend-neutral expected behavior for owned scalar f32 host regions; not evidence of implementation or GPU support"
+CANONICAL_REQUIREMENTS = (
+    "Explicit per-allocation identity; ownership transfer preserves identity",
+    "Borrowed buffers cannot be closed or moved",
+    "Region slices are half-open row intervals",
+    "Admission failures cannot partially modify destination",
+    "No GPU dispatch or fallback may be inferred from this CPU contract",
+)
+CANONICAL_CASES = (
+    ("geometry/aos-offset", "layout", "valid"),
+    ("geometry/soa-offset", "layout", "valid"),
+    ("geometry/aosoa-tail-tile", "layout", "valid"),
+    ("geometry/checked-overflow", "layout", "reject"),
+    ("geometry/zero-rows", "layout", "valid"),
+    ("ownership/stable-id-through-take", "ownership", "valid"),
+    ("ownership/stale-owner-reject", "ownership", "reject"),
+    ("ownership/close-idempotent", "ownership", "valid"),
+    ("ownership/close-with-reader", "ownership", "reject"),
+    ("ownership/close-with-writer", "ownership", "reject"),
+    ("ownership/retired-region", "ownership", "reject"),
+    ("loans/exclusive-writer-vs-reader", "loans", "reject"),
+    ("loans/readers-coexist", "loans", "valid"),
+    ("execute/half-open-write-footprint", "execute", "valid"),
+    ("execute/three-scalar-ops", "execute", "valid"),
+    ("execute/alias-input-output", "execute", "reject"),
+    ("execute/invalid-effect", "execute", "reject"),
+    ("execute/mismatched-layout", "execute", "reject"),
+    ("execute/no-partial-write-on-admission-failure", "execute", "valid"),
+    ("scheduler/overlap-serialization", "scheduler", "valid"),
+    ("scheduler/disjoint-read-independence", "scheduler", "valid"),
+    ("gpu/no-implicit-cpu-fallback", "gpu-boundary", "reject"),
+)
+
+def load_json_strict(path):
+    def pairs_to_unique_object(pairs):
+        value = {}
+        for key, item in pairs:
+            require(key not in value, "duplicate JSON object key: " + key)
+            value[key] = item
+        return value
+
+    def nonstandard_number(value):
+        raise ValueError("nonstandard JSON constant: " + value)
+
+    return json.loads(path.read_text(encoding="utf-8"),
+                      object_pairs_hook=pairs_to_unique_object,
+                      parse_constant=nonstandard_number)
+
 def check_contract(contract):
     require(type(contract) is dict, "contract must be an object")
+    require(set(contract) == {"contract", "version", "scope", "shape",
+                              "effects", "requirements", "cases"},
+            "unexpected normative contract fields")
     require(contract.get("contract") == "oreslang.dop.cpu-regions"
-            and contract.get("version") == 1, "unexpected DOP contract version")
+            and type(contract.get("version")) is int
+            and contract["version"] == 1, "unexpected DOP contract version")
+    require(contract["scope"] == CANONICAL_SCOPE, "unexpected scope disclaimer")
+    require(contract["requirements"] == list(CANONICAL_REQUIREMENTS),
+            "changed normative requirements")
     shape = contract.get("shape")
     require(type(shape) is dict and shape.get("scalar_bytes") == 4
             and shape.get("alignment") == 16 and shape.get("fields") == 3
@@ -31,16 +88,22 @@ def check_contract(contract):
     require(contract.get("effects") == ["READ", "WRITE", "DISCARD", "REDUCE", "ATOMIC"],
             "unrecognized effect vocabulary")
     cases = contract.get("cases")
-    require(type(cases) is list and len(cases) == 22, "expected exactly 22 DOP cases")
+    require(type(cases) is list and len(cases) == len(CANONICAL_CASES),
+            "normative DOP case inventory changed")
     ids = []
     for case in cases:
         require(type(case) is dict and set(case) == {"id", "domain", "expected"},
                 "case must use only normative fields")
         require(type(case["id"]) is str and ID.fullmatch(case["id"]),
                 "invalid case identifier")
-        require(case["expected"] in {"valid", "reject"}, "invalid case expectation")
-        require(case["domain"] in {"layout", "ownership", "loans", "execute",
-                                    "scheduler", "gpu-boundary"}, "invalid case domain")
+        require(type(case["expected"]) is str
+                and case["expected"] in {"valid", "reject"}, "invalid case expectation")
+        require(type(case["domain"]) is str
+                and case["domain"] in {"layout", "ownership", "loans", "execute",
+                                       "scheduler", "gpu-boundary"}, "invalid case domain")
+        require((case["id"], case["domain"], case["expected"])
+                == CANONICAL_CASES[len(ids)],
+                "modified or reordered normative case: " + case["id"])
         ids.append(case["id"])
     require(len(set(ids)) == len(ids), "duplicate DOP case ID")
     return ids
@@ -49,10 +112,12 @@ def check_report(report, case_ids):
     require(type(report) is dict
             and set(report) == {"contract", "version", "backend", "implementation", "cases"},
             "report requires exact top-level fields")
-    require(report["contract"] == "oreslang.dop.cpu-regions" and report["version"] == 1,
+    require(report["contract"] == "oreslang.dop.cpu-regions"
+            and type(report["version"]) is int and report["version"] == 1,
             "report targets wrong contract")
-    require(report["backend"] in BACKENDS, "unknown backend")
-    require(report["implementation"] in {"unsupported", "partial", "implemented"},
+    require(type(report["backend"]) is str and report["backend"] in BACKENDS, "unknown backend")
+    require(type(report["implementation"]) is str
+            and report["implementation"] in {"unsupported", "partial", "implemented"},
             "invalid implementation claim")
     records = report["cases"]
     require(type(records) is list and len(records) == len(case_ids),
@@ -64,9 +129,11 @@ def check_report(report, case_ids):
             "id", "status", "executed", "passed", "evidence"
         }, "missing or contradictory case metadata")
         name = item["id"]
-        require(name in case_ids and name not in seen, "unknown or duplicate case")
+        require(type(name) is str and name in case_ids and name not in seen,
+                "unknown or duplicate case")
         seen.add(name)
-        require(item["status"] in {"pass", "unsupported"}, "ambiguous report status")
+        require(type(item["status"]) is str
+                and item["status"] in {"pass", "unsupported"}, "ambiguous report status")
         require(type(item["executed"]) is bool and type(item["passed"]) is bool,
                 "executed and passed must be booleans")
         evidence = item["evidence"]
@@ -118,19 +185,39 @@ def self_test(contract):
     must_reject(lambda r: r["cases"][0].update(executed=True))
     must_reject(lambda r: r["cases"][0].update(id=names[1]))
     must_reject(lambda r: r.update(implementation="implemented"))
-    print("DOP CPU v1: 22 contract cases, 5 fail-closed report mutants PASS")
+    def reject_contract(mutator):
+        candidate = copy.deepcopy(contract)
+        mutator(candidate)
+        try:
+            check_contract(candidate)
+        except ValueError:
+            return
+        raise AssertionError("validator admitted mutation of normative contract")
+
+    reject_contract(lambda c: c["cases"][0].update(id="geometry/fake-offset"))
+    reject_contract(lambda c: c["cases"][0].update(domain="ownership"))
+    reject_contract(lambda c: c["cases"][0].update(expected="reject"))
+    reject_contract(lambda c: c["cases"].reverse())
+    reject_contract(lambda c: c["requirements"].clear())
+    reject_contract(lambda c: c.update(scope="runtime implemented"))
+    reject_contract(lambda c: c.update(version=True))
+    reject_contract(lambda c: c.update(extra="unreviewed"))
+    must_reject(lambda r: r.update(version=True))
+    must_reject(lambda r: r["cases"][0].update(status=[]))
+    must_reject(lambda r: r.update(backend=[]))
+    print("DOP CPU v1: 22 canonical cases, 16 fail-closed mutants PASS")
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path, help="backend execution report JSON")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    contract = load_json_strict(CONTRACT)
     names = check_contract(contract)
     if args.self_test:
         self_test(contract)
     if args.report:
-        report = json.loads(args.report.read_text(encoding="utf-8"))
+        report = load_json_strict(args.report)
         count = check_report(report, names)
         print(f"DOP CPU v1: validated report structure, {count}/{len(names)} recorded passes")
         print("Note: report validation does not independently authenticate execution evidence")
