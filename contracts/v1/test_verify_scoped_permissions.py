@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import verify_scoped_permissions as gate
@@ -191,6 +192,45 @@ class ScopedPermissionGateTests(unittest.TestCase):
             path.write_text('{"schema":"x","schema":"y"}', encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "duplicate JSON key"):
                 gate.read_json(path)
+
+    def test_report_rejects_nonstandard_json_constants(self):
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant), tempfile.TemporaryDirectory() as root:
+                path = Path(root) / "nonfinite.json"
+                path.write_text('{"value": ' + constant + '}', encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "nonstandard JSON numeric"):
+                    gate.read_json(path)
+
+    def test_reader_rejects_oversized_report(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "oversized.json"
+            path.write_bytes(b" " * (1024 * 1024 + 1))
+            with self.assertRaisesRegex(ValueError, "oversized conformance"):
+                gate.read_json(path)
+
+    def test_canonical_symlink_fails_before_digest(self):
+        with tempfile.TemporaryDirectory() as root:
+            link = Path(root) / "vectors-link.json"
+            try:
+                link.symlink_to(VECTORS)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks unavailable")
+            with self.assertRaisesRegex(ValueError, "symlinked conformance"):
+                gate.check_canonical_vectors(link)
+
+    def test_path_replacement_between_stat_and_open_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "report.json"
+            replacement = Path(root) / "replacement.json"
+            path.write_text("{}", encoding="utf-8")
+            replacement.write_text('{"forged":true}', encoding="utf-8")
+            original_open = gate.os.open
+            def swap_then_open(filename, flags):
+                gate.os.replace(replacement, path)
+                return original_open(filename, flags)
+            with patch.object(gate.os, "open", side_effect=swap_then_open):
+                with self.assertRaisesRegex(ValueError, "changed during opening"):
+                    gate.read_json(path)
 
     def test_symlinked_report_data_fails(self):
         with tempfile.TemporaryDirectory() as root:
