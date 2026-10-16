@@ -7,6 +7,7 @@ import {join} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
+import {isSignedI64OverflowDiagnostic} from "../scripts/checked-overflow-ir.mjs";
 
 // This suite is intentionally NOT counted as parity unless the *real* native
 // LLVM compiler is supplied, pinned and used to execute actual wasm32 output.
@@ -151,11 +152,7 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       } catch (error) {
         // Toolchain setup/link failures are NOT arithmetic rejection. Only
         // the real Oreslang frontend's explicit diagnostic is admissible.
-        const diagnostic=String(error?.message || error);
-        // A missing source, bad CLI flag or unavailable target may also
-        // print "oreslang-llvmc:". These are NOT evidence of i64 overflow.
-        assert.match(diagnostic,
-          /\boreslang-llvmc:[^\n]*(?:overflow|out.of.range|out.of.bounds|invalid i64)/i,
+        assert.ok(isSignedI64OverflowDiagnostic(error),
           "overflow fixture was rejected for an unrelated compiler reason");
         await assert.rejects(stat(target+".current.json"),{code:"ENOENT"},
           "compile-time overflow refusal must not publish an artifact");
