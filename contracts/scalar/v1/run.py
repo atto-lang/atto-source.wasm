@@ -108,6 +108,23 @@ def load_suite():
     return suite, digest.hexdigest()
 
 
+def snapshot_suite(suite, verified_digest, destination):
+    """Stage byte-verified private copies before launching a compiler."""
+    snapshot = destination / "fixtures"
+    snapshot.mkdir(mode=0o700)
+    h = hashlib.sha256(read_bounded_regular_fixture(HERE / "cases.json"))
+    for case in suite["cases"]:
+        original = HERE / case["file"]
+        data = read_bounded_regular_fixture(original)
+        h.update(case["file"].encode("ascii") + b"\x00" + data)
+        target = snapshot / Path(case["file"]).name
+        with target.open("xb") as stream:
+            stream.write(data)
+    if h.hexdigest() != verified_digest:
+        raise ValueError("fixture corpus changed during snapshot")
+    return snapshot
+
+
 def run_case(command, source, kind, value, mode, timeout, backend=None):
     argv = [s.replace("{source}", str(source)) for s in command]
     with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
@@ -169,13 +186,16 @@ def main():
         ap.error("--command must contain exactly one {source} placeholder")
     suite, digest = load_suite()
     records, failures = [], 0
-    for case in suite["cases"]:
-        ok, details = run_case(cmd, HERE / case["file"], case["kind"],
-                               case.get("value"), opts.mode, opts.timeout, opts.backend)
-        records.append({"id": case["id"], "status": "pass" if ok else "fail"})
-        if not ok:
-            failures += 1
-        print(("PASS" if ok else "FAIL") + " " + case["id"] + ("" if ok else ": " + details), flush=True)
+    with tempfile.TemporaryDirectory(prefix="ores-scalar-verified-") as work:
+        snapshot = snapshot_suite(suite, digest, Path(work))
+        for case in suite["cases"]:
+            source = snapshot / Path(case["file"]).name
+            ok, details = run_case(cmd, source, case["kind"], case.get("value"),
+                                   opts.mode, opts.timeout, opts.backend)
+            records.append({"id": case["id"], "status": "pass" if ok else "fail"})
+            if not ok:
+                failures += 1
+            print(("PASS" if ok else "FAIL") + " " + case["id"] + ("" if ok else ": " + details), flush=True)
     if opts.report:
         opts.report.parent.mkdir(parents=True, exist_ok=True)
         opts.report.write_text(json.dumps({"schema_version": "1.0.0", "backend": opts.backend,
