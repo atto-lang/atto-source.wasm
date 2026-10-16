@@ -224,5 +224,65 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             mod.load_cases()
 
 
+    def test_reject_bounded_diagnostic_output_and_invalid_encoding(self):
+        for reported, channel in (("x" * (mod.MAX_DIAGNOSTIC_BYTES + 1), "stdout"),
+                                  (b"\xff", "stdout"),
+                                  ("\x00", "stdout")):
+            with self.subTest(channel=channel, type=type(reported).__name__, length=len(reported)):
+                def fake_run(argv, **kwargs):
+                    return type("Result", (), {"returncode": 0,
+                        "stdout": reported, "stderr": ""})()
+                with patch.object(mod.subprocess, "run", side_effect=fake_run):
+                    with self.assertRaisesRegex(RuntimeError, "compiler stdout"):
+                        mod.check("llvm", "mock-compiler")
+
+    def test_rejected_case_with_bad_diagnostic_cannot_fake_a_deny(self):
+        attempts = []
+        def fake_run(argv, **kwargs):
+            attempts.append(argv)
+            if len(attempts) == 1:
+                return type("Result", (), {"returncode": 0, "stdout": "verified IR", "stderr": ""})()
+            return type("Result", (), {"returncode": 1, "stdout": "", "stderr": b"\xff"})()
+        with patch.object(mod.subprocess, "run", side_effect=fake_run):
+            with self.assertRaisesRegex(RuntimeError, "invalid compiler stderr encoding"):
+                mod.check("llvm", "mock-compiler")
+        self.assertEqual(len(attempts), 2)
+
+    def test_bool_exit_code_does_not_impersonate_real_process_status(self):
+        with patch.object(mod.subprocess, "run", return_value=type("Result", (), {
+                "returncode": True, "stdout": "", "stderr": "oreslang-llvmc: denied"})()):
+            with self.assertRaisesRegex(RuntimeError, "unknown status"):
+                mod.check("llvm", "mock-compiler")
+
+    def test_compiler_timeout_rejects_bad_types_and_values(self):
+        for invalid in (0, -1, 301, "60", True, None):
+            with self.subTest(timeout=invalid):
+                with self.assertRaisesRegex(ValueError, "timeout"):
+                    mod.check("llvm", "mock-compiler", timeout=invalid)
+
+    @unittest.skipIf(os.name == "nt", "requires POSIX executable Python test shim")
+    def test_real_subprocess_streams_diagnostics_and_blocks_overflow(self):
+        interpreter = Path(self.tmp.name) / "fake-oreslang-compiler"
+        interpreter.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os,sys\n"
+            "name=os.path.basename(sys.argv[1])\n"
+            "if name == 'scalar_arithmetic_14.ores':\n"
+            "    print('define i64 @main() { ret i64 14 }')\n"
+            "else:\n"
+            "    print('oreslang-llvmc: unsupported guest source', file=sys.stderr)\n"
+            "    sys.exit(1)\n", encoding="utf-8")
+        interpreter.chmod(0o700)
+        rows = mod.check("llvm", str(interpreter), timeout=3)
+        self.assertEqual(len(rows), 9)
+        interpreter.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "sys.stdout.write('X' * 1048577)\n", encoding="utf-8")
+        interpreter.chmod(0o700)
+        with self.assertRaisesRegex(RuntimeError, "stdout exceeds size limit"):
+            mod.check("llvm", str(interpreter), timeout=3)
+
+
 if __name__ == "__main__":
     unittest.main()
