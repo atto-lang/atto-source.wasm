@@ -83,6 +83,43 @@ test("reject graph getter reentrancy and snapshot alias mutation", () => {
   assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
 });
 
+test("seeded UTF-8 affinity differential across 2,048 Unicode keys", () => {
+  // Independent encoder based on URI scalar escaping, not TextEncoder;
+  // this catches normalization, NUL truncation and surrogate mishandling.
+  let seed = 0x5e17ac69;
+  function next() {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return seed >>> 0;
+  }
+  const alphabet = ["", "a", "\0", "\u007f", "\u0080", "\u07ff",
+    "\u0800", "\u00e9", "e\u0301", "中", "🌍", "💫", "\u{10ffff}"];
+  for (let i=0; i<2048; i++) {
+    let key = "";
+    for (let j=0, width=next() % 49; j<width; j++)
+      key += alphabet[next() % alphabet.length];
+    const uri = encodeURIComponent(key);
+    const bytes = [];
+    for (let j=0; j<uri.length; j++) {
+      if (uri[j]==="%") {
+        bytes.push(Number.parseInt(uri.slice(j+1,j+3), 16));
+        j += 2;
+      } else bytes.push(uri.charCodeAt(j));
+    }
+    let h=14695981039346656037n;
+    for (const value of bytes)
+      h=((h ^ BigInt(value)) * 1099511628211n) % (1n << 64n);
+    const count=(i%17)+1;
+    assert.equal(routeKeySlot(key,count), Number(h % BigInt(count)),
+      "Unicode routing mismatch at seeded case " + i);
+  }
+  assert.equal(routeKeySlot("x".repeat(4096),3),
+    routeKeySlot("x".repeat(4096),3));
+  assert.throws(() => routeKeySlot("x".repeat(4097),3));
+  assert.throws(() => routeKeySlot("\ud800",3));
+});
+
 test("v1 maximum 1024 actors and 4096 connections stay bounded", () => {
   const count = 1024;
   const chain = Array.from({length:count}, (_, i) => ({
