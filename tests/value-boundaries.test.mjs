@@ -26,7 +26,7 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     assert.equal(new WebAssembly.Instance(new WebAssembly.Module(good)).exports.main(), 42n);
     const provenance = await readFile(output + '.provenance.json');
     const originalEntries = (await readdir(dir)).sort();
-    assert.equal(Object.keys(cases).length, 15);
+    assert.equal(Object.keys(cases).length, 17);
     for (const [name, program] of Object.entries(cases)) {
       await writeFile(source, program);
       // Exercise both failure with no previous output and preservation of a
