@@ -31,6 +31,7 @@ test("scalar bridge rejects every source-import spelling even with a valid-looki
  const imported=[
   '+/lib/helper','pkg:dep/helper','./helper','../helper',
   'common/helper','.hidden/helper','@/legacy',
+  '+/nested/lib/child','+/nested/parent-alias','+/dangling/lib/child',
  ];
  for(const specifier of imported){
   const src='import fnc helper from "'+specifier+'";\nfnc main():int{return 42;}\n';
