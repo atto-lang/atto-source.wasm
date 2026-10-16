@@ -42,6 +42,10 @@ test("unrelated and unguarded traps cannot impersonate checked overflow",()=>{
   assert.throws(()=>assertCheckedOverflowIr(valid.replace(
     'br i1 %i64.checked.overflow',
     'br i1 %unrelated.condition'),"sadd"),/conditional trap/);
+  assert.throws(()=>assertCheckedOverflowIr(valid.replace(
+    '  br i1 %i64.checked.overflow',
+    '  ; br i1 %i64.checked.overflow'),"sadd"),/conditional trap/,
+    "commented-out branch must not count as a real overflow guard");
   const wrongOperationIsUnused=valid.replace(
     '  br i1 %i64.checked.overflow',
     '  %unused = call { i64, i1 } @llvm.smul.with.overflow.i64(i64 2, i64 3)\n  br i1 %i64.checked.overflow');
