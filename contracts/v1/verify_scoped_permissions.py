@@ -7,7 +7,9 @@ from guest execution: separate CI provenance and native boundary tests must.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
+import stat
 import re
 import sys
 
@@ -26,31 +28,54 @@ def pairs_no_duplicates(pairs):
         obj[key] = value
     return obj
 
-def read_json(path):
+def reject_nonfinite(value):
+    # Python accepts NaN/Infinity by default, although they are not JSON.
+    raise ValueError("nonstandard JSON numeric constant: " + value)
+
+def read_conformance_bytes(path):
+    """Read at most 1 MiB from the same opened regular-file identity.
+
+    Check the descriptor after opening so a path replacement between lstat
+    and open cannot turn a reviewed report into attacker-chosen file content.
+    O_NOFOLLOW rejects symlink swaps where the host supports it.
+    """
     p = Path(path)
-    if p.is_symlink() or not p.is_file():
+    initial = p.lstat()
+    if not stat.S_ISREG(initial.st_mode):
         raise ValueError("missing, nonregular, or symlinked conformance JSON")
-    if p.stat().st_size > 1024 * 1024:
+    if initial.st_size > 1024 * 1024:
         raise ValueError("oversized conformance data")
-    return json.loads(p.read_text(encoding="utf-8"), object_pairs_hook=pairs_no_duplicates)
+    flags = (os.O_RDONLY | getattr(os, "O_BINARY", 0) |
+             getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0))
+    with os.fdopen(os.open(p, flags), "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not stat.S_ISREG(opened.st_mode) or (
+                opened.st_dev, opened.st_ino) != (initial.st_dev, initial.st_ino):
+            raise ValueError("conformance JSON changed during opening")
+        raw = stream.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ValueError("oversized conformance data")
+    return raw
+
+def read_json(path):
+    return json.loads(read_conformance_bytes(path).decode("utf-8"),
+                      object_pairs_hook=pairs_no_duplicates,
+                      parse_constant=reject_nonfinite)
+
 
 def check_canonical_vectors(path):
     """Reject a changed allow/deny oracle even if its JSON schema is valid.
 
     This check cannot prove backend execution or establish runtime parity.
     """
-    p = Path(path)
-    if p.is_symlink() or not p.is_file():
-        raise ValueError("missing, nonregular, or symlinked conformance JSON")
-    raw = p.read_bytes()
-    if len(raw) > 1024 * 1024:
-        raise ValueError("oversized conformance data")
+    raw = read_conformance_bytes(path)
     digest = hashlib.sha256(raw).hexdigest()
     if digest != CANONICAL_VECTORS_SHA256:
         raise ValueError("canonical permission vectors SHA-256 mismatch")
     # Parse exactly the bytes that were checked. A second path read creates
     # a digest-then-use race if a workspace file changes concurrently.
-    return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs_no_duplicates)
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs_no_duplicates,
+                      parse_constant=reject_nonfinite)
 
 def load_vectors(path, *, enforce_digest=False):
     data = check_canonical_vectors(path) if enforce_digest else read_json(path)
