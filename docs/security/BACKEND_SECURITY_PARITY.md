@@ -194,3 +194,24 @@ Oreslang source. Private-source transfer remains forbidden unless a protected,
 independently reviewed source policy approves the exact destination and source
 commit/tree. Do not mark no-runner or zero-step jobs as passing, and do not
 substitute static policy parity for native compiler and actor/runtime parity.
+
+
+### Compiler output exhaustion follow-up — October 16, 2026
+
+The prior 1 MiB read limit did not stop a compiler from filling temporary
+files *before* the limit was checked. The shared guest-admission subprocess
+runner now starts each compiler with bounded stdout/stderr pipes, drains both
+concurrently into at most 1 MiB plus a rejection sentinel per stream, and
+terminates the compiler on output overflow or timeout. On POSIX it uses a
+dedicated process group to cancel related compiler processes. On Windows it
+kills the parent process; stronger descendant cleanup requires separate
+Windows-native validation. Any invalid UTF-8, NUL, crash, oversized output,
+timeout, or partial IR remains a hard failure rather than a valid capability
+denial. The mock subprocess tests now patch the bounded runner, while the real
+synthetic subprocess tests exercise the output limits and cancellation.
+
+Local exact-file regression evidence: 23 guest-admission tests and 16 policy
+tests passed (39 total), including sustained stdout flood, stderr flood,
+simultaneous dual-stream flood, hung subprocess and valid/negative synthetic
+compiler paths. Native source compiler and actor runtime parity remains
+unverified until independently authorized exact-head runner execution.
