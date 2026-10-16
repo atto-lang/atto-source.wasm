@@ -43,7 +43,7 @@ when executed. Guest validation failures, timeouts, toolchain errors and
 normal wrapped i64 results are **not** accepted as an overflow proof.
 The worker identifies actual runtime traps separately from admission errors.
 Before accepting a runtime trap, the compiler bridge also verifies that the
-**exact IR handed to Clang** contains the expected signed-i64 overflow
+**exact IR handed to Clang**, within the sole actual `i64 @main()` body (not an unused helper), contains the expected signed-i64 overflow
 intrinsic, the associated extracted overflow flag, a conditional branch
 using that flag, and its matching `llvm.trap` block. Unrelated instructions
 and comment-spoofed guards are rejected. Four source-level safe near-boundary
