@@ -17,8 +17,14 @@ execute this manifest as a shell script or count negative compiler crashes as re
 - **stdout-i64**: Forge source-interpreter execution, exact decimal result.
 - **admission**: .NET source + verified IR acceptance only. It is NOT guest execution.
 - Unsupported actor, async and structural constructs must return exactly exit 1, empty
-  stdout and a nonempty diagnostic. A signal, timeout, exit 2, missing tool or empty
-  diagnostic fails the gate.
+  stdout and a compiler-owned diagnostic: `oresnet:` for .NET, `oresforge:` for Forge.
+  A generic error, wrong backend prefix, signal, timeout, exit 2, missing tool or
+  empty diagnostic fails the gate. Negative claims by other backends fail closed
+  until their frontend diagnostic format is independently reviewed.
+- .NET admission additionally requires the exact typed-IR success message;
+  arbitrary exit-zero processes do not prove source or type admission.
+- Both `cases.json` and fixture sources are bounded regular-file reads; special
+  files and source/manifest substitution are rejected before acceptance.
 - Every report includes a SHA-256 over the manifest and byte-exact fixtures. Exact
   candidate commit provenance is provided by CI; standalone runs without a report may omit --revision.
   For a written --report, --revision is mandatory; the value is a declaration, not proof of the compiler's provenance.
