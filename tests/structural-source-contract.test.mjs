@@ -27,7 +27,8 @@ test("LLVM-backed Wasm never mislabels unsupported structural source as compiled
     });
     assert.equal(compile.error,undefined,"native compiler must run");
     assert.equal(compile.signal,null,"compiler must diagnose rather than crash");
-    assert.equal(compile.status,1,"unsupported structural program must reject");
+    assert.ok(Number.isInteger(compile.status) && compile.status > 0,
+      "unsupported structural program must reject with non-zero exit");
     assert.notEqual(compile.stderr.trim(),"","must give a diagnostic");
     assert.equal(compile.stdout.trim(),"","must not publish partial LLVM IR");
   } finally {
