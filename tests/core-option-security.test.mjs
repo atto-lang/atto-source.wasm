@@ -54,6 +54,22 @@ test("valid supported options retain normal snapshot validation path", async () 
     /expected core WebAssembly bytes/);
 });
 
+test("invalid known identity types never invoke caller coercion", async () => {
+  let coerced = 0;
+  const malicious = {
+    toString() { coerced++; throw Error("option coercion executed"); },
+    [Symbol.toPrimitive]() { coerced++; throw Error("option coercion executed"); }
+  };
+  for (const [key, expected] of [
+    ["entry", /invalid guest entry/],
+    ["expectedSha256", /invalid pinned SHA-256/]
+  ]) {
+    assert.throws(() => admitCoreGuest(null, {[key]: malicious}), expected);
+    await assert.rejects(runIsolatedCoreGuest(null, {[key]: malicious}), expected);
+  }
+  assert.equal(coerced, 0, "host option values must not execute custom coercion");
+});
+
 test("only isolated runner admits the timeout option", () => {
   assert.throws(() => admitCoreGuest(null, {timeoutMs: 1000}),
     /unsupported zero-capability guest option/);
