@@ -16,6 +16,50 @@ import {publishAtomicRelease} from "./atomic-release.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// The scalar Wasm bridge accepts ONE standalone source file, not a graph.
+// Validate the pinned source snapshot before invoking even a "real" compiler:
+// a compiler silently ignoring an import must not publish a valid-looking
+// scalar Wasm with incomplete source provenance. This is an admission scanner,
+// not a substitute for parsing or linking modules.
+export function assertScalarSourceHasNoImports(bytes){
+ const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ let i=0;
+ while(i<source.length){
+  const ch=source[i],next=source[i+1];
+  if(ch==="/"&&next==="/"){
+   i+=2;while(i<source.length&&source[i]!=="\n")i++;
+   continue;
+  }
+  if(ch==="/"&&next==="*"){
+   i+=2;let closed=false;
+   while(i+1<source.length){
+    if(source[i]==="*"&&source[i+1]==="/"){i+=2;closed=true;break}
+    i++;
+   }
+   if(!closed)throw Error("unterminated Oreslang block comment");
+   continue;
+  }
+  if(ch==='"'||ch==="'"||ch==="`"){
+   const quote=ch;i++;let closed=false;
+   while(i<source.length){
+    if(source[i]==="\\"){i+=2;continue}
+    if(source[i]===quote){i++;closed=true;break}
+    i++;
+   }
+   if(!closed)throw Error("unterminated Oreslang string or character literal");
+   continue;
+  }
+  if(/[A-Za-z_]/.test(ch)){
+   const begin=i++;
+   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
+   if(source.slice(begin,i)==="import")
+    throw Error("source imports require verified complete Wasm module graph");
+   continue;
+  }
+  i++;
+ }
+}
+
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -158,6 +202,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // This check is intentionally independent of the compiler result. Even a
+ // successfully linked scalar guest proves nothing about imported source units.
+ assertScalarSourceHasNoImports(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
