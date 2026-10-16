@@ -74,6 +74,43 @@ The GitHub workflow derives its backend from the repository name and checks
 its immutable GitHub repository ID and private status. It is only a local
 contract validator and cannot independently inspect other private backends.
 
+## Executable guest-admission bootstrap corpus (new)
+
+The identical versioned `contracts/guest-capability-admission.v1.json` now
+contains nine reviewed Oreslang source cases: one admitted scalar program and
+eight cases exercising **compile-time rejection** of unsupported filesystem,
+network, process, FFI, actor, async, channel and serialization syntax.
+`scripts/check_guest_capability_admission.py` pins SHA-256 for every program.
+It fails if a source fixture changes, a compiler unexpectedly accepts a
+rejected program, a compiler rejects the supported scalar, or a compiler
+crashes/returns an unknown status rather than issuing normal rejection.
+
+**Native test entrypoints (must really execute against a compiled compiler):**
+
+- LLVM (after CMake build):
+  `python3 scripts/check_guest_capability_admission.py --backend llvm --tool build/oreslang-llvmc`
+- Forge (after CMake build):
+  `python3 scripts/check_guest_capability_admission.py --backend forge --tool build/oresforge`
+- .NET (in Windows Native AOT CI and Linux diagnostic):
+  `python scripts/check_guest_capability_admission.py --backend net`
+  (use `python3` on Linux)
+
+The shared, read-only policy CI runs
+`tests/test_guest_capability_admission.py` with mocked compiler responses.
+**These mock tests are test-runner integrity checks only, not guest compiler
+proof.** The LLVM/Forge/.NET native workflows run the real compiler admission
+adapter as a required phase. A compiler's nonzero rejection does **not**
+prove the requested privilege is inaccessible at runtime or that the OS
+sandboxes an actor; it only proves the bootstrap compiler did not admit the
+particular unsupported syntax.
+
+The `java` and `wasm` source-admission adapters intentionally return an
+error rather than claiming parity. Java's permissions-specific runtime
+JUnit suite belongs to its reviewed permissions hardening branch, and WASM
+must independently validate its zero-import guest/module boundary with
+actual compiled WebAssembly artifacts. Neither path can be substituted with
+the other three backends' parser-rejection results.
+
 ## Security review and merge gate
 
 Require security-owner review, branch protection with mandatory code-owner
