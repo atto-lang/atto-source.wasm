@@ -118,8 +118,14 @@ def run_case(command, source, kind, value, mode, timeout):
             return False, "compiler output exceeded 64 KiB"
         out.seek(0)
         err.seek(0)
-        stdout = out.read().decode("utf-8", "replace")
-        stderr = err.read().decode("utf-8", "replace")
+        # Invalid UTF-8 from a compiler is not an admissible semantic
+        # diagnostic. Replacement decoding could turn arbitrary failure
+        # bytes + exit(1) into an apparently passing rejection test.
+        try:
+            stdout = out.read().decode("utf-8", "strict")
+            stderr = err.read().decode("utf-8", "strict")
+        except UnicodeDecodeError:
+            return False, "infrastructure: invalid UTF-8 in compiler output"
     if kind == "reject":
         success = proc.returncode == 1 and not stdout and bool(stderr.strip())
     elif mode == "stdout-i64":
