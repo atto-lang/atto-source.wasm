@@ -81,6 +81,29 @@ test("reject graph getter reentrancy and snapshot alias mutation", () => {
   assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
 });
 
+test("terminal selector retirement never reopens by generation", () => {
+  const plan = new ActorPipelineSelector(stages(), edges(), 9);
+  assert.equal(plan.forwardAll("source").length, 3);
+  plan.retire();
+  const rejected = [
+    () => plan.forward("source"),
+    () => plan.forwardAll("source"),
+    () => plan.forwardRoundRobin("source"),
+    () => plan.forwardTo("source","worker-a"),
+    () => plan.forwardByKey("source","alpha"),
+    () => plan.requireIngressRoot("source"),
+    () => plan.advanceGeneration(10,{quiescent:true}),
+    () => plan.advanceGeneration(10,{aborted:true})
+  ];
+  for (const operation of rejected)
+    assert.throws(operation, /retired/);
+  assert.equal(plan.generation, 9);
+  plan.retire(); // idempotent STOP
+  assert.throws(() => plan.forwardAll("source"), /retired/);
+  const replacement = new ActorPipelineSelector(stages(),edges(),10);
+  assert.equal(replacement.forwardRoundRobin("source").target,"worker-a");
+});
+
 test("v1 rejects malformed nominal graph components and cycles", () => {
   const invalid = (fn) => assert.throws(fn);
   invalid(()=>new ActorPipelineSelector([...stages(),stages()[1]],edges()));
