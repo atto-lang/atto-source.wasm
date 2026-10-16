@@ -6,7 +6,6 @@ It is NOT compiled guest execution or evidence that any backend has parity.
 import hashlib
 import json
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +22,6 @@ STATUSES = frozenset((
     "needs_audit", "verified_compiled"))
 BACKENDS = frozenset(("java", "llvm", "net", "wasm", "forge"))
 EXPECTED_BACKEND = "wasm"  # fixed by repository identity, not user-editable manifest
-SHA40 = re.compile(r"[0-9a-f]{40}")
 
 
 class NumericParityAdmissionTest(unittest.TestCase):
@@ -51,21 +49,14 @@ class NumericParityAdmissionTest(unittest.TestCase):
                 self.assertIn(status, STATUSES)
                 proof = d["evidence"][name]
                 self.assertIsInstance(proof, dict)
-                if status != "verified_compiled":
-                    # No source-execution proof is allowed for unverified claims.
-                    self.assertEqual(proof, {}, "unverified feature must not attach a forged pass")
-                else:
-                    self.assertTrue(SHA40.fullmatch(proof["exact_source_commit_sha"]))
-                    self.assertRegex(proof["workflow_run_url"],
-                                     r"^https://github[.]com/[^/]+/[^/]+/actions/runs/[0-9]+$")
-                    self.assertIs(type(proof["executed_positive_cases"]), int)
-                    self.assertGreater(proof["executed_positive_cases"], 0)
-                    self.assertIs(type(proof["executed_negative_cases"]), int)
-                    self.assertGreater(proof["executed_negative_cases"], 0)
-                    self.assertTrue(proof["actual_compiler_guest_execution"] is True)
-                    self.assertEqual(proof["reviewed_reference_git_blob_sha"], SHA)
-                    self.assertEqual(proof["reviewed_source_i64_blob_sha"],
-                                     "bbc319c19ecd007109d33592e210091eb267e5a2")
+                if status == "verified_compiled":
+                    # A URL, a SHA and test counts stored in the SAME PR can be
+                    # invented by an unreviewed author. Refuse self-attested
+                    # parity until an independently trusted, protected runner
+                    # evidence verifier is implemented and security approved.
+                    self.fail("self-attested verified_compiled is forbidden; "
+                              "external protected evidence verification required")
+                self.assertEqual(proof, {}, "unverified feature must not attach a forged pass")
 
     def test_manifest_states_are_conservatively_scoped(self):
         d = json.loads(MANIFEST.read_text(encoding="utf-8"))
