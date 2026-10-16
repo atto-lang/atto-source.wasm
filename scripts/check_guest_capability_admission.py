@@ -9,6 +9,9 @@ import argparse
 import hashlib
 import json
 import os
+import signal
+import threading
+import time
 from pathlib import Path
 import subprocess
 import sys
@@ -131,17 +134,9 @@ def load_cases():
     return items
 
 
-def bounded_compiler_output(captured, file, case, channel):
-    """Decode bounded compiler output, including subprocess mocks in tests.
-
-    A real subprocess writes to temporary files instead of capture_output=True,
-    so a compiler that prints without bound cannot exhaust Python's memory.
-    Decode as strict UTF-8 rather than silently accepting corrupt diagnostics.
-    """
-    if captured is None:
-        file.seek(0)
-        raw = file.read(MAX_DIAGNOSTIC_BYTES + 1)
-    elif isinstance(captured, str):
+def bounded_compiler_output(captured, case, channel):
+    """Fail closed on oversized, non-UTF-8 or NUL-bearing diagnostics."""
+    if isinstance(captured, str):
         try:
             raw = captured.encode("utf-8", errors="strict")
         except UnicodeError as exc:
@@ -159,6 +154,92 @@ def bounded_compiler_output(captured, file, case, channel):
     if "\x00" in result:
         raise RuntimeError(case + ": compiler " + channel + " contains NUL")
     return result
+
+
+def run_compiler_process(argv, *, cwd, timeout, env):
+    """Enforce the output limit *during* execution, not after disk writes.
+
+    Both pipes are drained concurrently with bounded buffers, so neither
+    stdout nor stderr can deadlock the compiler. Kill on overflow/timeout.
+    POSIX child processes share a fresh process group for cancellation.
+    """
+    process = subprocess.Popen(
+        argv, cwd=cwd, env=env, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, start_new_session=(os.name == "posix"))
+    streams = [bytearray(), bytearray()]
+    overflow = threading.Event()
+    read_errors = []
+
+    def drain(pipe, dest):
+        try:
+            while True:
+                chunk = os.read(pipe.fileno(), 64 * 1024)
+                if not chunk:
+                    return
+                remaining = MAX_DIAGNOSTIC_BYTES + 1 - len(dest)
+                if len(chunk) > remaining:
+                    dest.extend(chunk[:remaining])
+                    overflow.set()
+                    return
+                dest.extend(chunk)
+                if len(dest) > MAX_DIAGNOSTIC_BYTES:
+                    overflow.set()
+                    return
+        except OSError as exc:
+            read_errors.append(exc)
+        finally:
+            pipe.close()
+
+    readers = [threading.Thread(target=drain, args=(pipe, dest), daemon=True)
+               for pipe, dest in zip((process.stdout, process.stderr), streams)]
+    for reader in readers:
+        reader.start()
+
+    def kill_subprocess_group():
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.poll() is None:
+            process.kill()
+
+    deadline = time.monotonic() + timeout
+    reason = None
+    try:
+        while True:
+            if overflow.is_set():
+                reason = "compiler output exceeds size limit"
+                break
+            if read_errors:
+                reason = "compiler output pipe read failed"
+                break
+            if process.poll() is not None and all(not t.is_alive() for t in readers):
+                break
+            if time.monotonic() >= deadline:
+                reason = "compiler unavailable or timed out"
+                break
+            time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+        if reason is not None:
+            kill_subprocess_group()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired as exc:
+            kill_subprocess_group()
+            raise RuntimeError("compiler could not be reaped") from exc
+        for reader in readers:
+            reader.join(timeout=1)
+        if any(t.is_alive() for t in readers):
+            raise RuntimeError("compiler output streams did not close")
+        if reason is not None:
+            raise RuntimeError(reason)
+        return subprocess.CompletedProcess(argv, process.returncode,
+                                           bytes(streams[0]), bytes(streams[1]))
+    finally:
+        # Do not leave a compiler alive after Python-side failure.
+        if process.poll() is None:
+            kill_subprocess_group()
+            process.wait(timeout=3)
 
 
 
@@ -180,15 +261,10 @@ def check(backend, tool=None, timeout=60):
             # Compiler *only*: LLVM IR output, Forge IR output, .NET 'check'.
             # Never run arbitrary guest programs to test unsupported syntax.
             try:
-                with tempfile.TemporaryFile(mode="w+b") as output, \
-                        tempfile.TemporaryFile(mode="w+b") as errors:
-                    done = subprocess.run(argv, cwd=ROOT, stdout=output, stderr=errors,
-                                          timeout=timeout, check=False,
-                                          env=sanitized_toolchain_environment())
-                    stdout = bounded_compiler_output(getattr(done, "stdout", None),
-                                                     output, item["id"], "stdout")
-                    stderr = bounded_compiler_output(getattr(done, "stderr", None),
-                                                     errors, item["id"], "stderr")
+                done = run_compiler_process(argv, cwd=ROOT, timeout=timeout,
+                                            env=sanitized_toolchain_environment())
+                stdout = bounded_compiler_output(done.stdout, item["id"], "stdout")
+                stderr = bounded_compiler_output(done.stderr, item["id"], "stderr")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
             # Parser rejection is not the same as process termination or
