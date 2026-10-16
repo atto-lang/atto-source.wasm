@@ -72,7 +72,13 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       "pub fnc main():int{return 3/2;}",
       "pub fnc main():int{return 1.25;}",
       "pub fnc main():bigint{return 1;}",
-      "pub fnc main():decimal{return 1;}"
+      "pub fnc main():decimal{return 1;}",
+      // Compile-time integer overflow must not wrap into a valid wasm i64.
+      "pub fnc main():int{return 9223372036854775808;}",
+      "pub fnc main():int{return 9223372036854775807+1;}",
+      "pub fnc main():int{return -9223372036854775808-1;}",
+      "pub fnc main():int{return 3037000500*3037000500;}",
+      "pub fnc main():int{return -(-9223372036854775808);}"
     ];
     for (let i=0;i<negatives.length;i++) {
       const source=negatives[i];
