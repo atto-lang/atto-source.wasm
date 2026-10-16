@@ -15,6 +15,9 @@ test('composition admission corpus has explicit snake_case and distinct families
     'observable-filter-map', 'option-flat-map', 'panic-supervisor',
     'postfix-option-return', 'postfix-result-return',
     'postfix-try-catch-throw', 'raise-bypasses-catch',
+    'postfix-future-without-await', 'postfix-option-to-result',
+    'postfix-result-error-mismatch', 'postfix-result-scalar-throws',
+    'postfix-result-to-option',
     'result-map-err', 'stream-filter-map'
   ]);
   for (const [name, source] of Object.entries(cases)) {
