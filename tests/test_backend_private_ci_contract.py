@@ -252,5 +252,103 @@ class BackendPrivateCIContractTests(unittest.TestCase):
             policy.verify("java")
 
 
+    def _verify_github_event(self, backend, event_name, ref, event):
+        event_file = Path(self.tmp.name) / "github-event.json"
+        event_file.write_text(json.dumps(event), encoding="utf-8")
+        with patch.dict(os.environ, {
+            "GITHUB_ACTIONS": "true",
+            "GITHUB_REPOSITORY": "ores-truffle-oreslang/oreslang-source." + backend,
+            "GITHUB_REPOSITORY_ID": str(policy.IDS[backend]),
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_REF": ref,
+            "GITHUB_EVENT_PATH": str(event_file),
+        }):
+            return policy.verify(backend)
+
+    @staticmethod
+    def _repo_event(backend):
+        return {"full_name": "ores-truffle-oreslang/oreslang-source." + backend,
+                "id": policy.IDS[backend], "private": True}
+
+    def test_all_backends_bind_push_to_protected_main(self):
+        for backend in policy.IDS:
+            with self.subTest(backend=backend):
+                event = {"repository": self._repo_event(backend),
+                         "ref": "refs/heads/main"}
+                self.assertTrue(self._verify_github_event(
+                    backend, "push", "refs/heads/main", event))
+
+    def test_same_repository_pull_request_event_is_valid(self):
+        for backend in policy.IDS:
+            with self.subTest(backend=backend):
+                repo = self._repo_event(backend)
+                event = {"repository": repo, "pull_request": {
+                    "number": 42,
+                    "head": {"repo": dict(repo)},
+                    "base": {"repo": dict(repo)}}}
+                self.assertTrue(self._verify_github_event(
+                    backend, "pull_request", "refs/pull/42/merge", event))
+
+    def test_fork_or_changed_pull_request_repository_is_denied(self):
+        repo = self._repo_event("llvm")
+        for part, change in (
+            ("head", {"id": 99}),
+            ("head", {"full_name": "untrusted/oreslang-source.llvm"}),
+            ("head", {"private": False}),
+            ("base", {"id": True}),
+            ("base", {"id": 99}),
+            ("base", {"private": False}),
+        ):
+            with self.subTest(part=part, change=change):
+                event = {"repository": dict(repo), "pull_request": {
+                    "number": 42,
+                    "head": {"repo": dict(repo)},
+                    "base": {"repo": dict(repo)}}}
+                event["pull_request"][part]["repo"].update(change)
+                with self.assertRaisesRegex(ValueError,
+                                            "foreign or unverifiable pull request"):
+                    self._verify_github_event(
+                        "llvm", "pull_request", "refs/pull/42/merge", event)
+
+    def test_untrusted_ci_events_or_refs_are_denied(self):
+        repo = self._repo_event("forge")
+        for name, ref, event in (
+            ("workflow_run", "refs/heads/main",
+             {"repository": repo, "ref": "refs/heads/main"}),
+            ("pull_request_target", "refs/pull/42/merge",
+             {"repository": repo}),
+            ("push", "refs/heads/topic",
+             {"repository": repo, "ref": "refs/heads/topic"}),
+            ("workflow_dispatch", "refs/heads/topic",
+             {"repository": repo, "ref": "topic"}),
+            ("workflow_dispatch", "refs/heads/main",
+             {"repository": repo, "ref": "topic"}),
+        ):
+            with self.subTest(name=name, ref=ref):
+                with self.assertRaises(ValueError):
+                    self._verify_github_event("forge", name, ref, event)
+
+    def test_pr_number_malformed_or_unbound_ref_is_denied(self):
+        repo = self._repo_event("net")
+        for number, ref in ((True, "refs/pull/1/merge"),
+                            (0, "refs/pull/0/merge"),
+                            (1.0, "refs/pull/1/merge"),
+                            (42, "refs/pull/41/merge"),
+                            (42, "refs/heads/main")):
+            with self.subTest(number=number, ref=ref):
+                event = {"repository": repo, "pull_request": {
+                    "number": number, "head": {"repo": dict(repo)},
+                    "base": {"repo": dict(repo)}}}
+                with self.assertRaises(ValueError):
+                    self._verify_github_event("net", "pull_request", ref, event)
+
+    def test_workflow_dispatch_only_allows_main(self):
+        repo = self._repo_event("wasm")
+        for event_ref in ("main", "refs/heads/main"):
+            self.assertTrue(self._verify_github_event(
+                "wasm", "workflow_dispatch", "refs/heads/main",
+                {"repository": repo, "ref": event_ref}))
+
+
 if __name__ == "__main__":
     unittest.main()
