@@ -1,0 +1,5 @@
+# Exact CI run evidence contract parity. Enforce via protected-main rulesets.
+/.github/workflows/ci-run-evidence-contract.yml @ORESoftware
+/scripts/verify_ci_run.py @ORESoftware
+/scripts/test_verify_ci_run.py @ORESoftware
+/docs/EXACT_GITHUB_RUN_EVIDENCE_V1.md @ORESoftware
