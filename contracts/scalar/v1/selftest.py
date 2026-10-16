@@ -307,6 +307,36 @@ class ScalarHarnessTest(unittest.TestCase):
                         "admission", 3, backend, case_id)
                     self.assertFalse(rejected, (backend, case_id, bad))
 
+    def test_scalar_stdout_requires_one_canonical_decimal_line(self):
+        source = runner.HERE / "fixtures" / "literal-42.ores"
+        outputs = (
+            ("42", True), ("42\n", True), ("42\r\n", True),
+            (" 42", False), ("\n42\n", False), ("42 \n", False),
+            ("42\n\n", False), ("\t42\n", False),
+        )
+        for output, expected in outputs:
+            command = "import sys;sys.stdout.write(" + repr(output) + ")"
+            with self.subTest(output=repr(output)):
+                passed, _ = runner.run_case(
+                    [sys.executable, "-c", command], source, "accept", "42",
+                    "stdout-i64", 3, "forge", "scalar.literal-42")
+                self.assertEqual(passed, expected)
+
+    def test_negative_diagnostic_offset_must_fit_source_bytes(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        bad = (
+            ("forge", "oresforge: expected integer at byte 999999"),
+            ("net", "oresnet: Expected integer at offset 999999"),
+        )
+        for backend, diagnostic in bad:
+            command = ("import sys;sys.stderr.write(" + repr(diagnostic + "\n")
+                       + ");sys.exit(1)")
+            with self.subTest(backend=backend):
+                passed, _ = runner.run_case(
+                    [sys.executable, "-c", command], source,
+                    "reject", None, "admission", 3, backend, "reject.unknown")
+                self.assertFalse(passed, "out-of-range parser offset must fail closed")
+
     def test_no_case_id_cannot_pass_negative_diagnostic(self):
         source = runner.HERE / "fixtures" / "reject-unknown.ores"
         code = "import sys;sys.stderr.write('oresforge: expected integer at byte 29\\\\n');sys.exit(1)"
