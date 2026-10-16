@@ -81,10 +81,16 @@ def check_contract(contract):
     require(contract["requirements"] == list(CANONICAL_REQUIREMENTS),
             "changed normative requirements")
     shape = contract.get("shape")
-    require(type(shape) is dict and shape.get("scalar_bytes") == 4
-            and shape.get("alignment") == 16 and shape.get("fields") == 3
-            and shape.get("rows") == 7 and shape.get("aosoa_lanes") == 4
-            and shape.get("layouts") == ["AoS", "SoA", "AoSoA"], "unrecognized ABI shape")
+    require(type(shape) is dict
+            and set(shape) == {"scalar_bytes", "alignment", "fields", "rows",
+                               "aosoa_lanes", "layouts"}
+            and all(type(shape[key]) is int for key in (
+                "scalar_bytes", "alignment", "fields", "rows", "aosoa_lanes"))
+            and shape["scalar_bytes"] == 4
+            and shape["alignment"] == 16 and shape["fields"] == 3
+            and shape["rows"] == 7 and shape["aosoa_lanes"] == 4
+            and shape["layouts"] == ["AoS", "SoA", "AoSoA"],
+            "unrecognized ABI shape")
     require(contract.get("effects") == ["READ", "WRITE", "DISCARD", "REDUCE", "ATOMIC"],
             "unrecognized effect vocabulary")
     cases = contract.get("cases")
@@ -202,6 +208,8 @@ def self_test(contract):
     reject_contract(lambda c: c.update(scope="runtime implemented"))
     reject_contract(lambda c: c.update(version=True))
     reject_contract(lambda c: c.update(extra="unreviewed"))
+    reject_contract(lambda c: c["shape"].update(device_supported=True))
+    reject_contract(lambda c: c["shape"].update(scalar_bytes=True))
     must_reject(lambda r: r.update(version=True))
     must_reject(lambda r: r["cases"][0].update(status=[]))
     must_reject(lambda r: r.update(backend=[]))
@@ -240,7 +248,7 @@ def self_test(contract):
         except ValueError:
             continue
         raise AssertionError("decoder accepted duplicate keys or nonstandard numbers")
-    print("DOP CPU v1: 22 canonical cases, 18 fail-closed mutants; valid report shapes PASS")
+    print("DOP CPU v1: 22 canonical cases, 20 fail-closed mutants; valid report shapes PASS")
 
 def main():
     parser = argparse.ArgumentParser()
