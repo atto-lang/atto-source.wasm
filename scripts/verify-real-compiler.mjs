@@ -152,12 +152,48 @@ export async function verifyRealCompiler({
       await stat(negativeOutput + ".current.json");
       throw Error("invalid compilation published a release pointer");
     } catch (e) {if (e.code !== "ENOENT") throw e;}
+    // Canonical pipeline rejection must happen in the actual native
+    // frontend, not in the linker or Wasm admission layer. The rejected
+    // source must never publish an artifact or a current release pointer.
+    const invalidPipeSource = fileURLToPath(new URL(
+      "../examples/value-pipe-invalid.ores", import.meta.url));
+    const invalidPipeOutput = join(work, "invalid-pipe.wasm");
+    const pipeFrontend = spawnSync(pinnedCompiler,
+      ["--target=wasm32", invalidPipeSource], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(pipeFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during invalid pipeline admission test");
+    let invalidPipeRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:invalidPipeSource, output:invalidPipeOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      invalidPipeRejected = true;
+    }
+    if (!invalidPipeRejected)
+      throw Error("unsupported Oreslang pipeline reached Wasm artifact publication");
+    try {
+      await stat(invalidPipeOutput + ".current.json");
+      throw Error("unsupported Oreslang pipeline published a release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     return Object.freeze({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
-      scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true
+      scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true,
+      unsupportedPipelineRejected:true
     });
   } catch (error) {
     primaryError = error;
