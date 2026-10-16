@@ -26,6 +26,16 @@ class SerdePolicyRegression(unittest.TestCase):
     def test_reject_disabled_invariant(self):
         self.mutate(lambda d: d['invariants'].update(capabilities_cannot_be_nested_in_data=False))
 
+    def test_reject_missing_shared_safety_distinction(self):
+        self.mutate(lambda d: d['invariants'].pop('shared_safe_is_not_sendable'))
+
+    def test_reject_missing_import_generic_resolution(self):
+        self.mutate(lambda d: d['invariants'].pop(
+            'source_imports_and_generics_are_resolved_before_admission'))
+
+    def test_reject_missing_receiver_schema_pin(self):
+        self.mutate(lambda d: d['invariants'].pop('receiver_pins_schema_before_first_send'))
+
     def test_reject_missing_invariant(self):
         self.mutate(lambda d: d['invariants'].pop('unsupported_shapes_fail_closed'))
 
@@ -113,7 +123,7 @@ class SerdePolicyRegression(unittest.TestCase):
 if __name__ == '__main__':
     # unittest discover exits 0 even if no tests are discovered. A security
     # gate cannot treat a renamed/deleted suite or skipped test as green.
-    expected = 22
+    expected = 25
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
     if suite.countTestCases() != expected:
         raise SystemExit(f'FAIL: expected {expected} serde regressions, '
