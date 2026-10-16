@@ -13,7 +13,7 @@ import sys
 SCHEMA = "oreslang.scoped-permissions.v1"
 REPORT_SCHEMA = "oreslang.scoped-permissions.report.v1"
 BACKENDS = {"llvm", "net", "wasm", "forge", "java"}
-SHA = re.compile(r"[0-9a-f]{40}\\Z")
+SHA = re.compile(r"[0-9a-f]{40}")
 VALID_DECISIONS = {"allow", "deny", "accept", "reject"}
 
 def pairs_no_duplicates(pairs):
