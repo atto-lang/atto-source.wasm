@@ -56,3 +56,57 @@ test("load canonical routing vectors checked byte-identically across five repos"
     assert.equal(plan.forwardByKey("producer-1",v.key).target,v.target);
   }
 });
+
+test("bounded UTF-8 and NUL semantics are byte-exact, not UTF-16-length based", () => {
+  assert.equal(actorRouteHash64(""), 0xcbf29ce484222325n);
+  assert.equal(actorRouteHash64("\0"), 0xaf63bd4c8601b7dfn);
+  assert.doesNotThrow(() => actorRouteHash64("🌍".repeat(1024)));
+  assert.throws(() => actorRouteHash64("🌍".repeat(1025)), /byte budget/);
+  assert.throws(() => actorRouteHash64("\ud800"), /Unicode/);
+  assert.throws(() => actorRouteHash64("\udc00"), /Unicode/);
+  const unicodeStages = stages.map((s, i) =>
+    i === 0 ? {...s, id: "é".repeat(128)} : s);
+  const unicodeEdges = edges.map(e=>({...e, source:"é".repeat(128)}));
+  assert.doesNotThrow(() => new ActorPipelinePolicy(unicodeStages, unicodeEdges));
+  assert.throws(() => new ActorPipelinePolicy(
+    [{...stages[0], id:"é".repeat(129)}, ...stages.slice(1)],edges), /byte budget/);
+  assert.throws(() => new ActorPipelinePolicy(
+    [{...stages[0], id:"source\0spoof"}, ...stages.slice(1)],edges), /identifier/);
+});
+test("routing identity is immutable after graph publication and round-robin remains fair", () => {
+  const mutable = edges.map(e=>({...e}));
+  const plan = new ActorPipelinePolicy(stages, mutable);
+  mutable[0].target="attacker";
+  mutable.push({...edges[0], target:"other"});
+  assert.deepEqual(plan.forwardAll("source").map(e=>e.target),
+    ["worker-a","worker-b","worker-c"]);
+  assert.throws(() => { plan.forwardAll("source")[0].target = "attacker"; },
+    TypeError);
+  const counts = new Map();
+  for (let i = 0; i < 12000; i++) {
+    const name=plan.forwardRoundRobin("source").target;
+    counts.set(name,(counts.get(name)||0)+1);
+  }
+  assert.deepEqual([...counts.entries()].sort(),
+    [["worker-a",4000],["worker-b",4000],["worker-c",4000]]);
+  plan.close();
+  assert.throws(() => plan.forwardTo("source","worker-a"), /retired/);
+  assert.throws(() => plan.forwardRoundRobin("source"), /retired/);
+});
+test("diamond fan-in is valid while cycles, dangling ports and self-edges are rejected", () => {
+  const v=[
+    {id:"src",type:"Producer",role:"readable",outbound:"P"},
+    {id:"a",type:"Worker",role:"transform",inbound:"P",outbound:"P"},
+    {id:"b",type:"Worker",role:"transform",inbound:"P",outbound:"P"},
+    {id:"sink",type:"Sink",role:"writable",inbound:"P"}
+  ];
+  const e=[{source:"src",target:"a",payload:"P"},{source:"src",target:"b",payload:"P"},
+    {source:"a",target:"sink",payload:"P"},{source:"b",target:"sink",payload:"P"}];
+  assert.equal(new ActorPipelinePolicy(v,e).forwardAll("src").length,2);
+  assert.throws(()=>new ActorPipelinePolicy(v,[...e,{source:"a",target:"b",payload:"P"},
+    {source:"b",target:"a",payload:"P"}]),/cyclic/);
+  assert.throws(()=>new ActorPipelinePolicy(v,[...e,{source:"a",target:"a",payload:"P"}]),
+    /unknown or mistyped/);
+  assert.throws(()=>new ActorPipelinePolicy([...v,{id:"orphan",type:"Orphan",
+    role:"readable",outbound:"P"}],e),/missing port/);
+});
