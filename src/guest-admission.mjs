@@ -16,7 +16,8 @@ export function compileAdmittedCoreGuest(input, options = {}) {
     maxModuleBytes = 16 * 1024 * 1024, maxMemoryPages = 2} =
     validateCoreOptions(options,
       ["expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages"]);
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
+  if (typeof entry !== "string" || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry))
+    throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
   if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
@@ -24,7 +25,8 @@ export function compileAdmittedCoreGuest(input, options = {}) {
   const snapshot = snapshotGuestBytes(input, maxModuleBytes);
   const sha256 = createHash("sha256").update(snapshot).digest("hex");
   if (expectedSha256 !== undefined) {
-    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
+    if (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256))
+      throw Error("invalid pinned SHA-256");
     if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
   }
   const inspected = inspectWasmBytes(snapshot, {maxModuleBytes, maxMemoryPages});
