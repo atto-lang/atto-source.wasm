@@ -32,6 +32,8 @@ REJECTION_PREFIXES = {
 }
 # Deliberately avoid inheriting Actions tokens, CI secrets, SSH agents,
 # injected compilers, or private cloud credentials into tested subprocesses.
+MAX_DIAGNOSTIC_BYTES = 1024 * 1024
+
 TOOLCHAIN_ENV_KEYS = frozenset({
     "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "COMSPEC",
     "TEMP", "TMP", "TMPDIR", "DOTNET_ROOT", "DOTNET_CLI_HOME",
@@ -129,6 +131,37 @@ def load_cases():
     return items
 
 
+def bounded_compiler_output(captured, file, case, channel):
+    """Decode bounded compiler output, including subprocess mocks in tests.
+
+    A real subprocess writes to temporary files instead of capture_output=True,
+    so a compiler that prints without bound cannot exhaust Python's memory.
+    Decode as strict UTF-8 rather than silently accepting corrupt diagnostics.
+    """
+    if captured is None:
+        file.seek(0)
+        raw = file.read(MAX_DIAGNOSTIC_BYTES + 1)
+    elif isinstance(captured, str):
+        try:
+            raw = captured.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise RuntimeError(case + ": invalid compiler " + channel + " encoding") from exc
+    elif isinstance(captured, bytes):
+        raw = captured
+    else:
+        raise RuntimeError(case + ": invalid compiler " + channel + " type")
+    if len(raw) > MAX_DIAGNOSTIC_BYTES:
+        raise RuntimeError(case + ": compiler " + channel + " exceeds size limit")
+    try:
+        result = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(case + ": invalid compiler " + channel + " encoding") from exc
+    if "\x00" in result:
+        raise RuntimeError(case + ": compiler " + channel + " contains NUL")
+    return result
+
+
+
 def check(backend, tool=None, timeout=60):
     cases = load_cases()
     if backend not in COMMANDS:
@@ -136,6 +169,8 @@ def check(backend, tool=None, timeout=60):
     tool = tool or DEFAULTS[backend]
     if not isinstance(tool, str) or not tool.strip():
         raise ValueError("compiler path must be supplied")
+    if type(timeout) not in (int, float) or not 0 < timeout <= 300:
+        raise ValueError("compiler timeout must be between zero and 300 seconds")
     results = []
     with tempfile.TemporaryDirectory(prefix="ores-admission-") as directory:
         for item in cases:
@@ -145,26 +180,32 @@ def check(backend, tool=None, timeout=60):
             # Compiler *only*: LLVM IR output, Forge IR output, .NET 'check'.
             # Never run arbitrary guest programs to test unsupported syntax.
             try:
-                done = subprocess.run(argv, cwd=ROOT, text=True, capture_output=True,
-                                      timeout=timeout, check=False,
-                                      env=sanitized_toolchain_environment())
+                with tempfile.TemporaryFile(mode="w+b") as output, \
+                        tempfile.TemporaryFile(mode="w+b") as errors:
+                    done = subprocess.run(argv, cwd=ROOT, stdout=output, stderr=errors,
+                                          timeout=timeout, check=False,
+                                          env=sanitized_toolchain_environment())
+                    stdout = bounded_compiler_output(getattr(done, "stdout", None),
+                                                     output, item["id"], "stdout")
+                    stderr = bounded_compiler_output(getattr(done, "stderr", None),
+                                                     errors, item["id"], "stderr")
             except (OSError, subprocess.TimeoutExpired) as exc:
                 raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
             # Parser rejection is not the same as process termination or
             # infrastructure failure. Never accept segfaults, signals, or
             # unknown exit statuses as evidence of safe compiler admission.
-            if done.returncode not in (0, 1):
+            if type(done.returncode) is not int or done.returncode not in (0, 1):
                 raise RuntimeError(item["id"] +
                     ": compiler crashed or returned unknown status " +
                     str(done.returncode))
             accepted = done.returncode == 0
-            if not accepted and not done.stderr.strip().startswith(
+            if not accepted and not stderr.strip().startswith(
                     REJECTION_PREFIXES[backend]):
                 raise RuntimeError(item["id"] +
                     ": non-compiler failure cannot prove capability rejection; " +
                     "status=" + str(done.returncode) +
-                    " stderr=" + done.stderr[:400])
-            if not accepted and backend in ("llvm", "forge") and done.stdout.strip():
+                    " stderr=" + stderr[:400])
+            if not accepted and backend in ("llvm", "forge") and stdout.strip():
                 raise RuntimeError(item["id"] +
                     ": rejected source emitted partial compiler IR")
             expected_accept = item["bootstrap"] == "accept"
@@ -172,10 +213,10 @@ def check(backend, tool=None, timeout=60):
                 raise RuntimeError(item["id"] +
                     ": expected " + item["bootstrap"] +
                     ", compiler status " + str(done.returncode) +
-                    "; stdout=" + done.stdout[:400] +
-                    "; stderr=" + done.stderr[:400])
-            if accepted and (not done.stdout.strip() or
-                    (backend == "net" and "typed OresIR: OK" not in done.stdout)):
+                    "; stdout=" + stdout[:400] +
+                    "; stderr=" + stderr[:400])
+            if accepted and (not stdout.strip() or
+                    (backend == "net" and "typed OresIR: OK" not in stdout)):
                 raise RuntimeError(item["id"] + ": empty/ambiguous compiler output")
             results.append((item["id"], item["bootstrap"]))
     return results
