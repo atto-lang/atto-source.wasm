@@ -12,7 +12,7 @@ test("shared scalar corpus has exact inventory, signed i64 oracles and safe sour
   const manifestBytes = await readFile(join(root,"cases.json"));
   const suite = JSON.parse(manifestBytes.toString("utf8"));
   assert.equal(suite.schema_version,"1.0.0");
-  assert.equal(suite.cases.length,10);
+  assert.equal(suite.cases.length,11);
   const hash = createHash("sha256").update(manifestBytes);
   const names = new Set();
   const ids = new Set();
@@ -46,7 +46,7 @@ test("shared scalar corpus has exact inventory, signed i64 oracles and safe sour
   }
   const disk = (await readdir(join(root,"fixtures"))).map(name=>"fixtures/"+name).sort();
   assert.deepEqual(disk,[...names].sort());
-  assert.equal(positives,5);
+  assert.equal(positives,6);
   assert.equal(negatives,5);
   assert.equal(hash.digest("hex"),"4ca1512bbcab67d5af3f5db0665d139c802dd4cbbff048a3004c214d60bf3eb5");
 });
