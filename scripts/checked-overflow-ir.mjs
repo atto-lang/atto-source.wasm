@@ -20,15 +20,22 @@ export function assertCheckedOverflowIr(ir,operation){
     throw Error("unsupported checked overflow operation");
   if(!/^\s*target triple = "wasm32-[^"\n]+"\s*$/m.test(ir))
     throw Error("checked overflow IR lacks real wasm32 target triple");
-  const pairs=[...ir.matchAll(PAIR)];
+  // Only the reviewed i64 guest entrypoint can justify an overflow trap.
+  // A valid-looking checked helper elsewhere in the module is not proof
+  // that main performs any checked arithmetic.
+  const entries=[...ir.matchAll(/^define[ \t]+i64[ \t]+@main[ \t]*\([ \t]*\)[^\n{]*\{[^\n]*\n([\s\S]*?)^\}[ \t]*$/gm)];
+  if(entries.length!==1)
+    throw Error("checked overflow IR requires exactly one i64 guest main body");
+  const body=entries[0][1];
+  const pairs=[...body.matchAll(PAIR)];
   const pairOps=new Map(pairs.map(match=>[match[1],match[2]]));
   if(![...pairOps.values()].includes(operation))
     throw Error("checked overflow IR lacks required signed-i64 overflow intrinsic "+operation);
-  const flags=new Map([...ir.matchAll(FLAG)]
+  const flags=new Map([...body.matchAll(FLAG)]
     .filter(match=>pairOps.has(match[2])).map(match=>[match[1],match[2]]));
-  const guards=[...ir.matchAll(GUARD)];
-  const traps=[...ir.matchAll(TRAP)];
-  const failures=[...ir.matchAll(FAILURE)];
+  const guards=[...body.matchAll(GUARD)];
+  const traps=[...body.matchAll(TRAP)];
+  const failures=[...body.matchAll(FAILURE)];
   const names=new Set(failures.map(match=>match[1]));
   if(!flags.size||!guards.length||!traps.length||
      guards.length!==traps.length||failures.length!==traps.length||
@@ -36,7 +43,7 @@ export function assertCheckedOverflowIr(ir,operation){
      guards.some(match=>!flags.has(match[1])||!names.has(match[2])) ||
      !guards.some(match=>pairOps.get(flags.get(match[1]))===operation))
     throw Error("checked overflow IR lacks complete operation-specific flag-derived conditional trap path");
-  const unreachable=[...ir.matchAll(/^\s*unreachable\b/gm)];
+  const unreachable=[...body.matchAll(/^\s*unreachable\b/gm)];
   if(unreachable.length!==failures.length)
     throw Error("checked overflow IR contains unrelated unreachable control flow");
 }
