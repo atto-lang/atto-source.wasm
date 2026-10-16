@@ -5,6 +5,7 @@ This checks repository/CI policy metadata; it does not grant permissions,
 copy private source, or prove a missing runtime feature has been implemented.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ IDS = {"java": 1400792274, "llvm": 1410897874,
        "net": 1419704375, "wasm": 1419858954, "forge": 1419703674}
 CONTRACT = "oreslang-backend-private-ci-security"
 WORKFLOW = Path(".github/workflows/backend-private-ci-contract.yml")
+WORKFLOW_SHA256 = "e93fe9d4c65d3d7afd5550fa63cacc44f33c498ce3d951c5f9eb07d85d50d083"
 MANIFEST = Path("contracts/private-ci-security.v1.json")
 
 
@@ -59,6 +61,10 @@ def verify(backend):
         raise ValueError("unknown top-level contract fields")
 
     wf = WORKFLOW.read_text(encoding="utf-8")
+    # Substring checks alone can be satisfied by comments or dead shell text.
+    # Pin the entire reviewed workflow, including test execution and triggers.
+    if hashlib.sha256(wf.encode("utf-8")).hexdigest() != WORKFLOW_SHA256:
+        raise ValueError("workflow integrity differs from reviewed policy")
     if "pull_request_target:" in wf or "workflow_run:" in wf:
         raise ValueError("privileged PR or upstream event not allowed")
     if "permissions:\n  contents: read\n" not in wf:
