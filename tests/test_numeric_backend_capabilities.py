@@ -22,14 +22,14 @@ STATUSES = frozenset((
     "implemented_unverified", "reference_only", "blocked_unsound",
     "needs_audit", "verified_compiled"))
 BACKENDS = frozenset(("java", "llvm", "net", "wasm", "forge"))
-SHA40 = re.compile(r"[0-9a-f]{40}\\Z")
+SHA40 = re.compile(r"[0-9a-f]{40}")
 
 
 class NumericParityAdmissionTest(unittest.TestCase):
     def test_reference_fixture_is_byte_identical_across_backends(self):
         raw = GOLDEN.read_bytes()
         actual = hashlib.sha1(
-            b"blob " + str(len(raw)).encode("ascii") + b"\\0" + raw).hexdigest()
+            b"blob " + str(len(raw)).encode("ascii") + bytes((0,)) + raw).hexdigest()
         self.assertEqual(actual, SHA, "reference vectors changed without cross-backend review")
         data = json.loads(raw)
         self.assertEqual(data["schema_version"], "1.0.0")
@@ -53,7 +53,7 @@ class NumericParityAdmissionTest(unittest.TestCase):
                 else:
                     self.assertTrue(SHA40.fullmatch(proof["exact_source_commit_sha"]))
                     self.assertRegex(proof["workflow_run_url"],
-                                     r"^https://github\\.com/[^/]+/[^/]+/actions/runs/[0-9]+$")
+                                     r"^https://github[.]com/[^/]+/[^/]+/actions/runs/[0-9]+$")
                     self.assertIs(type(proof["executed_positive_cases"]), int)
                     self.assertGreater(proof["executed_positive_cases"], 0)
                     self.assertIs(type(proof["executed_negative_cases"]), int)
