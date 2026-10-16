@@ -68,17 +68,40 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       assert.equal(observed.value,expected,"numeric source-i64 "+expression);
       assert.equal(observed.admission.hostCapabilities,0);
     }
+    // Overflow negatives come from the *same immutable fixture* as
+    // Java, LLVM, .NET and Forge. A data-only oracle is insufficient:
+    // reject them using the real pinned LLVM->wasm32 compiler bridge.
+    const overflowBytes=await readFile(new URL(
+      "../contracts/v1/numeric-parity/source-i64-overflow-cases.json",import.meta.url));
+    const overflowBlobHeader=Buffer.from(
+      "blob "+overflowBytes.length+"\0","ascii");
+    const overflowGitBlob=createHash("sha1").update(overflowBlobHeader)
+      .update(overflowBytes).digest("hex");
+    assert.equal(overflowGitBlob,"2ce0b0ff5c52e54a788280fd64d67fa8dc32614a",
+      "numeric overflow fixture differs from reviewed cross-backend corpus");
+    const overflowCorpus=JSON.parse(overflowBytes.toString("utf8"));
+    assert.equal(overflowCorpus.schema_version,"1.0.0");
+    assert.equal(overflowCorpus.status,"requires-executable-negative-tests");
+    assert.equal(overflowCorpus.policy,"no-wrapping-i64");
+    assert.equal(overflowCorpus.cases.length,4);
+    const negativeIds=new Set();
+    const overflowNegatives=overflowCorpus.cases.map(entry=>{
+      assert.match(entry.id,/^[a-z0-9-]{1,60}$/);
+      assert.ok(!negativeIds.has(entry.id),"duplicate numeric overflow fixture ID");
+      negativeIds.add(entry.id);
+      assert.equal(entry.expected,"reject-or-runtime-error");
+      assert.match(entry.source,/^[0-9()+* -]{1,128}$/);
+      return "pub fnc main():int{return "+entry.source+";}\n";
+    });
     const negatives=[
       "pub fnc main():int{return 3/2;}",
       "pub fnc main():int{return 1.25;}",
       "pub fnc main():bigint{return 1;}",
       "pub fnc main():decimal{return 1;}",
-      // Compile-time integer overflow must not wrap into a valid wasm i64.
+      // The bare +2^63 literal remains invalid independently of the
+      // four checked arithmetic overflow cases in the shared corpus.
       "pub fnc main():int{return 9223372036854775808;}",
-      "pub fnc main():int{return 9223372036854775807+1;}",
-      "pub fnc main():int{return -9223372036854775808-1;}",
-      "pub fnc main():int{return 3037000500*3037000500;}",
-      "pub fnc main():int{return -(-9223372036854775808);}"
+      ...overflowNegatives
     ];
     for (let i=0;i<negatives.length;i++) {
       const source=negatives[i];
