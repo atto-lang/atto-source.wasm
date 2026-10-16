@@ -72,6 +72,26 @@ class PersistentActorPolicyTest(unittest.TestCase):
     def test_claim_runtime_parity(self):
         self.reject(lambda d: d.update({"scope": "five backend runtime parity verified"}))
 
+    def test_reject_float_collision_limit(self):
+        self.reject(lambda d: d["limits"].update({"collision_bucket_max": 64.0}))
+
+    def test_reject_float_graph_budget(self):
+        self.reject(lambda d: d["limits"].update({"actor_message_graph_nodes_max": 100000.0}))
+
+    def test_reject_unhashable_domain_without_crash(self):
+        self.reject(lambda d: d["cases"][0].update({"domain": ["persistent-map"]}))
+
+    def test_reject_unhashable_outcome_without_crash(self):
+        self.reject(lambda d: d["cases"][0].update({"expect": ["old-root-preserved"]}))
+
+    def test_reject_ambiguous_scope_claim(self):
+        self.reject(lambda d: d.update({"scope": d["scope"] + "; claimed parity verified"}))
+
+    def test_reject_nonfinite_wire_token(self):
+        with self.assertRaises(ContractError):
+            validate_raw(b'{"version": NaN}')
+
+
 
 if __name__ == "__main__":
     unittest.main()
