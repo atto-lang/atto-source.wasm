@@ -89,6 +89,36 @@ class SerdePolicyRegression(unittest.TestCase):
     def test_reject_array_reorder(self):
         self.mutate(lambda d: d['wire_profile']['messagepack_envelope_fields'].reverse())
 
+    def test_reject_missing_permission_conformance(self):
+        self.mutate(lambda d: d['verification']['categories'].remove(
+            'network_without_permission_reject'))
+
+    def test_reject_missing_sender_mutation_conformance(self):
+        self.mutate(lambda d: d['verification']['categories'].remove(
+            'sender_snapshot_mutation'))
+
+    def test_reject_missing_schema_version_conformance(self):
+        self.mutate(lambda d: d['verification']['categories'].remove(
+            'schema_version_mismatch_reject'))
+
+    def test_reject_huge_contract_before_full_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            oversized = Path(root) / 'oversized.json'
+            with oversized.open('wb') as stream:
+                stream.truncate(policy.MAX_CONTRACT_BYTES + 1)
+            with self.assertRaisesRegex(policy.ContractError, 'oversized'):
+                policy.verify_file(oversized)
+
 
 if __name__ == '__main__':
-    unittest.main()
+    # unittest discover exits 0 even if no tests are discovered. A security
+    # gate cannot treat a renamed/deleted suite or skipped test as green.
+    expected = 22
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
+    if suite.countTestCases() != expected:
+        raise SystemExit(f'FAIL: expected {expected} serde regressions, '
+                         f'found {suite.countTestCases()}')
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if (result.testsRun != expected or not result.wasSuccessful() or
+            result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+        raise SystemExit('FAIL: serde policy regression gate incomplete')
