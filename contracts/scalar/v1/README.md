@@ -4,6 +4,13 @@ The reference source semantics come from Oreslang Java. Identical bytes in this 
 must be mirrored wherever this suite is used. The first two positive programs match the
 existing Java/LLVM v1 admission fixtures.
 
+The 11-case revision has six positive signed-i64 programs and five negative
+bootstrap-admission programs. The sixth positive fixture,
+`fixtures/i64-max-minus-one.ores`, pins Java/LLVM reference arithmetic
+`9223372036854775807 - 1 = 9223372036854775806` without overflowing
+any i64 intermediate. This is a fixture contract, not proof that every
+backend has executed or compiled it.
+
 Run the Python 3 standard-library-only gate with an explicit compiler command; never
 execute this manifest as a shell script or count negative compiler crashes as rejection.
 
@@ -23,7 +30,7 @@ execute this manifest as a shell script or count negative compiler crashes as re
 
 `npm test` verifies the shared manifest, exact source inventory and digest without
 claiming guest execution. The separately authorized `npm run test:real-compiler`
-gate compiles and runs **only the five positive scalar programs** with the
+gate compiles and runs **only the six positive scalar programs** with the
 hash-pinned LLVM compiler in the zero-import core Wasm host. The five
 negative cases are expected *rejections by the .NET and Forge bootstrap
 compilers*; a more complete LLVM compiler may implement those constructs.
