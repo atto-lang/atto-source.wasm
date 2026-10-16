@@ -34,8 +34,14 @@ immutable fixtures, **not compiled source**. Implemented guest adapters:
 negative subtraction overflow, multiplication overflow and nested unary
 negation overflow. The Python gate validates the pinned bytes and
 independent rejecting oracle. `numeric-source-parity.test.mjs` additionally
-feeds each source through the pinned real LLVM->wasm32 compiler and checks
-that rejected compilation never publishes an atomic release pointer.
+feeds each source through the pinned real LLVM->wasm32 compiler and accepts
+exactly the two outcomes permitted by `reject-or-runtime-error`:
+(1) an explicit Oreslang compiler diagnostic with **no** published atomic
+release pointer, or (2) successful checked compilation into a pinned,
+zero-import Wasm guest that raises an actual `WebAssembly.RuntimeError`
+when executed. Guest validation failures, timeouts, toolchain errors and
+normal wrapped i64 results are **not** accepted as an overflow proof.
+The worker identifies actual runtime traps separately from admission errors.
 The latter test **skips when a real pinned compiler is unavailable**;
 it must not be counted as guest parity. `checked_i64_overflow` remains
 `delegated_unverified`.
