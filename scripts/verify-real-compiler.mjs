@@ -178,6 +178,13 @@ export async function verifyRealCompiler({
     if (sharedScalarResults.length !== 5)
       throw Error("shared scalar suite must execute exactly five guest programs");
     const sharedScalarSuiteSha256 = sharedHash.digest("hex");
+    // The shared corpus is an immutable, exact-byte contract across backends.
+    // Merely returning the computed hash in a report is insufficient: a
+    // modified fixture could otherwise pass as established parity evidence.
+    const expectedScalarSuiteSha256 =
+      "4ca1512bbcab67d5af3f5db0665d139c802dd4cbbff048a3004c214d60bf3eb5";
+    if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
+      throw Error("shared scalar corpus digest differs from pinned parity contract");
 
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
