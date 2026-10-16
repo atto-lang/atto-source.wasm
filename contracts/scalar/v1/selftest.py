@@ -222,25 +222,51 @@ class ScalarHarnessTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid source length"):
             runner.load_suite()
 
-    def test_bootstrap_negative_requires_own_diagnostic_prefix(self):
+    def test_backend_negative_requires_case_specific_diagnostic(self):
         source = runner.HERE / "fixtures" / "reject-unknown.ores"
-        for backend, good_prefix, other_prefix in (
-            ("net", "oresnet:", "oresforge:"),
-            ("forge", "oresforge:", "oresnet:"),
-        ):
-            for message, success in (
-                (good_prefix + " unknown identifier", True),
-                ("FileNotFoundError: compiler missing", False),
-                (other_prefix + " unknown identifier", False),
-                ("error: parser error", False),
-                ("", False),
-            ):
-                with self.subTest(backend=backend, message=message):
-                    code = "import sys;sys.stderr.write(" + repr(message) + ");sys.exit(1)"
-                    ok, _ = runner.run_case(
+        diagnostics = {
+            "forge": {
+                "reject.unknown": "oresforge: expected integer at byte 29",
+                "reject.division": "oresforge: division requires float result lowering; unsupported in the i64 source subset at byte 30",
+                "reject.actor": "oresforge: unexpected token at byte 7",
+                "reject.async": "oresforge: unexpected token at byte 4",
+                "reject.structural": "oresforge: expected integer at byte 29",
+            },
+            "net": {
+                "reject.unknown": "oresnet: Expected integer at offset 29",
+                "reject.division": "oresnet: Division requires float result lowering; unsupported in the i64 source subset",
+                "reject.actor": "oresnet: Expected 'fnc' at offset 7",
+                "reject.async": "oresnet: Expected 'fnc' at offset 4",
+                "reject.structural": "oresnet: Expected integer at offset 29",
+            },
+        }
+        for backend, cases in diagnostics.items():
+            for case_id, message in cases.items():
+                code = "import sys;sys.stderr.write(" + repr(message + "\\n") + ");sys.exit(1)"
+                with self.subTest(backend=backend, case_id=case_id):
+                    good, _ = runner.run_case(
                         [sys.executable, "-c", code], source, "reject", None,
-                        "admission", 3, backend)
-                    self.assertEqual(ok, success)
+                        "admission", 3, backend, case_id)
+                    self.assertTrue(good, message)
+                # An error for the wrong feature or unrelated infrastructure
+                # must never satisfy negative source conformance.
+                for bad in ("file not found", "unknown compiler option",
+                            "usage error", "unexpected token in tool setup"):
+                    code = "import sys;sys.stderr.write(" + repr(
+                        backend.replace("forge", "oresforge").replace("net", "oresnet") +
+                        ": " + bad + "\\n") + ");sys.exit(1)"
+                    rejected, _ = runner.run_case(
+                        [sys.executable, "-c", code], source, "reject", None,
+                        "admission", 3, backend, case_id)
+                    self.assertFalse(rejected, (backend, case_id, bad))
+
+    def test_no_case_id_cannot_pass_negative_diagnostic(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        code = "import sys;sys.stderr.write('oresforge: expected integer at byte 29\\\\n');sys.exit(1)"
+        passed, _ = runner.run_case(
+            [sys.executable, "-c", code], source, "reject", None,
+            "admission", 2, "forge")
+        self.assertFalse(passed)
 
     def test_unsupported_backend_diagnostic_evidence_fails_closed(self):
         source = runner.HERE / "fixtures" / "reject-unknown.ores"
