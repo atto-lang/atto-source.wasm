@@ -75,6 +75,7 @@ test("only an i64-specific compiler diagnostic qualifies as overflow refusal",()
   ]) assert.equal(isSignedI64OverflowDiagnostic(Error(error)),true,error);
   for (const unrelated of [
     "command failed (/tmp/compiler-exact): oreslang-llvmc: input file missing",
+    "oreslang-llvmc: failed to open overflow.ores (not found)",
     "oreslang-llvmc: unknown compiler flag",
     "oreslang-llvmc: wasm32 target unsupported",
     "clang: arithmetic overflow",
