@@ -8,10 +8,15 @@ import {compileOresToWasm, readBoundedRegularFile} from '../scripts/compile-ores
 
 const cases = JSON.parse(await readFile(new URL('./value-boundary-rejections.json', import.meta.url)));
 test('real source value boundaries reject before publishing a Wasm artifact', {
-  skip: !process.env.ORESLANG_LLVM_COMPILER,
+  // A baseline unit suite can omit the optional installed native compiler;
+  // a real-parity CI job must opt in and cannot silently skip when missing.
+  skip: !process.env.ORESLANG_LLVM_COMPILER &&
+        process.env.ORESLANG_REQUIRE_REAL_COMPILER === undefined,
   timeout: 60000
 }, async () => {
   const compiler = process.env.ORESLANG_LLVM_COMPILER;
+  assert.ok(compiler,
+    'ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required guest execution');
   // A real-compiler parity run is never an implicit unpinned test. Require
   // both the exact compiled executable and declared upstream source revision.
   // The separate trusted build must independently attest their relationship.
