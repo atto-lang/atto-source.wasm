@@ -1,0 +1,56 @@
+"""Independent arithmetic reference for the common source i64 corpus.
+
+A pass checks the vectors, never the Oreslang parser, IR or guest.
+"""
+import ast
+import hashlib
+import json
+from pathlib import Path
+import unittest
+
+FILE = Path(__file__).resolve().parents[1] / "contracts/v1/numeric-parity/source-i64-cases.json"
+BLOB = "bbc319c19ecd007109d33592e210091eb267e5a2"
+LO = -(1 << 63)
+HI = (1 << 63) - 1
+
+
+def interpret(node):
+    if isinstance(node, ast.Constant) and type(node.value) is int:
+        if not 0 <= node.value <= 1 << 63:
+            raise ValueError("out of literal bounds")
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        value = interpret(node.operand)
+        result = -value if isinstance(node.op, ast.USub) else value
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult)):
+        a, b = interpret(node.left), interpret(node.right)
+        result = a + b if isinstance(node.op, ast.Add) else (
+            a - b if isinstance(node.op, ast.Sub) else a * b)
+    else:
+        raise ValueError("unsupported source numeric expression")
+    if not LO <= result <= HI:
+        raise ValueError("i64 intermediate overflow")
+    return result
+
+
+class PortableI64ReferenceTest(unittest.TestCase):
+    def test_exact_source_corpus_and_integer_oracle(self):
+        raw = FILE.read_bytes()
+        digest = hashlib.sha1(b"blob " + str(len(raw)).encode() + bytes((0,)) + raw).hexdigest()
+        self.assertEqual(digest, BLOB)
+        data = json.loads(raw)
+        self.assertEqual(data["schema_version"], "1.0.0")
+        self.assertEqual(data["status"], "reference-only-not-compiled-execution")
+        self.assertEqual(len(data["cases"]), 7)
+        ids = [case["id"] for case in data["cases"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        for case in data["cases"]:
+            with self.subTest(case=case["id"]):
+                expression = case["expression"]
+                self.assertEqual(interpret(ast.parse(expression, mode="eval").body),
+                                 int(case["expected"]))
+                self.assertTrue(LO <= int(case["expected"]) <= HI)
+
+
+if __name__ == "__main__":
+    unittest.main()
