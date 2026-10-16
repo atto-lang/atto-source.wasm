@@ -49,6 +49,10 @@ CASES = ("scalar_arithmetic_14", "ambient_filesystem", "ambient_network",
          "ambient_process", "ambient_host_interop", "unsupported_actor",
          "unsupported_async", "unsupported_channel",
          "unsupported_wire_serialization")
+CATEGORIES = ("scalar", "filesystem", "network", "process", "ffi",
+              "actors", "async", "channels", "serialization")
+EXPECTED_CASE_KEYS = frozenset({"id", "category", "source", "bootstrap"})
+SCALAR_CASE_KEYS = EXPECTED_CASE_KEYS | {"expected_output"}
 
 
 CASE_SHA256 = (
@@ -74,8 +78,14 @@ def load_cases():
             doc.get("unimplemented_adapters") != ["java", "wasm"]):
         raise ValueError("unknown or weakened guest admission contract")
     items = doc.get("cases")
-    if not isinstance(items, list) or tuple(item.get("id") for item in items) != CASES:
+    if (not isinstance(items, list) or len(items) != len(CASES)
+            or not all(isinstance(item, dict) for item in items)
+            or tuple(item["id"] for item in items) != CASES):
         raise ValueError("incomplete guest admission case list")
+    for index, item in enumerate(items):
+        if (item.get("category") != CATEGORIES[index]
+                or set(item) != (SCALAR_CASE_KEYS if index == 0 else EXPECTED_CASE_KEYS)):
+            raise ValueError("guest capability category or case schema changed")
     for item, expected_digest in zip(items, CASE_SHA256):
         if not isinstance(item.get("source"), str) or (
                 hashlib.sha256(item["source"].encode("utf-8")).hexdigest()
@@ -128,6 +138,9 @@ def check(backend, tool=None, timeout=60):
                     ": non-compiler failure cannot prove capability rejection; " +
                     "status=" + str(done.returncode) +
                     " stderr=" + done.stderr[:400])
+            if not accepted and backend in ("llvm", "forge") and done.stdout.strip():
+                raise RuntimeError(item["id"] +
+                    ": rejected source emitted partial compiler IR")
             expected_accept = item["bootstrap"] == "accept"
             if accepted != expected_accept:
                 raise RuntimeError(item["id"] +
