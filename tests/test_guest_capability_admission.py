@@ -75,6 +75,17 @@ class GuestAdmissionHarnessTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "scalar_arithmetic_14"):
                 mod.check("forge", "mock-compiler")
 
+    def test_crashed_compiler_cannot_count_as_security_rejection(self):
+        def crashed(argv, **kwargs):
+            if any("scalar_arithmetic_14.ores" in part for part in argv):
+                return type("Result", (), {"returncode": 0, "stdout": "verified IR",
+                                             "stderr": ""})()
+            return type("Result", (), {"returncode": -11, "stdout": "",
+                                         "stderr": "segfault"})()
+        with patch.object(mod.subprocess, "run", side_effect=crashed):
+            with self.assertRaisesRegex(RuntimeError, "compiler crashed"):
+                mod.check("llvm", "mock-compiler")
+
     def test_missing_compiler_is_a_hard_failure(self):
         with patch.object(mod.subprocess, "run", side_effect=FileNotFoundError("missing")):
             with self.assertRaisesRegex(RuntimeError, "compiler unavailable"):
