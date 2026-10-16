@@ -61,8 +61,10 @@ def validate(doc):
     _require(doc["contract"] == "oreslang-persistent-actor-data-v1"
              and type(doc["version"]) is int and doc["version"] == 1,
              "contract identity/version mismatch")
-    _require(type(doc["scope"]) is str and "not executable runtime parity" in doc["scope"],
+    _require(doc["scope"] == "shared safety test vectors and conservative capability claims; not executable runtime parity",
              "the contract must not claim runtime parity")
+    _require(type(doc["limits"]) is dict and all(type(v) is int for v in doc["limits"].values()),
+             "quota bounds must be canonical integers")
     _require(doc["limits"] == {
         "collision_bucket_max": 64,
         "actor_message_graph_depth_max": 256,
@@ -92,7 +94,8 @@ def validate(doc):
                  "case fields changed without contract bump")
         _require(type(item["id"]) is str and item["id"] in EXPECTED_IDS
                  and item["id"] not in ids, "unknown or duplicated case")
-        _require(item["domain"] in DOMAINS and item["expect"] in ALLOWED_RESULTS,
+        _require(type(item["domain"]) is str and type(item["expect"]) is str
+                 and item["domain"] in DOMAINS and item["expect"] in ALLOWED_RESULTS,
                  "unknown domain or outcome")
         ids.add(item["id"])
     _require(ids == EXPECTED_IDS, "missing case")
