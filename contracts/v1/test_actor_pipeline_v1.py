@@ -42,6 +42,9 @@ def main():
     mutation("NUL actor instance", lambda d: d["graph"]["stages"][1].update(id="worker\0x"))
     mutation("overlong UTF-8 instance", lambda d: d["graph"]["stages"][1].update(id="🌍"*65))
     mutation("invalid supervisor actor role", lambda d: d["graph"]["stages"][1].update(role="supervisor"))
+    mutation("terminal transform with no outbound connection",
+             lambda d: d["graph"]["stages"][1].update(
+                 role="transform", outbound="Event"))
     def add_cycle(d):
         for index in (1, 2):
             d["graph"]["stages"][index].update(role="transform", outbound="Event")
