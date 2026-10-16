@@ -151,8 +151,12 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       } catch (error) {
         // Toolchain setup/link failures are NOT arithmetic rejection. Only
         // the real Oreslang frontend's explicit diagnostic is admissible.
-        assert.match(String(error?.message || error),/oreslang-llvmc:/,
-          "overflow fixture failed outside the real compiler's diagnostic path");
+        const diagnostic=String(error?.message || error);
+        // A missing source, bad CLI flag or unavailable target may also
+        // print "oreslang-llvmc:". These are NOT evidence of i64 overflow.
+        assert.match(diagnostic,
+          /\boreslang-llvmc:[^\n]*(?:overflow|out.of.range|out.of.bounds|invalid i64)/i,
+          "overflow fixture was rejected for an unrelated compiler reason");
         await assert.rejects(stat(target+".current.json"),{code:"ENOENT"},
           "compile-time overflow refusal must not publish an artifact");
         continue;
