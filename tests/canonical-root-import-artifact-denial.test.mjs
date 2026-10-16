@@ -12,6 +12,8 @@ const denied = [
   'import fnc helper from "+/lib/helper";\npub fnc main(): int { return helper(); }\n',
   'import module telemetry from "+/lib/telemetry";\npub fnc main(): int { return 42; }\n',
   'import fnc helper from "./helper";\npub fnc main(): int { return 42; }\n',
+  'import fnc helper from "../lib/helper";\npub fnc main(): int { return 42; }\n',
+  'import fnc helper from ".hidden/helper";\npub fnc main(): int { return 42; }\n',
   'import fnc helper from "pkg:math/helper";\npub fnc main(): int { return 42; }\n',
   'import "+/lib/helper";\npub fnc main(): int { return 42; }\n',
 ];
