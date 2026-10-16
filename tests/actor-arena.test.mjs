@@ -81,6 +81,23 @@ test('persistent drop reclaims memory without reviving stale handles', () => {
   arena.retire();
 });
 
+test("shared worker backing is rejected before it can tear an actor write", () => {
+  const arena = new ActorArena({actorId: 34, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  if (typeof SharedArrayBuffer !== "undefined") {
+    const shared = new Uint8Array(new SharedArrayBuffer(4));
+    shared.set([4, 3, 2, 1]);
+    assert.throws(() => arena.write(turn, handle, shared), /shared backing/);
+    assert.deepEqual([...arena.read(turn, handle)], [0, 0, 0, 0],
+      "denied write must leave target bytes intact");
+  }
+  arena.write(turn, handle, Uint8Array.from([1, 2, 3, 4]));
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test('many allocation/drop cycles reuse space and reject stale handles', () => {
   const arena = new ActorArena({actorId: 32, incarnation: 1});
   const turn = arena.beginTurn();
