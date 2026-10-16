@@ -10,6 +10,9 @@ const target=fileURLToPath(new URL("./numeric-source-parity.test.mjs",import.met
 
 test("required numeric parity fails closed with no trusted LLVM compiler",()=>{
   const env={...process.env,ORESLANG_NUMERIC_PARITY_REQUIRED:"1"};
+  // A separate node --test process must not inherit the parent's IPC/test
+  // context; otherwise Node may suppress the child suite's exit status.
+  delete env.NODE_TEST_CONTEXT;
   delete env.ORESLANG_LLVM_COMPILER;
   delete env.ORESLANG_LLVM_COMPILER_SHA256;
   delete env.ORESLANG_LLVM_SOURCE_SHA;
