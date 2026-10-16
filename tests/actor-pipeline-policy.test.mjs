@@ -162,3 +162,31 @@ test("bound graph size before topology allocation and reject unknown role", () =
     [{...stages[0],id:exactly256},...stages.slice(1)],
     edges.map(e=>({...e,source:exactly256}))));
 });
+
+test("seeded 1000-graph DAG fuzz preserves immutable routing identity", () => {
+  let state=0x015cd926;
+  const rnd=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state;};
+  for (let trial=0;trial<1000;trial++) {
+    const count=2+rnd()%28;
+    const names=Array.from({length:count},(_,i)=>"node-"+i);
+    const stages=names.map((id,i)=>({
+      id,type:"Stage",
+      role:i===0?"readable":i===count-1?"writable":"transform",
+      inbound:i===0?"":"E",outbound:i===count-1?"":"E"
+    }));
+    const edges=[];
+    for(let i=0;i<count-1;i++) edges.push({source:names[i],target:names[i+1],payload:"E"});
+    for(let i=0;i<count-2;i++)
+      if(rnd()%2===0){
+        const target=i+2+rnd()%(count-i-2);
+        edges.push({source:names[i],target:names[target],payload:"E"});
+      }
+    const selector=new ActorPipelinePolicy(stages,edges);
+    const original=selector.forwardAll(names[0]).map(e=>e.target);
+    assert.equal(original.length,edges.filter(e=>e.source===names[0]).length);
+    edges[0].target="tampered-after-publication";
+    assert.deepEqual(selector.forwardAll(names[0]).map(e=>e.target),original);
+    selector.close();
+    assert.throws(()=>selector.forwardAll(names[0]),/retired/);
+  }
+});
