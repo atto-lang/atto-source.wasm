@@ -71,6 +71,32 @@ test("prototype-polluted normal options fail before guest compilation", async ()
   }
 });
 
+test("proxy options cannot trigger prototype or property inspection traps", async () => {
+  let traps = 0;
+  const dangerous = new Proxy({}, {
+    getPrototypeOf() { traps++; throw Error("getPrototypeOf trap executed"); },
+    ownKeys() { traps++; throw Error("ownKeys trap executed"); },
+    getOwnPropertyDescriptor() {
+      traps++; throw Error("getOwnPropertyDescriptor trap executed");
+    },
+    get() { traps++; throw Error("get trap executed"); }
+  });
+  assert.throws(() => admitCoreGuest(null, dangerous), /option proxies are forbidden/);
+  assert.throws(() => compileAdmittedCoreGuest(null, dangerous),
+    /option proxies are forbidden/);
+  await assert.rejects(runIsolatedCoreGuest(null, dangerous),
+    /option proxies are forbidden/);
+  assert.equal(traps, 0, "no user-controlled Proxy traps were invoked");
+});
+
+test("revoked proxies are rejected without their traps", async () => {
+  const {proxy, revoke} = Proxy.revocable({}, {});
+  revoke();
+  assert.throws(() => admitCoreGuest(null, proxy), /option proxies are forbidden/);
+  await assert.rejects(runIsolatedCoreGuest(null, proxy),
+    /option proxies are forbidden/);
+});
+
 test("invalid known identity types never invoke caller coercion", async () => {
   let coerced = 0;
   const malicious = {
