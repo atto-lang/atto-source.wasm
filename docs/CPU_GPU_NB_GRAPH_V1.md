@@ -162,3 +162,42 @@ Scalar results require an explicit reduction/unique-writer proof.
 
 This document is a target contract and must never be cited as working
 GPU or streaming support.
+
+## Implementation progress on feature branches (2026-10-16)
+
+These components now exist **as trusted host-side code only**; the normal
+source parser still does not execute nested `cpu { ... }` / `gpu { ... }`
+blocks, and no general GPU backend is enabled by this contract.
+
+| Backend | Host-side implementation | Source-language execution |
+| --- | --- | --- |
+| Java | `ExecutionGraphV1`: immutable typed graph, `Unit`, checked i64 CPU steps, OresFuture, cancellation; `ExecutionSurfaceV1`: eager region vs `gpu () {}` callable disambiguation; `ExecutionGraphChannelV1`: one-value publication into explicitly bounded ChannelRuntime | Not enabled; real AST/type/effect/owned region integration required |
+| LLVM | `ExecutionGraphV1.hpp`: typed graph, checked native CPU steps, cancellable one-shot futures, strict device/transfer refusal | Not enabled; general source lowering required |
+| Forge | Independent namespace port of LLVM typed CPU graph and cancellation tests, registered with CTest | Not enabled; scalar bootstrap admission only |
+| .NET | Native AOT-safe `ExecutionGraphV1.cs`: typed checked CPU graph, externally admitted Task<T> futures and cancellation, explicit unsupported device/transfer nodes | Not enabled; scalar CIL source bootstrap only |
+| Wasm | Keeps core Wasm zero-import environment and native LLVM source compiler gate | Not enabled; requires distinct capable host ABI, and no fake GPU execution |
+
+Source compatibility resolution: `gpu { body }` is **proposed eager region**,
+`gpu () { body }` and `gpu (typed args) { body }` are **proposed callable
+kernels**. Java's compiler-only `ExecutionSurfaceV1` now recognizes those
+forms and syntactic `nb` region nesting independently of normal
+`Parser.parseProgram`, which intentionally continues to reject unlowered
+execution. This avoids enabling the old ambiguous `gpu {}` callable spelling
+in a real guest compiler without a migration review.
+
+Host execution verification:
+- The .NET, Java, and LLVM source *slices* are mirror-tested with exact original
+  Git blob hashes on funded CI, using isolated harnesses. These runs are NOT
+  proof that the complete Java Maven, .NET Native AOT or LLVM compiler trees
+  pass, nor production GPU hardware tests.
+- Forge has also been tested via an independently reconstructed **exact full
+  Git source tree** on funded CI, with gcc/clang debug/release CTest.
+- Java `ExecutionGraphChannelV1` wires one completed CPU value into a
+  separately owned bounded Channel, with cancellation and backpressure. `nb`
+  alone still does not invent an implicit stream.
+
+Next executable gates: canonical source AST/typed effect inference, native
+CPU region lowering through the real compiler, actor-owned continuation
+scheduling, owned DOP HostBuffer/GpuBuffer transfer ABI, trusted GPU
+OpenCL backend and physical hardware generation fences, and explicit
+multi-batch streaming with bounded byte credits and failure propagation.
