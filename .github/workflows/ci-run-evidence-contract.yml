@@ -7,7 +7,6 @@ on:
       - scripts/test_verify_ci_run.py
       - docs/EXACT_GITHUB_RUN_EVIDENCE_V1.md
       - .github/workflows/ci-run-evidence-contract.yml
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,12 +19,13 @@ jobs:
       - name: Checkout current repository only
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
       - name: Run all five-backend source-free security regressions
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/verify_ci_run.py scripts/test_verify_ci_run.py
-          python3 - <<'PY'
+          python3 -I -m py_compile scripts/verify_ci_run.py scripts/test_verify_ci_run.py
+          python3 -I - <<'PY'
           import importlib.util
           import unittest
           from pathlib import Path
@@ -39,7 +39,7 @@ jobs:
           for round_id in range(1, 4):
               suite = unittest.defaultTestLoader.loadTestsFromModule(module)
               discovered = suite.countTestCases()
-              if discovered < 32:
+              if discovered < 37:
                   raise SystemExit(f"CI verifier tests shrank: {discovered}")
               result = unittest.TextTestRunner(verbosity=1).run(suite)
               if (result.testsRun != discovered or not result.wasSuccessful()
