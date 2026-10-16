@@ -104,12 +104,15 @@ prove the requested privilege is inaccessible at runtime or that the OS
 sandboxes an actor; it only proves the bootstrap compiler did not admit the
 particular unsupported syntax.
 
-The `java` and `wasm` source-admission adapters intentionally return an
-error rather than claiming parity. Java's permissions-specific runtime
-JUnit suite belongs to its reviewed permissions hardening branch, and WASM
-must independently validate its zero-import guest/module boundary with
-actual compiled WebAssembly artifacts. Neither path can be substituted with
-the other three backends' parser-rejection results.
+The `java` and `wasm` **source-compiler** adapters intentionally return
+an error rather than claiming parity. Java's permissions-specific runtime
+JUnit suite belongs to its reviewed permissions hardening branch (#1034).
+WASM now has an independent real-bytecode/worker test,
+`tests/parity-zero-import-admission.test.mjs`, which constructs valid modules
+both with and without a host import and checks the zero-import host boundary.
+This is exercised by the WASM repository's existing `npm test` workflow;
+actual GitHub runner evidence is still required. Neither backend can be
+certified by the other three bootstraps' parser rejection results.
 
 ## Security review and merge gate
 
