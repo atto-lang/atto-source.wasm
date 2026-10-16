@@ -36,10 +36,14 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
   ];
   const dir = mkdtempSync(join(tmpdir(),"ores-method-capture-wasm-"));
   try {
+    // Execute the immutable, locally snapshotted bytes, not a potentially
+    // replaced path after the SHA-256 check (avoid check/use races).
+    const pinned = join(dir,"pinned-oreslang-llvmc");
+    writeFileSync(pinned,bytes,{flag:"wx",mode:0o500});
     for (let i = 0; i < sources.length; i++) {
       const input = join(dir, `unsupported-${i}.ores`);
       writeFileSync(input, sources[i], {mode:0o600});
-      const result = spawnSync(path,["--target=wasm32", input],{
+      const result = spawnSync(pinned,["--target=wasm32", input],{
         encoding:"utf8",timeout:30000,maxBuffer:1024*1024
       });
       assert.equal(assertNativeFrontendRejection(result),true,
