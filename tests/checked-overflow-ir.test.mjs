@@ -56,3 +56,11 @@ test("unrelated and unguarded traps cannot impersonate checked overflow",()=>{
     'extractvalue { i64, i1 } %i64.checked.pair, 1',
     'extractvalue { i64, i1 } %unrelated.pair, 1'),"sadd"),/conditional trap/);
 });
+
+test("checked intrinsics in an uncalled helper cannot certify main",()=>{
+  const decoy=valid.replace("define i64 @main() {","define i64 @decoy() {")+
+    "define i64 @main() {\nentry:\n  ret i64 42\n}\n";
+  assert.throws(()=>assertCheckedOverflowIr(decoy,"sadd"),/required signed-i64/);
+  assert.throws(()=>assertCheckedOverflowIr(valid+valid,
+    "sadd"),/exactly one i64 guest main body/);
+});
