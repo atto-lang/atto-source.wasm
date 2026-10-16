@@ -48,9 +48,12 @@ def check_canonical_vectors(path):
     digest = hashlib.sha256(raw).hexdigest()
     if digest != CANONICAL_VECTORS_SHA256:
         raise ValueError("canonical permission vectors SHA-256 mismatch")
+    # Parse exactly the bytes that were checked. A second path read creates
+    # a digest-then-use race if a workspace file changes concurrently.
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=pairs_no_duplicates)
 
-def load_vectors(path):
-    data = read_json(path)
+def load_vectors(path, *, enforce_digest=False):
+    data = check_canonical_vectors(path) if enforce_digest else read_json(path)
     if not isinstance(data, dict):
         raise ValueError("permission corpus must be a JSON object")
     if data.get("schema") != SCHEMA or type(data.get("version")) is not int or data["version"] != 1:
@@ -129,8 +132,7 @@ def main():
     p.add_argument("--source-tree")
     args = p.parse_args()
     try:
-        check_canonical_vectors(args.vectors)
-        ids = load_vectors(args.vectors)
+        ids = load_vectors(args.vectors, enforce_digest=True)
         if args.validate_only:
             if args.report or args.backend or args.source_commit or args.source_tree:
                 raise ValueError("validate-only cannot claim runtime evidence")
