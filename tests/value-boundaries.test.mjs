@@ -7,6 +7,8 @@ import {join} from 'node:path';
 import {compileOresToWasm, readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 
 const cases = JSON.parse(await readFile(new URL('./value-boundary-rejections.json', import.meta.url)));
+const domainCases = JSON.parse(await readFile(new URL('../contracts/v1/cpu-gpu-nb-unsupported-v1.json', import.meta.url)));
+
 test('real source value boundaries reject before publishing a Wasm artifact', {
   // A baseline unit suite can omit the optional installed native compiler;
   // a real-parity CI job must opt in and cannot silently skip when missing.
@@ -40,7 +42,10 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     const provenance = await readFile(output + '.provenance.json');
     const originalEntries = (await readdir(dir)).sort();
     assert.equal(Object.keys(cases).length, 15);
-    for (const [name, program] of Object.entries(cases)) {
+    assert.equal(Object.keys(domainCases).length, 10, "incomplete CPU/GPU/nb corpus");
+    assert.equal(new Set([...Object.keys(cases), ...Object.keys(domainCases)]).size, 25,
+      "duplicate source admission case names");
+    for (const [name, program] of Object.entries({...cases, ...domainCases})) {
       await writeFile(source, program);
       // Exercise both failure with no previous output and preservation of a
       // previous successful artifact. A toolchain failure alone is no pass.
