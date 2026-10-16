@@ -26,8 +26,14 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     compiler,256*1024*1024,"invalid or oversized native compiler");
   const actualCompilerSha = createHash("sha256").update(compilerSnapshot.bytes).digest("hex");
   assert.equal(actualCompilerSha, expectedCompilerSha);
-  const corpus = JSON.parse(await readFile(new URL(
-    "../contracts/v1/numeric-parity/source-i64-cases.json",import.meta.url),"utf8"));
+  const fixtureBytes = await readFile(new URL(
+    "../contracts/v1/numeric-parity/source-i64-cases.json",import.meta.url));
+  const gitBlobHeader = Buffer.from("blob " + fixtureBytes.length + "\0","ascii");
+  const fixtureHash = createHash("sha1").update(gitBlobHeader)
+    .update(fixtureBytes).digest("hex");
+  assert.equal(fixtureHash,"bbc319c19ecd007109d33592e210091eb267e5a2",
+    "numeric guest fixture SHA differs from reviewed source corpus");
+  const corpus = JSON.parse(fixtureBytes.toString("utf8"));
   assert.equal(corpus.schema_version,"1.0.0");
   assert.equal(corpus.status,"reference-only-not-compiled-execution");
   assert.equal(corpus.cases.length,7);
