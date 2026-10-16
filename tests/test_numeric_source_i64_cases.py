@@ -16,12 +16,17 @@ HI = (1 << 63) - 1
 
 def interpret(node):
     if isinstance(node, ast.Constant) and type(node.value) is int:
-        if not 0 <= node.value <= 1 << 63:
+        # +2^63 is NOT an i64 expression result or valid intermediate.
+        # Its sole permitted occurrence is the magnitude of unary -.
+        if not 0 <= node.value <= HI:
             raise ValueError("out of literal bounds")
         return node.value
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
-        value = interpret(node.operand)
-        result = -value if isinstance(node.op, ast.USub) else value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        operand = node.operand
+        if (isinstance(operand, ast.Constant) and type(operand.value) is int
+                and operand.value == (1 << 63)):
+            return LO
+        result = -interpret(operand)
     elif isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult)):
         a, b = interpret(node.left), interpret(node.right)
         result = a + b if isinstance(node.op, ast.Add) else (
@@ -51,6 +56,37 @@ class PortableI64ReferenceTest(unittest.TestCase):
                                  int(case["expected"]))
                 self.assertTrue(LO <= int(case["expected"]) <= HI)
 
+
+    def test_i64_minimum_has_no_positive_out_of_range_intermediate(self):
+        for expression, expected in (
+            ("-9223372036854775808", LO),
+            ("-9223372036854775808+1", LO + 1),
+            ("-9223372036854775807-1", LO),
+        ):
+            with self.subTest(expression=expression):
+                self.assertEqual(interpret(ast.parse(expression, mode="eval").body),
+                                 expected)
+
+    def test_out_of_range_literals_and_intermediates_fail_closed(self):
+        for expression in (
+            "9223372036854775808",
+            "9223372036854775808-1",
+            "(9223372036854775808)-1",
+            "0-9223372036854775808",
+            "9223372036854775807+1",
+            "-9223372036854775808-1",
+            "-(-9223372036854775808)",
+            "--9223372036854775808",
+            "-9223372036854775808*-1",
+            "3037000500*3037000500",
+            "+1",  # portable source subset does not admit unary plus
+            "1/2",
+            "True",
+            "1.0",
+        ):
+            with self.subTest(expression=expression):
+                with self.assertRaises(ValueError):
+                    interpret(ast.parse(expression, mode="eval").body)
 
 if __name__ == "__main__":
     unittest.main()
