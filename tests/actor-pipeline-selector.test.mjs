@@ -17,7 +17,7 @@ test("v1 exact unsigned FNV-1a 64-bit slot vectors", () => {
   for (const vector of contract.operations.by_key)
     assert.equal(["worker-a","worker-b","worker-c"][routeKeySlot(vector.key,3)],
       vector.target, vector.key);
-  for (const [key, slot] of [["customer-7",0],["alpha",0],["beta",2],["🌍",0],["",2]])
+  for (const [key, slot] of [["customer-7",0],["alpha",0],["beta",2],["🌍",0],["",2],["\0",0]])
     assert.equal(routeKeySlot(key, 3), slot, key);
   assert.throws(() => routeKeySlot("\ud800",3));
   assert.throws(() => routeKeySlot("e".repeat(4097),3));
