@@ -2,6 +2,7 @@
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
 // Guest source arena lowering and shared-domain regions are separate gates.
 const PAGE = 65536;
+const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 
 export class ActorArena {
@@ -13,6 +14,9 @@ export class ActorArena {
   #scratch = new WeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
+  #persistentCount = 0;
+  #scratchCount = 0;
+  #freePersistent = [];
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
@@ -54,6 +58,7 @@ export class ActorArena {
     this.#requireTurn(turn);
     this.#bytes().fill(0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
+    this.#scratchCount = 0;
     this.#scratch = new WeakMap();
     this.#turn = null;
   }
@@ -63,18 +68,59 @@ export class ActorArena {
     if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid arena allocation length");
     }
-    const top = scratch ? this.#scratchTop : this.#persistentTop;
-    if (length > PAGE - top) throw new RangeError("actor arena quota exhausted");
+    if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
+      throw new RangeError("actor arena handle quota exhausted");
+    }
+    let offset;
+    if (scratch) {
+      if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
+      offset = PAGE + this.#scratchTop;
+      this.#scratchTop += length;
+      ++this.#scratchCount;
+    } else {
+      // First-fit over bounded free segments. Removed persistent handles cannot
+      // regain authority, even when their bytes are reused at the same offset.
+      const index = this.#freePersistent.findIndex(segment => segment.length >= length);
+      if (index !== -1) {
+        const segment = this.#freePersistent[index];
+        offset = segment.offset;
+        segment.offset += length;
+        segment.length -= length;
+        if (segment.length === 0) this.#freePersistent.splice(index, 1);
+      } else {
+        if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
+        offset = this.#persistentTop;
+        this.#persistentTop += length;
+      }
+      ++this.#persistentCount;
+    }
     const handle = Object.freeze({});
-    const slot = {offset: (scratch ? PAGE : 0) + top, length};
+    const slot = {offset, length};
     (scratch ? this.#scratch : this.#handles).set(handle, slot);
-    if (scratch) this.#scratchTop += length;
-    else this.#persistentTop += length;
+    this.#bytes().fill(0, offset, offset + length);
     return handle;
   }
 
   allocPersistent(turn, length) { return this.#alloc(turn, length, false); }
   allocScratch(turn, length) { return this.#alloc(turn, length, true); }
+
+  dropPersistent(turn, handle) {
+    this.#requireTurn(turn);
+    const entry = this.#handles.get(handle);
+    if (!entry) throw new Error("foreign, stale or scratch arena handle");
+    this.#bytes().fill(0, entry.offset, entry.offset + entry.length);
+    this.#handles.delete(handle);
+    --this.#persistentCount;
+    this.#freePersistent.push({...entry});
+    this.#freePersistent.sort((a, b) => a.offset - b.offset);
+    const coalesced = [];
+    for (const segment of this.#freePersistent) {
+      const prior = coalesced[coalesced.length - 1];
+      if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
+      else coalesced.push(segment);
+    }
+    this.#freePersistent = coalesced;
+  }
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
@@ -105,5 +151,7 @@ export class ActorArena {
     this.#memory = null; // physical release is JS runtime-dependent
     this.#handles = new WeakMap();
     this.#scratch = new WeakMap();
+    this.#persistentCount = this.#scratchCount = 0;
+    this.#freePersistent = [];
   }
 }
