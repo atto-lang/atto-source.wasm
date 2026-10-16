@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtemp,writeFile,rm} from "node:fs/promises";
+import {mkdtemp,writeFile,rm,readdir} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
@@ -22,9 +22,11 @@ test("LLVM-backed Wasm never mislabels unsupported structural source as compiled
       fnc consume(structural Shape value): int { return value.x; }
       fnc main(): int { return 1; }
     `, {flag:"wx"});
+    const before = await readdir(work);
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER,[source],{
-      encoding:"utf8",timeout:15000,maxBuffer:1024*1024
+      cwd: work, encoding:"utf8",timeout:15000,maxBuffer:1024*1024
     });
+    assert.deepEqual(await readdir(work), before, "rejected source must leave no new artifacts");
     assert.equal(compile.error,undefined,"native compiler must run");
     assert.equal(compile.signal,null,"compiler must diagnose rather than crash");
     assert.ok(Number.isInteger(compile.status) && compile.status > 0,
@@ -49,9 +51,11 @@ test("Wasm bridge refuses unimplemented structural tuple width and optional-tail
       fnc take(structural (int, int, string?) value): int { return 1; }
       fnc main(): int { return take(...(5, 3, "foo", "start")); }
     `, {flag: "wx"});
+    const before = await readdir(work);
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [source], {
-      encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024
+      cwd: work, encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024
     });
+    assert.deepEqual(await readdir(work), before, "rejected source must leave no new artifacts");
     assert.equal(compile.error, undefined, "native compiler must actually run");
     assert.equal(compile.signal, null, "compiler must diagnose instead of crashing");
     assert.ok(Number.isInteger(compile.status) && compile.status > 0,
