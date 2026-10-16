@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {ActorPipelinePolicy, actorRouteHash64} from "../src/actor-pipeline-policy.mjs";
 const stages = [{id:"source",type:"Producer",role:"readable",outbound:"Event"},
   ...["a","b","c"].map(id=>({id:"worker-"+id,type:"Worker",role:"writable",inbound:"Event"}))];
@@ -36,4 +37,22 @@ test("reject duplicate, invalid UTF-8, wrong type, unknown target, cycles", () =
           [{source:"a",target:"b",payload:"Event"},{source:"b",target:"a",payload:"Event"}]);
   assert.throws(()=>actorRouteHash64("\ud800"),/Unicode/);
   assert.throws(()=>actorRouteHash64("🌍".repeat(1025)),/byte budget/);
+});
+
+test("load canonical routing vectors checked byte-identically across five repos", () => {
+  const fixture = JSON.parse(readFileSync(
+    new URL("../contracts/v1/actor-pipeline-routing-v1.json", import.meta.url), "utf8"));
+  assert.equal(fixture.schema, "oreslang.actor-pipeline-routing.v1");
+  const plan = new ActorPipelinePolicy(
+    fixture.graph.stages.map(s=>({
+      id:s.id,type:s.actor_type,role:s.role,inbound:s.inbound,outbound:s.outbound})),
+    fixture.graph.connections);
+  assert.deepEqual(plan.forwardAll("producer-1").map(e=>e.target),
+    fixture.operations.forward_all);
+  assert.deepEqual(fixture.operations.forward_round_robin.map(() =>
+    plan.forwardRoundRobin("producer-1").target), fixture.operations.forward_round_robin);
+  for (const v of fixture.operations.by_key) {
+    assert.equal(actorRouteHash64(v.key).toString(16).padStart(16,"0"),v.fnv1a64_hex);
+    assert.equal(plan.forwardByKey("producer-1",v.key).target,v.target);
+  }
 });
