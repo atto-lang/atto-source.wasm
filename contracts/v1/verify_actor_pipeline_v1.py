@@ -15,9 +15,16 @@ def main() -> int:
             "worker-a", "worker-b", "worker-c",
             "worker-a", "worker-b", "worker-c"]:
         raise AssertionError("canonical six-step RR vector")
-    for entry in data["operations"]["by_key"]:
+    keys = data["operations"]["by_key"]
+    if [entry["key"] for entry in keys] != [
+            "customer-7", "alpha", "beta", "🌍", "", "\0"]:
+        raise AssertionError("missing/reordered six canonical routing keys")
+    for entry in keys:
         h = 0xcbf29ce484222325
-        for byte in entry["key"].encode("utf-8", "strict"):
+        key_bytes = entry["key"].encode("utf-8", "strict")
+        if len(key_bytes) > 4096:
+            raise AssertionError("routing key byte budget exceeded")
+        for byte in key_bytes:
             h = ((h ^ byte) * 0x100000001b3) & 0xffffffffffffffff
         if f"{h:016x}" != entry["fnv1a64_hex"]:
             raise AssertionError(f"hash mismatch for {entry['key']!r}")
@@ -85,6 +92,14 @@ def main() -> int:
         raise AssertionError("isolated graph actor")
     if adjacency.get("producer-1") != data["operations"]["forward_all"]:
         raise AssertionError("fan-out order does not match published graph")
+    if (len(adjacency["producer-1"]) == 1
+            or data["operations"]["forward"]["error"] != "ambiguous forward"):
+        raise AssertionError("ambiguous one-to-many forward not rejected")
+    target = data["operations"]["forward_to"]
+    if target["target"] not in adjacency["producer-1"] or target["expected"] != target["target"]:
+        raise AssertionError("explicit target route is not connected")
+    if data["operations"]["invalid_target"]["target"] in adjacency["producer-1"]:
+        raise AssertionError("invalid target unexpectedly connected")
     for i, target in enumerate(data["operations"]["forward_round_robin"]):
         if target != adjacency["producer-1"][i % len(adjacency["producer-1"])]:
             raise AssertionError("published RR not deterministic")
