@@ -9,11 +9,12 @@ def main() -> int:
     data = json.loads(source.read_text(encoding="utf-8"))
     if data["schema"] != "oreslang.actor-pipeline-routing.v1":
         raise AssertionError("wrong routing fixture schema")
-    assert data["operations"]["forward_all"] == [
-        "worker-a", "worker-b", "worker-c"]
-    assert data["operations"]["forward_round_robin"] == [
-        "worker-a", "worker-b", "worker-c",
-        "worker-a", "worker-b", "worker-c"]
+    if data["operations"]["forward_all"] != ["worker-a", "worker-b", "worker-c"]:
+        raise AssertionError("canonical three-worker fan-out order")
+    if data["operations"]["forward_round_robin"] != [
+            "worker-a", "worker-b", "worker-c",
+            "worker-a", "worker-b", "worker-c"]:
+        raise AssertionError("canonical six-step RR vector")
     for entry in data["operations"]["by_key"]:
         h = 0xcbf29ce484222325
         for byte in entry["key"].encode("utf-8", "strict"):
@@ -87,7 +88,7 @@ def main() -> int:
     for i, target in enumerate(data["operations"]["forward_round_robin"]):
         if target != adjacency["producer-1"][i % len(adjacency["producer-1"])]:
             raise AssertionError("published RR not deterministic")
-    for key in ("", "\\ud800", "🌍" * 1025):
+    for key in ("", "\ud800", "🌍" * 1025):
         if key == "":
             continue
         try:
