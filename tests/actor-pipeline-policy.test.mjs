@@ -119,6 +119,12 @@ test("diamond fan-in is valid while cycles, dangling ports and self-edges are re
     role:"readable",outbound:"P"}],e),/missing port/);
 });
 
+test("a declared transform output port must have a real outbound edge", () => {
+  const terminalTransform = stages.map((stage, i) =>
+    i === 1 ? {...stage, role: "transform", outbound: "Event"} : stage);
+  assert.throws(() => new ActorPipelinePolicy(terminalTransform, edges),
+    /missing port/);
+});
 test("endpoint tuples cannot collide through delimiters or Unicode normalization", () => {
   const s = [
     {id:"a:b",type:"Source",role:"readable",outbound:"E"},
