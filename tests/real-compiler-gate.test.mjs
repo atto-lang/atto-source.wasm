@@ -96,3 +96,18 @@ test("value-pipeline source fixture is byte-identical to shared conformance", as
     .update(invalid).digest("hex");
   assert.equal(invalidGitSha, "7d0bb7f4984f22eb44d6d2c05c8008128aaed15a");
 });
+
+test("nominal overload denial fixture uses equal-arity distinct enum declarations", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const source = await readFile(
+    new URL("../examples/nominal-overload-unsupported.ores", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /define enum Color as\s+Red\s+end/);
+  assert.match(source, /define enum Mode as\s+Fast\s+end/);
+  assert.match(source, /fnc pick\(Color value\): int/);
+  assert.match(source, /fnc pick\(Mode value\): int/);
+  assert.match(source, /return pick\(Color\.Red\);/);
+  // The live-pinned compiler/wasm artifact denial is separately required
+  // by verify-real-compiler.mjs; a fixture shape check is not that proof.
+});
