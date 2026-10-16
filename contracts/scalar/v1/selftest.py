@@ -130,6 +130,36 @@ class ScalarHarnessTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "fixture changed before read"):
                 runner.load_suite()
 
+    def test_published_report_requires_exact_source_revision(self):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        from unittest.mock import patch
+
+        report = runner.HERE / "scalar-report.json"
+        argv = [
+            "run.py", "--backend", "forge", "--mode", "stdout-i64",
+            "--command", "nonexistent-compiler {source}",
+            "--report", str(report)
+        ]
+        with patch.object(sys, "argv", argv):
+            with redirect_stderr(io.StringIO()) as output:
+                with self.assertRaises(SystemExit) as thrown:
+                    runner.main()
+        self.assertEqual(thrown.exception.code, 2)
+        self.assertIn("--report requires --revision", output.getvalue())
+        self.assertFalse(report.exists())
+
+        # A source revision is a declaration, not a compiler provenance proof.
+        # Mocked execution tests reporting only, not guest execution.
+        with patch.object(sys, "argv", argv + ["--revision", "a" * 40]):
+            with patch.object(runner, "run_case", return_value=(True, "mock-only")):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(runner.main(), 0)
+        data = json.loads(report.read_text())
+        self.assertEqual(data["source_revision"], "a" * 40)
+        self.assertEqual(data["evidence_level"], "source-executed-scalar")
+        self.assertEqual(len(data["results"]), 10)
+
     def test_false_success_and_missing_compiler_denied(self):
         source = runner.HERE / "fixtures" / "literal-42.ores"
         missing = runner.run_case([str(runner.HERE / "missing-tool")], source, "accept", "42", "stdout-i64", 2)
