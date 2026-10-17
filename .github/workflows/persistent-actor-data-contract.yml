@@ -6,12 +6,16 @@ on:
       - 'scripts/verify_persistent_actor_data_contract.py'
       - 'scripts/test_persistent_actor_data_contract.py'
       - '.github/workflows/persistent-actor-data-contract.yml'
+      - 'src/actor-arena.mjs'
+      - 'tests/actor-arena.test.mjs'
   push:
     paths:
       - 'contracts/v1/persistent_actor_data_v1.json'
       - 'scripts/verify_persistent_actor_data_contract.py'
       - 'scripts/test_persistent_actor_data_contract.py'
       - '.github/workflows/persistent-actor-data-contract.yml'
+      - 'src/actor-arena.mjs'
+      - 'tests/actor-arena.test.mjs'
   workflow_dispatch:
 permissions:
   contents: read
@@ -33,3 +37,16 @@ jobs:
         run: python3 scripts/verify_persistent_actor_data_contract.py
       - name: Execute negative policy mutation suite
         run: python3 scripts/test_persistent_actor_data_contract.py -v
+
+  host-arena:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Execute real WebAssembly.Memory actor arena tests
+        run: node --test tests/actor-arena.test.mjs
