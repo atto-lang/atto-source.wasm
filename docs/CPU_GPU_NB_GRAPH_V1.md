@@ -393,7 +393,7 @@ be changed when adding host-graph integration cases.
 | Java/Graal | Draft #1066/#1086, reconciled on #1122 | Draft #1096, CPU-only graph | Draft #1125; one `OresFuture<Long>` | Fail closed; typed source lowering unimplemented |
 | LLVM | Draft #445, whole-batch read/write loans | Draft #481 host-only graph | **Draft #507:** native owned F32 CPU slice followed by one-shot host I64 graph; full production integration tests pending | Fail closed; no general device compiler |
 | .NET | **Not implemented** | Draft #44, bounded-executor `Task<T>` host graph | **Not implemented** | Scalar bootstrap, unsupported domain |
-| Forge | **Not implemented** | Draft #41, bounded-executor one-shot CPU graph | **Not implemented** | Scalar bootstrap, unsupported domain |
+| Forge | **Draft #66:** trusted host-only F32 AoS/SoA/AoSoA CPU regions, layout/loan/ownership checks; no graph attachment | Draft #41, bounded-executor one-shot CPU graph | **Not implemented**; must compose independently verified region and graph | Scalar bootstrap, unsupported domain |
 | Wasm | No independent region runtime; must inherit *verified* pinned LLVM source semantics | No independent host-graph runtime in zero-import guest | **Not implemented** | Delegate only; no implicit WebGPU/host capability |
 
 **Relative parity now means verified boundaries, not fabricated equivalence.**
@@ -457,13 +457,38 @@ was attempted but all four jobs had **zero executed steps**.
 Keep #507 draft pending actual compiled-header/full-compiler exact-head tests.
 
 **Remaining differences:** Java #1125 and LLVM #507 now each have a *draft*
-host-only owned-F32-to-host-I64 bridge. .NET #44 and Forge #41 have typed
-one-shot host graphs but have **no independently implemented/verified owned
-F32 region bridge** yet; those backends must first implement allocation
-liveness, whole-batch read/write loans and type-safe row/field admission.
+host-only owned-F32-to-host-I64 bridge. .NET #44 has a typed host graph but
+no owned-F32 region substrate. Forge #41 has a typed host graph, and stacked
+[Forge draft #66](https://github.com/ores-truffle-oreslang/oreslang-source.forge/pull/66)
+adds a **synchronous** trusted owned-F32 CPU primitive (AoS/SoA/AoSoA,
+allocation identities, physical whole-buffer read/write loans, checked
+field/half-open row slices). Forge's asynchronous F32-to-I64 graph bridge
+remains **not implemented**. No source-level `cpu`/`gpu`/`nb` admission is enabled.
 WASM #43 has no native owned-region runtime and must use an explicitly
 pinned, verified LLVM-to-WASM path; absence of a compiler or checksum is
 SKIPPED, never a passing guest test. None of these contracts admit positive
 guest `cpu`/`gpu`/`nb` source execution. Source result-type issue #1098
 and private CI security gates #22/#962 remain unresolved. No updates to the
 22-case versioned region corpus are implied by this implementation ledger.
+
+## Forge owned-F32 host primitive verification boundary (2026-10-16/17)
+
+[Forge draft #66](https://github.com/ores-truffle-oreslang/oreslang-source.forge/pull/66)
+is stacked on the existing #41 host graph contract. It introduces a real,
+host-only F32 CPU-region primitive, **not** guest lowering or a typed bridge.
+Production header Git blob: `b530eb9bc3e0c49d602e09bbd5d6ab0b3c16859c`.
+Regression source blob: `33d202ed2ce657722843ea77f60576da8a337059`.
+The exact committed files matched local test inputs. GCC 14.2 and Clang 17,
+both with ASan+UBSan, each executed **26,009/26,009 assertions** covering
+three physical layouts, loan exclusion, close and owner checks, 450 seeded
+geometry/slice combinations and a conflicting native writer thread.
+
+This focused local verification is **not** a passing full Forge compiler/
+CMake/CTest matrix nor a source-level Oreslang positive CPU-region test.
+Next Forge implementation milestone: build a cancellable one-shot
+owned-F32-to-host-I64 graph adapter on this base and independently test its
+post-enqueue executor rejection, cancel/claim races, and owner retention.
+.NET has yet to land a corresponding owned-F32 substrate. WASM remains
+LLVM-delegated with fail-closed evidence when the actual pinned backend is
+unavailable. Do not conflate this contract ledger with approved source
+exports; incidents #22/#962 remain open.
