@@ -238,6 +238,43 @@ test("tampered Array push/sort/splice cannot corrupt arena free-list recycling",
   arena.retire();
 });
 
+test("poisoned Array iterator cannot inject forged live-overlapping free segments", () => {
+  const arena = new ActorArena({actorId: 49, incarnation: 1});
+  const turn = arena.beginTurn();
+  const released = arena.allocPersistent(turn, 8);
+  const retained = arena.allocPersistent(turn, 8);
+  const retainedBytes = Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]);
+  arena.write(turn, retained, retainedBytes);
+
+  // The original coalescing loop used for...of on #freePersistent. Since
+  // Symbol.iterator is ambient mutable prototype state, hostile guest JS
+  // could replace the *entire* free-list with a segment covering retained.
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let intercepted = 0;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true,
+      value: function* () {
+        ++intercepted;
+        yield {offset: 8, length: 65528};
+      }
+    });
+    arena.dropPersistent(turn, released);
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+
+  assert.equal(intercepted, 0,
+    "arena free-list coalescing must not invoke untrusted array iterators");
+  const recycled = arena.allocPersistent(turn, 8);
+  assert.deepEqual([...arena.read(turn, recycled)], Array(8).fill(0));
+  arena.write(turn, recycled, Uint8Array.from([99, 98, 97, 96, 95, 94, 93, 92]));
+  assert.deepEqual([...arena.read(turn, retained)], [...retainedBytes],
+    "recycled free bytes must not overlap a live actor allocation");
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test("mutated Object.freeze cannot capture actor turn or opaque handle authority", () => {
   const previous = Object.getOwnPropertyDescriptor(Object, "freeze");
   const intercepted = [];
