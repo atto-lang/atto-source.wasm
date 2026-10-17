@@ -78,6 +78,12 @@
       "reason": "no width subtyping for fixed arrays"
     },
     {
+      "id": "fixedarray.zero.element.identity",
+      "expect": "reject",
+      "source": "structural FixedArray<int,0> v <- FixedArray<string,0>",
+      "reason": "zero-width fixed arrays still retain element type identity"
+    },
+    {
       "id": "fixedarray.not.tuple",
       "expect": "reject",
       "source": "structural (int,int,int) v <- FixedArray<int,3>",
@@ -142,6 +148,12 @@
       "expect": "reject",
       "source": "structural FixedList<int,2> v <- FixedList<int,3>",
       "reason": "fixed list extent invariant"
+    },
+    {
+      "id": "fixedlist.zero.element.identity",
+      "expect": "reject",
+      "source": "structural FixedList<string,0> v <- FixedList<int,0>",
+      "reason": "zero-width fixed lists still retain element type identity"
     },
     {
       "id": "map.readonly",

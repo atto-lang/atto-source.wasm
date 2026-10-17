@@ -5,8 +5,8 @@ Status: **target-only proposal, NOT compiled or guest parity**. This adds collec
 ## Distinct kinds and source forms
 
 - `structural Array<T>`: borrowed readonly view of a dynamically sized homogeneous array, with index reads only. Unknown length is fine for indexed reads but **never** permits tuple packing or static spread.
-- `structural FixedArray<T,N>`: homogeneous fixed array with **exact** compile-time extent `N` (0..64 for this first proof). No tuple or dynamic-array conversion.
-- `structural List<T>` and `structural FixedList<T,N>`: readonly sequential views, with distinct list vs array and fixed-list vs tuple identities. Mutable list operations are not visible on the view.
+- `structural FixedArray<T,N>`: homogeneous fixed array with **exact** compile-time extent `N` (0..64 for this first proof). A zero-width fixed array still retains `T`; empty shape never erases element identity. No tuple or dynamic-array conversion.
+- `structural List<T>` and `structural FixedList<T,N>`: readonly sequential views, with distinct list vs array and fixed-list vs tuple identities. `FixedList<T,0>` also retains `T`; zero elements do not erase type/capability metadata. Mutable list operations are not visible on the view.
 - `structural Map<K,V>`: readonly lookup/iteration view. Missing keys return `Option<V>`; structural width is **not** a claim that arbitrary keys are present. Keys must retain exact hash/equality identity; key covariance and unstable/unknown key types are rejected.
 
 ## Authority and element variance
@@ -19,7 +19,7 @@ No implicit conversion between `Array`, `List`, `Map`, `FixedArray`, `FixedList`
 
 ## Conformance and release gate
 
-- `cases.json` contains **36 decision cases**: 9 target accepts, 27 target rejects. They are *normative targets* and not a passing test suite.
+- `cases.json` contains **38 decision cases**: 9 target accepts, 29 target rejects. They are *normative targets* and not a passing test suite.
 - Java now also contains source-level typechecker plumbing for readonly structural collection parameters, distinct Array/List identities, fixed-kind/extent admission, Map<K,V> key/value checks, and non-escape/mutation rejection. This source implementation is **not certified** until the exact-head JUnit/guest workflow executes successfully. Array/List guest reads have a real execution test; Map construction/iteration and cross-backend lowering remain incomplete. Other backends remain target-only/not implemented until genuine parser, ownership, emitter and runtime support lands.
 - All five backends must validate the same case IDs, expectations, exact source blobs, version, proof bound and immutable inventory. A green inventory check must never be treated as native or guest parity.
 - Positive backend evidence requires real typed AST parsing; checked readonly borrow and non-escape; actual array/list/map read and map lookup execution; repeated negative tests for mutating/escaping/unknown inputs; and per-backend exact-head compiler/guest artifacts. For WASM specifically, require wasm32 output **and** guest execution; host-only LLVM tests are insufficient.

@@ -9,17 +9,17 @@ ROOT = Path(__file__).resolve().parents[1]
 CASES = ROOT / "contracts/structural/v3/cases.json"
 README = ROOT / "contracts/structural/v3/README.md"
 EXPECTED_BLOBS = {
-    "cases": "0a04e086e50b83fe6fd609fa747a844ce99d36dc",
-    "readme": "6ec3bb0e7a186336e7486ff08736519b4dae2bad",
+    "cases": "6761f60b3e3bd2ac03c09aa25741f953db79c3cd",
+    "readme": "a2c229cb5c92dfeba9cb045e20b3b60ea0e20244",
 }
 EXPECTED_IDS = frozenset("""
 array.homogeneous array.literal array.mismatch array.dynamic.to.fixed
 array.no.list.coercion array.readonly.set array.numeric.coercion array.unknown
 array.hidden.mutable fixedarray.extent fixedarray.wrong.extent
-fixedarray.not.tuple fixedarray.bound.65 list.readonly
+fixedarray.zero.element.identity fixedarray.not.tuple fixedarray.bound.65 list.readonly
 list.literal.covariance list.writable.covariance list.not.array
 list.push list.unknown list.nested.mutable fixedlist.extent
-fixedlist.wrong.extent map.readonly map.value.literal map.key.invariant
+fixedlist.wrong.extent fixedlist.zero.element.identity map.readonly map.value.literal map.key.invariant
 map.value.numeric map.unknown.key map.unknown.value map.mutable.put
 map.unsafe.key map.nested.mutable capability.no_escape
 capability.no_await overload.no_shape_only spread.no_dynamic_container
@@ -51,7 +51,7 @@ def validate(data):
     require(type(data["notice"]) is str
             and "not" in data["notice"].lower(), "missing evidence disclaimer")
     cases = data["cases"]
-    require(type(cases) is list and len(cases) == 36,
+    require(type(cases) is list and len(cases) == 38,
             "missing or added decision cases")
     found = set()
     accept = reject = 0
@@ -70,7 +70,7 @@ def validate(data):
                 "empty decision rationale")
         accept += expected == "accept"
         reject += expected == "reject"
-    require(found == EXPECTED_IDS and accept == 9 and reject == 27,
+    require(found == EXPECTED_IDS and accept == 9 and reject == 29,
             "structural cases missing or approval/rejection counts drift")
     require(all(any(name.startswith(prefix) for name in found)
                 for prefix in ("array.", "fixedarray.", "list.", "fixedlist.",
