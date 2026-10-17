@@ -93,6 +93,107 @@ test('TextEncoder and String prototype poisoning cannot alter route hash or admi
   }
 });
 
+test('route hashing ignores poisoned typed-array iterator and numeric constructors', () => {
+  const p = policy();
+  const referenceHash = actorRouteHash64('beta');
+  const referenceTarget = p.forwardByKey('producer-1', 'beta').target;
+  assert.equal(referenceTarget, 'worker-c');
+  const iterator = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  const bigint = Object.getOwnPropertyDescriptor(globalThis, 'BigInt');
+  const number = Object.getOwnPropertyDescriptor(globalThis, 'Number');
+  let hash, target;
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () { yield 0; }
+    });
+    Object.defineProperty(globalThis, 'BigInt', {
+      configurable: true, writable: true, value() { return 0n; }
+    });
+    Object.defineProperty(globalThis, 'Number', {
+      configurable: true, writable: true, value() { return 0; }
+    });
+    hash = actorRouteHash64('beta');
+    target = p.forwardByKey('producer-1', 'beta').target;
+  } finally {
+    if (iterator) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    else delete Uint8Array.prototype[Symbol.iterator];
+    if (bigint) Object.defineProperty(globalThis, 'BigInt', bigint);
+    else delete globalThis.BigInt;
+    if (number) Object.defineProperty(globalThis, 'Number', number);
+    else delete globalThis.Number;
+  }
+  assert.equal(hash, referenceHash);
+  assert.equal(target, referenceTarget);
+});
+
+test('duplicate edges cannot evade admission through poisoned JSON.stringify', () => {
+  const stringify = Object.getOwnPropertyDescriptor(JSON, 'stringify');
+  let admitted = false, rejected = false, counter = 0;
+  try {
+    Object.defineProperty(JSON, 'stringify', {
+      configurable: true, writable: true,
+      value() { return 'fresh-edge-' + (++counter); }
+    });
+    try {
+      new ActorPipelinePolicy(stages, [edges[0], edges[0], ...edges.slice(1)]);
+      admitted = true;
+    } catch (error) {
+      rejected = error instanceof TypeError &&
+        /duplicate pipeline edge/.test(String(error));
+    }
+  } finally {
+    Object.defineProperty(JSON, 'stringify', stringify);
+  }
+  assert.equal(admitted, false, 'duplicate edge must never reach the route table');
+  assert.equal(rejected, true, 'reject duplicate edge with explicit diagnostic');
+});
+
+test('mutable Array and Map iterators cannot remove graph stages or edges', () => {
+  const arrayIterator = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  const mapIterator = Object.getOwnPropertyDescriptor(Map.prototype, Symbol.iterator);
+  let target, count, cyclicDenied = false;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () {}
+    });
+    Object.defineProperty(Map.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () {}
+    });
+    const p = policy();
+    target = p.forwardTo('producer-1', 'worker-b').target;
+    count = p.forwardAll('producer-1').length;
+    try {
+      new ActorPipelinePolicy(stages, [edges[0], edges[0], ...edges.slice(1)]);
+    } catch (error) {
+      cyclicDenied = error instanceof TypeError;
+    }
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, arrayIterator);
+    Object.defineProperty(Map.prototype, Symbol.iterator, mapIterator);
+  }
+  assert.equal(target, 'worker-b');
+  assert.equal(count, 3);
+  assert.equal(cyclicDenied, true);
+});
+
+test('edge pair identity is collision-free for literal backslash-zero stage names', () => {
+  // Both IDs contain printable backslash and zero, never an actual NUL.
+  // Using a printable '\0' delimiter would collapse these two distinct pairs.
+  const a0b = String.raw`a\0b`, b0c = String.raw`b\0c`;
+  const localStages = [
+    {id:'a', type:'Reader', role:'readable', inbound:'', outbound:'E'},
+    {id:a0b, type:'Reader', role:'readable', inbound:'', outbound:'E'},
+    {id:b0c, type:'Writer', role:'writable', inbound:'E', outbound:''},
+    {id:'c', type:'Writer', role:'writable', inbound:'E', outbound:''}
+  ];
+  const p = new ActorPipelinePolicy(localStages, [
+    {source:'a', target:b0c, payload:'E'},
+    {source:a0b, target:'c', payload:'E'}
+  ]);
+  assert.equal(p.forward('a').target, b0c);
+  assert.equal(p.forward(a0b).target, 'c');
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
