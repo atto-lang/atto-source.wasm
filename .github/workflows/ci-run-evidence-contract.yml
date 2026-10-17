@@ -75,6 +75,8 @@ jobs:
           SOURCE_OUTCOME: ${{ steps.source_head.outcome }}
           REGRESSION_OUTCOME: ${{ steps.regressions.outcome }}
           REPOSITORY_ID: ${{ github.repository_id }}
+          RUN_TRIGGER_SHA: ${{ github.sha }}
+          RUN_TRIGGER_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
@@ -95,6 +97,12 @@ jobs:
               "head_verification_outcome": os.environ["SOURCE_OUTCOME"],
               "regression_step_outcome": os.environ["REGRESSION_OUTCOME"],
               "runner_name": os.environ.get("RUNNER_NAME", ""),
+              "workflow_trigger_sha": os.environ["RUN_TRIGGER_SHA"],
+              "workflow_trigger_event": os.environ["RUN_TRIGGER_EVENT"],
+              "trigger_sha_matches_reported_checkout": (
+                  os.environ["RUN_TRIGGER_SHA"] == os.environ["OBSERVED_HEAD"]
+                  and os.environ["SOURCE_OUTCOME"] == "success"
+              ),
               "verified_execution_claim": False,
           }
           path = Path(os.environ["RUNNER_TEMP"]) / "source-free-ci-evidence.json"
