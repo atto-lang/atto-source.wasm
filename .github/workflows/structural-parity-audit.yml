@@ -7,26 +7,128 @@ permissions:
   contents: read
 jobs:
   structural-contract-integrity:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Checkout exact source head without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - name: Reject omitted cases and evidence inflation
-        run: python3 scripts/check-structural-parity.py --self-test
+        run: python3 -I scripts/check-structural-parity.py --self-test
       - name: Verify pinned shared contract (not a feature parity claim)
-        run: python3 scripts/check-structural-parity.py --check
+        run: python3 -I scripts/check-structural-parity.py --check
       - name: Verify byte-pinned structural positional tuple v2 target cases
-        run: python3 scripts/check-structural-v2.py --check
+        run: python3 -I scripts/check-structural-v2.py --check
       - name: Reject malformed, omitted and promoted structural v2 cases
-        run: python3 scripts/check-structural-v2.py --self-test
-      - name: Prove structural v2 cannot falsely claim runtime parity
+        run: python3 -I scripts/check-structural-v2.py --self-test
+      - name: Prove neither contract may falsely claim runtime parity
         shell: bash
         run: |
           set -euo pipefail
-          if python3 scripts/check-structural-v2.py --require-parity > /tmp/structural-v2-status.txt 2>&1; then
-            echo "Target-only v2 was incorrectly promoted to feature parity"
-            exit 1
-          fi
-          grep -Fq 'NOT AT PARITY' /tmp/structural-v2-status.txt
+          for script in check-structural-parity.py check-structural-v2.py; do
+            if python3 -I "scripts/$script" --require-parity > /tmp/structural-parity-status.txt 2>&1; then
+              echo "Inventory incorrectly promoted to runtime parity: $script"
+              exit 1
+            fi
+            grep -Fq 'NOT AT PARITY' /tmp/structural-parity-status.txt
+          done
+      - name: Bind inventory-only evidence to exact Git head, tree and source blobs
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, pathlib, re, subprocess
+          repo_ids = {
+            "ores-truffle-oreslang/oreslang-source.java": 1400792274,
+            "ores-truffle-oreslang/oreslang-source.llvm": 1410897874,
+            "ores-truffle-oreslang/oreslang-source.net": 1419704375,
+            "ores-truffle-oreslang/oreslang-source.wasm": 1419858954,
+            "ores-truffle-oreslang/oreslang-source.forge": 1419703674,
+          }
+          pinned = {
+            "contracts/v1/STRUCTURAL_MATCH_V1.md": "17f4da4a2cd3e55a968f9daf09395b000d79fc0b",
+            "contracts/v1/structural-parity-audit.v1.json": "5372f178aba16b72b3425f363123152718041e1a",
+            "contracts/structural/v2/README.md": "1a61b6267fd2185879628d7879db05804698a310",
+            "contracts/structural/v2/cases.json": "57c80adaa4029c6fd3e46a63c490cb193f951568",
+            "scripts/check-structural-parity.py": "94fbc3e6fb57c965a23c59680330ac1153acd1dc",
+            "scripts/check-structural-v2.py": "79ae68dbe5236d22af0626a58cae5e5d0140492f",
+          }
+          paths = [*pinned, ".github/workflows/structural-parity-audit.yml"]
+          def require(condition, reason):
+            if not condition:
+              raise SystemExit("structural inventory evidence denied: " + reason)
+          def git(*args):
+            return subprocess.check_output(["git", *args], text=True, timeout=10).strip()
+          env = os.environ
+          repo = env.get("GITHUB_REPOSITORY", "")
+          require(repo in repo_ids, "unexpected source repository")
+          require(env.get("GITHUB_REPOSITORY_ID", "").isascii() and
+                  env.get("GITHUB_REPOSITORY_ID", "").isdecimal() and
+                  int(env["GITHUB_REPOSITORY_ID"]) == repo_ids[repo], "wrong numeric repository")
+          require(env.get("GITHUB_ACTIONS") == "true", "not Actions")
+          require(env.get("GITHUB_EVENT_NAME") in ("pull_request", "push", "workflow_dispatch"),
+                  "untrusted event")
+          require(env.get("EXPECTED_HEAD_REPO") == repo, "foreign PR head repository")
+          for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
+            value = env.get(key, "")
+            require(value.isascii() and value.isdecimal() and int(value) > 0, key + " missing")
+          head = env.get("EXPECTED_SOURCE_HEAD", "")
+          trigger = env.get("GITHUB_SHA", "")
+          require(bool(re.fullmatch(r"[0-9a-f]{40}", head)), "invalid source head")
+          require(bool(re.fullmatch(r"[0-9a-f]{40}", trigger)), "invalid event trigger")
+          require(git("rev-parse", "HEAD") == head, "not the exact source HEAD")
+          tree = git("rev-parse", "HEAD^{tree}")
+          require(bool(re.fullmatch(r"[0-9a-f]{40}", tree)), "invalid Git tree")
+          for args in (("diff", "--quiet", "HEAD", "--"),
+                       ("diff", "--cached", "--quiet", "HEAD", "--")):
+            result = subprocess.run(["git", *args], timeout=10, capture_output=True)
+            require(result.returncode == 0, "tracked checkout was modified")
+          fingerprints = {}
+          for name in paths:
+            path = pathlib.Path(name)
+            require(path.is_file() and not path.is_symlink(), "missing/unsafe file " + name)
+            committed = git("rev-parse", "HEAD:" + name)
+            current = git("hash-object", "--", name)
+            require(re.fullmatch(r"[0-9a-f]{40}", current) and committed == current,
+                    "source blob mismatch for " + name)
+            if name in pinned:
+              require(current == pinned[name], "shared contract pin drift for " + name)
+            fingerprints[name] = current
+          report = {
+            "schema": "oreslang.structural.inventory-exact-head.v1",
+            "classification": "CONTRACT_INTEGRITY_ONLY_NOT_GUEST_CERTIFICATION",
+            "repository": repo, "repository_id": repo_ids[repo],
+            "source_sha": head, "source_tree": tree,
+            "trigger_sha": trigger, "event": env["GITHUB_EVENT_NAME"],
+            "run_id": int(env["GITHUB_RUN_ID"]),
+            "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
+            "contract_case_counts": {"v1": 14, "v2": 30},
+            "source_blobs": fingerprints,
+            "guest_compilation_verified": False,
+            "guest_execution_verified": False,
+            "structural_parity_certified": False,
+            "private_source_exported": False,
+          }
+          output = pathlib.Path("target/structural-inventory-only.json")
+          require(not output.is_symlink() and not output.parent.is_symlink(),
+                  "unsafe provenance output")
+          output.parent.mkdir(parents=True, exist_ok=True)
+          output.write_text(json.dumps(report, sort_keys=True, indent=2)+"\n", encoding="utf-8")
+          require(json.loads(output.read_text(encoding="utf-8")) == report,
+                  "report persistence mismatch")
+          print("STRUCTURAL_INVENTORY_ONLY_SHA=" + head)
+          print("STRUCTURAL_GUEST_NOT_CERTIFIED")
+          PY
+      - name: Upload source-head inventory ONLY (never label this guest certification)
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: structural-INVENTORY-ONLY-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/structural-inventory-only.json
+          if-no-files-found: error
+          retention-days: 7
