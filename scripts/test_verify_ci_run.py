@@ -766,28 +766,35 @@ class StrictApiJSONContract(unittest.TestCase):
                 self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
 
 
+
 class WorkflowIsolationContract(unittest.TestCase):
-    """Prevent candidate import-path shadowing in CI report generation."""
+    """Validate the checked-in workflow, never non-existent template steps."""
 
     @staticmethod
     def workflow_text():
         return (Path(__file__).resolve().parents[1]
-                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(encoding="utf-8")
-
-    def test_report_writer_uses_isolated_python(self):
-        workflow = self.workflow_text()
-        marker = "      - name: Write minimal run evidence (not compiled guest parity)"
-        writer = workflow.split(marker, 1)[1].split(
-            "      - name: Upload minimal source-free CI evidence", 1)[0]
-        self.assertIn("python3 -I - <<'PY'", writer)
-        self.assertNotIn("python3 - <<'PY'", writer)
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(
+                    encoding="utf-8")
 
     def test_all_inline_python_heredocs_use_isolated_mode(self):
-        inline_python = [line.strip() for line in self.workflow_text().splitlines()
-                         if "python3" in line and "<<'PY'" in line]
-        self.assertEqual(len(inline_python), 2)
-        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+        workflow = self.workflow_text()
+        inline = [line.strip() for line in workflow.splitlines()
+                  if "python3" in line and "<<'PY'" in line]
+        self.assertGreaterEqual(len(inline), 1)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline))
+        self.assertNotIn("python3 - <<'PY'", workflow)
+        self.assertIn("python3 -I -m py_compile", workflow)
 
+    def test_workflow_checkout_is_pinned_and_uncredentialed(self):
+        workflow = self.workflow_text()
+        self.assertIn(
+            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+            workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("secrets.", workflow)
 
 
 if __name__ == "__main__":
