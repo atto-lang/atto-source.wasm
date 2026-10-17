@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "suite": "oreslang.option-if-matches.v1",
+  "contract": "Option<T> absence is explicit None; x matches Some(payload) binds payload only on the true edge; && propagates refinements, ||/else/elif/after fi do not; projected payloads preserve ownership roots and Copy kinds.",
+  "status_contract": {
+    "graal": "implementation_under_test_no_pass_without_executed_evidence",
+    "llvm": "unsupported_must_reject_without_ir",
+    "net": "unsupported_must_reject",
+    "wasm": "inherits_llvm_compiler_pending_no_independent_admission",
+    "forge": "unsupported_must_reject"
+  },
+  "cases": [
+    {
+      "id": "some.foo",
+      "reference": "accept",
+      "runtime_exit": 42,
+      "source": "define class Foo as\n  pub run(): int { return 42; }\nend\npub fnc main(): int {\n  let Option<Foo> m2 = None;\n  m2 = Some(new Foo());\n  if m2 matches Some(foo) then\n    return foo.run();\n  fi\n  return 0;\n}\n"
+    },
+    {
+      "id": "none.fallback",
+      "reference": "accept",
+      "runtime_exit": 7,
+      "source": "pub fnc main(): int {\n  val Option<int> m2 = None;\n  if m2 matches Some(n) then\n    return n;\n  fi\n  return 7;\n}\n"
+    },
+    {
+      "id": "and.refinement",
+      "reference": "accept",
+      "runtime_exit": 43,
+      "source": "pub fnc main(): int {\n  val Option<int> m2 = Some(42);\n  if m2 matches Some(n) && n == 42 then\n    return n + 1;\n  fi\n  return 0;\n}\n"
+    },
+    {
+      "id": "scope.after-fi",
+      "reference": "reject",
+      "source": "fnc bad(Option<int> m2): int {\n  if m2 matches Some(n) then\n    return n;\n  fi\n  return n;\n}\npub fnc main(): int { return 0; }\n"
+    },
+    {
+      "id": "scope.else",
+      "reference": "reject",
+      "source": "fnc bad(Option<int> m2): int {\n  if m2 matches Some(n) then\n    return n;\n  else\n    return n;\n  fi\n}\npub fnc main(): int { return 0; }\n"
+    },
+    {
+      "id": "scope.or",
+      "reference": "reject",
+      "source": "fnc bad(Option<int> m2): int {\n  if m2 matches Some(n) || true then\n    return n;\n  fi\n  return 0;\n}\npub fnc main(): int { return 0; }\n"
+    },
+    {
+      "id": "no-implicit-option",
+      "reference": "reject",
+      "source": "fnc bad(int m2): int {\n  if m2 matches Some(n) then\n    return n;\n  fi\n  return 0;\n}\npub fnc main(): int { return 0; }\n"
+    },
+    {
+      "id": "ownership.projected-double-move",
+      "reference": "reject",
+      "source": "define class Box as\nend\ndefine class Holder as\n  final Option<Box> slot: None;\nend\nfnc consumeBox(Box value): void { return; }\nfnc consumeHolder(Holder value): void { return; }\nfnc bad(Holder holder): void {\n  if holder.slot matches Some(payload) then\n    consumeBox(payload);\n    consumeHolder(holder);\n  fi\n  return;\n}\npub fnc main(): int { return 0; }\n"
+    },
+    {
+      "id": "ownership.projected-copy",
+      "reference": "accept",
+      "runtime_exit": 0,
+      "source": "define class Holder as\n  final Option<int> slot: None;\nend\nfnc consumeInt(int value): void { return; }\nfnc consumeHolder(Holder value): void { return; }\nfnc good(Holder holder): void {\n  if holder.slot matches Some(n) then\n    consumeInt(n);\n    consumeHolder(holder);\n  fi\n  return;\n}\npub fnc main(): int { return 0; }\n"
+    }
+  ]
+}
