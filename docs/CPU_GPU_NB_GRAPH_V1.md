@@ -391,7 +391,7 @@ be changed when adding host-graph integration cases.
 | Backend | Owned scalar f32 CPU region | Typed one-shot host i64 graph | Owned f32 -> host graph bridge | Guest `cpu/gpu/nb` |
 | --- | --- | --- | --- | --- |
 | Java/Graal | Draft #1066/#1086, reconciled on #1122 | Draft #1096, CPU-only graph | Draft #1125; one `OresFuture<Long>` | Fail closed; typed source lowering unimplemented |
-| LLVM | Draft #445, whole-batch read/write loans | Draft #481 host-only graph | **Not implemented**; matching compiler-owned adapter required | Fail closed; no general device compiler |
+| LLVM | Draft #445, whole-batch read/write loans | Draft #481 host-only graph | **Draft #507:** native owned F32 CPU slice followed by one-shot host I64 graph; full production integration tests pending | Fail closed; no general device compiler |
 | .NET | **Not implemented** | Draft #44, bounded-executor `Task<T>` host graph | **Not implemented** | Scalar bootstrap, unsupported domain |
 | Forge | **Not implemented** | Draft #41, bounded-executor one-shot CPU graph | **Not implemented** | Scalar bootstrap, unsupported domain |
 | Wasm | No independent region runtime; must inherit *verified* pinned LLVM source semantics | No independent host-graph runtime in zero-import guest | **Not implemented** | Delegate only; no implicit WebGPU/host capability |
@@ -432,3 +432,38 @@ cancel-vs-worker races, mirroring Forge's existing host-graph stress intent.
 Those additions are **committed but not a hosted exact-head test pass**.
 LLVM #445 already carries native planner Unicode/ownership regressions; its
 latest source-org four-way CPU matrix failed with zero executed steps.
+
+## Native LLVM owned CPU + one-shot host graph integration candidate (2026-10-16/17)
+
+[LLVM draft #507](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/507)
+integrates the native owned-region foundation from #445 with the host-only
+typed graph from #481 **within the source repository itself**. It adds
+`DopGraphCpuIntegrationV1.hpp`: one checked owned F32 row/field CPU slice
+followed by a separate CPU-only I64 graph, returning a cancellable one-shot
+future. Inputs and outputs must be different live owned allocations with
+matching layout, root identity, exact half-open footprint, and READ/WRITE
+privileges. The queued worker captures strong owners and the CPU kernel
+holds physical allocation-wide loans. GPU/transfer graphs are refused before
+scheduling; there is no implicit CPU fallback, device launch, or f32/i64
+device transfer.
+
+**Test evidence boundary:** locally reproduced bridge control flow passed
+36 directed checks under GCC and 36 under Clang with ASan/UBSan, using
+interface-compatible dependency doubles. This does **not** establish that
+the production LLVM owned-buffer header, graph header, frontend, CMake/CTest
+or sanitizers passed at the integrated branch head. Source-org
+[run #38993581140](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/actions/runs/38993581140)
+was attempted but all four jobs had **zero executed steps**.
+Keep #507 draft pending actual compiled-header/full-compiler exact-head tests.
+
+**Remaining differences:** Java #1125 and LLVM #507 now each have a *draft*
+host-only owned-F32-to-host-I64 bridge. .NET #44 and Forge #41 have typed
+one-shot host graphs but have **no independently implemented/verified owned
+F32 region bridge** yet; those backends must first implement allocation
+liveness, whole-batch read/write loans and type-safe row/field admission.
+WASM #43 has no native owned-region runtime and must use an explicitly
+pinned, verified LLVM-to-WASM path; absence of a compiler or checksum is
+SKIPPED, never a passing guest test. None of these contracts admit positive
+guest `cpu`/`gpu`/`nb` source execution. Source result-type issue #1098
+and private CI security gates #22/#962 remain unresolved. No updates to the
+22-case versioned region corpus are implied by this implementation ledger.
