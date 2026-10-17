@@ -6,23 +6,29 @@ import {ActorArena} from "../src/actor-arena.mjs";
 test("shared actors get private arenas, not transferable heap handles", () => {
   const a = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
   const b = new ActorArena({actorId: 2, incarnation: 1, kind: "shared"});
+  const twin = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
   const ta = a.beginTurn();
   const tb = b.beginTurn();
+  const tt = twin.beginTurn();
   const h = a.allocPersistent(ta, 4);
   a.write(ta, h, Uint8Array.from([1, 2, 3, 4]));
   assert.deepEqual([...a.read(ta, h)], [1, 2, 3, 4]);
   assert.throws(() => b.read(tb, h), /foreign or stale/);
+  assert.throws(() => twin.read(tt, h), /foreign or stale/,
+    "even matching actor and incarnation must not share an arena domain");
   assert.throws(() => a.read(tb, h), /turn authority/);
   const copy = a.read(ta, h);
   copy[0] = 99;
   assert.equal(a.read(ta, h)[0], 1);
   a.endTurn(ta);
   b.endTurn(tb);
+  twin.endTurn(tt);
   const next = a.beginTurn();
   assert.equal(a.read(next, h)[0], 1);
   a.endTurn(next);
   a.retire();
   b.retire();
+  twin.retire();
   assert.throws(() => a.beginTurn(), /retired/);
 });
 
