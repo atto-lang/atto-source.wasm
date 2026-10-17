@@ -12,6 +12,7 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // may later mutate prototype methods; never call a replaceable method on a
 // live view of actor-owned WebAssembly.Memory.
 const NativeUint8Array = Uint8Array;
+const nativeFreeze = Object.freeze;
 const NativeWasmMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
 const nativeWeakGet = WeakMap.prototype.get;
@@ -82,7 +83,7 @@ export class ActorArena {
   beginTurn() {
     this.#bytes();
     if (this.#turn !== null) throw new Error("actor already admitted");
-    const turn = Object.freeze({});
+    const turn = nativeFreeze({});
     this.#turn = turn;
     return turn;
   }
@@ -127,7 +128,7 @@ export class ActorArena {
       }
       ++this.#persistentCount;
     }
-    const handle = Object.freeze({});
+    const handle = nativeFreeze({});
     const slot = {offset, length};
     nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
     nativeUint8Fill.call(this.#bytes(), 0, offset, offset + length);
