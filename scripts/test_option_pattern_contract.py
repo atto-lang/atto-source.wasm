@@ -93,12 +93,12 @@ class OptionPatternHarnessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fake = Path(root) / "usage_error.py"
             fake.write_text(
-                "from pathlib import Path\\n"
-                "import sys\\n"
-                "s = Path(sys.argv[1]).read_text()\\n"
-                "if 'main(): int { return 42; }' in s: sys.exit(0)\\n"
-                "print('oresforge: invalid CLI usage', file=sys.stderr)\\n"
-                "sys.exit(2)\\n", encoding="utf-8")
+                "from pathlib import Path\n"
+                "import sys\n"
+                "s = Path(sys.argv[1]).read_text()\n"
+                "if 'main(): int { return 42; }' in s: sys.exit(0)\n"
+                "print('oresforge: invalid CLI usage', file=sys.stderr)\n"
+                "sys.exit(2)\n", encoding="utf-8")
             result = self.command("--backend", "forge", "--",
                                   sys.executable, str(fake), "{source}")
             self.assertNotEqual(0, result.returncode)
@@ -108,10 +108,10 @@ class OptionPatternHarnessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fake = Path(root) / "silent.py"
             fake.write_text(
-                "from pathlib import Path\\n"
-                "import sys\\n"
-                "s = Path(sys.argv[1]).read_text()\\n"
-                "sys.exit(0 if 'main(): int { return 42; }' in s else 1)\\n",
+                "from pathlib import Path\n"
+                "import sys\n"
+                "s = Path(sys.argv[1]).read_text()\n"
+                "sys.exit(0 if 'main(): int { return 42; }' in s else 1)\n",
                 encoding="utf-8")
             result = self.command("--backend", "net", "--",
                                   sys.executable, str(fake), "{source}")
@@ -128,14 +128,14 @@ class OptionPatternHarnessTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             fake = Path(root) / "fake_java.py"
             fake.write_text(
-                "import sys\\n"
-                "from pathlib import Path\\n"
-                "name = Path(sys.argv[1]).stem\\n"
-                "if '--execute' in sys.argv: sys.exit(0)\\n"
+                "import sys\n"
+                "from pathlib import Path\n"
+                "name = Path(sys.argv[1]).stem\n"
+                "if '--execute' in sys.argv: sys.exit(0)\n"
                 "positive = name in {'some-foo', 'none-fallback', "
-                "'and-refinement', 'ownership-projected-copy'}\\n"
-                "if not positive: print('oreslang: unknown name', file=sys.stderr)\\n"
-                "sys.exit(0 if positive else 1)\\n", encoding="utf-8")
+                "'and-refinement', 'ownership-projected-copy'}\n"
+                "if not positive: print('oreslang: unknown name', file=sys.stderr)\n"
+                "sys.exit(0 if positive else 1)\n", encoding="utf-8")
             runtime = sys.executable + " " + str(fake) + " {source} --execute"
             result = self.command(
                 "--backend", "graal", "--run-command", runtime,
