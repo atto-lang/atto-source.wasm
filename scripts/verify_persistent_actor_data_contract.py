@@ -119,6 +119,10 @@ def validate(doc):
 def read_bounded_contract(path):
     """Reject nonregular, hardlinked, raced and oversized JSON before decoding."""
     path = Path(path)
+    # Retain a clear early symlink denial; descriptor O_NOFOLLOW enforces it
+    # even if an attacker replaces the path after this preliminary check.
+    if path.is_symlink():
+        raise ContractError("persistent contract must be a unique regular file")
     fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
               "st_mtime_ns", "st_ctime_ns")
     def same_file(a, b):
@@ -128,7 +132,7 @@ def read_bounded_contract(path):
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
             raise ContractError("persistent contract must be a unique regular file")
         if not 0 < before.st_size <= 64 * 1024:
-            raise ContractError("invalid or oversized persistent contract")
+            raise ContractError("empty or oversized persistent contract")
         # Missing or aliased secure-open flags must not silently degrade to
         # following symlinks or blocking indefinitely on a raced FIFO.
         nonblock = getattr(os, "O_NONBLOCK", None)
