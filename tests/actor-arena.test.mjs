@@ -140,6 +140,81 @@ test("mutated typed-array prototypes cannot leak, alter, or prevent arena zeroiz
   }
 });
 
+test("replaced global WebAssembly.Memory constructor cannot coalesce actor heaps", () => {
+  const NativeMemory = WebAssembly.Memory;
+  const reused = new NativeMemory({initial: 2, maximum: 2});
+  const original = Object.getOwnPropertyDescriptor(WebAssembly, "Memory");
+  try {
+    Object.defineProperty(WebAssembly, "Memory", {
+      configurable: true, writable: true,
+      value: function () { return reused; }
+    });
+    const a = new ActorArena({actorId: 41, incarnation: 1});
+    const b = new ActorArena({actorId: 42, incarnation: 1});
+    const ta = a.beginTurn(), tb = b.beginTurn();
+    const ha = a.allocPersistent(ta, 4);
+    a.write(ta, ha, Uint8Array.from([1, 2, 3, 4]));
+    const hb = b.allocPersistent(tb, 4);
+    b.write(tb, hb, Uint8Array.from([9, 8, 7, 6]));
+    assert.deepEqual([...a.read(ta, ha)], [1, 2, 3, 4],
+      "an attacker-controlled constructor must not force actors to share backing memory");
+    assert.deepEqual([...b.read(tb, hb)], [9, 8, 7, 6]);
+    a.endTurn(ta);
+    b.endTurn(tb);
+    a.retire();
+    b.retire();
+  } finally {
+    Object.defineProperty(WebAssembly, "Memory", original);
+  }
+});
+
+test("replaced WeakMap constructor cannot forge cross-actor arena handles", () => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "WeakMap");
+  const shared = new WeakMap();
+  try {
+    Object.defineProperty(globalThis, "WeakMap", {
+      configurable: true, writable: true,
+      value: function () { return shared; }
+    });
+    const a = new ActorArena({actorId: 43, incarnation: 1});
+    const b = new ActorArena({actorId: 44, incarnation: 1});
+    const ta = a.beginTurn(), tb = b.beginTurn();
+    const ha = a.allocPersistent(ta, 4);
+    b.allocPersistent(tb, 4);
+    assert.throws(() => b.read(tb, ha), /foreign or stale/,
+      "an attacker-controlled global WeakMap must not combine actors' handle maps");
+    a.endTurn(ta);
+    b.endTurn(tb);
+    a.retire();
+    b.retire();
+  } finally {
+    Object.defineProperty(globalThis, "WeakMap", original);
+  }
+});
+
+test("replaced WeakMap prototype accessors cannot forge arena metadata", () => {
+  const arena = new ActorArena({actorId: 45, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  const names = ["get", "set", "delete"];
+  const descriptors = names.map(name => Object.getOwnPropertyDescriptor(WeakMap.prototype, name));
+  try {
+    for (const name of names) Object.defineProperty(WeakMap.prototype, name, {
+      configurable: true, writable: true,
+      value() { throw new Error("hijacked WeakMap." + name); }
+    });
+    arena.write(turn, handle, Uint8Array.from([3, 1, 4, 1]));
+    assert.deepEqual([...arena.read(turn, handle)], [3, 1, 4, 1]);
+    arena.dropPersistent(turn, handle);
+    const recycled = arena.allocPersistent(turn, 4);
+    assert.deepEqual([...arena.read(turn, recycled)], [0, 0, 0, 0]);
+  } finally {
+    names.forEach((name, i) => Object.defineProperty(WeakMap.prototype, name, descriptors[i]));
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
+
 test("shared worker backing is rejected before it can tear an actor write", () => {
   const arena = new ActorArena({actorId: 34, incarnation: 1});
   const turn = arena.beginTurn();
