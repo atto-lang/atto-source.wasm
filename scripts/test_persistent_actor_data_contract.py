@@ -169,6 +169,24 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 with self.assertRaisesRegex(ContractError, "changed before read"):
                     read_bounded_contract(path)
 
+    def test_reject_contract_modified_while_reading(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            native_fstat = os.fstat
+            calls = 0
+            def raced_fstat(fd):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    path.write_bytes(b'{"version":0}')
+                return native_fstat(fd)
+            with patch("verify_persistent_actor_data_contract.os.fstat",
+                       side_effect=raced_fstat):
+                with self.assertRaisesRegex(ContractError, "changed during read"):
+                    read_bounded_contract(path)
+            self.assertEqual(calls, 2)
+
     def test_reject_path_swapped_after_read_before_final_lstat(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "original.json"
@@ -199,7 +217,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 32
+    expected = 33
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
