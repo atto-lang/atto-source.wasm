@@ -29,7 +29,7 @@ test("real LLVM compiler admits a scalar positive control before tuple negatives
     assert.equal(compile.error, undefined, "LLVM compiler must execute");
     assert.equal(compile.signal, null, "positive scalar compile must not crash");
     assert.equal(compile.status, 0, "real frontend must accept supported scalar source");
-    assert.match(compile.stdout, /define i64 @__oreslang_guest_main\\(/,
+    assert.match(compile.stdout, /define i64 @__oreslang_guest_main\(/,
       "successful frontend must produce real compiler-generated LLVM IR");
     assert.deepEqual(await readdir(work), ["valid.ores"],
       "scalar control must not write untracked side artifacts");
