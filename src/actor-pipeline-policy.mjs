@@ -26,11 +26,31 @@ export class ActorPipelinePolicy {
   #cursor = new Map();
   #retired = false;
   constructor(stages, edges) {
-    if (!Array.isArray(stages) || stages.length < 2 || stages.length > 1024 ||
-        !Array.isArray(edges) || !edges.length || edges.length > 4096)
+    if (!Array.isArray(stages) || !Array.isArray(edges))
       throw new RangeError("pipeline graph budget");
+    // Read each caller-owned length once. Array iterators (including proxy
+    // custom iterators) can otherwise grow while being traversed, bypassing
+    // the checked 1024/4096 graph budget. Copy only indexed, admitted slots.
+    const stageCount = stages.length, edgeCount = edges.length;
+    if (stageCount < 2 || stageCount > 1024 || edgeCount < 1 || edgeCount > 4096)
+      throw new RangeError("pipeline graph budget");
+    const stageSnapshot = [], edgeSnapshot = [];
+    for (let i = 0; i < stageCount; ++i) {
+      const item = stages[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline stage");
+      const {id, type, role, inbound = "", outbound = ""} = item;
+      stageSnapshot.push({id, type, role, inbound, outbound});
+    }
+    for (let i = 0; i < edgeCount; ++i) {
+      const item = edges[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline edge");
+      const {source, target, payload} = item;
+      edgeSnapshot.push({source, target, payload});
+    }
     const byId = new Map(), routes = new Map(), parents = new Map();
-    for (const {id, type, role, inbound = "", outbound = ""} of stages) {
+    for (const {id, type, role, inbound, outbound} of stageSnapshot) {
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
       if (byId.has(id)) throw new TypeError("duplicate pipeline instance");
@@ -42,7 +62,7 @@ export class ActorPipelinePolicy {
       parents.set(id, 0);
     }
     const seen = new Set();
-    for (const edge of edges) {
+    for (const edge of edgeSnapshot) {
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
       const from = byId.get(source), to = byId.get(target);
