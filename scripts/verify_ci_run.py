@@ -19,6 +19,9 @@ REPOS = {
     "net": ("ores-truffle-oreslang/oreslang-source.net", 1419704375),
     "wasm": ("ores-truffle-oreslang/oreslang-source.wasm", 1419858954),
     "forge": ("ores-truffle-oreslang/oreslang-source.forge", 1419703674),
+    "rx_pull": ("ores-truffle-oreslang/rx-ores", 1407870560),
+    "rx_callbacks": ("ores-truffle-oreslang/rx-ores-callbacks", 1407871059),
+    "rx_channels": ("ores-truffle-oreslang/rx-oreslang-channels", 1407757001),
 }
 SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_PAGES = 10
@@ -114,7 +117,8 @@ def _api_get(path):
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
            job_step_pairs=None, workflow_path=None, workflow_id=None,
-           workflow_blob_sha=None):
+           workflow_blob_sha=None, expected_event=None,
+           expected_run_path=None, expected_run_attempt=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -130,7 +134,12 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or any(part in ("", ".", "..") for part in workflow_path.split("/"))):
         raise Denied("expected an exact trusted workflow path under .github/workflows")
     workflow_id = _int(workflow_id, "independently pinned workflow id")
+    expected_run_attempt = _int(expected_run_attempt, "independently pinned run attempt")
     workflow_blob_sha = _sha(workflow_blob_sha)
+    if not _run_workflow_path_matches(expected_run_path, workflow_path):
+        raise Denied("expected independently pinned exact workflow run path")
+    if expected_event not in ("push", "pull_request"):
+        raise Denied("only independently selected push or pull_request event is permitted")
     if not isinstance(required_jobs, (list, tuple)) or not isinstance(required_steps, (list, tuple)):
         raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
@@ -181,12 +190,15 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     run_repo = _object(run.get("repository"), "run repository")
     head_repo = _object(run.get("head_repository"), "run head repository")
     attempt = _int(run.get("run_attempt"), "run attempt")
+    if attempt != expected_run_attempt:
+        raise Denied("run attempt differs from independently pinned attempt")
     if (type(run.get("id")) is not int or run["id"] != run_id
             or type(run_repo.get("id")) is not int or run_repo["id"] != repo_id
             or type(head_repo.get("id")) is not int or head_repo["id"] != repo_id
             or run.get("head_sha") != commit
+            or run.get("event") != expected_event
             or type(run.get("workflow_id")) is not int or run["workflow_id"] != workflow_id
-            or not _run_workflow_path_matches(run.get("path"), workflow_path)
+            or run.get("path") != expected_run_path
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"):
         raise Denied("workflow run is not a successful exact-repository HEAD execution")
@@ -222,7 +234,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if job_id in seen_ids:
             raise Denied("duplicated workflow job id")
         seen_ids.add(job_id)
-        if (job.get("run_id") != run_id or job.get("head_sha") != commit or
+        if (type(job.get("run_id")) is not int or job["run_id"] != run_id or
+                job.get("head_sha") != commit or
                 type(job.get("run_attempt")) is not int or job["run_attempt"] != attempt
                 or job.get("status") != "completed" or job.get("conclusion") != "success"):
             raise Denied("workflow contains a failed, skipped, or unexecuted job")
@@ -284,8 +297,37 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     if pairs and any(step not in steps_by_job.get(job, set())
                      for job, step in pairs):
         raise Denied("required executable step did not run in its bound CI job")
+    # Detect a re-run or changed conclusion during multi-page evidence collection.
+    # Never combine a successful run snapshot with jobs from another attempt.
+    final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
+    if (type(final_run.get("id")) is not int or final_run["id"] != run_id
+            or type(final_run.get("run_attempt")) is not int
+            or final_run["run_attempt"] != attempt
+            or final_run.get("head_sha") != commit
+            or final_run.get("event") != expected_event
+            or type(final_run.get("workflow_id")) is not int
+            or final_run.get("workflow_id") != workflow_id
+            or final_run.get("status") != "completed"
+            or final_run.get("conclusion") != "success"
+            or final_run.get("path") != expected_run_path
+            or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
+            or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
+        raise Denied("workflow run changed during evidence collection")
+    # Recheck source repository identity/visibility after collecting all jobs:
+    # a rename, replacement, or public visibility transition must not pass
+    # using only its earlier preflight metadata.
+    final_meta = _object(fetch(prefix), "final repository")
+    if (type(final_meta.get("id")) is not int
+            or final_meta.get("id") != repo_id
+            or final_meta.get("full_name") != repo
+            or final_meta.get("private") is not True
+            or final_meta.get("archived") is not False
+            or final_meta.get("disabled") is not False):
+        raise Denied("source repository changed identity or privacy during evidence collection")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
+            "workflow_run_path": expected_run_path,
+            "event": expected_event,
             "head_commit": commit,
             "head_tree": tree, "workflow_blob_sha": workflow_blob_sha,
             "verified_jobs": len(jobs),
@@ -299,6 +341,12 @@ def main(argv=None):
     parser.add_argument("--commit", required=True)
     parser.add_argument("--tree", required=True)
     parser.add_argument("--run-id", required=True, type=int)
+    parser.add_argument("--run-attempt", required=True, type=int,
+                        help="Independently pinned positive GitHub run attempt number")
+    parser.add_argument("--event", required=True, choices=("push", "pull_request"),
+                        help="Independently pinned GitHub event type; no dispatch or chained runs")
+    parser.add_argument("--workflow-run-path", required=True,
+                        help="Exact independently approved GitHub run.path including any @ref")
     parser.add_argument("--workflow-path", required=True,
                         help="Exact independently reviewed .github/workflows/*.yml path")
     parser.add_argument("--workflow-id", required=True, type=int,
@@ -322,7 +370,10 @@ def main(argv=None):
                         args.run_id, args.require_job, args.require_step,
                         job_step_pairs=pairs, workflow_path=args.workflow_path,
                         workflow_id=args.workflow_id,
-                        workflow_blob_sha=args.workflow_blob_sha)
+                        workflow_blob_sha=args.workflow_blob_sha,
+                        expected_event=args.event,
+                        expected_run_path=args.workflow_run_path,
+                        expected_run_attempt=args.run_attempt)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
