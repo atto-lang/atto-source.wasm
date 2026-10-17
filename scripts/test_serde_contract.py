@@ -23,6 +23,35 @@ class SerdePolicyRegression(unittest.TestCase):
     def test_pinned_checked_contract(self):
         self.assertEqual(policy.verify_file(), policy.EXPECTED_SHA256)
 
+
+    def test_reject_unknown_top_level_policy(self):
+        self.mutate(lambda d: d.update(unsafe_compatibility_fallback=True))
+
+    def test_reject_unknown_actor_policy_override(self):
+        self.mutate(lambda d: d['boundaries']['actor_data'].update(
+            permit_user_codec=True))
+
+    def test_reject_unknown_network_policy_override(self):
+        self.mutate(lambda d: d['boundaries']['network_data'].update(
+            bypass_permission=True))
+
+    def test_reject_unknown_true_invariant(self):
+        self.mutate(lambda d: d['invariants'].update(
+            allow_control_as_data=True))
+
+    def test_reject_unknown_wire_profile(self):
+        self.mutate(lambda d: d['wire_profile'].update(
+            accept_wire_downgrade=True))
+
+    def test_reject_unknown_verification_claim(self):
+        self.mutate(lambda d: d['verification'].update(
+            claim_runtime_equivalence_without_execution=True))
+
+    def test_reject_nonfinite_json_tokens(self):
+        for token in ('NaN', 'Infinity', '-Infinity', '1e999', '-1e999'):
+            with self.subTest(token=token), self.assertRaises(policy.ContractError):
+                policy.decode_document(('{"number":' + token + '}').encode('utf-8'))
+
     def test_reject_disabled_invariant(self):
         self.mutate(lambda d: d['invariants'].update(capabilities_cannot_be_nested_in_data=False))
 
@@ -123,7 +152,7 @@ class SerdePolicyRegression(unittest.TestCase):
 if __name__ == '__main__':
     # unittest discover exits 0 even if no tests are discovered. A security
     # gate cannot treat a renamed/deleted suite or skipped test as green.
-    expected = 25
+    expected = 32
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
     if suite.countTestCases() != expected:
         raise SystemExit(f'FAIL: expected {expected} serde regressions, '
