@@ -499,3 +499,33 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
   assert.equal(after.leasedArenas, before.leasedArenas);
   assert.ok(after.freeArenas >= before.freeArenas + 1);
 });
+
+
+test("persistent free-list coalescing ignores poisoned Array iterator", () => {
+  const arena = new ActorArena({actorId: 72, incarnation: 1});
+  const turn = arena.beginTurn();
+  const first = arena.allocPersistent(turn, 4);
+  const second = arena.allocPersistent(turn, 4);
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let observed = false;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value() {
+        observed = true;
+        throw new Error("poisoned iterator reached private metadata");
+      }
+    });
+    arena.dropPersistent(turn, first);
+    arena.dropPersistent(turn, second);
+    assert.equal(observed, false,
+      "private arena free-list metadata must not enter user Array iteration hooks");
+    const recycled = arena.allocPersistent(turn, 8);
+    assert.deepEqual([...arena.read(turn, recycled)], Array(8).fill(0));
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
