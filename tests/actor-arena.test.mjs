@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {runInNewContext} from "node:vm";
-import {ActorArena} from "../src/actor-arena.mjs";
+import {ActorArena, actorArenaPoolStats} from "../src/actor-arena.mjs";
 
 test("shared actors get private arenas, not transferable heap handles", () => {
   const a = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
@@ -454,4 +454,48 @@ test("actor admission and quotas ignore poisoned Number and Set methods", () => 
   }
   arena.endTurn(turn);
   arena.retire();
+});
+
+
+test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
+  const before = actorArenaPoolStats();
+  const first = new ActorArena({actorId: 70, incarnation: 1, kind: "private"});
+  const afterLease = actorArenaPoolStats();
+  assert.equal(afterLease.leasedArenas, before.leasedArenas + 1);
+
+  const turn = first.beginTurn();
+  const persistent = first.allocPersistent(turn, 8);
+  const scratch = first.allocScratch(turn, 8);
+  first.write(turn, persistent, Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8));
+  first.write(turn, scratch, Uint8Array.of(8, 7, 6, 5, 4, 3, 2, 1));
+  first.endTurn(turn);
+  first.retire();
+
+  const retired = actorArenaPoolStats();
+  assert.equal(retired.leasedArenas, before.leasedArenas);
+  assert.equal(retired.freeArenas, afterLease.freeArenas + 1,
+    "retirement must synchronously publish reusable arena capacity");
+
+  // Creating another actor consumes a free arena lease without growing the
+  // underlying WebAssembly.Memory. This is explicit reuse, not GC evidence.
+  const second = new ActorArena({actorId: 71, incarnation: 1, kind: "untrusted"});
+  const reused = actorArenaPoolStats();
+  assert.equal(reused.committedPages, retired.committedPages,
+    "reusing a retired arena must not require new Wasm pages");
+  assert.equal(reused.freeArenas, retired.freeArenas - 1);
+  assert.equal(reused.leasedArenas, before.leasedArenas + 1);
+
+  const next = second.beginTurn();
+  const nextPersistent = second.allocPersistent(next, 8);
+  const nextScratch = second.allocScratch(next, 8);
+  assert.deepEqual([...second.read(next, nextPersistent)], Array(8).fill(0),
+    "recycled persistent bytes must be scrubbed");
+  assert.deepEqual([...second.read(next, nextScratch)], Array(8).fill(0),
+    "recycled scratch bytes must be scrubbed");
+  second.endTurn(next);
+  second.retire();
+
+  const after = actorArenaPoolStats();
+  assert.equal(after.leasedArenas, before.leasedArenas);
+  assert.ok(after.freeArenas >= before.freeArenas + 1);
 });
