@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-free regression matrix for five-backend GitHub run proof."""
+"""Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
 import importlib.util
 from pathlib import Path
