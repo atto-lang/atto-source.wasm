@@ -387,9 +387,18 @@ test("allocator metadata stays private when Array prototype methods are poisoned
   arena.write(turn, live, Uint8Array.of(9, 8, 7, 6));
   const methods = new Map(["push", "sort", "findIndex", "splice"].map(name =>
     [name, Object.getOwnPropertyDescriptor(Array.prototype, name)]));
+  const originalIterator = Object.getOwnPropertyDescriptor(
+    Array.prototype, Symbol.iterator);
   const originalPush = methods.get("push").value;
   let stolenMetadata = null;
   try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true,
+      value() {
+        stolenMetadata = this;
+        throw new Error("poisoned Array iterator reached private allocator metadata");
+      }
+    });
     Object.defineProperty(Array.prototype, "push", {
       configurable: true, writable: true,
       value(...items) {
@@ -417,6 +426,7 @@ test("allocator metadata stays private when Array prototype methods are poisoned
     arena.dropPersistent(turn, reused);
     assert.deepEqual([...arena.read(turn, live)], [9, 8, 7, 6]);
   } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, originalIterator);
     for (const [name, descriptor] of methods) {
       Object.defineProperty(Array.prototype, name, descriptor);
     }
