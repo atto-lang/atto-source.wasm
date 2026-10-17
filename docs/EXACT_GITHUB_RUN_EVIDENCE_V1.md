@@ -338,3 +338,10 @@ The authenticated GitHub evidence API must fail closed on duplicate JSON keys, n
 Canonical verifier/test/workflow Git blobs: `1d7b03db64a8576b5c4271b6f7571df503dffd81`, `45ada59ac6001254897edf9f8cd3b75ef4f58acc`, `c62d13b3c3e9d666d90f752bcf96cbe07588a648`. [Private source-free carrier run 38997728835](https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/38997728835) executed 82×3 = 246 tests successfully, evidence artifact 12087892537. No compiler/runtime private source exported; **native five-backend guest parity and source-head CI remain uncertified**.
 
 The earlier passing source-free carrier run `38997306268` did execute 82/82 in three rounds but its initial artifact incorrectly stated `expected_total=231` (a stale 77-case total). The later exact-blob [run 38997728835](https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/38997728835) corrects this by recording round counts and deriving `expected_total=246`; artifact `12087892537` was downloaded and its ZIP SHA-256 independently matched GitHub's published digest `377f9566dc24c4e014723032d7cba3579b0ec6bc55329711ada87c42e3bed80d`. Source-free only; still **not** source-org or native/guest runtime certification.
+
+## Whitespace-only workflow job names
+
+The verifier rejects whitespace-only job names even when their steps have
+valid execution records. The additional adversarial regression mutates
+the required job to whitespace-only while leaving a real build step intact.
+Source-free CI now requires **86** tests per round, not native guest execution.
