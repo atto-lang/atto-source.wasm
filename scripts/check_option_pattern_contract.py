@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -91,6 +92,7 @@ def main():
     parser.add_argument("--backend", required=True, choices=tuple(STATUS))
     parser.add_argument("--report", type=Path)
     parser.add_argument("--revision", default="unverified")
+    parser.add_argument("--run-command", help="shlex-split runtime template; required for Graal positive cases")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.revision != "unverified" and not re.fullmatch(r"[a-f0-9]{40}", args.revision):
@@ -98,12 +100,17 @@ def main():
     cases = load_contract()
     template = args.command[1:] if args.command[:1] == ["--"] else args.command
     if args.backend == "wasm":
-        if template:
+        if template or args.run_command:
             raise ValueError("Wasm depends on the pinned LLVM compiler; do not fake independent admission")
         print("OPTION_PATTERN|backend=wasm|inventory=9|status=PENDING_NO_COMPILER_EXECUTION")
         return 0
     if not template:
         raise ValueError("executable compiler command required; source-only verification is not parity")
+    if args.backend == "graal" and not args.run_command:
+        raise ValueError("Graal positive fixture execution is mandatory; supply --run-command")
+    if args.backend != "graal" and args.run_command:
+        raise ValueError("only Graal supports a runtime execution command")
+    runtime_template = shlex.split(args.run_command) if args.run_command else []
 
     report = {"suite": "oreslang.option-if-matches.v1", "backend": args.backend,
               "revision": args.revision, "status": "failed", "cases": []}
@@ -124,23 +131,39 @@ def main():
             encoded = case["source"].encode("utf-8")
             file.write_bytes(encoded)
             result = invoke(template, file)
+            runtime_exit = None
             if args.backend == "graal":
-                ok = result.returncode == (0 if case["reference"] == "accept" else 1)
+                if case["reference"] == "accept":
+                    ok = result.returncode == 0
+                    if ok:
+                        executed = invoke(runtime_template, file)
+                        runtime_exit = executed.returncode
+                        ok = (runtime_exit == case["runtime_exit"]
+                              and not executed.stdout.strip())
+                else:
+                    # OresMain uses 1 for diagnostics and 2 for CLI misuse.
+                    ok = result.returncode == 1 and b"oreslang:" in result.stderr
             else:
-                output = result.stdout.decode("utf-8", errors="replace")
-                emitted_ir = re.search(
-                    r"(?m)^\s*(?:; ModuleID|target triple|source_filename|define\b)", output)
-                # The LLVM CLI's documented negative-test contract is
-                # *zero IR on stdout*, not merely a nonzero process exit.
-                no_ir = not result.stdout.strip() if args.backend == "llvm" else not emitted_ir
-                ok = result.returncode != 0 and no_ir
+                # The real native CLIs return 1 with a backend-owned error
+                # prefix on source diagnostics. An exit 2 (usage failure),
+                # signal/crash, empty diagnostic, or any emitted IR/output
+                # is *not* proof of unsupported-syntax admission.
+                diagnostic_prefix = {
+                    "llvm": b"oreslang-llvmc:",
+                    "net": b"oresnet:",
+                    "forge": b"oresforge:",
+                }[args.backend]
+                ok = (result.returncode == 1
+                      and result.stderr.lstrip().startswith(diagnostic_prefix)
+                      and not result.stdout.strip())
             report["cases"].append({
                 "id": case["id"], "source_sha256": hashlib.sha256(encoded).hexdigest(),
                 "expected_reference": case["reference"], "compiler_exit": result.returncode,
+                "runtime_exit": runtime_exit,
                 "verified": bool(ok),
             })
     if all(case["verified"] for case in report["cases"]):
-        report["status"] = ("reference_admission_verified" if args.backend == "graal"
+        report["status"] = ("reference_admission_and_runtime_verified" if args.backend == "graal"
                             else "unsupported_syntax_rejected_not_parity")
     if args.report is not None:
         args.report.parent.mkdir(parents=True, exist_ok=True)
