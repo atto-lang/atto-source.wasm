@@ -138,6 +138,24 @@ class SerdePolicyRegression(unittest.TestCase):
                 with self.assertRaises(policy.ContractError):
                     policy.verify_file(location)
 
+
+    def test_reject_directory_and_release_open_descriptor(self):
+        with tempfile.TemporaryDirectory() as root:
+            real_open = os.open
+            opened = []
+
+            def track_open(path, flags, *args, **kwargs):
+                descriptor = real_open(path, flags, *args, **kwargs)
+                opened.append(descriptor)
+                return descriptor
+
+            with mock.patch.object(policy.os, 'open', side_effect=track_open):
+                with self.assertRaisesRegex(policy.ContractError, 'regular file'):
+                    policy.verify_file(Path(root))
+            self.assertEqual(len(opened), 1)
+            with self.assertRaises(OSError):
+                os.fstat(opened[0])
+
     def test_reject_fifo_without_blocking_on_open(self):
         if not hasattr(os, 'mkfifo'):
             with self.assertRaises(policy.ContractError):
@@ -194,7 +212,7 @@ class SerdePolicyRegression(unittest.TestCase):
 if __name__ == '__main__':
     # unittest discover exits 0 even if no tests are discovered. A security
     # gate cannot treat a renamed/deleted suite or skipped test as green.
-    expected = 35
+    expected = 36
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
     if suite.countTestCases() != expected:
         raise SystemExit(f'FAIL: expected {expected} serde regressions, '
