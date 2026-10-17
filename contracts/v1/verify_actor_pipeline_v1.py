@@ -2,15 +2,49 @@
 """Shared Oreslang actor DAG and routing vectors; host contract only."""
 import json
 import math
+import os
 import pathlib
+import stat
 import sys
 
 # Contract JSON is a cross-backend trust boundary. Python's default decoder
 # silently keeps the final duplicate key and also accepts NaN/Infinity. Other
 # JSON implementations may reject or interpret those bytes differently.
-def load_contract(source: pathlib.Path) -> dict:
-    if source.stat().st_size > 256 * 1024:
+MAX_CONTRACT_BYTES = 256 * 1024
+
+
+def read_bounded_contract(source: pathlib.Path) -> bytes:
+    """Reject symlink/FIFO/device/hardlink substitution before bounded reads."""
+    def identity(a, b):
+        return all(getattr(a, name) == getattr(b, name) for name in (
+            "st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
+            "st_mtime_ns", "st_ctime_ns"
+        ))
+
+    before = source.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise ValueError("actor routing contract must be a unique regular file")
+    if not 0 < before.st_size <= MAX_CONTRACT_BYTES:
         raise ValueError("actor routing contract exceeds 256 KiB budget")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(source, flags)
+    with os.fdopen(fd, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if not stat.S_ISREG(opened.st_mode) or not identity(before, opened):
+            raise ValueError("actor routing contract changed before read")
+        raw = stream.read(MAX_CONTRACT_BYTES + 1)
+        after = os.fstat(stream.fileno())
+        if not identity(opened, after):
+            raise ValueError("actor routing contract changed during read")
+    if not identity(after, source.lstat()):
+        raise ValueError("actor routing contract path changed during read")
+    if not 0 < len(raw) <= MAX_CONTRACT_BYTES:
+        raise ValueError("actor routing contract exceeds 256 KiB budget")
+    return raw
+
+
+def load_contract(source: pathlib.Path) -> dict:
+    raw = read_bounded_contract(source)
 
     def unique_members(items):
         decoded = {}
@@ -32,7 +66,7 @@ def load_contract(source: pathlib.Path) -> dict:
             raise ValueError("non-finite actor routing JSON float")
         return number
 
-    result = json.loads(source.read_text(encoding="utf-8"),
+    result = json.loads(raw.decode("utf-8", errors="strict"),
                         object_pairs_hook=unique_members,
                         parse_constant=reject_nonfinite,
                         parse_float=finite_float)
