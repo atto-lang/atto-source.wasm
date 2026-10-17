@@ -2,6 +2,7 @@
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
 import json
+import os
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -114,6 +115,29 @@ class PersistentActorPolicyTest(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
 
+    def test_reject_exponent_overflow_before_schema_interpretation(self):
+        with self.assertRaisesRegex(ContractError, "non-finite"):
+            validate_raw(b'{"version": 1e999}')
+
+    def test_reject_directory_as_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(Path(temp))
+
+    def test_reject_hardlinked_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / "valid.json"
+            data.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(data, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows runner volumes do not permit hardlinks;
+                # the cross-platform OS-independent directory case still runs.
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(alias)
+
     def test_reject_oversized_contract_file(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.json"
@@ -124,7 +148,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 27
+    expected = 30
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
