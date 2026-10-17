@@ -80,6 +80,10 @@ def main():
                      '"target":"worker-z","target": "worker-a"', 1)),
         ("nonfinite extension",
          '{"untrusted_extension":NaN,' + raw[1:]),
+        ("overflowing exponent extension",
+         '{"untrusted_extension":1e999,' + raw[1:]),
+        ("negative overflowing exponent extension",
+         '{"untrusted_extension":-1e999,' + raw[1:]),
     ]
     failures = []
     for name, contents in malformed_json:
