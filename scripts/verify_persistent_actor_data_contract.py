@@ -5,6 +5,9 @@ A passing contract check proves the fixture and capability declarations agree,
 NOT that the backend has implemented persistent maps or passed runtime tests.
 """
 import json
+import math
+import os
+import stat
 from pathlib import Path
 import sys
 
@@ -40,9 +43,17 @@ def validate_raw(raw):
         raise ContractError("invalid or oversized persistent contract")
     if raw.startswith(b"\xef\xbb\xbf"):
         raise ContractError("BOM forbidden")
+    def finite_float(text):
+        value = float(text)
+        if not math.isfinite(value):
+            raise ContractError("non-finite JSON float or exponent overflow")
+        return value
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
-                          parse_constant=_bad_constant)
+                          parse_constant=_bad_constant, parse_float=finite_float)
+    except ContractError:
+        # Preserve the explicit non-finite-number denial reason.
+        raise
     except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise ContractError("invalid canonical UTF-8 JSON") from exc
     validate(data)
@@ -105,11 +116,47 @@ def validate(doc):
                  "unsafe fixture outcome changed: " + item["id"])
 
 
+def read_bounded_contract(path):
+    """Reject nonregular, hardlinked, raced and oversized JSON before decoding."""
+    path = Path(path)
+    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
+              "st_mtime_ns", "st_ctime_ns")
+    def same_file(a, b):
+        return all(getattr(a, key) == getattr(b, key) for key in fields)
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ContractError("persistent contract must be a unique regular file")
+        if not 0 < before.st_size <= 64 * 1024:
+            raise ContractError("invalid or oversized persistent contract")
+        flags = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+        fd = os.open(path, flags)
+        try:
+            stream = os.fdopen(fd, "rb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not same_file(before, opened):
+                raise ContractError("persistent contract changed before read")
+            data = stream.read(64 * 1024 + 1)
+            after = os.fstat(stream.fileno())
+            if not same_file(opened, after):
+                raise ContractError("persistent contract changed during read")
+        if not same_file(after, path.lstat()):
+            raise ContractError("persistent contract path changed during read")
+    except OSError as exc:
+        raise ContractError("persistent contract unavailable or unsafe") from exc
+    return validate_raw(data)
+
+
 if __name__ == "__main__":
     path = Path(sys.argv[1]) if len(sys.argv) == 2 else (
         Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json")
     try:
-        d = validate_raw(path.read_bytes())
+        d = read_bounded_contract(path)
     except (OSError, ContractError) as exc:
         print("PERSISTENT_ACTOR_CONTRACT_DENIED: " + str(exc), file=sys.stderr)
         sys.exit(1)
