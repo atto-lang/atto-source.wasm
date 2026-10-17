@@ -177,6 +177,36 @@ class RunContract(unittest.TestCase):
                         ["Execute test suite"], workflow_id=1)
         self.assertEqual(seen[0], 2)
 
+    def test_final_run_repository_id_denies_float_equivalent(self):
+        run_path = self.prefix + "/actions/runs/17"
+        reads = [0]
+        def tamper_final(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                reads[0] += 1
+                if reads[0] == 2:
+                    data["repository"]["id"] = float(self.repo_id)
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(tamper_final, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(reads[0], 2)
+
+    def test_final_head_repository_id_denies_float_equivalent(self):
+        run_path = self.prefix + "/actions/runs/17"
+        reads = [0]
+        def tamper_final(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                reads[0] += 1
+                if reads[0] == 2:
+                    data["head_repository"]["id"] = float(self.repo_id)
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(tamper_final, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(reads[0], 2)
+
     def test_run_changed_during_collection_denied(self):
         run_path = self.prefix + "/actions/runs/17"
         original = copy.deepcopy(self.values[run_path])

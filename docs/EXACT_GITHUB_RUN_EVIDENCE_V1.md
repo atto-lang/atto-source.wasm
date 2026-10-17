@@ -320,3 +320,13 @@ check despite matching bytes. Any removed assertion or accidental true result
 must fail tests. The checked-in regression inventory is at least **75** tests
 per iteration (three iterations). It does not grant private-source transfer
 permission or prove real Actions capacity.
+
+## Strict final workflow repository ID types
+
+Both `repository.id` and `head_repository.id` on the **final** workflow-run
+reread must be true JSON integers, not floating-point numbers that compare
+equal to a reviewed numeric ID in Python. Two adversarial tests change each
+ID to an equivalent float only on the final API response. The shared
+source-free gate requires at least **77** unittest methods across each
+of three no-skip rounds. This is metadata verification, not Oreslang runtime
+certification or authorization to export private source.
