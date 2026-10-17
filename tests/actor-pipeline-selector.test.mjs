@@ -194,6 +194,27 @@ test("v1 maximum 1024 actors and 4096 connections stay bounded", () => {
     {id:"over-limit",actorType:"Sink",role:"writable",inbound:"Event",outbound:""}],links));
 });
 
+test("generation barrier rejects accessor, inherited and truthy-object flags", () => {
+  const plan = new ActorPipelineSelector(stages(),edges(),51);
+  let evaluated = 0;
+  const malicious = {get quiescent() { evaluated++; return true; }};
+  assert.throws(()=>plan.advanceGeneration(52,malicious),/own booleans/);
+  assert.equal(evaluated,0,"lifecycle accessor executed before authority check");
+  assert.equal(plan.generation,51);
+
+  const inherited = Object.create({quiescent:true});
+  assert.throws(()=>plan.advanceGeneration(52,inherited),/barrier required/);
+  assert.throws(()=>plan.advanceGeneration(52,{quiescent:"true"}),/own booleans/);
+  assert.throws(()=>plan.advanceGeneration(52,{aborted:1}),/own booleans/);
+  assert.throws(()=>plan.advanceGeneration(52,null),/generation options/);
+  assert.equal(plan.generation,51);
+  plan.advanceGeneration(52,{quiescent:true});
+  assert.equal(plan.generation,52);
+  plan.retire();
+  assert.throws(()=>plan.advanceGeneration(53,malicious),/retired/);
+  assert.equal(evaluated,0,"retired lifecycle invoked caller-provided getter");
+});
+
 test("terminal selector retirement never reopens by generation", () => {
   const plan = new ActorPipelineSelector(stages(), edges(), 9);
   assert.equal(plan.forwardAll("source").length, 3);
