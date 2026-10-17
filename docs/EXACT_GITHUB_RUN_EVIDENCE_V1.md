@@ -94,3 +94,35 @@ nonzero and a `CI_RUN_EVIDENCE_REJECTED` explanation without printing tokens.
   backends. This script alone does not provide runtime parity.
 * Never merge based solely on the test verifier's mocked self-tests. Only
   real backend-native CI and independent security review can promote a PR.
+
+## Independently pinned workflow identity and ambiguous-step rejection
+
+The verifier also requires `--workflow-id <positive-int>` chosen from trusted,
+independently reviewed policy and compares it to GitHub's numeric
+`run.workflow_id`. **Do not populate this option by blindly copying it
+from the run being verified**. This is additional workflow identity evidence,
+not verification of the workflow YAML bytes or of which source the workflow
+checked out. Check workflow contents, source HEAD and tree separately.
+
+The verifier denies duplicate step names within a job, because two steps
+with the same display name cannot unambiguously satisfy a named proof step.
+All required jobs and steps must be explicit sequences; malformed caller
+inputs deny verification. These guards are checked by at least 49 independent
+source-free regression cases, three times in the CI workflow. The
+regressions are not native Oreslang compiler or runtime conformance tests.
+
+Example invocation now includes:
+
+```bash
+python3 scripts/verify_ci_run.py --backend java \\
+  --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \\
+  --run-id "$GITHUB_RUN_ID" \\
+  --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \\
+  --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \\
+  --require-job "exact-run-evidence-contract" \\
+  --require-step "Run all five-backend source-free security regressions"
+```
+
+These checks do not authorize private-source cross-organization mirroring.
+Actual compiler source transfer remains blocked by independent protected-main
+policy approval and the open incident containment actions.

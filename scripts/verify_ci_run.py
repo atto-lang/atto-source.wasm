@@ -113,7 +113,7 @@ def _api_get(path):
 
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
-           job_step_pairs=None, workflow_path=None):
+           job_step_pairs=None, workflow_path=None, workflow_id=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -128,6 +128,9 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or not re.fullmatch(r"\.github/workflows/[A-Za-z0-9._/-]+\.ya?ml", workflow_path)
             or any(part in ("", ".", "..") for part in workflow_path.split("/"))):
         raise Denied("expected an exact trusted workflow path under .github/workflows")
+    workflow_id = _int(workflow_id, "independently pinned workflow id")
+    if not isinstance(required_jobs, (list, tuple)) or not isinstance(required_steps, (list, tuple)):
+        raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
         raise Denied("explicit job and executable step names are required")
     if any(not isinstance(x, str) or not x.strip() or len(x) > 180
@@ -174,6 +177,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or type(run_repo.get("id")) is not int or run_repo["id"] != repo_id
             or type(head_repo.get("id")) is not int or head_repo["id"] != repo_id
             or run.get("head_sha") != commit
+            or type(run.get("workflow_id")) is not int or run["workflow_id"] != workflow_id
             or not _run_workflow_path_matches(run.get("path"), workflow_path)
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"):
@@ -237,6 +241,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if not isinstance(steps, list) or not steps:
             raise Denied("workflow job has zero executed steps")
         ran_useful_step = False
+        seen_step_names = set()
         last_number = 0
         for item_step in steps:
             step = _object(item_step, "workflow step")
@@ -253,6 +258,9 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             step_name = step.get("name")
             if not isinstance(step_name, str) or not step_name:
                 raise Denied("workflow step has no name")
+            if step_name in seen_step_names:
+                raise Denied("ambiguous duplicate workflow step name in job")
+            seen_step_names.add(step_name)
             if name in required_jobs:
                 required_job_steps.add(step_name)
                 steps_by_job[name].add(step_name)
@@ -284,6 +292,8 @@ def main(argv=None):
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--workflow-path", required=True,
                         help="Exact independently reviewed .github/workflows/*.yml path")
+    parser.add_argument("--workflow-id", required=True, type=int,
+                        help="Independently reviewed numeric GitHub workflow ID")
     parser.add_argument("--require-job", action="append", default=[])
     parser.add_argument("--require-step", action="append", default=[])
     parser.add_argument("--require-job-step", action="append", default=[],
@@ -299,7 +309,8 @@ def main(argv=None):
             pairs.append(pair)
         result = verify(_api_get, args.backend, args.commit, args.tree,
                         args.run_id, args.require_job, args.require_step,
-                        job_step_pairs=pairs, workflow_path=args.workflow_path)
+                        job_step_pairs=pairs, workflow_path=args.workflow_path,
+                        workflow_id=args.workflow_id)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1

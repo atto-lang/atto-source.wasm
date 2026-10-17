@@ -29,7 +29,7 @@ class RunContract(unittest.TestCase):
                 "head_repository": {"id": self.repo_id},
                 "head_sha": self.commit, "path": ".github/workflows/ci.yml",
                 "status": "completed",
-                "conclusion": "success", "run_attempt": 2},
+                "conclusion": "success", "run_attempt": 2, "workflow_id": 991},
             self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
                 "total_count": 1, "jobs": [
                     {"id": 31, "name": "unit", "run_id": 17, "run_attempt": 2,
@@ -51,6 +51,7 @@ class RunContract(unittest.TestCase):
         }
 
     def verify(self, *args, **kwargs):
+        kwargs.setdefault("workflow_id", 991)
         return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
 
     def fetch(self, path):
@@ -63,6 +64,47 @@ class RunContract(unittest.TestCase):
     def rejected(self):
         with self.assertRaises(module.Denied):
             self.validate()
+
+
+    def test_workflow_id_pin_is_mandatory(self):
+        with self.assertRaisesRegex(module.Denied, "independently pinned workflow id"):
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"], workflow_id=None)
+
+    def test_wrong_workflow_identity_denied(self):
+        self.values[self.prefix + "/actions/runs/17"]["workflow_id"] = 992
+        self.rejected()
+
+    def test_missing_or_malformed_run_workflow_id_denied(self):
+        run = self.values[self.prefix + "/actions/runs/17"]
+        for value in (None, False, True, "991", 0, -1):
+            with self.subTest(value=value):
+                run["workflow_id"] = value
+                self.rejected()
+
+    def test_invalid_independent_workflow_id_denied(self):
+        for value in (None, False, True, "991", 0, -1):
+            with self.subTest(value=value):
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                workflow_id=value)
+
+    def test_duplicate_step_names_within_job_denied(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        steps[0]["name"] = steps[1]["name"]
+        self.rejected()
+
+    def test_malformed_required_name_containers_denied(self):
+        for jobs, steps in (("unit", ["Execute test suite"]),
+                            (["unit"], "Execute test suite"),
+                            ({"unit"}, ["Execute test suite"]),
+                            (["unit"], {"Execute test suite"})):
+            with self.subTest(jobs=jobs, steps=steps):
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, jobs, steps)
 
     def test_success_is_explicitly_not_guest_certification(self):
         self.assertIn("NOT_GUEST", self.validate()["statement"])
