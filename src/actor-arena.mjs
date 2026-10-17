@@ -8,6 +8,14 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
 // Own properties on a Uint8Array can shadow .buffer and .byteLength. Read
 // the real typed-array internal slots instead of trusting spoofable properties.
+// Capture trusted intrinsics at module initialization. Guest/host libraries
+// may later mutate prototype methods; never call a replaceable method on a
+// live view of actor-owned WebAssembly.Memory.
+const NativeUint8Array = Uint8Array;
+const nativeUint8Set = Uint8Array.prototype.set;
+const nativeUint8Fill = Uint8Array.prototype.fill;
+const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(
+  WebAssembly.Memory.prototype, "buffer").get;
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
@@ -56,7 +64,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new Uint8Array(this.#memory.buffer);
+    return new NativeUint8Array(nativeMemoryBuffer.call(this.#memory));
   }
 
   #requireTurn(token) {
@@ -76,7 +84,7 @@ export class ActorArena {
 
   endTurn(turn) {
     this.#requireTurn(turn);
-    this.#bytes().fill(0, PAGE, PAGE + this.#scratchTop);
+    nativeUint8Fill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
     this.#scratch = new WeakMap();
@@ -117,7 +125,7 @@ export class ActorArena {
     const handle = Object.freeze({});
     const slot = {offset, length};
     (scratch ? this.#scratch : this.#handles).set(handle, slot);
-    this.#bytes().fill(0, offset, offset + length);
+    nativeUint8Fill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
 
@@ -128,7 +136,7 @@ export class ActorArena {
     this.#requireTurn(turn);
     const entry = this.#handles.get(handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    this.#bytes().fill(0, entry.offset, entry.offset + entry.length);
+    nativeUint8Fill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
     this.#handles.delete(handle);
     --this.#persistentCount;
     this.#freePersistent.push({...entry});
@@ -151,7 +159,13 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return this.#bytes().slice(offset, offset + length); // owned copy
+    // Explicit intrinsic copy avoids mutable .slice and species hooks that
+    // could otherwise leak a live view of private Wasm linear memory.
+    const copy = new NativeUint8Array(length);
+    const window = new NativeUint8Array(nativeMemoryBuffer.call(this.#memory),
+      offset, length);
+    nativeUint8Set.call(copy, window);
+    return copy;
   }
 
   write(turn, handle, data) {
@@ -165,13 +179,13 @@ export class ActorArena {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
-    this.#bytes().set(data, offset);
+    nativeUint8Set.call(this.#bytes(), data, offset);
   }
 
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
-    this.#bytes().fill(0);
+    nativeUint8Fill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
     this.#handles = new WeakMap();
