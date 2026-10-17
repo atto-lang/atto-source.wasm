@@ -43,8 +43,8 @@ jobs:
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
-          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "d537fbdd17197cf2b9e12aa37a074248993ef856"
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "486963b17cd56666fa6c239a2d57b5c69c1863f3"
+          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "b51f648518aa4f0573a732716988684171b94867"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "f9b9292d1903acc1f8a78e3d78ceb052bf9d28ad"
       - name: Compile policy and tests in Python isolated mode
         run: python3 -I -m py_compile scripts/verify_persistent_actor_data_contract.py scripts/test_persistent_actor_data_contract.py
       - name: Reject capability and fixture drift
