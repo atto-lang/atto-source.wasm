@@ -70,6 +70,28 @@ class RunContract(unittest.TestCase):
             self.validate()
 
 
+    def test_run_changed_during_collection_denied(self):
+        run_path = self.prefix + "/actions/runs/17"
+        original = copy.deepcopy(self.values[run_path])
+        for key, value in (("run_attempt", 3), ("conclusion", "failure"),
+                           ("head_sha", "d" * 40), ("workflow_id", 992),
+                           ("path", ".github/workflows/other.yml"),
+                           ("status", "in_progress")):
+            with self.subTest(key=key):
+                calls = [0]
+                def changing_fetch(path):
+                    data = copy.deepcopy(self.values[path])
+                    if path == run_path:
+                        calls[0] += 1
+                        if calls[0] == 2:
+                            data[key] = value
+                    return data
+                with self.assertRaisesRegex(module.Denied, "changed during evidence collection"):
+                    self.verify(changing_fetch, self.backend, self.commit,
+                                self.tree, self.run_id, ["unit"], ["Execute test suite"])
+                self.assertEqual(calls[0], 2)
+        self.values[run_path] = original
+
     def test_workflow_blob_pin_required(self):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch, self.backend, self.commit, self.tree,
