@@ -14,8 +14,9 @@ const pinnedSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256;
 // A syntax error mentioning "gpu" is not proof of fail-closed domain admission.
 // Require a domain identifier AND an explicit capability/refusal reason.
 function isDomainRefusal(stderr) {
-  return /\\b(cpu|gpu|nb|nonblocking)\\b|execution[- ]domain/i.test(stderr) &&
-    /\\b(unsupported|unavailable|reserved|disabled|unimplemented)\\b|not[ -](?:yet[ -])?(?:implemented|supported|lowered)/i.test(stderr) &&\n    /\\b(execution|regions?|graph|lowering|source|placement)\\b|execution[- ]domain/i.test(stderr);
+  return /\b(cpu|gpu|nb|nonblocking)\b|execution[- ]domain/i.test(stderr) &&
+    /\b(unsupported|unavailable|reserved|disabled|unimplemented)\b|not[ -](?:yet[ -])?(?:implemented|supported|lowered)/i.test(stderr) &&
+    /\b(execution|regions?|graph|lowering|source|placement)\b|execution[- ]domain/i.test(stderr);
 }
 
 test("source-free refusal classifier rejects unrelated diagnostics", () => {
