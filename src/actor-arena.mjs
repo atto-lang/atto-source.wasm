@@ -248,8 +248,11 @@ export class ActorArena {
     return nativeFreeze({
       close() {
         if (!live) return;
-        arena.#releaseExternalLease();
+        // Consume logical ownership exactly once before physical reclamation.
+        // If scrub/reclaim fails, CONTROL retries via idempotent retire(); the
+        // callback must not retain or resurrect a logically released pin.
         live = false;
+        arena.#releaseExternalLease();
       }
     });
   }
@@ -281,12 +284,10 @@ export class ActorArena {
       throw new Error("actor arena external lease accounting underflow");
     }
     --this.#externalLeases;
-    try {
-      if (this.#closed && this.#externalLeases === 0) this.#reclaim();
-    } catch (error) {
-      ++this.#externalLeases; // preserve retryable ownership on reclaim failure
-      throw error;
-    }
+    // Reclaim failure leaves #base attached and the arena logically retired.
+    // Do not resurrect a released lifetime owner: CONTROL can call retire()
+    // again, which retries #reclaim() when the owner count remains zero.
+    if (this.#closed && this.#externalLeases === 0) this.#reclaim();
   }
 
   dropPersistent(turn, handle) {
