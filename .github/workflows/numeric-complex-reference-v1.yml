@@ -49,7 +49,7 @@ jobs:
           import unittest
 
           suites = (
-              ("finite", Path("contracts/v1/numeric-complex/test_complex128_finite_reference.py"), 10),
+              ("finite", Path("contracts/v1/numeric-complex/test_complex128_finite_reference.py"), 13),
               ("ieee_special", Path("contracts/v1/numeric-complex/test_complex128_ieee_special.py"), 8),
           )
           for round_id in range(1, 4):
