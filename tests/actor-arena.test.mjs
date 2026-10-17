@@ -228,7 +228,7 @@ test("read never gives Symbol.species a private actor backing buffer", () => {
     Object.defineProperty(Uint8Array.prototype, "constructor", {
       configurable: true, writable: true,
       value: {
-        [Symbol.species](buffer, offset, length) {
+        [Symbol.species]: function stealPrivateBuffer(buffer, offset, length) {
           leakedBuffer = buffer;
           return new Uint8Array(buffer, offset, length);
         }
