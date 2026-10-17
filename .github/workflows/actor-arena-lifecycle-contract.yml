@@ -27,8 +27,18 @@ jobs:
         shell: bash
         env:
           EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_REPOSITORY_ID: ${{ github.repository_id }}
+          PR_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
+          EXPECTED_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # A fork PR cannot claim that its Git commit was executed as the source repo.
+          if [[ "$EXPECTED_EVENT" == "pull_request" ]]; then
+            [[ "$PR_HEAD_REPOSITORY_ID" =~ ^[0-9]+$ ]]
+            test "$PR_HEAD_REPOSITORY_ID" = "$BASE_REPOSITORY_ID"
+          else
+            test "$EXPECTED_EVENT" = "push"
+          fi
           [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
           test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
           test -n "$(git rev-parse 'HEAD^{tree}')"
@@ -93,6 +103,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id || github.repository_id }}
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
@@ -100,6 +112,8 @@ jobs:
           from pathlib import Path
           def git(*args):
               return subprocess.check_output(["git", *args], text=True).strip()
+          if os.environ["SOURCE_REPOSITORY_ID"] != os.environ["BASE_REPOSITORY_ID"]:
+              raise SystemExit("untrusted cross-repository lifecycle receipt")
           round_path = Path(os.environ["RUNNER_TEMP"], "actor-arena-lifecycle-round-counts.json")
           counts = json.loads(round_path.read_text(encoding="utf-8"))
           if counts != {"round_counts": [29, 29, 29], "executed_total": 87}:
@@ -117,6 +131,8 @@ jobs:
             "schema": "oreslang.actor_arena_lifecycle_source_head_v1",
             "classification": "POLICY_ONLY_NOT_NATIVE_OR_GUEST_CERTIFICATION",
             "repository": os.environ["GITHUB_REPOSITORY"],
+            "repository_id": int(os.environ["BASE_REPOSITORY_ID"]),
+            "source_repository_id": int(os.environ["SOURCE_REPOSITORY_ID"]),
             "head_sha": git("rev-parse", "HEAD"),
             "head_tree": git("rev-parse", "HEAD^{tree}"),
             "trigger_sha": os.environ["GITHUB_SHA"],
