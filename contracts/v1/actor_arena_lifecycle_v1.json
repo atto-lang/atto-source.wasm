@@ -17,7 +17,7 @@
       "scratch_turn_revocation": "source-implemented-unverified",
       "incarnation_fencing": "source-implemented-unverified",
       "foreign_carrier_denial": "source-implemented-unverified",
-      "capability_fabrication_denial": "source-implemented-unverified",
+      "guest_capability_fabrication_denial": "source-implemented-unverified",
       "nonrecycling_identity": "source-implemented-unverified",
       "guest_allocation_lowering": "unverified",
       "ffi_borrow_io_quiescence": "unverified",
@@ -31,7 +31,7 @@
       "scratch_turn_revocation": "source-implemented-unverified",
       "incarnation_fencing": "source-implemented-unverified",
       "foreign_carrier_denial": "source-implemented-unverified",
-      "capability_fabrication_denial": "source-implemented-unverified",
+      "guest_capability_fabrication_denial": "source-implemented-unverified",
       "nonrecycling_identity": "source-implemented-unverified",
       "guest_allocation_lowering": "unverified",
       "ffi_borrow_io_quiescence": "unverified",
@@ -45,7 +45,7 @@
       "scratch_turn_revocation": "source-implemented-unverified",
       "incarnation_fencing": "source-implemented-unverified",
       "foreign_carrier_denial": "source-implemented-unverified",
-      "capability_fabrication_denial": "source-implemented-unverified",
+      "guest_capability_fabrication_denial": "source-implemented-unverified",
       "nonrecycling_identity": "source-implemented-unverified",
       "guest_allocation_lowering": "unverified",
       "ffi_borrow_io_quiescence": "unverified",
@@ -59,7 +59,7 @@
       "scratch_turn_revocation": "source-implemented-unverified",
       "incarnation_fencing": "source-implemented-unverified",
       "foreign_carrier_denial": "source-implemented-unverified",
-      "capability_fabrication_denial": "source-implemented-unverified",
+      "guest_capability_fabrication_denial": "source-implemented-unverified",
       "nonrecycling_identity": "source-implemented-unverified",
       "guest_allocation_lowering": "unverified",
       "ffi_borrow_io_quiescence": "unverified",
@@ -73,7 +73,7 @@
       "scratch_turn_revocation": "source-implemented-unverified",
       "incarnation_fencing": "source-implemented-unverified",
       "foreign_carrier_denial": "source-implemented-unverified",
-      "capability_fabrication_denial": "source-implemented-unverified",
+      "guest_capability_fabrication_denial": "source-implemented-unverified",
       "nonrecycling_identity": "source-implemented-unverified",
       "guest_allocation_lowering": "unverified",
       "ffi_borrow_io_quiescence": "unverified",
@@ -106,7 +106,7 @@
       "expect": "deny"
     },
     {
-      "id": "raw-capability-coordinates-denied",
+      "id": "raw-guest-capability-coordinates-denied",
       "expect": "deny-fabrication"
     },
     {
