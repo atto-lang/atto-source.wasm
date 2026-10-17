@@ -128,8 +128,12 @@ def main():
                 ok = result.returncode == (0 if case["reference"] == "accept" else 1)
             else:
                 output = result.stdout.decode("utf-8", errors="replace")
-                emitted_ir = re.search(r"(?m)^(?:\s*; ModuleID|\s*target triple|\s*define (?:internal )?i\d+)", output)
-                ok = result.returncode != 0 and not emitted_ir
+                emitted_ir = re.search(
+                    r"(?m)^\s*(?:; ModuleID|target triple|source_filename|define\b)", output)
+                # The LLVM CLI's documented negative-test contract is
+                # *zero IR on stdout*, not merely a nonzero process exit.
+                no_ir = not result.stdout.strip() if args.backend == "llvm" else not emitted_ir
+                ok = result.returncode != 0 and no_ir
             report["cases"].append({
                 "id": case["id"], "source_sha256": hashlib.sha256(encoded).hexdigest(),
                 "expected_reference": case["reference"], "compiler_exit": result.returncode,
