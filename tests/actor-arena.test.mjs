@@ -157,3 +157,50 @@ test('persistent and scratch handles have bounded metadata quotas', () => {
   arena.endTurn(next);
   arena.retire();
 });
+
+test("arena ownership survives poisoned Uint8Array methods", () => {
+  const arena = new ActorArena({actorId: 35, incarnation: 1});
+  const turn = arena.beginTurn();
+  const saved = new Map(["slice", "set", "fill"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(Uint8Array.prototype, name)]));
+  try {
+    const persistent = arena.allocPersistent(turn, 4);
+    const scratch = arena.allocScratch(turn, 4);
+    arena.write(turn, persistent, Uint8Array.of(1, 2, 3, 4));
+    arena.write(turn, scratch, Uint8Array.of(5, 6, 7, 8));
+    // Simulate a same-realm dependency poisoning the mutable prototypes.
+    // A naive .slice leaks an alias, .set loses writes, and .fill skips scrub.
+    Object.defineProperty(Uint8Array.prototype, "slice", {
+      configurable: true, writable: true, value: Uint8Array.prototype.subarray
+    });
+    Object.defineProperty(Uint8Array.prototype, "set", {
+      configurable: true, writable: true, value() {}
+    });
+    Object.defineProperty(Uint8Array.prototype, "fill", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    const independent = arena.read(turn, persistent);
+    independent[0] = 99;
+    assert.deepEqual([...arena.read(turn, persistent)], [1, 2, 3, 4],
+      "a poisoned slice must never expose a mutable private region alias");
+    arena.write(turn, persistent, Uint8Array.of(9, 8, 7, 6));
+    assert.deepEqual([...arena.read(turn, persistent)], [9, 8, 7, 6],
+      "a poisoned set must not silently suppress actor writes");
+    arena.dropPersistent(turn, persistent);
+    const recycled = arena.allocPersistent(turn, 4);
+    assert.deepEqual([...arena.read(turn, recycled)], [0, 0, 0, 0],
+      "a poisoned fill must not preserve private bytes on reuse");
+    arena.endTurn(turn);
+    const next = arena.beginTurn();
+    const nextScratch = arena.allocScratch(next, 4);
+    assert.deepEqual([...arena.read(next, nextScratch)], [0, 0, 0, 0],
+      "scratch must be zero after turn exit despite poisoned fill");
+    arena.endTurn(next);
+    arena.retire();
+  } finally {
+    for (const [name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(Uint8Array.prototype, name, descriptor);
+      else delete Uint8Array.prototype[name];
+    }
+  }
+});
