@@ -13,19 +13,39 @@ Partial host primitives are not authority to execute source actors concurrently.
    (for example epoll, kqueue, IOCP, or an appropriate Wasm host event loop).
    Reactor callbacks perform bounded host bookkeeping only. **Guest code must
    execute on its owning actor or CONTROL scheduler, never on a reactor.**
-3. The throughput profile targets one reactor at startup and allows up to four
-   configurable reactors based on sustained measured work, NOT the number of
-   pending I/O handles. Five idle reads must not allocate five threads.
-4. Independent CONTROL and actor pools have bounded runnable queues, explicit
-   rejection/backpressure, and configurable carrier limits (nominal max 20).
-   Demand for *runnable* turns can grow carriers; pending I/O cannot.
-5. The strict profile forbids blocking-worker/virtual-thread I/O offloading.
+3. The normal throughput profile targets **zero VM-owned reactor threads at
+   cold startup**. Reactor/scheduler descriptors and bounded queues MAY be
+   constructed eagerly, but the first valid readiness admission lazily starts
+   reactor #0. Sustained measured reactor pressure may grow the reactor set up
+   to a bounded implementation maximum (initial target: four). Pending handle
+   count alone is never a scaling signal. An explicit warm/server profile MAY
+   prestart one reactor; that is configuration, not a language semantic.
+4. Throughput CONTROL, PRIVATE, SHARED and UNTRUSTED execution domains target
+   **zero resident carriers at cold startup**. A first carrier is created only
+   after independently runnable work is admitted. Hosts MAY opt into an
+   explicit nonzero warm minimum, but that is configuration rather than a
+   language semantic.
+5. Canonical normal-profile completion isolation adds **zero dedicated
+   completion-worker threads**. A reactor publishes only bounded immutable
+   readiness/completion records; continuation resumption is enqueued to the
+   owning scheduler/domain, or to an explicitly supplied host executor for
+   host-only callbacks. Reactor threads MUST NOT execute arbitrary Future
+   subscribers, and slow subscribers MUST NOT consume/starve CONTROL. A
+   backend that still needs a private completion pool is transitional and MUST
+   report that implementation gap rather than claim canonical topology.
+6. Physical actor/CONTROL carrier capacity is governed by a **VM-wide bounded
+   carrier budget**, not four independent thread reservations. Domain maxima
+   are admission ceilings. CONTROL must retain guaranteed progress capacity
+   (for example one emergency/reserved permit) without requiring a resident
+   CONTROL thread. Demand for *runnable* turns can grow carriers; pending I/O,
+   actors, ActorGroups, mailboxes and suspended continuations cannot.
+7. The strict profile forbids blocking-worker/virtual-thread I/O offloading.
    Unsupported socket/file/HTTP/stdio operations reject; they must not silently
    use blocking calls or pretend that an async-looking API is OS-nonblocking.
-6. Socket, read/write operation, continuation and completion records are owned,
+8. Socket, read/write operation, continuation and completion records are owned,
    bounded, generation-fenced and cancel-safe. A descriptor is admitted by at
    most one active I/O owner; a stale completion cannot settle a reused slot.
-7. A VM/guest may use existing OS/JVM/.NET/host event loops when dedicated
+9. A VM/guest may use existing OS/JVM/.NET/host event loops when dedicated
    reactor ownership is unavailable, but MUST verify that its guest operation
    is genuinely nonblocking. It MUST NOT claim explicit 1..4 reactor-thread
    control if that platform does not expose it.
@@ -57,20 +77,25 @@ This alone is **not** a hard-real-time guarantee: platform-specific WCET,
 preemption, scheduler priority and device/kernel latency proofs are required.
 Backends without proven RT admission must explicitly deny #hard.
 
-## Current implementation classification (2026-10-16)
+## Current implementation classification (2026-10-17)
 
 | Backend | NIO status | Actor physical turns | RT status |
 | --- | --- | --- | --- |
-| Java/GraalVM | Experimental NIO TCP; VM readiness manager; legacy HTTP/FS adapters still need migration | Host credits 1..3, live actor default single-flight | Hybrid GC; no hard-RT guarantee |
-| LLVM | Linux epoll reactor + native VM attachment; source await bridge incomplete | Host credits 1..3, native execution authority still single-owner | Zero tracing-GC substrate and prestart profile; no WCET guarantee |
+| Java/GraalVM | VM readiness manager now lazily starts reactor #0; experimental TCP is shared on that manager, but a transitional lazy private completion pool and legacy HTTP/FS adapters still need migration | Host credits 1..3, live actor default single-flight | Hybrid GC; no hard-RT guarantee |
+| LLVM | Linux epoll manager configures throughput at zero pthreads and lazily starts reactor #0; native VM attachment exists, source await bridge incomplete | Host credits 1..3, native execution authority still single-owner | Zero tracing-GC substrate and fixed prestart profile; no WCET guarantee |
 | .NET | Source compiler/runtime has no guest NIO implementation | Host credits 1..3 only; no guest parallel actor execution | Managed GC; no hard-RT claim |
 | WASM | Zero-import scalar guest; no guest NIO or reactors | No guest actor execution, reject physical-turn requests | No hard-RT claim |
 | Forge | Mailbox prototype; no guest NIO/reactor | Host credits 1..3 only; no source parallel actor execution | Native/no tracing-GC host credit path; no hard-RT claim |
 
 ## Required differential fixtures
 
-- One VM reactor at startup; five and many pending reads without proportional
-  OS thread creation; independently runnable turn saturation scales workers.
+- Throughput cold start: zero VM reactor threads, zero CONTROL/actor carriers
+  and zero completion workers. Invalid/rejected I/O admission stays at zero;
+  the first valid readiness watch starts exactly one reactor. Five and 10,000
+  idle/pending reads must not create proportional threads.
+- Independently runnable CPU work lazily creates carriers under one VM-wide
+  budget while preserving CONTROL progress capacity; ActorGroups, actors,
+  mailboxes and suspended awaits never directly own OS threads.
 - Concurrent connect/accept/read/write, partial writes, EOF, cancel/close
   races, generation/descriptor reuse, fd ownership and bounded backpressure.
 - A reactor publishes completions only; guest callbacks run on the owning
@@ -80,7 +105,9 @@ Backends without proven RT admission must explicitly deny #hard.
 - Explicit unsupported-feature denial on .NET/WASM/Forge until source lowering
   exists. Do not count host-only credit or NIO tests as source guest success.
 - LLVM RT: zero tracing-GC, preallocated hot-path resources, bounded worst-case
-  latency measurement under saturation and clear rejection of unproven #hard.
+  latency measurement under saturation, clear rejection of unproven #hard,
+  and a pthread-ID census proving no new runtime thread appears after the RT
+  admission fence.
 
 ## Evidence and source handling
 
