@@ -10,6 +10,7 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
 const safeInteger = Number.isSafeInteger;
 const nativeFreeze = Object.freeze;
+const reflectApply = Reflect.apply;
 const setHas = Set.prototype.has;
 // Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
@@ -261,6 +262,42 @@ export class ActorArena {
         if (!live) return;
         arena.#releaseExternalLease();
         live = false;
+      }
+    });
+  }
+
+  // Register an external continuation/FFI/I/O callback while the actor
+  // turn is admitted. The returned object carries lifetime authority only.
+  // JavaScript has no deterministic finalizer contract, so an abandoned
+  // callback MUST be explicitly close()d; fire() closes in a finally block.
+  trackExternalCallback(turn, callback) {
+    if (typeof callback !== "function") {
+      throw new TypeError("external callback must be callable");
+    }
+    const lease = this.acquireExternalLease(turn);
+    let fired = false;
+    let disabled = false;
+    return nativeFreeze({
+      fire(...args) {
+        if (disabled || fired) {
+          throw new Error("actor external completion already fired or closed");
+        }
+        fired = true;
+        try {
+          return reflectApply(callback, undefined, args);
+        } finally {
+          // Logical callback ownership is terminal even if physical reclaim
+          // fails. close() remains callable to retry the lease release.
+          disabled = true;
+          lease.close();
+        }
+      },
+      close() {
+        // Cancellation/abandonment revokes callback execution immediately.
+        // Always retry the underlying close: its own live bit is cleared only
+        // after release/reclaim succeeds.
+        disabled = true;
+        lease.close();
       }
     });
   }
