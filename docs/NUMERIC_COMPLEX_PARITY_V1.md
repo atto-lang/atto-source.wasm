@@ -202,3 +202,32 @@ complex CTest subset on both x86-64 and ARM64 Clang runners. These tests are
 execution. Source-free Clang/GCC scanner checks and a synthetic LLVM aggregate
 ABI link passed independently, but they do not replace exact-head compiler
 execution.
+
+## Frozen finite-reference input and issue identity admission
+
+The finite-complex128 oracle now pins all **13** scalar vector identities
+to their exact operation and binary64 input decimal strings, and pins
+the `1×2 @ 2×1` complex matrix input planes. It also checks exact
+source-issue anchors for Java #120, #1033, and division issue #1042.
+A regenerated oracle result does **not** authorize replacing a
+source input while leaving its old case ID in place. Changing the
+canonical finite vectors requires reviewed contract changes and updated
+test-side input commitments, not a silent self-consistent rewrite.
+This guard is a code-review/data-integrity constraint, not a
+cryptographic or runtime attestation.
+
+Three new negative test methods exercise scalar input substitution with
+matching recomputed expected bits, complex matrix input substitution
+with recomputed output, and source issue-anchor forgery. The full
+finite suite contains **13 declared unittest methods**; the source
+workflow now requires all 13 in each of its three rounds. .NET, Wasm,
+and Forge retain their extra eight-method IEEE-special reference
+suite and their separate NaN/signed-zero contract. All backend
+guest execution statuses still read `unverified`.
+
+The private [ClipTown source-free control #39060089454](https://github.com/cliptown/cliptown-e2e/actions/runs/39060089454)
+passed **7/7 independently written fixture-tampering tests** and
+uploaded short-lived [artifact #12110614229](https://github.com/cliptown/cliptown-e2e/actions/runs/39060089454/artifacts/12110614229).
+Its checks were not copied from the private Oreslang source tree;
+**the actual source finite/IEEE oracle files and Oreslang native guest
+compilers have not been tested successfully by that host**.
