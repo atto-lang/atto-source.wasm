@@ -39,13 +39,21 @@ Partial host primitives are not authority to execute source actors concurrently.
    (for example one emergency/reserved permit) without requiring a resident
    CONTROL thread. Demand for *runnable* turns can grow carriers; pending I/O,
    actors, ActorGroups, mailboxes and suspended continuations cannot.
-7. The strict profile forbids blocking-worker/virtual-thread I/O offloading.
+7. An **explicitly user-created fixed scheduler** is a deliberate exception to
+   ordinary VM-pool laziness. Where exposed (for example Java
+   `OresScheduler(N)`), `N` means exactly `N` dedicated user-owned carrier
+   threads, created/prestarted because the user explicitly requested them.
+   Such a scheduler is never created implicitly per actor or ActorGroup and
+   its carriers are accounted separately from the normal VM cold-start
+   invariant. A backend without this surface must not emulate it with hidden
+   per-object threads.
+8. The strict profile forbids blocking-worker/virtual-thread I/O offloading.
    Unsupported socket/file/HTTP/stdio operations reject; they must not silently
    use blocking calls or pretend that an async-looking API is OS-nonblocking.
-8. Socket, read/write operation, continuation and completion records are owned,
+9. Socket, read/write operation, continuation and completion records are owned,
    bounded, generation-fenced and cancel-safe. A descriptor is admitted by at
    most one active I/O owner; a stale completion cannot settle a reused slot.
-9. A VM/guest may use existing OS/JVM/.NET/host event loops when dedicated
+10. A VM/guest may use existing OS/JVM/.NET/host event loops when dedicated
    reactor ownership is unavailable, but MUST verify that its guest operation
    is genuinely nonblocking. It MUST NOT claim explicit 1..4 reactor-thread
    control if that platform does not expose it.
@@ -96,6 +104,9 @@ Backends without proven RT admission must explicitly deny #hard.
 - Independently runnable CPU work lazily creates carriers under one VM-wide
   budget while preserving CONTROL progress capacity; ActorGroups, actors,
   mailboxes and suspended awaits never directly own OS threads.
+- If a backend exposes a fixed user scheduler, constructing it with `N`
+  explicitly creates exactly `N` user-owned carriers; creating ActorGroups or
+  ordinary runtime schedulers never does so implicitly.
 - Concurrent connect/accept/read/write, partial writes, EOF, cancel/close
   races, generation/descriptor reuse, fd ownership and bounded backpressure.
 - A reactor publishes completions only; guest callbacks run on the owning
