@@ -31,6 +31,10 @@ jobs:
           git diff --cached --quiet
           printf 'commit=%s\n' "$observed" >> "$GITHUB_OUTPUT"
           printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+          printf 'finite_fixture_blob=%s\n' "$(git hash-object contracts/v1/numeric-complex/complex128-finite-reference-v1.json)" >> "$GITHUB_OUTPUT"
+          printf 'finite_verifier_blob=%s\n' "$(git hash-object contracts/v1/numeric-complex/test_complex128_finite_reference.py)" >> "$GITHUB_OUTPUT"
+          printf 'special_fixture_blob=%s\n' "$(git hash-object contracts/v1/numeric-complex/complex128-ieee-special-v1.json)" >> "$GITHUB_OUTPUT"
+          printf 'special_verifier_blob=%s\n' "$(git hash-object contracts/v1/numeric-complex/test_complex128_ieee_special.py)" >> "$GITHUB_OUTPUT"
       - name: Execute finite and IEEE-special reference suites in three complete rounds
         id: reference_oracles
         shell: bash
@@ -72,6 +76,10 @@ jobs:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
           OBSERVED_HEAD: ${{ steps.identity.outputs.commit }}
           OBSERVED_TREE: ${{ steps.identity.outputs.tree }}
+          FINITE_FIXTURE_BLOB: ${{ steps.identity.outputs.finite_fixture_blob }}
+          FINITE_VERIFIER_BLOB: ${{ steps.identity.outputs.finite_verifier_blob }}
+          SPECIAL_FIXTURE_BLOB: ${{ steps.identity.outputs.special_fixture_blob }}
+          SPECIAL_VERIFIER_BLOB: ${{ steps.identity.outputs.special_verifier_blob }}
           IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
           ORACLE_OUTCOME: ${{ steps.reference_oracles.outcome }}
           REPOSITORY_ID: ${{ github.repository_id }}
@@ -92,6 +100,12 @@ jobs:
               "expected_pr_head": os.environ["EXPECTED_HEAD"],
               "observed_checkout_commit": os.environ["OBSERVED_HEAD"],
               "observed_checkout_tree": os.environ["OBSERVED_TREE"],
+              "reference_git_blobs": {
+                  "complex128_finite_fixture": os.environ["FINITE_FIXTURE_BLOB"],
+                  "complex128_finite_verifier": os.environ["FINITE_VERIFIER_BLOB"],
+                  "complex128_ieee_special_fixture": os.environ["SPECIAL_FIXTURE_BLOB"],
+                  "complex128_ieee_special_verifier": os.environ["SPECIAL_VERIFIER_BLOB"],
+              },
               "checkout_step_outcome": os.environ["IDENTITY_OUTCOME"],
               "finite_and_ieee_reference_step_outcome": os.environ["ORACLE_OUTCOME"],
               "runner_name": os.environ.get("RUNNER_NAME", ""),
