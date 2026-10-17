@@ -125,6 +125,10 @@ def _strict_api_json(raw):
         data = json.loads(raw, object_pairs_hook=unique_keys,
                           parse_constant=no_constant, parse_int=strict_int,
                           parse_float=strict_float)
+    except Denied:
+        # Denied derives from ValueError; retain the precise security failure
+        # instead of disguising duplicate/nonfinite metadata as generic JSON.
+        raise
     except (UnicodeError, ValueError, OverflowError, RecursionError) as exc:
         raise Denied("malformed GitHub API JSON response") from exc
     return _object(data, "GitHub API response")
