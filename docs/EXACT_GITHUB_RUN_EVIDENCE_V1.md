@@ -293,3 +293,20 @@ are allowed because GitHub returns second-resolution timestamps. The two
 additional source-free regressions reject overlapping intervals and accept
 adjacent intervals. This is an API evidence consistency check, not an
 independent proof of the commands' effects or any guest runtime semantics.
+
+## Strict authenticated GitHub JSON decoding
+
+All identity-bearing GitHub REST responses are now parsed with duplicate-key
+rejection at every object depth, strict JSON numeric handling (no NaN,
+Infinity, exponential overflow or oversized integer/float tokens), bounded
+response bytes, and root-object validation. Previously Python's default
+`json.loads` used last-key-wins on duplicate JSON keys and accepted
+non-standard floating-point constants. Ambiguous metadata must fail closed,
+including when the transport returns HTTP 200.
+
+Five new source-free regression methods cover normal REST object parsing,
+duplicate metadata, malformed/nonfinite numbers, invalid encodings and
+oversized bodies, plus the actual authenticated fetch-to-parser call path.
+Matching Git blobs in Java, LLVM, .NET, WASM and Forge are a **CI evidence
+contract parity** property; they do not establish native compiler execution,
+guest actor semantics, or authorization to mirror private source.
