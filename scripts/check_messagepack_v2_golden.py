@@ -18,6 +18,11 @@ def require(ok, reason):
     if not ok:
         raise ValueError(reason)
 
+# The fixture is evidence, not a self-justifying input: changing both the
+# asserted hex bytes and its semantic values must require independent review.
+PINNED_VECTORS_GIT_BLOB = "9937eb2bcd11ad59d59f4a0e4ac83953e5e5a1e6"
+MAX_FIXTURE_BYTES = 65_536
+
 def parse_shape(text):
     visited = [0]
     def parse(i, depth=0):
@@ -106,9 +111,18 @@ def pack_array(n):
 
 def pack_string(text):
     require(type(text) is str, "expected string")
+    # Bound UTF-8 bytes before allocating a potentially enormous encoded
+    # buffer. Python str may contain lone surrogates; those are never wire data.
+    require(len(text) <= 1_048_576, "string byte budget")
+    n = 0
+    for ch in text:
+        codepoint = ord(ch)
+        require(not 0xd800 <= codepoint <= 0xdfff, "invalid Unicode scalar")
+        n += (1 if codepoint <= 0x7f else 2 if codepoint <= 0x7ff
+              else 3 if codepoint <= 0xffff else 4)
+        require(n <= 1_048_576, "string byte budget")
     data = text.encode("utf-8", errors="strict")
-    n = len(data)
-    require(n <= 1_048_576, "string byte budget")
+    require(len(data) == n, "UTF-8 length disagreement")
     if n <= 31:
         return bytes([0xa0 | n]) + data
     if n <= 255:
@@ -200,10 +214,24 @@ def load_canonical_json(text):
     return json.loads(text, object_pairs_hook=unique_pairs,
                       parse_constant=reject_constant)
 
+def load_pinned_fixture(path):
+    path = Path(path)
+    require(path.is_file() and not path.is_symlink(),
+            "golden fixture must be a regular file")
+    # Limit the actual read, including if input grows after an initial stat.
+    with path.open("rb") as fixture:
+        raw = fixture.read(MAX_FIXTURE_BYTES + 1)
+    require(len(raw) <= MAX_FIXTURE_BYTES, "oversized golden fixture")
+    git_blob = b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+    require(hashlib.sha1(git_blob).hexdigest() == PINNED_VECTORS_GIT_BLOB,
+            "golden fixture bytes changed without reviewed pin update")
+    return load_canonical_json(raw.decode("utf-8", errors="strict"))
+
+
 def main():
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else (
         Path(__file__).resolve().parents[1] / "contracts/v1/messagepack_collection_vectors.json")
-    document = load_canonical_json(path.read_text(encoding="utf-8"))
+    document = load_pinned_fixture(path)
     verify(document)
     rejected = 0
     for index in range(6):
