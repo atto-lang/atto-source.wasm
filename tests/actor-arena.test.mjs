@@ -457,6 +457,36 @@ test("actor admission and quotas ignore poisoned Number and Set methods", () => 
 });
 
 
+test("external callback leases pin page reuse after logical retirement", () => {
+  const before = actorArenaPoolStats();
+  const arena = new ActorArena({actorId: 69, incarnation: 4, kind: "shared"});
+  const leased = actorArenaPoolStats();
+  assert.equal(leased.leasedArenas, before.leasedArenas + 1);
+
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 8);
+  arena.write(turn, handle, Uint8Array.of(1, 1, 2, 3, 5, 8, 13, 21));
+  const external = arena.acquireExternalLease(turn);
+  assert.equal(arena.outstandingExternalLeases, 1);
+  arena.endTurn(turn);
+
+  arena.retire();
+  assert.equal(arena.retired, true);
+  assert.equal(arena.physicallyReclaimed, false,
+    "logical retirement must not recycle pages while an external callback owns a lifetime pin");
+  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas + 1);
+  assert.throws(() => arena.beginTurn(), /retired/,
+    "logical retirement must revoke all new actor turns before physical reclaim");
+
+  external.close();
+  external.close();
+  assert.equal(arena.outstandingExternalLeases, 0);
+  assert.equal(arena.physicallyReclaimed, true);
+  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas,
+    "last external callback lease must return capacity to the runtime pool");
+  arena.retire();
+});
+
 test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
   const before = actorArenaPoolStats();
   const first = new ActorArena({actorId: 70, incarnation: 1, kind: "private"});
