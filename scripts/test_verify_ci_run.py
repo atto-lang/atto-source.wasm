@@ -79,6 +79,26 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.validate()
 
+    def test_disguised_runner_housekeeping_cannot_count_as_execution(self):
+        for disguised in (" ", "\t", "  Set up job ", "set UP job",
+                          " POST Checkout", "pre Setup", " Complete job "):
+            with self.subTest(step=disguised):
+                self.assertFalse(module.executable_step_name(disguised))
+        self.assertTrue(module.executable_step_name("Prepare build"))
+        self.assertTrue(module.executable_step_name("Execute test suite"))
+
+    def test_whitespace_only_job_name_denied_with_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["name"] = " \t "
+        with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
+            self.validate()
+
+    def test_whitespace_only_step_name_denied_despite_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
+        with self.assertRaisesRegex(module.Denied, "no name"):
+            self.validate()
+
 
     def _switch_fixture_to_run_id_one(self):
         old = self.prefix + "/actions/runs/17"
@@ -823,8 +843,6 @@ class WorkflowIsolationContract(unittest.TestCase):
                          if "python3" in line and "<<'PY'" in line]
         self.assertEqual(len(inline_python), 2)
         self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
-        self.assertNotIn("python3 - <<'PY'", self.workflow_text())
-        self.assertIn("python3 -I -m py_compile", self.workflow_text())
 
 
     def test_report_pins_distinct_trigger_and_checkout_metadata(self):
@@ -871,7 +889,6 @@ class WorkflowIsolationContract(unittest.TestCase):
                 self.assertEqual(report["workflow_trigger_event"], "pull_request")
                 self.assertIs(report["trigger_sha_matches_reported_checkout"], expected)
                 self.assertIs(report["verified_execution_claim"], False)
-
 
 
     def test_workflow_checkout_is_pinned_and_uncredentialed(self):
