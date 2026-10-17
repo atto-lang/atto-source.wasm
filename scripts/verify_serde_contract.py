@@ -5,6 +5,8 @@ This is intentionally not a compiler, codec, or runtime conformance test.
 A runtime or CI parity claim needs independently executed tests on its exact tree.
 """
 import hashlib
+import errno
+import os
 import json
 import math
 import stat
@@ -168,13 +170,24 @@ def verify_document(doc):
 
 def verify_file(path=CONTRACT):
     path = Path(path)
-    require(stat.S_ISREG(path.lstat().st_mode) and not path.is_symlink(),
-            'contract must be a regular file, not a symlink')
-    # Reject giant inputs before allocating a copy in memory. lstat above also
-    # makes a checked-out symlinked contract an explicit error.
-    require(path.stat().st_size <= MAX_CONTRACT_BYTES, 'oversized contract')
-    raw = path.read_bytes()
-    require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
+    # Keep the integrity check on one descriptor. A separate lstat()/read_bytes()
+    # would allow a symlink swap between checking the path and opening it.
+    # NONBLOCK also prevents a malicious FIFO from hanging before fstat rejects it.
+    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+        raise ContractError('no safe nofollow/nonblocking open available')
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, 'O_CLOEXEC', 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ContractError('contract must not be a symlink') from exc
+        raise
+    with os.fdopen(fd, 'rb') as stream:
+        info = os.fstat(stream.fileno())
+        require(stat.S_ISREG(info.st_mode), 'contract must be a regular file')
+        require(info.st_size <= MAX_CONTRACT_BYTES, 'oversized contract')
+        raw = stream.read(MAX_CONTRACT_BYTES + 1)
+        require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
     digest = hashlib.sha256(raw).hexdigest()
     require(digest == EXPECTED_SHA256, 'contract bytes drift; bump policy version deliberately')
     verify_document(decode_document(raw))
