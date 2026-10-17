@@ -44,6 +44,22 @@ def link(case):
     return symbol
 
 
+def normalize_compiler_factory(case):
+    # This stage is distinct from the public aggregate ABI boundary. Java
+    # Position canonicalizes String; the LLVM signature() factory does too.
+    if not isinstance(case, dict) or case.get('layer') != 'trusted-compiler-signature-factory':
+        raise ValueError('not a reviewed compiler factory input')
+    result = {k: v for k, v in case.items() if k != 'layer'}
+    if not isinstance(result.get('positions'), list):
+        raise ValueError('invalid compiler signature positions')
+    result['positions'] = [
+        {'kind': p['kind'], 'id': 'string' if p['kind'] == 'PRIMITIVE' and p['id'] == 'String' else p['id']}
+        for p in result['positions']
+    ]
+    return result
+
+
+
 class GoldenContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -56,6 +72,7 @@ class GoldenContract(unittest.TestCase):
         self.assertEqual(self.doc['backend_expectations']['net'], 'reject-unimplemented')
         self.assertEqual(self.doc['backend_expectations']['wasm'], 'reject-unimplemented')
         self.assertEqual(self.doc['backend_expectations']['forge'], 'reject-unimplemented')
+        self.assertEqual(len(self.doc['normalization']), 1)
 
     def test_golden_symbols(self):
         cases = self.doc['accept']
@@ -64,6 +81,25 @@ class GoldenContract(unittest.TestCase):
             with self.subTest(case=case['id']):
                 self.assertEqual(link(case), case['symbol'])
         self.assertEqual(len(set(x['symbol'] for x in cases)), len(cases))
+
+    def test_factory_alias_canonicalization_is_not_raw_abi_admission(self):
+        # Raw String in a constructed ABI record must not be silently
+        # equated to an independently certified primitive type identity.
+        for case in self.doc['normalization']:
+            with self.subTest(case=case['id']):
+                with self.assertRaises((ValueError, UnicodeError)):
+                    link(case)
+                canonical = normalize_compiler_factory(case)
+                self.assertEqual(link(canonical), case['symbol'])
+
+    def test_raw_abi_primitive_alias_is_rejected(self):
+        for case in self.doc['reject']:
+            if case['id'] == 'primitive-alias':
+                with self.assertRaises(ValueError):
+                    link(case)
+                break
+        else:
+            self.fail('missing primitive-alias regression')
 
     def test_negative_abi_shapes(self):
         for case in self.doc['reject']:
