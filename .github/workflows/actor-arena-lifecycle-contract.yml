@@ -30,16 +30,16 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git hash-object contracts/v1/actor_arena_lifecycle_v1.json)" = "60a69cb0c8e034523cb99d6f00db0af48f3d1d6c"
-          test "$(git ls-tree HEAD -- contracts/v1/actor_arena_lifecycle_v1.json | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:60a69cb0c8e034523cb99d6f00db0af48f3d1d6c"
+          test "$(git hash-object contracts/v1/actor_arena_lifecycle_v1.json)" = "d965a1c8f2bfd9922875157a4f5cb09ef4ab2dce"
+          test "$(git ls-tree HEAD -- contracts/v1/actor_arena_lifecycle_v1.json | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:d965a1c8f2bfd9922875157a4f5cb09ef4ab2dce"
           test -f contracts/v1/actor_arena_lifecycle_v1.json && test ! -L contracts/v1/actor_arena_lifecycle_v1.json
-          test "$(git hash-object scripts/verify_actor_arena_lifecycle_contract.py)" = "26a8f773a4266b5e4dd14423aed522aceaa4b158"
-          test "$(git ls-tree HEAD -- scripts/verify_actor_arena_lifecycle_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:26a8f773a4266b5e4dd14423aed522aceaa4b158"
+          test "$(git hash-object scripts/verify_actor_arena_lifecycle_contract.py)" = "3cc84434d767a98dd9511c952660281068597096"
+          test "$(git ls-tree HEAD -- scripts/verify_actor_arena_lifecycle_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:3cc84434d767a98dd9511c952660281068597096"
           test -f scripts/verify_actor_arena_lifecycle_contract.py && test ! -L scripts/verify_actor_arena_lifecycle_contract.py
-          test "$(git hash-object scripts/test_actor_arena_lifecycle_contract.py)" = "ce9936a50ec14fde058f4d7562f42b656f0cea73"
-          test "$(git ls-tree HEAD -- scripts/test_actor_arena_lifecycle_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:ce9936a50ec14fde058f4d7562f42b656f0cea73"
+          test "$(git hash-object scripts/test_actor_arena_lifecycle_contract.py)" = "b73b97061261fdc091b11cf1a0748795b0606d33"
+          test "$(git ls-tree HEAD -- scripts/test_actor_arena_lifecycle_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:b73b97061261fdc091b11cf1a0748795b0606d33"
           test -f scripts/test_actor_arena_lifecycle_contract.py && test ! -L scripts/test_actor_arena_lifecycle_contract.py
-      - name: Execute lifecycle contract and 27 adversarial tests
+      - name: Execute lifecycle contract and 29 adversarial tests
         shell: bash
         run: |
           set -euo pipefail
@@ -68,10 +68,10 @@ jobs:
           tspec.loader.exec_module(tests)
 
           suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.ActorArenaLifecyclePolicyTest)
-          if suite.countTestCases() != 27:
-              raise SystemExit("lifecycle test count differs from exactly 27")
+          if suite.countTestCases() != 29:
+              raise SystemExit("lifecycle test count differs from exactly 29")
           result = unittest.TextTestRunner(verbosity=2).run(suite)
-          if (result.testsRun != 27 or not result.wasSuccessful() or result.skipped
+          if (result.testsRun != 29 or not result.wasSuccessful() or result.skipped
                   or result.expectedFailures or result.unexpectedSuccesses):
               raise SystemExit("lifecycle policy tests failed or incomplete")
           PY
@@ -94,11 +94,11 @@ jobs:
             "run_id": int(os.environ["GITHUB_RUN_ID"]),
             "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
             "source_free_blobs": {
-              "contracts/v1/actor_arena_lifecycle_v1.json": "60a69cb0c8e034523cb99d6f00db0af48f3d1d6c",
-              "scripts/verify_actor_arena_lifecycle_contract.py": "26a8f773a4266b5e4dd14423aed522aceaa4b158",
-              "scripts/test_actor_arena_lifecycle_contract.py": "ce9936a50ec14fde058f4d7562f42b656f0cea73"
+              "contracts/v1/actor_arena_lifecycle_v1.json": "d965a1c8f2bfd9922875157a4f5cb09ef4ab2dce",
+              "scripts/verify_actor_arena_lifecycle_contract.py": "3cc84434d767a98dd9511c952660281068597096",
+              "scripts/test_actor_arena_lifecycle_contract.py": "b73b97061261fdc091b11cf1a0748795b0606d33"
             },
-            "policy_tests_executed": 27,
+            "policy_tests_executed": 29,
             "native_runtime_certified": False,
             "guest_runtime_certified": False,
             "physical_reclamation_certified": False
