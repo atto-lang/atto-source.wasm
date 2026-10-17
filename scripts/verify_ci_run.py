@@ -46,8 +46,9 @@ def _evidence_label(value, limit=250):
 def executable_step_name(name):
     # Runner-generated lifecycle steps cannot substitute for a required
     # build, test, or native guest-execution step.
-    return (_evidence_label(name) and name not in HOUSEKEEPING_STEPS
-            and not name.startswith(("Post ", "Pre ")))
+    return (_evidence_label(name)
+            and name.strip().casefold() not in {s.casefold() for s in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post)\s", name.strip().casefold()) is None)
 
 
 class Denied(ValueError):
@@ -145,6 +146,16 @@ def _strict_api_json(raw):
     return _object(data, "GitHub API response")
 
 
+class _DenyRedirects(urllib.request.HTTPRedirectHandler):
+    """Never forward GitHub API credentials to another redirect target.
+
+    urllib's default redirect handler forwards Request Authorization headers,
+    including to another host. API evidence must come from api.github.com.
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Denied("authenticated GitHub API redirect denied")
+
+
 def _api_get(path):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -159,7 +170,7 @@ def _api_get(path):
                  "User-Agent": "oreslang-exact-ci-evidence-v1"},
         method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.build_opener(_DenyRedirects).open(req, timeout=20) as resp:
             if resp.status != 200:
                 raise Denied("GitHub API did not return HTTP 200")
             raw = resp.read(4 * 1024 * 1024 + 1)
@@ -305,7 +316,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
         if not _evidence_label(name):
-            raise Denied("missing or unsafe workflow job name")
+            raise Denied("missing workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
         job_names.add(name)
@@ -334,7 +345,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             previous_step_end = step_end
             step_name = step.get("name")
             if not _evidence_label(step_name):
-                raise Denied("workflow step has no safe single-line name")
+                raise Denied("workflow step has no name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
             seen_step_names.add(step_name)
@@ -356,6 +367,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     # Detect a re-run or changed conclusion during multi-page evidence collection.
     # Never combine a successful run snapshot with jobs from another attempt.
     final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
+    final_run_repo = _object(final_run.get("repository"), "final run repository")
+    final_head_repo = _object(final_run.get("head_repository"), "final head repository")
     if (type(final_run.get("id")) is not int or final_run["id"] != run_id
             or type(final_run.get("run_attempt")) is not int
             or final_run["run_attempt"] != attempt
@@ -366,8 +379,10 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or final_run.get("status") != "completed"
             or final_run.get("conclusion") != "success"
             or final_run.get("path") != expected_run_path
-            or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
-            or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
+            or type(final_run_repo.get("id")) is not int
+            or final_run_repo["id"] != repo_id
+            or type(final_head_repo.get("id")) is not int
+            or final_head_repo["id"] != repo_id):
         raise Denied("workflow run changed during evidence collection")
     # Recheck source repository identity/visibility after collecting all jobs:
     # a rename, replacement, or public visibility transition must not pass
