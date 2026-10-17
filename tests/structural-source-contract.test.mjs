@@ -120,6 +120,47 @@ test("Wasm bridge refuses unimplemented structural tuple width and optional-tail
   }
 });
 
+test("LLVM-backed Wasm keeps v3 structural collections fail-closed until real wasm32 lowering exists", {
+  skip: !process.env.ORESLANG_LLVM_COMPILER
+}, async () => {
+  const work = await mkdtemp(join(tmpdir(), "ores-wasm-v3-containers-"));
+  try {
+    const fixtures = [
+      ["array", "fnc take(structural Array<int> v):int{return v[0];}"],
+      ["list", "fnc take(structural List<int> v):int{return v[0];}"],
+      ["fixed-array", "fnc take(structural FixedArray[2 of int] v):int{return v[0];}"],
+      ["fixed-list-zero", "fnc take(structural FixedList[0 of int] v):int{return v.length;}"],
+      ["map", "fnc take(structural Map<string,int> v):Option<int>{return v.get(\"x\");}"],
+      ["owned-map", "fnc main():int{val Map<string,int> v=new Map<string,int>();v.put(\"x\",1);return v.get(\"x\").unwrap();}"]
+    ];
+    for (const [name, text] of fixtures) {
+      const input = join(work, name + ".ores");
+      await writeFile(input, text, {flag:"wx"});
+      const before = await directorySnapshot(work);
+      const result = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [input], {
+        cwd:work, encoding:"utf8", timeout:15000, maxBuffer:1024*1024
+      });
+      assert.equal(result.error, undefined, name + ": native compiler must run");
+      assert.equal(result.signal, null, name + ": compiler must diagnose instead of crash");
+      assert.ok(Number.isInteger(result.status) && result.status > 0,
+        name + ": unsupported v3 collection source must not compile");
+      assert.notEqual(result.stderr.trim(), "", name + ": missing rejection diagnostic");
+      assert.equal(result.stdout.trim(), "", name + ": rejected source emitted LLVM IR");
+      assert.deepEqual(await directorySnapshot(work), before,
+        name + ": rejected source must not create any artifact");
+    }
+  } finally {
+    await rm(work, {recursive:true, force:true});
+  }
+});
+
+/*
+ * Promotion rule: replace the negative block above only when the exact LLVM
+ * source head can compile each fixture to wasm32 and this repository executes
+ * the produced import-free module through runIsolatedCoreGuest. Host-only LLVM
+ * IR acceptance or a Node policy model is never structural collection parity.
+ */
+
 test("LLVM-backed Wasm rejects unsupported v2 optional and borrowed tuple slots", {
   skip: !process.env.ORESLANG_LLVM_COMPILER
 }, async () => {
