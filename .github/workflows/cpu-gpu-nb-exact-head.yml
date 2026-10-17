@@ -1,0 +1,93 @@
+name: Wasm CPU/GPU/nb exact-head source-local gate
+
+on:
+  push:
+    branches:
+      - feat/cpu-gpu-nb-graph-contract-20261016
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wasm-cpu-gpu-nb-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-local-negative-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact private Wasm source head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Assert private source repository and exact commit
+        id: provenance
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REPO_ID: '1419858954'
+          ACTUAL_REPO_ID: ${{ github.repository_id }}
+          SOURCE_PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_REPO_ID" = "$EXPECTED_REPO_ID"
+          test "$SOURCE_PRIVATE" = true
+          test "$GITHUB_REPOSITORY" = 'ores-truffle-oreslang/oreslang-source.wasm'
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git remote get-url origin | sed -E 's#^https://github.com/##; s#\.git$##')" = 'ores-truffle-oreslang/oreslang-source.wasm'
+          git diff --quiet
+          install -d -m 700 "$RUNNER_TEMP/wasm-domain-evidence"
+          {
+            printf 'SOURCE_HEAD=%s\n' "$(git rev-parse HEAD)"
+            printf 'SOURCE_TREE=%s\n' "$(git rev-parse HEAD^{tree})"
+            printf 'TEST_BLOB=%s\n' "$(git hash-object tests/cpu-gpu-nb-admission.test.mjs)"
+            printf '%s\n' 'SCOPE=Wasm source-local negative classifier and compiler-configuration denial; real LLVM compiler execution not included'
+          } > "$RUNNER_TEMP/wasm-domain-evidence/provenance.txt"
+      - name: Install Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Run exact source-free CPU/GPU/nb contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u ORESLANG_LLVM_COMPILER -u ORESLANG_LLVM_COMPILER_SHA256 \
+            node --test tests/cpu-gpu-nb-admission.test.mjs \
+            | tee "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
+          grep -Eq '^# pass 1$' "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
+          grep -Eq '^# fail 0$' "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
+          grep -Eq '^# skipped 1$' "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
+      - name: Prove incomplete compiler configuration fails closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env -u ORESLANG_LLVM_COMPILER \
+              ORESLANG_LLVM_COMPILER_SHA256=0000000000000000000000000000000000000000000000000000000000000000 \
+              node --test tests/cpu-gpu-nb-admission.test.mjs \
+              >"$RUNNER_TEMP/wasm-domain-evidence/sha-only.txt" 2>&1; then
+            echo 'SHA-only compiler configuration unexpectedly passed' >&2
+            exit 1
+          fi
+          if env ORESLANG_LLVM_COMPILER=/bin/false -u ORESLANG_LLVM_COMPILER_SHA256 \
+              node --test tests/cpu-gpu-nb-admission.test.mjs \
+              >"$RUNNER_TEMP/wasm-domain-evidence/compiler-only.txt" 2>&1; then
+            echo 'compiler-only configuration unexpectedly passed' >&2
+            exit 1
+          fi
+          printf 'WASM_CPU_GPU_NB_SOURCE_LOCAL=PASS\n' > "$RUNNER_TEMP/wasm-domain-evidence/test-outcome.txt"
+      - name: Retain bounded source-local evidence
+        if: ${{ always() && steps.provenance.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wasm-cpu-gpu-nb-source-local-evidence
+          path: |
+            ${{ runner.temp }}/wasm-domain-evidence/provenance.txt
+            ${{ runner.temp }}/wasm-domain-evidence/source-free-tap.txt
+            ${{ runner.temp }}/wasm-domain-evidence/sha-only.txt
+            ${{ runner.temp }}/wasm-domain-evidence/compiler-only.txt
+            ${{ runner.temp }}/wasm-domain-evidence/test-outcome.txt
+          if-no-files-found: error
+          retention-days: 7
