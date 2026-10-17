@@ -157,7 +157,11 @@ export class ActorArena {
     nativeArrayPush.call(this.#freePersistent, {...entry});
     nativeArraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    // Never use Array.prototype[Symbol.iterator] on security-critical free
+    // segments. Untrusted guest JavaScript can replace that iterator and
+    // inject a forged offset overlapping live actor-owned memory.
+    for (let index = 0; index < this.#freePersistent.length; ++index) {
+      const segment = this.#freePersistent[index];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else nativeArrayPush.call(coalesced, segment);
