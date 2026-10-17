@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shared Oreslang actor DAG and routing vectors; host contract only."""
 import json
+import math
 import pathlib
 import sys
 
@@ -22,9 +23,19 @@ def load_contract(source: pathlib.Path) -> dict:
     def reject_nonfinite(value):
         raise ValueError(f"non-finite actor routing JSON number: {value}")
 
+    def finite_float(value):
+        # json.loads allows a syntactically valid exponent such as 1e999
+        # to overflow Python float into infinity. parse_constant is never
+        # called for that spelling, so reject overflow during decoding.
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("non-finite actor routing JSON float")
+        return number
+
     result = json.loads(source.read_text(encoding="utf-8"),
                         object_pairs_hook=unique_members,
-                        parse_constant=reject_nonfinite)
+                        parse_constant=reject_nonfinite,
+                        parse_float=finite_float)
     if not isinstance(result, dict):
         raise ValueError("actor routing JSON root must be an object")
     return result
