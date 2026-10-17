@@ -151,8 +151,45 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 read_bounded_contract(path)
 
 
+    def test_reject_changed_open_descriptor_during_read(self):
+        # Simulate a file changing after the initial descriptor identity
+        # check. A normal start-of-read lstat alone must never certify it.
+        original = os.fstat
+        reads = [0]
+        def mutated(fd):
+            before = original(fd)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # st_ino differs after payload read
+                return os.stat_result(fields)
+            return before
+        with patch.object(os, "fstat", side_effect=mutated):
+            with self.assertRaisesRegex(ContractError, "changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
+
+    def test_reject_replaced_contract_path_after_read(self):
+        # Simulate a rename/swap after data was read successfully. The
+        # final name must still refer to the exact opened descriptor.
+        original = Path.lstat
+        reads = [0]
+        def mutated(path):
+            before = original(path)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # same pathname, different inode
+                return os.stat_result(fields)
+            return before
+        with patch.object(Path, "lstat", mutated):
+            with self.assertRaisesRegex(ContractError, "path changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
+
+
 if __name__ == "__main__":
-    expected = 30
+    expected = 32
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
