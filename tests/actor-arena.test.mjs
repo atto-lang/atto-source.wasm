@@ -497,7 +497,10 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 
   const after = actorArenaPoolStats();
   assert.equal(after.leasedArenas, before.leasedArenas);
-  assert.ok(after.freeArenas >= before.freeArenas + 1);
+  assert.equal(after.freeArenas, retired.freeArenas,
+    "second retirement must return exactly the reusable arena lease it consumed");
+  assert.equal(after.committedPages, reused.committedPages,
+    "retirement must not grow the runtime pool");
 });
 
 
