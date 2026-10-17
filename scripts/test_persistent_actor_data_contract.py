@@ -2,6 +2,7 @@
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
 import json
+import os
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -114,6 +115,80 @@ class PersistentActorPolicyTest(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
 
+    def test_reject_empty_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            empty = Path(temp) / "empty.json"
+            empty.touch()
+            with self.assertRaisesRegex(ContractError, "empty"):
+                read_bounded_contract(empty)
+
+    def test_reject_hardlinked_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(path, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows filesystems disallow creating a hardlink.
+                # Other platforms execute both negative assertions.
+                self.assertEqual(read_bounded_contract(path)["version"], 1)
+                return
+            for candidate in (path, alias):
+                with self.subTest(path=candidate):
+                    with self.assertRaisesRegex(ContractError, "unique regular file"):
+                        read_bounded_contract(candidate)
+
+    def test_reject_fifo_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "fifo.json"
+            if not hasattr(os, "mkfifo"):
+                # FIFO creation is not available on Windows.
+                self.assertTrue(os.name == "nt")
+                return
+            try:
+                os.mkfifo(path)
+            except (OSError, NotImplementedError):
+                self.assertTrue(os.name == "nt")
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(path)
+
+    def test_reject_path_swapped_after_lstat_before_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            replacement = Path(temp) / "replacement.json"
+            replacement.write_bytes(DATA.read_bytes())
+            native_open = os.open
+            def raced_open(candidate, flags, *args, **kwargs):
+                os.replace(replacement, path)
+                return native_open(candidate, flags, *args, **kwargs)
+            with patch("verify_persistent_actor_data_contract.os.open",
+                       side_effect=raced_open):
+                with self.assertRaisesRegex(ContractError, "changed before read"):
+                    read_bounded_contract(path)
+
+    def test_reject_path_swapped_after_read_before_final_lstat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            replacement = Path(temp) / "replacement.json"
+            replacement.write_bytes(DATA.read_bytes())
+            native_fstat = os.fstat
+            calls = 0
+            def raced_fstat(fd):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    os.replace(replacement, path)
+                return native_fstat(fd)
+            with patch("verify_persistent_actor_data_contract.os.fstat",
+                       side_effect=raced_fstat):
+                with self.assertRaisesRegex(ContractError, "path changed during read"):
+                    read_bounded_contract(path)
+            self.assertEqual(calls, 2)
+
     def test_reject_oversized_contract_file(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.json"
@@ -124,7 +199,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 27
+    expected = 32
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
