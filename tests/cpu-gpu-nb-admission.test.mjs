@@ -1,16 +1,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtempSync, writeFileSync, rmSync, readdirSync} from "node:fs";
+import {mkdtempSync, writeFileSync, rmSync, readdirSync, readFileSync, statSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join, isAbsolute} from "node:path";
 import {spawnSync} from "node:child_process";
 
 // Wasm has no independently implemented source frontend. Validate the REAL
 // LLVM frontend only when it is supplied; never pass via a pretend compiler.
 const compiler = process.env.ORESLANG_LLVM_COMPILER;
+const pinnedSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256;
 test("CPU/GPU/nb nested regions fail closed before Wasm compilation", {
   skip: !compiler && "requires the pinned real oreslang-llvmc"
 }, () => {
+  // Runner configuration is not proof of a genuine compiler. Require
+  // an independently reviewed binary SHA-256 before interpreting any
+  // negative-source diagnostic or emitted LLVM IR as conformance.
+  assert.match(pinnedSha256 ?? "", /^[0-9a-f]{64}$/i,
+    "ORESLANG_LLVM_COMPILER_SHA256 must pin the exact executable");
+  assert.ok(isAbsolute(compiler), "compiler path must be absolute");
+  assert.ok(statSync(compiler).isFile(), "compiler must be a regular file");
+  const digest = createHash("sha256").update(readFileSync(compiler)).digest("hex");
+  assert.equal(digest, pinnedSha256.toLowerCase(),
+    "actual LLVM compiler bytes differ from approved binary SHA-256");
   const dir = mkdtempSync(join(tmpdir(), "ores-wasm-domain-"));
   try {
     const file = join(dir, "main.ores");
