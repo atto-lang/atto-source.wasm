@@ -2,6 +2,8 @@
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
 import json
+import os
+import stat
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -109,10 +111,49 @@ class PersistentActorPolicyTest(unittest.TestCase):
         self.assertEqual(read_bounded_contract(DATA)["version"], 1)
 
     def test_reject_symlinked_contract_fixture(self):
-        # No OS-specific symlink creation privileges needed on Windows.
-        with patch.object(Path, "is_symlink", return_value=True):
+        # Exercise the descriptor-based lstat admission instead of the old
+        # Path.is_symlink() preflight (which the hardened reader no longer uses).
+        original = DATA.lstat()
+        fake = os.stat_result((stat.S_IFLNK | 0o777,) + tuple(original)[1:])
+        with patch.object(Path, "lstat", return_value=fake):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
+
+    def test_reject_exponent_overflow_before_schema_interpretation(self):
+        with self.assertRaisesRegex(ContractError, "non-finite"):
+            validate_raw(b'{"version": 1e999}')
+
+    def test_reject_directory_as_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(Path(temp))
+
+    def test_reject_hardlinked_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / "valid.json"
+            data.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(data, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows runner volumes do not permit hardlinks;
+                # the cross-platform OS-independent directory case still runs.
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(alias)
+
+    def test_secure_open_flags_missing_or_aliased_fail_closed(self):
+        # Simulate platforms/shims with missing, zero or overlapping flag bits.
+        # A failed admission must not even attempt to open the fixture.
+        for nonblock, nofollow in ((0, 1), (1, 0), (1, 1), (3, 1),
+                                   (1, 3), (None, 1), (1, None),
+                                   (True, 1), (1, "bad")):
+            with self.subTest(nonblock=nonblock, nofollow=nofollow):
+                with patch.object(os, "O_NONBLOCK", nonblock, create=True):
+                    with patch.object(os, "O_NOFOLLOW", nofollow, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")):
+                            with self.assertRaisesRegex(ContractError, "secure no-follow"):
+                                read_bounded_contract(DATA)
 
     def test_reject_oversized_contract_file(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -124,7 +165,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 27
+    expected = 31
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
