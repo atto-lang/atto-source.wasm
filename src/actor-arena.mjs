@@ -214,32 +214,50 @@ export class ActorArena {
       throw new RangeError("actor arena handle quota exhausted");
     }
     let offset;
+    let freeIndex = -1;
     if (scratch) {
       if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
       offset = this.#base + PAGE + this.#scratchTop;
+    } else {
+      // Choose capacity without mutating the allocator. A failed JS handle
+      // allocation / WeakMap publication may not consume free-list capacity.
+      freeIndex = arrayFindIndex.call(this.#freePersistent,
+        segment => segment.length >= length);
+      if (freeIndex !== -1) {
+        offset = this.#freePersistent[freeIndex].offset;
+      } else {
+        if (length > PAGE - this.#persistentTop)
+          throw new RangeError("actor arena quota exhausted");
+        offset = this.#base + this.#persistentTop;
+      }
+    }
+
+    const handle = nativeFreeze({});
+    const slot = {offset, length};
+    // Every potentially allocating operation happens before allocator
+    // accounting commits. These bytes are not live in another actor.
+    typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
+    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
+    if (scratch) {
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
-      // First-fit over bounded free segments. Removed persistent handles cannot
-      // regain authority, even when their bytes are reused at the same offset.
-      const index = arrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
-      if (index !== -1) {
-        const segment = this.#freePersistent[index];
-        offset = segment.offset;
+      if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) arraySplice.call(this.#freePersistent, index, 1);
+        if (segment.length === 0) {
+          // Compact an already-dense private list in place. Array.splice
+          // creates an auxiliary result array and could throw after commit.
+          for (let i = freeIndex; i + 1 < this.#freePersistent.length; ++i)
+            this.#freePersistent[i] = this.#freePersistent[i + 1];
+          --this.#freePersistent.length;
+        }
       } else {
-        if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#base + this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
     }
-    const handle = nativeFreeze({});
-    const slot = {offset, length};
-    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
-    typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
 
@@ -254,16 +272,18 @@ export class ActorArena {
     if (this.#externalLeases >= MAX_EXTERNAL_LEASES) {
       throw new RangeError("actor arena external lease quota exhausted");
     }
-    ++this.#externalLeases;
     let live = true;
     const arena = this;
-    return nativeFreeze({
+    const lease = nativeFreeze({
       close() {
         if (!live) return;
         arena.#releaseExternalLease();
         live = false;
       }
     });
+    // Object creation/freezing must succeed before publishing the pin count.
+    ++this.#externalLeases;
+    return lease;
   }
 
   // Register an external continuation/FFI/I/O callback while the actor
