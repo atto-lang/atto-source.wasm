@@ -56,7 +56,7 @@ Unsupported listener address families remain denied until implemented.
 ## Canonical test-vector integrity
 
 The checked-in reference data is pinned to SHA-256
-`b481b72d9e5fdb2c1a4d4de7745a02f7ec3af8a937b0f067885d184efc3cb308`.
+`de3594482d10623241a94cf531fd9e4fe71c49769dd68b2098f4ed5363870ac5`.
 The CLI verifier checks the **exact file bytes** before validating the schema
 or accepting a runtime report. A modified allow/deny expectation, even one
 with syntactically valid JSON, must fail instead of silently changing the oracle.
@@ -70,7 +70,7 @@ immutable source commit/tree checks, and actual runner-executed host I/O tests.
 
 ## Canonical vectors and evidence
 
-`scoped-permissions-v1.json` contains **44** authorization/serialization outcomes. `verify_scoped_permissions.py` checks the corpus and requires complete, non-skipped, exact-head results for the selected backend.
+`scoped-permissions-v1.json` contains **52** authorization/serialization outcomes (45 authorization, 7 deserialization). `verify_scoped_permissions.py` checks the corpus and requires complete, non-skipped, exact-head results for the selected backend.
 
 Backend adapter output must use:
 ```json
