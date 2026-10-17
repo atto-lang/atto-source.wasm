@@ -82,6 +82,55 @@ test('persistent drop reclaims memory without reviving stale handles', () => {
   arena.retire();
 });
 
+test("actor arena input is a genuine cross-realm Uint8Array, not a mutable global check", () => {
+  const arena = new ActorArena({actorId: 61, incarnation: 1, kind: "shared"});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  const crossRealmBytes = runInNewContext("new Uint8Array([5, 6, 7, 8])");
+  assert.equal(crossRealmBytes instanceof Uint8Array, false);
+  arena.write(turn, handle, crossRealmBytes);
+  assert.deepEqual([...arena.read(turn, handle)], [5, 6, 7, 8]);
+
+  const originalUint8Array = globalThis.Uint8Array;
+  const fake = {[Symbol.toStringTag]: "Uint8Array", length: 4};
+  try {
+    globalThis.Uint8Array = class ForgedUint8Array {
+      static [Symbol.hasInstance]() { return true; }
+    };
+    assert.throws(() => arena.write(turn, handle, fake), /exact-size Uint8Array/);
+    assert.throws(() => arena.write(turn, handle, new Int8Array(4)),
+      /exact-size Uint8Array/);
+    assert.deepEqual([...arena.read(turn, handle)], [5, 6, 7, 8]);
+  } finally {
+    globalThis.Uint8Array = originalUint8Array;
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
+
+test("actor arena trust checks ignore post-import Set.has and Number.isSafeInteger tampering", () => {
+  const oldSafeInteger = Number.isSafeInteger;
+  const oldHas = Set.prototype.has;
+  let invalid = null;
+  try {
+    Number.isSafeInteger = () => true;
+    Set.prototype.has = () => true;
+    assert.throws(() => new ActorArena({
+      actorId: -1, incarnation: 1, kind: "shared"}), /invalid actor/);
+    assert.throws(() => new ActorArena({
+      actorId: 1, incarnation: 1, kind: "invented"}), /invalid actor/);
+    const a = new ActorArena({actorId: 62, incarnation: 1});
+    const turn = a.beginTurn();
+    assert.throws(() => a.allocScratch(turn, -1), /invalid arena allocation length/);
+    assert.throws(() => a.allocPersistent(turn, 1.5), /invalid arena allocation length/);
+    a.endTurn(turn);
+    a.retire();
+  } finally {
+    Number.isSafeInteger = oldSafeInteger;
+    Set.prototype.has = oldHas;
+  }
+});
+
 test("mutated typed-array prototypes cannot leak, alter, or prevent arena zeroization", () => {
   const arena = new ActorArena({actorId: 35, incarnation: 1});
   const turn = arena.beginTurn();
