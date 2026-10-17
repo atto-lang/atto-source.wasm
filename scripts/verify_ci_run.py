@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -32,17 +33,22 @@ HOUSEKEEPING_STEPS = frozenset({
 })
 
 
+def _evidence_label(value, limit=250):
+    # Untrusted REST display labels must be one visible line, without bidi
+    # controls or zero-width formatting. Those can visually impersonate an
+    # approved runner, CI job, or native guest test step in log/report UIs.
+    return (isinstance(value, str) and bool(value.strip())
+            and len(value) <= limit
+            and not any(unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                        for ch in value))
+
+
 def executable_step_name(name):
     # Runner-generated lifecycle steps cannot substitute for a required
     # build, test, or native guest-execution step.
-    if not isinstance(name, str):
-        return False
-    normalized = name.strip().casefold()
-    # A blank or disguised runner-generated step is not build/test execution.
-    # Normalize padding and case before excluding housekeeping and pre/post.
-    return (bool(normalized)
-            and normalized not in {step.casefold() for step in HOUSEKEEPING_STEPS}
-            and re.match(r"^(pre|post)\s", normalized) is None)
+    return (_evidence_label(name)
+            and name.strip().casefold() not in {s.casefold() for s in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post)\s", name.strip().casefold()) is None)
 
 
 class Denied(ValueError):
@@ -202,7 +208,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
         raise Denied("explicit job and executable step names are required")
-    if any(not isinstance(x, str) or not x.strip() or len(x) > 180
+    if any(not _evidence_label(x, limit=180)
            for x in [*required_jobs, *required_steps]):
         raise Denied("invalid required job or step name")
     if len(set(required_jobs)) != len(required_jobs) or len(set(required_steps)) != len(required_steps):
@@ -302,16 +308,15 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         # blank runner_name, for failed-before-start infrastructure jobs.
         if (type(job.get("runner_id")) is not int
                 or job["runner_id"] <= 0
-                or not isinstance(job.get("runner_name"), str)
-                or not job["runner_name"].strip()):
+                or not _evidence_label(job.get("runner_name"))):
             raise Denied("workflow job lacks a real allocated runner")
         job_start = _timestamp(job.get("started_at"), "job start")
         job_end = _timestamp(job.get("completed_at"), "job completion")
         if job_end < job_start:
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
-        if not isinstance(name, str) or not name.strip():
-            raise Denied("missing workflow job name")
+        if not _evidence_label(name):
+            raise Denied("missing or unsafe workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
         job_names.add(name)
@@ -339,8 +344,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                 raise Denied("workflow step timestamps overlap or contradict execution order")
             previous_step_end = step_end
             step_name = step.get("name")
-            if not isinstance(step_name, str) or not step_name.strip():
-                raise Denied("workflow step has no name")
+            if not _evidence_label(step_name):
+                raise Denied("workflow step has no safe single-line name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
             seen_step_names.add(step_name)
@@ -362,8 +367,6 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     # Detect a re-run or changed conclusion during multi-page evidence collection.
     # Never combine a successful run snapshot with jobs from another attempt.
     final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
-    final_run_repo = _object(final_run.get("repository"), "final run repository")
-    final_head_repo = _object(final_run.get("head_repository"), "final head repository")
     if (type(final_run.get("id")) is not int or final_run["id"] != run_id
             or type(final_run.get("run_attempt")) is not int
             or final_run["run_attempt"] != attempt
@@ -374,10 +377,10 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or final_run.get("status") != "completed"
             or final_run.get("conclusion") != "success"
             or final_run.get("path") != expected_run_path
-            or type(final_run_repo.get("id")) is not int
-            or final_run_repo["id"] != repo_id
-            or type(final_head_repo.get("id")) is not int
-            or final_head_repo["id"] != repo_id):
+            or type(_object(final_run.get("repository"), "final run repository").get("id")) is not int
+            or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
+            or type(_object(final_run.get("head_repository"), "final head repository").get("id")) is not int
+            or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
         raise Denied("workflow run changed during evidence collection")
     # Recheck source repository identity/visibility after collecting all jobs:
     # a rename, replacement, or public visibility transition must not pass
