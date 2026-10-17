@@ -565,6 +565,118 @@
       ],
       "expected": "reject",
       "reason": "Malformed network grant fails"
+    },
+    {
+      "id": "env-padded-grant-literal",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY ",
+      "coarse": true,
+      "allow": [
+        "API_KEY "
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "A padded environment grant authorizes only its literal token"
+    },
+    {
+      "id": "env-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "API_KEY "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded environment grant must not authorize the trimmed key"
+    },
+    {
+      "id": "env-padded-deny-literal",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY ",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "API_KEY "
+      ],
+      "expected": "deny",
+      "reason": "A padded environment denial blocks its literal token"
+    },
+    {
+      "id": "env-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "API_KEY "
+      ],
+      "expected": "allow",
+      "reason": "A padded denial must not accidentally block a different key"
+    },
+    {
+      "id": "run-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": true,
+      "allow": [
+        "git "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded command grant does not authorize the unpadded command"
+    },
+    {
+      "id": "run-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "git "
+      ],
+      "expected": "allow",
+      "reason": "A padded command denial does not match the unpadded command"
+    },
+    {
+      "id": "sys-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "sys",
+      "resource": "os",
+      "coarse": true,
+      "allow": [
+        "os "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded system-information grant does not expand to an unpadded token"
+    },
+    {
+      "id": "sys-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "sys",
+      "resource": "os",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "os "
+      ],
+      "expected": "allow",
+      "reason": "A padded system denial does not block a different token"
     }
   ]
 }
