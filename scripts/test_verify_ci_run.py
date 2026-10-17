@@ -30,6 +30,7 @@ class RunContract(unittest.TestCase):
                 "id": 17, "repository": {"id": self.repo_id},
                 "head_repository": {"id": self.repo_id},
                 "head_sha": self.commit, "path": ".github/workflows/ci.yml",
+                "event": "push",
                 "status": "completed",
                 "conclusion": "success", "run_attempt": 2, "workflow_id": 991},
             self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
@@ -55,6 +56,7 @@ class RunContract(unittest.TestCase):
 
     def verify(self, *args, **kwargs):
         kwargs.setdefault("workflow_id", 991)
+        kwargs.setdefault("expected_event", "push")
         kwargs.setdefault("workflow_blob_sha", "c" * 40)
         return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
 
@@ -75,6 +77,7 @@ class RunContract(unittest.TestCase):
         original = copy.deepcopy(self.values[run_path])
         for key, value in (("run_attempt", 3), ("conclusion", "failure"),
                            ("head_sha", "d" * 40), ("workflow_id", 992),
+                           ("event", "workflow_dispatch"),
                            ("path", ".github/workflows/other.yml"),
                            ("status", "in_progress")):
             with self.subTest(key=key):
@@ -167,6 +170,7 @@ class RunContract(unittest.TestCase):
         self.assertIn("NOT_GUEST", self.validate()["statement"])
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
         self.assertEqual(self.validate()["workflow_path"], ".github/workflows/ci.yml")
+        self.assertEqual(self.validate()["event"], "push")
 
     def test_inventory_has_all_five_distinct_pinned_repositories(self):
         self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge"})
@@ -198,6 +202,33 @@ class RunContract(unittest.TestCase):
     def test_wrong_run_head(self):
         self.values[self.prefix+"/actions/runs/17"]["head_sha"] = "c"*40
         self.rejected()
+
+    def test_run_event_rejects_dispatch_and_untrusted_triggers(self):
+        run = self.prefix + "/actions/runs/17"
+        for event in ("workflow_dispatch", "workflow_run", "pull_request_target",
+                      "repository_dispatch", "schedule", "merge_group",
+                      "", None, False, 7):
+            with self.subTest(event=event):
+                self.values[run]["event"] = event
+                self.rejected()
+
+    def test_expected_event_must_be_independently_pinned(self):
+        for event in ("workflow_dispatch", "workflow_run", "pull_request_target",
+                      "schedule", "merge_group", "", None, False, 123):
+            with self.subTest(event=event):
+                with self.assertRaisesRegex(module.Denied, "independently selected"):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_event=event)
+
+    def test_exact_pull_request_event_is_admitted(self):
+        self.values[self.prefix + "/actions/runs/17"]["event"] = "pull_request"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, ["unit"], ["Execute test suite"],
+                             expected_event="pull_request")
+        self.assertEqual(result["event"], "pull_request")
+        with self.assertRaises(module.Denied):
+            self.validate()
 
     def test_workflow_path_missing_or_wrong_in_actual_run(self):
         key = self.prefix + "/actions/runs/17"
