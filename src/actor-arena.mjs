@@ -164,7 +164,11 @@ export class ActorArena {
     arrayPush.call(this.#freePersistent, {...entry});
     arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    // Do not use for...of here: Array.prototype[Symbol.iterator] is mutable
+    // same-realm userland and could observe/corrupt private allocator metadata.
+    // This private array is dense and only mutated through captured intrinsics.
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
