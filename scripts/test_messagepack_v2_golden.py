@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import unittest
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,5 +111,49 @@ class StrictGoldenOracleTest(unittest.TestCase):
                 wire.pack_array(n)
         self.assertTrue(wire.pack_array(100000))
 
+    def test_pinned_exact_bytes_are_accepted(self):
+        self.assertTrue(wire.verify(wire.load_pinned_fixture(
+            ROOT / "contracts/v1/messagepack_collection_vectors.json")))
+
+    def test_rejects_reformatted_or_changed_golden_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "golden.json"
+            # Still valid JSON but not the independently reviewed byte pin.
+            path.write_bytes(self.original.encode("utf-8") + b"\n")
+            with self.assertRaisesRegex(ValueError, "fixture bytes changed"):
+                wire.load_pinned_fixture(path)
+
+    def test_rejects_oversized_fixture_read(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "giant.json"
+            with path.open("wb") as stream:
+                stream.truncate(wire.MAX_FIXTURE_BYTES + 1)
+            with self.assertRaisesRegex(ValueError, "oversized"):
+                wire.load_pinned_fixture(path)
+
+    def test_rejects_symlinked_golden_file(self):
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / "actual.json"
+            target.write_text(self.original, encoding="utf-8")
+            link = Path(root) / "alias.json"
+            link.symlink_to(target)
+            with self.assertRaisesRegex(ValueError, "regular file"):
+                wire.load_pinned_fixture(link)
+
+    def test_rejects_utf8_overflow_before_encoding(self):
+        for invalid in ("x" * 1_048_577, "é" * 524_289,
+                        "🌍" * 262_145, "\ud800", "\udc00"):
+            with self.subTest(length=len(invalid)), self.assertRaises(ValueError):
+                wire.pack_string(invalid)
+
+
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    expected = 16
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(StrictGoldenOracleTest)
+    if suite.countTestCases() != expected:
+        raise SystemExit(f"FAIL golden oracle suite: expected {expected} tests, "
+                         f"found {suite.countTestCases()}")
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if (result.testsRun != expected or not result.wasSuccessful() or
+            result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+        raise SystemExit("FAIL golden oracle suite incomplete or skipped")
