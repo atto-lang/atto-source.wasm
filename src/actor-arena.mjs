@@ -13,6 +13,10 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // live view of actor-owned WebAssembly.Memory.
 const NativeUint8Array = Uint8Array;
 const nativeFreeze = Object.freeze;
+const nativeArrayFindIndex = Array.prototype.findIndex;
+const nativeArrayPush = Array.prototype.push;
+const nativeArraySplice = Array.prototype.splice;
+const nativeArraySort = Array.prototype.sort;
 const NativeWasmMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
 const nativeWeakGet = WeakMap.prototype.get;
@@ -114,13 +118,13 @@ export class ActorArena {
     } else {
       // First-fit over bounded free segments. Removed persistent handles cannot
       // regain authority, even when their bytes are reused at the same offset.
-      const index = this.#freePersistent.findIndex(segment => segment.length >= length);
+      const index = nativeArrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
       if (index !== -1) {
         const segment = this.#freePersistent[index];
         offset = segment.offset;
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) this.#freePersistent.splice(index, 1);
+        if (segment.length === 0) nativeArraySplice.call(this.#freePersistent, index, 1);
       } else {
         if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
         offset = this.#persistentTop;
@@ -145,13 +149,13 @@ export class ActorArena {
     nativeUint8Fill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
     nativeWeakDelete.call(this.#handles, handle);
     --this.#persistentCount;
-    this.#freePersistent.push({...entry});
-    this.#freePersistent.sort((a, b) => a.offset - b.offset);
+    nativeArrayPush.call(this.#freePersistent, {...entry});
+    nativeArraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
     for (const segment of this.#freePersistent) {
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else coalesced.push(segment);
+      else nativeArrayPush.call(coalesced, segment);
     }
     this.#freePersistent = coalesced;
   }
