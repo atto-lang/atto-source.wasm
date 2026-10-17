@@ -124,6 +124,12 @@ test("intrinsic brand admission for cross-realm Uint8Array and forged constructo
     "a distinct realm must not be rejected merely for using another constructor");
   arena.write(turn, handle, foreign);
   assert.deepEqual([...arena.read(turn, handle)], [7, 8, 9, 10]);
+  if (typeof SharedArrayBuffer === "function") {
+    const foreignShared = runInNewContext("new Uint8Array(new SharedArrayBuffer(4))");
+    assert.equal(foreignShared instanceof Uint8Array, false);
+    assert.throws(() => arena.write(turn, handle, foreignShared), /shared backing/,
+      "accepting cross-realm byte views must not admit foreign shared buffers");
+  }
 
   // All of these views have typed-array internals and in some cases the
   // same byte width, but none has the Uint8Array native element kind.
