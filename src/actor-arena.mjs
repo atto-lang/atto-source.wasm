@@ -5,6 +5,7 @@ const PAGE = 65536;
 const ARENA_PAGES = 2;
 const MAX_POOL_PAGES = 4096; // 256 MiB retained capacity, recycled explicitly.
 const MAX_HANDLES = 4096;
+const MAX_EXTERNAL_LEASES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
 const safeInteger = Number.isSafeInteger;
@@ -150,6 +151,7 @@ export class ActorArena {
   #persistentCount = 0;
   #scratchCount = 0;
   #freePersistent = [];
+  #externalLeases = 0;
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
@@ -167,6 +169,8 @@ export class ActorArena {
   get actorId() { return this.#actor; }
   get incarnation() { return this.#incarnation; }
   get retired() { return this.#closed; }
+  get physicallyReclaimed() { return this.#base === null; }
+  get outstandingExternalLeases() { return this.#externalLeases; }
 
   #bytes() {
     if (this.#closed || this.#base === null) throw new Error("actor arena retired");
@@ -241,6 +245,39 @@ export class ActorArena {
   allocPersistent(turn, length) { return this.#alloc(turn, length, false); }
   allocScratch(turn, length) { return this.#alloc(turn, length, true); }
 
+  // Lifetime-only authority for a continuation/FFI/I/O callback. The lease
+  // intentionally grants no memory access. It may outlive the actor turn and
+  // pins the arena's fixed pool capacity until its idempotent close succeeds.
+  acquireExternalLease(turn) {
+    this.#requireTurn(turn);
+    if (this.#externalLeases >= MAX_EXTERNAL_LEASES) {
+      throw new RangeError("actor arena external lease quota exhausted");
+    }
+    ++this.#externalLeases;
+    let live = true;
+    const arena = this;
+    return nativeFreeze({
+      close() {
+        if (!live) return;
+        arena.#releaseExternalLease();
+        live = false;
+      }
+    });
+  }
+
+  #releaseExternalLease() {
+    if (this.#externalLeases <= 0) {
+      throw new Error("actor arena external lease accounting underflow");
+    }
+    --this.#externalLeases;
+    try {
+      if (this.#closed && this.#externalLeases === 0) this.#reclaim();
+    } catch (error) {
+      ++this.#externalLeases; // preserve retryable ownership on reclaim failure
+      throw error;
+    }
+  }
+
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
     const entry = weakMapGet.call(this.#handles, handle);
@@ -295,19 +332,27 @@ export class ActorArena {
     typedArraySet.call(this.#bytes(), data, offset);
   }
 
-  retire() {
-    if (this.#closed) return;
-    if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
+  #reclaim() {
+    if (this.#base === null) return;
     const base = this.#base;
-    // releaseArenaBase scrubs before publishing the pages as reusable. If
-    // scrubbing/accounting throws, keep this arena live so CONTROL can retry.
+    // releaseArenaBase scrubs before publishing pages onto the fixed-capacity
+    // free stack. On failure, retain the base for an exact retry.
     releaseArenaBase(base);
-    this.#closed = true;
     this.#base = null;
-    this.#handles = new NativeWeakMap();
-    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#persistentTop = this.#scratchTop = 0;
     this.#freePersistent = [];
+  }
+
+  retire() {
+    if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
+    if (!this.#closed) {
+      // Logical retirement is monotonic and revokes every arena handle now,
+      // even when an external continuation/FFI/I/O lifetime pin still exists.
+      this.#closed = true;
+      this.#handles = new NativeWeakMap();
+      this.#scratch = new NativeWeakMap();
+    }
+    if (this.#externalLeases === 0) this.#reclaim();
   }
 }
