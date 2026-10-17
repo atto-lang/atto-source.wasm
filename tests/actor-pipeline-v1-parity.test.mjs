@@ -176,6 +176,63 @@ test('mutable Array and Map iterators cannot remove graph stages or edges', () =
   assert.equal(cyclicDenied, true);
 });
 
+test('bounded graph snapshot ignores hostile iterators and changing lengths', () => {
+  function adversarial(items) {
+    const input = items.map(item => ({...item}));
+    let reads = 0;
+    const proxy = new Proxy(input, {
+      get(target, key, receiver) {
+        if (key === 'length') return ++reads === 1 ? target.length : 999999;
+        if (key === Symbol.iterator)
+          throw new Error('caller iterator must never run');
+        return Reflect.get(target, key, receiver);
+      }
+    });
+    return {proxy, reads: () => reads, input};
+  }
+  const s = adversarial(stages), e = adversarial(edges);
+  const plan = new ActorPipelinePolicy(s.proxy, e.proxy);
+  assert.deepEqual(plan.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
+  assert.equal(s.reads(), 1);
+  assert.equal(e.reads(), 1);
+  s.input[0].id = 'forged';
+  e.input[0].target = 'forged';
+  assert.equal(plan.forwardRoundRobin('producer-1').target, 'worker-a');
+
+  const sparseStages = stages.slice();
+  delete sparseStages[1];
+  assert.throws(() => new ActorPipelinePolicy(sparseStages, edges), /invalid pipeline stage/);
+  const sparseEdges = edges.slice();
+  delete sparseEdges[0];
+  assert.throws(() => new ActorPipelinePolicy(stages, sparseEdges), /invalid pipeline edge/);
+});
+
+
+test('changing caller length cannot conceal an unreachable directed cycle', () => {
+  const cyclicStages = [
+    {id:'root', type:'Producer', role:'readable', inbound:'', outbound:'Event'},
+    {id:'loop-a', type:'Worker', role:'transform', inbound:'Event', outbound:'Event'},
+    {id:'loop-b', type:'Worker', role:'transform', inbound:'Event', outbound:'Event'},
+    {id:'sink', type:'Sink', role:'writable', inbound:'Event', outbound:''},
+  ];
+  const cyclicEdges = [
+    {source:'root', target:'sink', payload:'Event'},
+    {source:'loop-a', target:'loop-b', payload:'Event'},
+    {source:'loop-b', target:'loop-a', payload:'Event'},
+  ];
+  let reads = 0;
+  const tampered = new Proxy(cyclicStages, {
+    get(target, key, receiver) {
+      // Old code admitted four stages, then checked a forged count of two
+      // against the two acyclic vertices reached by topological sorting.
+      if (key === 'length') return ++reads === 1 ? 4 : 2;
+      return Reflect.get(target, key, receiver);
+    }
+  });
+  assert.throws(() => new ActorPipelinePolicy(tampered, cyclicEdges), /cyclic/);
+  assert.equal(reads, 1, 'only the admitted source count may be consulted');
+});
+
 test('edge pair identity is collision-free for literal backslash-zero stage names', () => {
   // Both IDs contain printable backslash and zero, never an actual NUL.
   // Using a printable '\0' delimiter would collapse these two distinct pairs.
