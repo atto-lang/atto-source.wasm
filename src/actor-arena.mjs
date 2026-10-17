@@ -17,6 +17,7 @@ const setHas = Set.prototype.has;
 // Bind allocator/copy/zero primitives before user code can monkeypatch them.
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
+const NativeUint32Array = Uint32Array;
 const NativeMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
 // WeakMap authority operations must bypass mutable userland prototypes.
@@ -28,7 +29,6 @@ const weakMapDelete = NativeWeakMap.prototype.delete;
 const arrayFindIndex = Array.prototype.findIndex;
 const arraySplice = Array.prototype.splice;
 const arrayPush = Array.prototype.push;
-const arrayPop = Array.prototype.pop;
 const arraySort = Array.prototype.sort;
 // The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
 // Capture its native internal-slot accessor before unrelated user code can
@@ -61,7 +61,11 @@ const sharedByteLength = typeof SharedArrayBuffer === "function"
  * by the Wasm engine, but no actor capacity depends on GC to become reusable.
  */
 const poolMemory = new NativeMemory({initial: 0, maximum: MAX_POOL_PAGES});
-const freeArenaBases = [];
+// Fixed-capacity free stack: page reuse itself must not depend on growing a
+// JavaScript Array or triggering host GC. Byte offsets fit in uint32 because
+// MAX_POOL_PAGES * PAGE is 256 MiB.
+const freeArenaBases = new NativeUint32Array(MAX_POOL_PAGES / ARENA_PAGES);
+let freeArenaCount = 0;
 let leasedArenas = 0;
 
 function poolBytes() {
@@ -71,8 +75,9 @@ function poolBytes() {
 function leaseArenaBase() {
   let base;
   let reused = false;
-  if (freeArenaBases.length !== 0) {
-    base = arrayPop.call(freeArenaBases);
+  if (freeArenaCount !== 0) {
+    base = freeArenaBases[--freeArenaCount];
+    freeArenaBases[freeArenaCount] = 0;
     reused = true;
   } else {
     let oldPages;
@@ -89,7 +94,10 @@ function leaseArenaBase() {
   } catch (error) {
     // A failed admission must not strand reusable capacity. Newly grown pages
     // are safe to publish too: no actor has observed them yet.
-    arrayPush.call(freeArenaBases, base);
+    if (freeArenaCount >= freeArenaBases.length) {
+      throw new Error("actor arena pool free-stack overflow during lease rollback");
+    }
+    freeArenaBases[freeArenaCount++] = base;
     throw error;
   }
   ++leasedArenas;
@@ -102,7 +110,10 @@ function releaseArenaBase(base) {
   }
   if (leasedArenas <= 0) throw new Error("actor arena pool accounting underflow");
   typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
-  arrayPush.call(freeArenaBases, base);
+  if (freeArenaCount >= freeArenaBases.length) {
+    throw new Error("actor arena pool free-stack overflow");
+  }
+  freeArenaBases[freeArenaCount++] = base;
   --leasedArenas;
 }
 
@@ -111,7 +122,7 @@ export function actorArenaPoolStats() {
   return nativeFreeze({
     committedPages: arrayBufferByteLength.call(memoryBuffer.call(poolMemory)) / PAGE,
     leasedArenas,
-    freeArenas: freeArenaBases.length
+    freeArenas: freeArenaCount
   });
 }
 function isSharedBacking(buffer) {
