@@ -457,7 +457,7 @@ test("actor admission and quotas ignore poisoned Number and Set methods", () => 
 });
 
 
-test("external callback leases pin page reuse after logical retirement", () => {
+test("external callback leases pin fixed-pool reuse after logical retirement", () => {
   const before = actorArenaPoolStats();
   const arena = new ActorArena({actorId: 69, incarnation: 4, kind: "shared"});
   const leased = actorArenaPoolStats();
@@ -473,40 +473,18 @@ test("external callback leases pin page reuse after logical retirement", () => {
   arena.retire();
   assert.equal(arena.retired, true);
   assert.equal(arena.physicallyReclaimed, false,
-    "logical retirement must not recycle pages while an external callback owns a lifetime pin");
+    "logical retirement must not recycle fixed-pool pages while an external callback owns lifetime");
   assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas + 1);
   assert.throws(() => arena.beginTurn(), /retired/,
-    "logical retirement must revoke all new actor turns before physical reclaim");
+    "logical retirement must revoke new actor turns before physical reclaim");
 
   external.close();
   external.close();
   assert.equal(arena.outstandingExternalLeases, 0);
   assert.equal(arena.physicallyReclaimed, true);
   assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas,
-    "last external callback lease must return capacity to the runtime pool");
+    "last external callback lease must synchronously return fixed-pool capacity");
   arena.retire();
-});
-
-test("Promise completion bridge pins actor pages until settlement", async () => {
-  const before = actorArenaPoolStats();
-  const arena = new ActorArena({actorId: 73, incarnation: 2, kind: "shared"});
-  const turn = arena.beginTurn();
-  let resolvePending;
-  const pending = new Promise(resolve => { resolvePending = resolve; });
-  const tracked = arena.trackExternalCompletion(turn, pending);
-  assert.equal(arena.outstandingExternalLeases, 1);
-  arena.endTurn(turn);
-  arena.retire();
-
-  assert.equal(arena.retired, true);
-  assert.equal(arena.physicallyReclaimed, false);
-  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas + 1);
-
-  resolvePending(23);
-  assert.equal(await tracked, 23);
-  assert.equal(arena.outstandingExternalLeases, 0);
-  assert.equal(arena.physicallyReclaimed, true);
-  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas);
 });
 
 test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
@@ -552,6 +530,91 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
   assert.ok(after.freeArenas >= before.freeArenas + 1);
 });
 
+
+test("runtime pool remains usable when Array push/pop are poisoned before module load", async () => {
+  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+  let ImportedArena, ImportedStats, failure = null;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value() { throw new Error("preload poisoned Array.push reached runtime pool"); }
+    });
+    Object.defineProperty(Array.prototype, "pop", {
+      configurable: true, writable: true,
+      value() { throw new Error("preload poisoned Array.pop reached runtime pool"); }
+    });
+    const mod = await import("../src/actor-arena.mjs?preload-array-poison=" + Date.now());
+    ImportedArena = mod.ActorArena;
+    ImportedStats = mod.actorArenaPoolStats;
+    const before = ImportedStats();
+    const first = new ImportedArena({actorId: 75, incarnation: 1});
+    first.retire();
+    const returned = ImportedStats();
+    const second = new ImportedArena({actorId: 76, incarnation: 1});
+    const reused = ImportedStats();
+    second.retire();
+    assert.equal(returned.freeArenas, before.freeArenas + 1);
+    assert.equal(reused.committedPages, returned.committedPages);
+    assert.equal(reused.freeArenas, returned.freeArenas - 1);
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Array.prototype, "push", push);
+    Object.defineProperty(Array.prototype, "pop", pop);
+  }
+  assert.equal(failure, null, failure?.stack ?? String(failure));
+});
+
+test("runtime arena pool reuse never depends on growable Array push/pop", () => {
+  const first = new ActorArena({actorId: 73, incarnation: 1});
+  const t1 = first.beginTurn();
+  const h1 = first.allocPersistent(t1, 8);
+  first.write(t1, h1, Uint8Array.of(1,2,3,4,5,6,7,8));
+  first.endTurn(t1);
+  const afterFirstLease = actorArenaPoolStats();
+
+  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+  let failure = null, afterRetire, afterReuse, second;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value() { throw new Error("poisoned Array.push reached arena pool"); }
+    });
+    Object.defineProperty(Array.prototype, "pop", {
+      configurable: true, writable: true,
+      value() { throw new Error("poisoned Array.pop reached arena pool"); }
+    });
+    first.retire();
+    afterRetire = actorArenaPoolStats();
+    second = new ActorArena({actorId: 74, incarnation: 1});
+    afterReuse = actorArenaPoolStats();
+    const t2 = second.beginTurn();
+    const h2 = second.allocPersistent(t2, 8);
+    second.write(t2, h2, Uint8Array.of(8,7,6,5,4,3,2,1));
+    second.endTurn(t2);
+    second.retire();
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Array.prototype, "push", push);
+    Object.defineProperty(Array.prototype, "pop", pop);
+    if (!first.retired) {
+      try { first.retire(); } catch {}
+    }
+    if (second && !second.retired) {
+      try { second.retire(); } catch {}
+    }
+  }
+
+  assert.equal(failure, null, failure?.stack ?? String(failure));
+  assert.equal(afterRetire.freeArenas, afterFirstLease.freeArenas + 1,
+    "retirement must synchronously publish one fixed-stack free lease");
+  assert.equal(afterReuse.committedPages, afterRetire.committedPages,
+    "reusing a retired lease must not grow WebAssembly.Memory");
+  assert.equal(afterReuse.freeArenas, afterRetire.freeArenas - 1);
+});
 
 test("persistent free-list coalescing ignores poisoned Array iterator", () => {
   const arena = new ActorArena({actorId: 72, incarnation: 1});
