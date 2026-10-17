@@ -142,7 +142,13 @@ division path; those semantics are now reflected in the shared IEEE-special
 corpus. The evaluator orders guest numeric equality before object identity
 (`NaN != NaN` even for the same complex instance), preserves signed-zero
 formatting, and rejects implicit BigInt/Decimal narrowing into binary64
-complex.
+complex. Integral value promotion into `complex`/`complex128` is
+lossless-only (absolute value at most 2^53); the same rule is enforced at
+arithmetic and declared-return coercion boundaries. Java now rejects
+`complex64` at type resolution rather than silently backing a binary32
+spelling with the binary64 `Complex128Math` runtime. Decimal/complex
+mixing is also rejected statically and the type lattice preserves their
+join as a precise union rather than permissive `Unknown`.
 
 The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
 contains nine focused **real guest-language GraalVM JUnit tests**:
