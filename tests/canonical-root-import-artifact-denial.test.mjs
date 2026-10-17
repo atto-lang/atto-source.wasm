@@ -16,6 +16,8 @@ const denied = [
   'import fnc helper from ".hidden/helper";\npub fnc main(): int { return 42; }\n',
   'import fnc helper from "pkg:math/helper";\npub fnc main(): int { return 42; }\n',
   'import "+/lib/helper";\npub fnc main(): int { return 42; }\n',
+  '// comment ends at CR\rimport fnc helper from "+/lib/helper";\rpub fnc main(): int { return helper(); }\r',
+  '// comment ends at CRLF\r\nimport fnc helper from "+/lib/helper";\r\npub fnc main(): int { return helper(); }\r\n',
 ];
 
 for(const [i,sourceText] of denied.entries()){
