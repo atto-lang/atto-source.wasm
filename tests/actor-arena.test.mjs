@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {runInNewContext} from "node:vm";
+import {spawnSync} from "node:child_process";
 import {ActorArena, actorArenaPoolStats} from "../src/actor-arena.mjs";
 
 test("shared actors get private arenas, not transferable heap handles", () => {
@@ -501,89 +502,98 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 });
 
 
-test("runtime pool remains usable when Array push/pop are poisoned before module load", async () => {
-  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
-  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
-  let ImportedArena, ImportedStats, failure = null;
-  try {
-    Object.defineProperty(Array.prototype, "push", {
-      configurable: true, writable: true,
-      value() { throw new Error("preload poisoned Array.push reached runtime pool"); }
-    });
-    Object.defineProperty(Array.prototype, "pop", {
-      configurable: true, writable: true,
-      value() { throw new Error("preload poisoned Array.pop reached runtime pool"); }
-    });
-    const mod = await import("../src/actor-arena.mjs?preload-array-poison=" + Date.now());
-    ImportedArena = mod.ActorArena;
-    ImportedStats = mod.actorArenaPoolStats;
-    const before = ImportedStats();
-    const first = new ImportedArena({actorId: 75, incarnation: 1});
-    first.retire();
-    const returned = ImportedStats();
-    const second = new ImportedArena({actorId: 76, incarnation: 1});
-    const reused = ImportedStats();
-    second.retire();
-    assert.equal(returned.freeArenas, before.freeArenas + 1);
-    assert.equal(reused.committedPages, returned.committedPages);
-    assert.equal(reused.freeArenas, returned.freeArenas - 1);
-  } catch (error) {
-    failure = error;
-  } finally {
-    Object.defineProperty(Array.prototype, "push", push);
-    Object.defineProperty(Array.prototype, "pop", pop);
-  }
-  assert.equal(failure, null, failure?.stack ?? String(failure));
+test("runtime pool remains usable when Array push/pop are poisoned before module load", () => {
+  const moduleUrl = new URL("../src/actor-arena.mjs", import.meta.url).href;
+  const source = String.raw\`
+const moduleUrl = process.argv[1];
+const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+try {
+  Object.defineProperty(Array.prototype, "push", {
+    configurable: true, writable: true,
+    value() { throw new Error("preload poisoned Array.push reached runtime pool"); }
+  });
+  Object.defineProperty(Array.prototype, "pop", {
+    configurable: true, writable: true,
+    value() { throw new Error("preload poisoned Array.pop reached runtime pool"); }
+  });
+  const mod = await import(moduleUrl + "?preload-array-poison=" + Date.now());
+  const before = mod.actorArenaPoolStats();
+  const first = new mod.ActorArena({actorId: 75, incarnation: 1});
+  first.retire();
+  const returned = mod.actorArenaPoolStats();
+  const second = new mod.ActorArena({actorId: 76, incarnation: 1});
+  const reused = mod.actorArenaPoolStats();
+  second.retire();
+  if (returned.freeArenas !== before.freeArenas + 1) throw new Error("retirement did not publish one free arena");
+  if (reused.committedPages !== returned.committedPages) throw new Error("reused arena grew WebAssembly.Memory");
+  if (reused.freeArenas !== returned.freeArenas - 1) throw new Error("reused arena did not consume free lease");
+} finally {
+  Object.defineProperty(Array.prototype, "push", push);
+  Object.defineProperty(Array.prototype, "pop", pop);
+}
+\`;
+  const child = spawnSync(process.execPath,
+    ["--input-type=module", "--eval", source, moduleUrl],
+    {encoding: "utf8", timeout: 10000});
+  assert.equal(child.status, 0,
+    () => \`isolated preload-poison process failed: \${child.error ?? ""}\n\${child.stderr}\`);
 });
 
 test("runtime arena pool reuse never depends on growable Array push/pop", () => {
-  const first = new ActorArena({actorId: 73, incarnation: 1});
-  const t1 = first.beginTurn();
-  const h1 = first.allocPersistent(t1, 8);
-  first.write(t1, h1, Uint8Array.of(1,2,3,4,5,6,7,8));
-  first.endTurn(t1);
-  const afterFirstLease = actorArenaPoolStats();
-
-  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
-  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
-  let failure = null, afterRetire, afterReuse, second;
-  try {
-    Object.defineProperty(Array.prototype, "push", {
-      configurable: true, writable: true,
-      value() { throw new Error("poisoned Array.push reached arena pool"); }
-    });
-    Object.defineProperty(Array.prototype, "pop", {
-      configurable: true, writable: true,
-      value() { throw new Error("poisoned Array.pop reached arena pool"); }
-    });
-    first.retire();
-    afterRetire = actorArenaPoolStats();
-    second = new ActorArena({actorId: 74, incarnation: 1});
-    afterReuse = actorArenaPoolStats();
-    const t2 = second.beginTurn();
-    const h2 = second.allocPersistent(t2, 8);
-    second.write(t2, h2, Uint8Array.of(8,7,6,5,4,3,2,1));
-    second.endTurn(t2);
-    second.retire();
-  } catch (error) {
-    failure = error;
-  } finally {
-    Object.defineProperty(Array.prototype, "push", push);
-    Object.defineProperty(Array.prototype, "pop", pop);
-    if (!first.retired) {
-      try { first.retire(); } catch {}
-    }
-    if (second && !second.retired) {
-      try { second.retire(); } catch {}
-    }
+  const moduleUrl = new URL("../src/actor-arena.mjs", import.meta.url).href;
+  const source = String.raw\`
+const moduleUrl = process.argv[1];
+const mod = await import(moduleUrl);
+const first = new mod.ActorArena({actorId: 73, incarnation: 1});
+const t1 = first.beginTurn();
+const h1 = first.allocPersistent(t1, 8);
+first.write(t1, h1, Uint8Array.of(1,2,3,4,5,6,7,8));
+first.endTurn(t1);
+const afterFirstLease = mod.actorArenaPoolStats();
+const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+let second;
+try {
+  Object.defineProperty(Array.prototype, "push", {
+    configurable: true, writable: true,
+    value() { throw new Error("poisoned Array.push reached arena pool"); }
+  });
+  Object.defineProperty(Array.prototype, "pop", {
+    configurable: true, writable: true,
+    value() { throw new Error("poisoned Array.pop reached arena pool"); }
+  });
+  first.retire();
+  const afterRetire = mod.actorArenaPoolStats();
+  second = new mod.ActorArena({actorId: 74, incarnation: 1});
+  const afterReuse = mod.actorArenaPoolStats();
+  const t2 = second.beginTurn();
+  const h2 = second.allocPersistent(t2, 8);
+  second.write(t2, h2, Uint8Array.of(8,7,6,5,4,3,2,1));
+  second.endTurn(t2);
+  second.retire();
+  if (afterRetire.freeArenas !== afterFirstLease.freeArenas + 1)
+    throw new Error("retirement did not publish one fixed-stack free lease");
+  if (afterReuse.committedPages !== afterRetire.committedPages)
+    throw new Error("reusing retired lease grew WebAssembly.Memory");
+  if (afterReuse.freeArenas !== afterRetire.freeArenas - 1)
+    throw new Error("reusing retired lease did not consume free stack");
+} finally {
+  Object.defineProperty(Array.prototype, "push", push);
+  Object.defineProperty(Array.prototype, "pop", pop);
+  if (!first.retired) {
+    try { first.retire(); } catch {}
   }
-
-  assert.equal(failure, null, failure?.stack ?? String(failure));
-  assert.equal(afterRetire.freeArenas, afterFirstLease.freeArenas + 1,
-    "retirement must synchronously publish one fixed-stack free lease");
-  assert.equal(afterReuse.committedPages, afterRetire.committedPages,
-    "reusing a retired lease must not grow WebAssembly.Memory");
-  assert.equal(afterReuse.freeArenas, afterRetire.freeArenas - 1);
+  if (second && !second.retired) {
+    try { second.retire(); } catch {}
+  }
+}
+\`;
+  const child = spawnSync(process.execPath,
+    ["--input-type=module", "--eval", source, moduleUrl],
+    {encoding: "utf8", timeout: 10000});
+  assert.equal(child.status, 0,
+    () => \`isolated post-load poison process failed: \${child.error ?? ""}\n\${child.stderr}\`);
 });
 
 test("persistent free-list coalescing ignores poisoned Array iterator", () => {
