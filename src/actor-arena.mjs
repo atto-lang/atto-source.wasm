@@ -35,6 +35,9 @@ const typedArraySet = typedArrayPrototype.set;
 const typedArrayFill = typedArrayPrototype.fill;
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+// The intrinsic Symbol.toStringTag getter checks the actual TypedArray kind
+// across realms, without consulting spoofable constructor Symbol.hasInstance.
+const typedArrayKind = Object.getOwnPropertyDescriptor(typedArrayPrototype, Symbol.toStringTag).get;
 const sharedByteLength = typeof SharedArrayBuffer === "function"
   ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
   : null;
@@ -190,7 +193,7 @@ export class ActorArena {
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    if (!(data instanceof NativeUint8Array) || typedArrayByteLength.call(data) !== length) {
+    if (typedArrayKind.call(data) !== "Uint8Array" || typedArrayByteLength.call(data) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
     // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
