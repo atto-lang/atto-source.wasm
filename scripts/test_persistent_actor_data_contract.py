@@ -3,8 +3,11 @@
 import copy
 import json
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
-from verify_persistent_actor_data_contract import ContractError, validate, validate_raw
+from verify_persistent_actor_data_contract import (ContractError, validate, validate_raw,
+                                                    read_bounded_contract)
 
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
 
@@ -12,7 +15,7 @@ DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data
 class PersistentActorPolicyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base = validate_raw(DATA.read_bytes())
+        cls.base = read_bounded_contract(DATA)
 
     def reject(self, transform):
         value = copy.deepcopy(self.base)
@@ -102,7 +105,31 @@ class PersistentActorPolicyTest(unittest.TestCase):
             validate_raw(nested)
 
 
+    def test_pinned_fixture_read_is_supported(self):
+        self.assertEqual(read_bounded_contract(DATA)["version"], 1)
+
+    def test_reject_symlinked_contract_fixture(self):
+        # No OS-specific symlink creation privileges needed on Windows.
+        with patch.object(Path, "is_symlink", return_value=True):
+            with self.assertRaisesRegex(ContractError, "regular file"):
+                read_bounded_contract(DATA)
+
+    def test_reject_oversized_contract_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized.json"
+            with path.open("wb") as stream:
+                stream.truncate(64 * 1024 + 1)
+            with self.assertRaisesRegex(ContractError, "oversized"):
+                read_bounded_contract(path)
 
 
 if __name__ == "__main__":
-    unittest.main()
+    expected = 27
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
+    if suite.countTestCases() != expected:
+        raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
+                         f"found {suite.countTestCases()}")
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if (result.testsRun != expected or not result.wasSuccessful() or
+            result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+        raise SystemExit("FAIL persistent-data regressions incomplete or skipped")
