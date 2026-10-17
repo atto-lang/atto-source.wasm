@@ -104,14 +104,14 @@ The verifier also requires `--workflow-id <positive-int>` chosen from trusted,
 independently reviewed policy and compares it to GitHub's numeric
 `run.workflow_id`. **Do not populate this option by blindly copying it
 from the run being verified**. This is additional workflow identity evidence,
-not verification of the workflow YAML bytes or of which source the workflow
-checked out. Check workflow contents, source HEAD and tree separately.
+not proof of which source the workflow actually checked out. Separately pin the
+workflow YAML Git blob (as this verifier requires), source HEAD and tree.
 
 The verifier denies duplicate step names within a job, because two steps
 with the same display name cannot unambiguously satisfy a named proof step.
 All required jobs and steps must be explicit sequences; malformed caller
-inputs deny verification. These guards are checked by at least 54 independent
-source-free regression cases, three times in the CI workflow. The
+inputs deny verification. These guards are checked by all 67 independently defined source-free
+regression cases, three times in the CI workflow. The
 regressions are not native Oreslang compiler or runtime conformance tests.
 
 Example invocation now includes:
@@ -119,13 +119,14 @@ Example invocation now includes:
 ```bash
 python3 scripts/verify_ci_run.py --backend java \
   --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \
-  --run-id "$GITHUB_RUN_ID" --event "push" \
+  --run-id "$GITHUB_RUN_ID" --run-attempt "$INDEPENDENTLY_PINNED_RUN_ATTEMPT" \
+  --event "pull_request" \
   --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \
-  --workflow-run-path ".github/workflows/ci-run-evidence-contract.yml@refs/heads/main" \
+  --workflow-run-path "$INDEPENDENTLY_PINNED_EXACT_RUN_PATH" \
   --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
   --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
   --require-job "exact-run-evidence-contract" \
-  --require-step "Run all five-backend source-free security regressions"
+  --require-step "Run all eight-repository source-free security regressions"
 ```
 
 These checks do not authorize private-source cross-organization mirroring.
@@ -182,14 +183,14 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite contains at least 63 unittest methods and is
-executed for three rounds when GitHub Actions runners are available. Passing
+The source-free regression suite defines 67 unittest methods, and the workflow
+requires at least 67 per round in three rounds when Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
 
 ## Short-lived Actions evidence artifact
 
-The identical `.github/workflows/ci-run-evidence-contract.yml` in all five
-backends captures the expected pull-request HEAD, exact checked-out Git
+The identical `.github/workflows/ci-run-evidence-contract.yml` in all eight
+source repositories captures the expected pull-request HEAD, exact checked-out Git
 commit/tree, repository ID, runner name and the source-free regression-step
 outcome. It attempts to upload a **three-day-retention**, metadata-only
 `source-free-ci-evidence-<run-id>-<attempt>` artifact, including when a
@@ -220,13 +221,13 @@ https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/3898
 This does not authorize private compiler/actor source export and does not
 attest native guest-language compilation or execution.
 
-## Independently pinned run attempt (65-case regression gate)
+## Independently pinned run attempt (67-case regression gate)
 
 The verifier requires `--run-attempt N` from independently approved release
 evidence, and compares it with GitHub's run attempt and every job's attempt.
 The existing final reread also checks that the same attempt remains current.
 A dynamically chosen latest attempt cannot silently replace reviewed evidence.
-The workflow runs at least 65 source-free unittest methods for three rounds.
+The workflow requires at least 67 source-free unittest methods for three rounds.
 
 Example additional CLI argument: `--run-attempt 2` (replace 2 with the
 independently recorded value for that run; never infer it from the run being
