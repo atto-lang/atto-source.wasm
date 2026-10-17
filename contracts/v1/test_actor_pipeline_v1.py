@@ -39,7 +39,16 @@ def guard_file_shapes(verifier: pathlib.Path, original: dict):
         oversized = root / "oversized.json"
         with oversized.open("wb") as out:
             out.truncate(256 * 1024 + 1)
-        checks = [("oversized regular file", oversized)]
+        empty = root / "empty.json"
+        empty.touch()
+        directory = root / "directory.json"
+        directory.mkdir()
+        invalid_utf8 = root / "invalid-utf8.json"
+        invalid_utf8.write_bytes(b"\xff")
+        checks = [("oversized regular file", oversized),
+                  ("empty regular file", empty),
+                  ("directory instead of file", directory),
+                  ("invalid UTF-8 JSON", invalid_utf8)]
         alias = root / "linked.json"
         try:
             os.link(valid, alias)
@@ -48,9 +57,13 @@ def guard_file_shapes(verifier: pathlib.Path, original: dict):
         else:
             checks.append(("hardlink to valid fixture", alias))
             checks.append(("valid file with extra hardlink", valid))
+        # Use an independent target: hardlink aliasing of 'valid' must
+        # not make a symlink test pass for the wrong reason.
+        symlink_target = root / "symlink-target.json"
+        symlink_target.write_bytes(valid.read_bytes())
         symbolic = root / "symlink.json"
         try:
-            symbolic.symlink_to(valid)
+            symbolic.symlink_to(symlink_target)
         except (OSError, NotImplementedError):
             pass
         else:
