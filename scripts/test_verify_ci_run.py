@@ -264,6 +264,51 @@ class RunContract(unittest.TestCase):
                                 self.run_id, ["unit"], ["Execute test suite"],
                                 workflow_id=value)
 
+    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        normal = job["runner_name"]
+        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
+                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
+            with self.subTest(label=repr(malicious)):
+                job["runner_name"] = malicious
+                self.rejected()
+        job["runner_name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+    def test_observed_job_and_step_names_reject_spoofed_labels(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for target in (job, job["steps"][1]):
+            normal = target["name"]
+            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
+                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
+                with self.subTest(target=normal, label=repr(malicious)):
+                    target["name"] = malicious
+                    self.rejected()
+            target["name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
+        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
+                          "CI\u2066Fake", "CI\u200bFake"):
+            with self.subTest(name=repr(malicious)):
+                for job_names, step_names in (([malicious], ["Execute test suite"]),
+                                              (["unit"], [malicious])):
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, job_names, step_names)
+
+    def test_legible_unicode_display_names_are_not_disallowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        job["name"] = "native — unité"
+        job["runner_name"] = "GitHub Actions — runner"
+        job["steps"][1]["name"] = "Exécuter native tests"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
+        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
+
     def test_duplicate_step_names_within_job_denied(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
         steps = self.values[page]["jobs"][0]["steps"]
