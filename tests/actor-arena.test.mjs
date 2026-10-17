@@ -6,24 +6,56 @@ import {ActorArena} from "../src/actor-arena.mjs";
 test("shared actors get private arenas, not transferable heap handles", () => {
   const a = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
   const b = new ActorArena({actorId: 2, incarnation: 1, kind: "shared"});
+  const twin = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
   const ta = a.beginTurn();
   const tb = b.beginTurn();
+  const tt = twin.beginTurn();
   const h = a.allocPersistent(ta, 4);
   a.write(ta, h, Uint8Array.from([1, 2, 3, 4]));
   assert.deepEqual([...a.read(ta, h)], [1, 2, 3, 4]);
   assert.throws(() => b.read(tb, h), /foreign or stale/);
+  assert.throws(() => twin.read(tt, h), /foreign or stale/,
+    "even matching actor and incarnation must not share an arena domain");
   assert.throws(() => a.read(tb, h), /turn authority/);
   const copy = a.read(ta, h);
   copy[0] = 99;
   assert.equal(a.read(ta, h)[0], 1);
   a.endTurn(ta);
   b.endTurn(tb);
+  twin.endTurn(tt);
   const next = a.beginTurn();
   assert.equal(a.read(next, h)[0], 1);
   a.endTurn(next);
   a.retire();
   b.retire();
+  twin.retire();
   assert.throws(() => a.beginTurn(), /retired/);
+});
+
+test("stolen, forged and sibling turn tokens cannot end an actor turn", () => {
+  const owner = new ActorArena({actorId: 61, incarnation: 3});
+  const sibling = new ActorArena({actorId: 62, incarnation: 3});
+  const ownerTurn = owner.beginTurn();
+  const siblingTurn = sibling.beginTurn();
+  const handle = owner.allocPersistent(ownerTurn, 4);
+  owner.write(ownerTurn, handle, Uint8Array.from([10, 20, 30, 40]));
+
+  assert.throws(() => owner.endTurn(siblingTurn), /turn authority/);
+  assert.throws(() => owner.endTurn(Object.freeze({})), /turn authority/);
+  assert.throws(() => sibling.endTurn(ownerTurn), /turn authority/);
+  assert.throws(() => owner.retire(), /active actor turn/);
+  assert.deepEqual([...owner.read(ownerTurn, handle)], [10, 20, 30, 40],
+    "foreign turn revocation must not clear live actor data");
+
+  owner.endTurn(ownerTurn);
+  assert.throws(() => owner.endTurn(ownerTurn), /turn authority/);
+  const next = owner.beginTurn();
+  assert.throws(() => owner.read(ownerTurn, handle), /turn authority/);
+  assert.deepEqual([...owner.read(next, handle)], [10, 20, 30, 40]);
+  owner.endTurn(next);
+  sibling.endTurn(siblingTurn);
+  owner.retire();
+  sibling.retire();
 });
 
 test("scratch invalidates and zeroes at each mailbox turn", () => {
@@ -149,5 +181,215 @@ test('persistent and scratch handles have bounded metadata quotas', () => {
   const next = arena.beginTurn();
   assert.throws(() => arena.read(next, scratch[0]), /foreign or stale/);
   arena.endTurn(next);
+  arena.retire();
+});
+
+test("arena ownership survives poisoned Uint8Array methods", () => {
+  const arena = new ActorArena({actorId: 35, incarnation: 1});
+  const turn = arena.beginTurn();
+  const saved = new Map(["slice", "set", "fill"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(Uint8Array.prototype, name)]));
+  const savedMemoryBuffer = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, "buffer");
+  try {
+    const persistent = arena.allocPersistent(turn, 4);
+    const scratch = arena.allocScratch(turn, 4);
+    arena.write(turn, persistent, Uint8Array.of(1, 2, 3, 4));
+    arena.write(turn, scratch, Uint8Array.of(5, 6, 7, 8));
+    // Simulate a same-realm dependency poisoning the mutable prototypes.
+    // A naive .slice leaks an alias, .set loses writes, and .fill skips scrub.
+    Object.defineProperty(Uint8Array.prototype, "slice", {
+      configurable: true, writable: true, value: Uint8Array.prototype.subarray
+    });
+    Object.defineProperty(Uint8Array.prototype, "set", {
+      configurable: true, writable: true, value() {}
+    });
+    Object.defineProperty(Uint8Array.prototype, "fill", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    // The memory.buffer getter can also be redefined. All arena operations
+    // must continue using the original, truly private WebAssembly.Memory.
+    const redirect = new ArrayBuffer(2 * 65536);
+    Object.defineProperty(WebAssembly.Memory.prototype, "buffer", {
+      configurable: true, get() { return redirect; }
+    });
+    const independent = arena.read(turn, persistent);
+    independent[0] = 99;
+    assert.deepEqual([...arena.read(turn, persistent)], [1, 2, 3, 4],
+      "a poisoned slice must never expose a mutable private region alias");
+    arena.write(turn, persistent, Uint8Array.of(9, 8, 7, 6));
+    assert.deepEqual([...arena.read(turn, persistent)], [9, 8, 7, 6],
+      "a poisoned set must not silently suppress actor writes");
+    assert.equal(new Uint8Array(redirect)[0], 0,
+      "a poisoned Memory.buffer getter must not redirect private actor bytes");
+    arena.dropPersistent(turn, persistent);
+    const recycled = arena.allocPersistent(turn, 4);
+    assert.deepEqual([...arena.read(turn, recycled)], [0, 0, 0, 0],
+      "a poisoned fill must not preserve private bytes on reuse");
+    arena.endTurn(turn);
+    const next = arena.beginTurn();
+    const nextScratch = arena.allocScratch(next, 4);
+    assert.deepEqual([...arena.read(next, nextScratch)], [0, 0, 0, 0],
+      "scratch must be zero after turn exit despite poisoned fill");
+    arena.endTurn(next);
+    arena.retire();
+  } finally {
+    for (const [name, descriptor] of saved) {
+      if (descriptor) Object.defineProperty(Uint8Array.prototype, name, descriptor);
+      else delete Uint8Array.prototype[name];
+    }
+    Object.defineProperty(WebAssembly.Memory.prototype, "buffer", savedMemoryBuffer);
+  }
+});
+
+test("read never gives Symbol.species a private actor backing buffer", () => {
+  const arena = new ActorArena({actorId: 36, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.of(1, 2, 3, 4));
+  const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "constructor");
+  let leakedBuffer = null;
+  try {
+    // Built-in TypedArray.subarray passes its source buffer to the species
+    // constructor. The current actor read path must not invoke it at all.
+    Object.defineProperty(Uint8Array.prototype, "constructor", {
+      configurable: true, writable: true,
+      value: {
+        [Symbol.species]: function stealPrivateBuffer(buffer, offset, length) {
+          leakedBuffer = buffer;
+          return new Uint8Array(buffer, offset, length);
+        }
+      }
+    });
+    const copy = arena.read(turn, handle);
+    assert.deepEqual([...copy], [1, 2, 3, 4]);
+    assert.equal(leakedBuffer, null, "the private WebAssembly.Memory buffer must never escape");
+    copy[0] = 99;
+    assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  } finally {
+    if (original) Object.defineProperty(Uint8Array.prototype, "constructor", original);
+    else delete Uint8Array.prototype.constructor;
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test("WeakMap prototype mutation cannot forge or revive actor handles", () => {
+  const arena = new ActorArena({actorId: 39, incarnation: 1});
+  const turn = arena.beginTurn();
+  const original = arena.allocPersistent(turn, 4);
+  arena.write(turn, original, Uint8Array.of(6, 7, 8, 9));
+  const forged = Object.freeze({});
+  const methods = new Map(["get", "delete", "set"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(WeakMap.prototype, name)]));
+  const nativeGet = methods.get("get").value;
+  try {
+    Object.defineProperty(WeakMap.prototype, "get", {
+      configurable: true, writable: true,
+      value(handle) {
+        if (handle === forged) return {offset: 0, length: 4};
+        return nativeGet.call(this, handle);
+      }
+    });
+    assert.throws(() => arena.read(turn, forged), /foreign or stale/,
+      "a fake WeakMap.get entry must not grant actor memory read authority");
+    Object.defineProperty(WeakMap.prototype, "delete", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    arena.dropPersistent(turn, original);
+    const recycled = arena.allocPersistent(turn, 4);
+    arena.write(turn, recycled, Uint8Array.of(1, 2, 3, 4));
+    assert.throws(() => arena.read(turn, original), /foreign or stale/,
+      "a no-op WeakMap.delete must not restore stale handle authority");
+    Object.defineProperty(WeakMap.prototype, "set", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    const scratch = arena.allocScratch(turn, 4);
+    arena.write(turn, scratch, Uint8Array.of(5, 5, 5, 5));
+    assert.deepEqual([...arena.read(turn, scratch)], [5, 5, 5, 5],
+      "new allocations must use native WeakMap.set even when poisoned");
+    assert.deepEqual([...arena.read(turn, recycled)], [1, 2, 3, 4]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    for (const [name, descriptor] of methods) {
+      Object.defineProperty(WeakMap.prototype, name, descriptor);
+    }
+  }
+});
+
+test("allocator metadata stays private when Array prototype methods are poisoned", () => {
+  const arena = new ActorArena({actorId: 40, incarnation: 1});
+  const turn = arena.beginTurn();
+  const live = arena.allocPersistent(turn, 4);
+  const freed = arena.allocPersistent(turn, 65532);
+  arena.write(turn, live, Uint8Array.of(9, 8, 7, 6));
+  const methods = new Map(["push", "sort", "findIndex", "splice"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(Array.prototype, name)]));
+  const originalPush = methods.get("push").value;
+  let stolenMetadata = null;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value(...items) {
+        if (items.some(item => item && typeof item === "object" &&
+            Object.hasOwn(item, "offset") && Object.hasOwn(item, "length"))) {
+          stolenMetadata = this;
+        }
+        return originalPush.apply(this, items);
+      }
+    });
+    Object.defineProperty(Array.prototype, "sort", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    Object.defineProperty(Array.prototype, "findIndex", {
+      configurable: true, writable: true, value() { return -1; }
+    });
+    Object.defineProperty(Array.prototype, "splice", {
+      configurable: true, writable: true, value() { return []; }
+    });
+    arena.dropPersistent(turn, freed);
+    assert.equal(stolenMetadata, null, "no private free-list may enter a prototype hook");
+    const reused = arena.allocPersistent(turn, 65532);
+    assert.deepEqual([...arena.read(turn, live)], [9, 8, 7, 6],
+      "free-list poisoning must not overlap or clear a live allocation");
+    arena.dropPersistent(turn, reused);
+    assert.deepEqual([...arena.read(turn, live)], [9, 8, 7, 6]);
+  } finally {
+    for (const [name, descriptor] of methods) {
+      Object.defineProperty(Array.prototype, name, descriptor);
+    }
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test("actor admission and quotas ignore poisoned Number and Set methods", () => {
+  const originalInteger = Object.getOwnPropertyDescriptor(Number, "isSafeInteger");
+  const originalSetHas = Object.getOwnPropertyDescriptor(Set.prototype, "has");
+  const arena = new ActorArena({actorId: 41, incarnation: 1});
+  const turn = arena.beginTurn();
+  try {
+    Object.defineProperty(Number, "isSafeInteger", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    Object.defineProperty(Set.prototype, "has", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    assert.throws(() => new ActorArena({actorId: Number.NaN, incarnation: 1}),
+      /invalid actor/, "tampered Number.isSafeInteger must not admit NaN actor IDs");
+    assert.throws(() => new ActorArena({actorId: 1, incarnation: 1, kind: "forged"}),
+      /invalid actor/, "tampered Set.has must not admit unsupported actor kinds");
+    assert.throws(() => arena.allocPersistent(turn, Number.NaN),
+      /invalid arena/, "tampered integer check must not corrupt allocation frontier");
+    assert.throws(() => arena.allocPersistent(turn, Number.MAX_SAFE_INTEGER + 1),
+      /invalid arena/);
+    const genuine = arena.allocPersistent(turn, 4);
+    arena.write(turn, genuine, Uint8Array.of(4, 3, 2, 1));
+    assert.deepEqual([...arena.read(turn, genuine)], [4, 3, 2, 1]);
+  } finally {
+    Object.defineProperty(Number, "isSafeInteger", originalInteger);
+    Object.defineProperty(Set.prototype, "has", originalSetHas);
+  }
+  arena.endTurn(turn);
   arena.retire();
 });
