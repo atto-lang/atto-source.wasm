@@ -22,6 +22,8 @@ const safeStringIncludes = String.prototype.includes;
 const safeCharCodeAt = String.prototype.charCodeAt;
 const safeJSONStringify = JSON.stringify;
 const safeEncode = TextEncoder.prototype.encode;
+const nativeByteLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
 const safeArrayFind = Array.prototype.find;
 const safeFreeze = Object.freeze;
 function utf8(value, limit, optional = false, allowNul = false) {
@@ -36,13 +38,18 @@ function utf8(value, limit, optional = false, allowNul = false) {
     } else if (c >= 0xdc00 && c <= 0xdfff) throw new TypeError("invalid Unicode");
   }
   const data = safeEncode.call(encoder, value);
-  if (data.length > limit) throw new RangeError("pipeline UTF-8 byte budget");
+  if (nativeByteLength.call(data) > limit)
+    throw new RangeError("pipeline UTF-8 byte budget");
   return data;
 }
 export function actorRouteHash64(key) {
   let hash = 0xcbf29ce484222325n;
-  for (const b of utf8(key, 4096, true, true))
-    hash = ((hash ^ NativeBigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  // Never invoke mutable Uint8Array.prototype[Symbol.iterator]. A guest
+  // monkey patch must not substitute hash bytes and redirect a route.
+  const encoded = utf8(key, 4096, true, true);
+  const size = nativeByteLength.call(encoded);
+  for (let i = 0; i < size; ++i)
+    hash = ((hash ^ NativeBigInt(encoded[i])) * 0x100000001b3n) & 0xffffffffffffffffn;
   return hash;
 }
 export class ActorPipelinePolicy {
