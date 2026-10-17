@@ -114,6 +114,47 @@ test('persistent drop reclaims memory without reviving stale handles', () => {
   arena.retire();
 });
 
+test("intrinsic brand admission for cross-realm Uint8Array and forged constructor identity", () => {
+  const arena = new ActorArena({actorId: 79, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+
+  const foreign = runInNewContext("Uint8Array.from([7, 8, 9, 10])");
+  assert.equal(foreign instanceof Uint8Array, false,
+    "a distinct realm must not be rejected merely for using another constructor");
+  arena.write(turn, handle, foreign);
+  assert.deepEqual([...arena.read(turn, handle)], [7, 8, 9, 10]);
+
+  // All of these views have typed-array internals and in some cases the
+  // same byte width, but none has the Uint8Array native element kind.
+  for (const bad of [
+    new Uint8ClampedArray([1, 2, 3, 4]),
+    new Uint16Array([1, 2, 3, 4]),
+    new DataView(new ArrayBuffer(4)),
+    new Proxy(new Uint8Array(4), {}),
+  ]) {
+    assert.throws(() => arena.write(turn, handle, bad), /exact-size/);
+  }
+  const original = Object.getOwnPropertyDescriptor(Uint8Array, Symbol.hasInstance);
+  try {
+    Object.defineProperty(Uint8Array, Symbol.hasInstance, {
+      configurable: true,
+      value: () => true,
+    });
+    assert.equal(new Uint16Array([1, 2, 3, 4]) instanceof Uint8Array, true,
+      "poisoned instanceof would have admitted a foreign element kind");
+    assert.throws(() => arena.write(turn, handle, new Uint16Array([1, 2, 3, 4])),
+      /exact-size/, "the trusted intrinsic must ignore poisoned hasInstance");
+    arena.write(turn, handle, foreign);
+    assert.deepEqual([...arena.read(turn, handle)], [7, 8, 9, 10]);
+  } finally {
+    if (original) Object.defineProperty(Uint8Array, Symbol.hasInstance, original);
+    else Reflect.deleteProperty(Uint8Array, Symbol.hasInstance);
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test("shared worker backing is rejected before it can tear an actor write", () => {
   const arena = new ActorArena({actorId: 34, incarnation: 1});
   const turn = arena.beginTurn();
