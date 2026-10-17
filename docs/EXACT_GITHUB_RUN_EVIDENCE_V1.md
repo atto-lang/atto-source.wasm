@@ -119,7 +119,7 @@ Example invocation now includes:
 ```bash
 python3 scripts/verify_ci_run.py --backend java \
   --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \
-  --run-id "$GITHUB_RUN_ID" \
+  --run-id "$GITHUB_RUN_ID" --event "push" \
   --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \
   --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
   --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
@@ -150,6 +150,18 @@ successful run metadata with jobs fetched across a rerun. The re-read is
 not an atomic GitHub API snapshot; release controllers should pin a finished
 attempt and independently examine the archived native test artifacts.
 
-The source-free regression suite contains at least 55 unittest methods and is
+The exact run event is also **mandatory and independently selected** using
+`--event push` or `--event pull_request`. The verifier rejects workflows
+triggered by `workflow_dispatch`, `workflow_run`, `pull_request_target`,
+`schedule`, `repository_dispatch`, or other events; an alternate trigger
+cannot launder the same completed job and step names as an approved
+push/PR execution. The event is rechecked after jobs are collected to
+detect an inconsistent run snapshot. This deliberately excludes manually
+dispatched carrier jobs from **source-HEAD** certification. Approved
+private test-carrier execution and exact guest snapshot evidence must
+be attested separately under the source-export policy; a successful
+carrier run cannot certify a different source repository's commit.
+
+The source-free regression suite contains at least 58 unittest methods and is
 executed for three rounds when GitHub Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
