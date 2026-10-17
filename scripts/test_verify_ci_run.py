@@ -87,6 +87,12 @@ class RunContract(unittest.TestCase):
         self.assertTrue(module.executable_step_name("Prepare build"))
         self.assertTrue(module.executable_step_name("Execute test suite"))
 
+    def test_whitespace_only_job_name_denied_with_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["name"] = " \t "
+        with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
+            self.validate()
+
     def test_whitespace_only_step_name_denied_despite_real_test_step(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
         self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
