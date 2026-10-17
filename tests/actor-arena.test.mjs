@@ -58,6 +58,35 @@ test("stolen, forged and sibling turn tokens cannot end an actor turn", () => {
   sibling.retire();
 });
 
+test("poisoned Object.freeze cannot steal opaque turn or memory handle", () => {
+  // A hostile same-realm script can rewrite Object.freeze after this module
+  // has loaded. Native ActorArena must capture the original intrinsic.
+  const old = Object.getOwnPropertyDescriptor(Object, "freeze");
+  const captured = [];
+  let arena, turn;
+  try {
+    Object.defineProperty(Object, "freeze", {
+      configurable: true, writable: true,
+      value(value) { captured.push(value); return value; }
+    });
+    arena = new ActorArena({actorId: 63, incarnation: 3});
+    turn = arena.beginTurn();
+    const handle = arena.allocPersistent(turn, 4);
+    assert.equal(captured.includes(turn), false, "turn permit leaked to forged freeze");
+    assert.equal(captured.includes(handle), false, "opaque handle leaked to forged freeze");
+    assert.equal(Object.isFrozen(turn), true);
+    assert.equal(Object.isFrozen(handle), true);
+    arena.write(turn, handle, Uint8Array.of(4, 3, 2, 1));
+    assert.deepEqual([...arena.read(turn, handle)], [4, 3, 2, 1]);
+  } finally {
+    Object.defineProperty(Object, "freeze", old);
+    if (arena && turn) {
+      arena.endTurn(turn);
+      arena.retire();
+    }
+  }
+});
+
 test("scratch invalidates and zeroes at each mailbox turn", () => {
   const arena = new ActorArena({actorId: 3, incarnation: 4});
   const turn = arena.beginTurn();

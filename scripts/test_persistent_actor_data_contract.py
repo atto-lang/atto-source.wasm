@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import stat
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -110,8 +111,11 @@ class PersistentActorPolicyTest(unittest.TestCase):
         self.assertEqual(read_bounded_contract(DATA)["version"], 1)
 
     def test_reject_symlinked_contract_fixture(self):
-        # No OS-specific symlink creation privileges needed on Windows.
-        with patch.object(Path, "is_symlink", return_value=True):
+        # Exercise the actual lstat-based admission path, not a stale
+        # Path.is_symlink() preflight that the secure reader no longer calls.
+        native = DATA.lstat()
+        symlink = os.stat_result((stat.S_IFLNK | 0o777,) + tuple(native)[1:])
+        with patch.object(Path, "lstat", return_value=symlink):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
 
@@ -203,23 +207,140 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 return native_fstat(fd)
             with patch("verify_persistent_actor_data_contract.os.fstat",
                        side_effect=raced_fstat):
-                # Replacing the last path link may change st_nlink on the
-                # still-open descriptor first. Either descriptor or final
-                # path metadata denial proves the race is rejected.
-                with self.assertRaisesRegex(ContractError, "changed during read"):
+                with self.assertRaisesRegex(ContractError, "path changed during read"):
                     read_bounded_contract(path)
             self.assertEqual(calls, 2)
+
+    def test_reject_oversized_contract_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized.json"
+            with path.open("wb") as stream:
+                stream.truncate(64 * 1024 + 1)
+            with self.assertRaisesRegex(ContractError, "oversized"):
+                read_bounded_contract(path)
+
+
+    def test_missing_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (None, 0):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "secure no-follow"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_malformed_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (True, False, -1, "not-an-int", 1.5):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "secure no-follow"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_aliased_secure_open_mask_denies_without_open(self):
+        candidates = (("O_NOFOLLOW", os.O_NONBLOCK),
+                      ("O_NONBLOCK", os.O_NOFOLLOW | os.O_NONBLOCK),
+                      ("O_BINARY", os.O_NONBLOCK))
+        for flag, value in candidates:
+            with self.subTest(flag=flag, value=value):
+                with patch.object(os, flag, value, create=True):
+                    with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                        with self.assertRaisesRegex(ContractError, "secure no-follow"):
+                            read_bounded_contract(DATA)
+                        opened.assert_not_called()
 
     def test_reject_exponent_overflow_before_schema_interpretation(self):
         with self.assertRaisesRegex(ContractError, "non-finite"):
             validate_raw(b'{"version": 1e999}')
-
 
     def test_reject_directory_as_contract(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ContractError, "unique regular file"):
                 read_bounded_contract(Path(temp))
 
+    def test_reject_hardlinked_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / "valid.json"
+            data.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(data, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows runner volumes do not permit hardlinks;
+                # the cross-platform OS-independent directory case still runs.
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(alias)
+
+    def test_short_read_with_stable_file_metadata_fails_closed(self):
+        # Simulate short and empty reads without changing fstat or lstat.
+        # Reject the incomplete payload before JSON interpretation.
+        actual_fdopen = os.fdopen
+
+        class ShortStream:
+            def __init__(self, inner, trim):
+                self.inner = inner
+                self.trim = trim
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return self.inner.__exit__(*args)
+
+            def fileno(self):
+                return self.inner.fileno()
+
+            def read(self, limit):
+                data = self.inner.read(limit)
+                return data[:-self.trim] if self.trim < len(data) else b""
+
+        for trim in (1, 1000000):
+            with self.subTest(trim=trim):
+                def truncated_fdopen(fd, mode):
+                    return ShortStream(actual_fdopen(fd, mode), trim)
+                with patch.object(os, "fdopen", side_effect=truncated_fdopen):
+                    with self.assertRaisesRegex(ContractError, "short read"):
+                        read_bounded_contract(DATA)
+
+    def test_reject_changed_open_descriptor_during_read(self):
+        # Simulate a file changing after the initial descriptor identity
+        # check. A normal start-of-read lstat alone must never certify it.
+        original = os.fstat
+        reads = [0]
+        def mutated(fd):
+            before = original(fd)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # st_ino differs after payload read
+                return os.stat_result(fields)
+            return before
+        with patch.object(os, "fstat", side_effect=mutated):
+            with self.assertRaisesRegex(ContractError, "changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
+
+    def test_reject_replaced_contract_path_after_read(self):
+        # Simulate a rename/swap after data was read successfully. The
+        # final name must still refer to the exact opened descriptor.
+        original = Path.lstat
+        reads = [0]
+        def mutated(path):
+            before = original(path)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # same pathname, different inode
+                return os.stat_result(fields)
+            return before
+        with patch.object(Path, "lstat", mutated):
+            with self.assertRaisesRegex(ContractError, "path changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
 
     def test_secure_open_flags_missing_or_aliased_fail_closed(self):
         # Simulate platforms/shims with missing, zero or overlapping flag bits.
@@ -257,17 +378,10 @@ class PersistentActorPolicyTest(unittest.TestCase):
                         with self.assertRaisesRegex(ContractError, "secure no-follow"):
                             read_bounded_contract(DATA)
 
-    def test_reject_oversized_contract_file(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "oversized.json"
-            with path.open("wb") as stream:
-                stream.truncate(64 * 1024 + 1)
-            with self.assertRaisesRegex(ContractError, "oversized"):
-                read_bounded_contract(path)
 
 
 if __name__ == "__main__":
-    expected = 37
+    expected = 44
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
