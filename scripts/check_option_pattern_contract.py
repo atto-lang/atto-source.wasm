@@ -128,7 +128,7 @@ def main():
                 ok = result.returncode == (0 if case["reference"] == "accept" else 1)
             else:
                 output = result.stdout.decode("utf-8", errors="replace")
-                emitted_ir = re.search(r"(?m)^(?:\\s*; ModuleID|\\s*target triple|\\s*define (?:internal )?i\\d+)", output)
+                emitted_ir = re.search(r"(?m)^(?:\s*; ModuleID|\s*target triple|\s*define (?:internal )?i\d+)", output)
                 ok = result.returncode != 0 and not emitted_ir
             report["cases"].append({
                 "id": case["id"], "source_sha256": hashlib.sha256(encoded).hexdigest(),
