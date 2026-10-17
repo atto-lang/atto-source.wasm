@@ -27,12 +27,25 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert source HEAD and tree checked out
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -n "$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_TESTED_SOURCE_COMMIT=$EXPECTED_SOURCE_HEAD"
+          echo "EXACT_TESTED_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Pin identical five-backend contract source blobs
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
-          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "afde8f59bacb20564844a1a51381004ad66ec981"
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "1b67922a4ac2994bab7da3f7b214d936ca23a0dd"
+          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "a6786404106d349d63e126878eb85c0dc85a3ee0"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "91fcff5c4ade0f9dd0c83def4b8966648b585d67"
       - name: Reject capability and fixture drift
         run: python3 scripts/verify_persistent_actor_data_contract.py
       - name: Execute negative policy mutation suite
@@ -45,6 +58,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
