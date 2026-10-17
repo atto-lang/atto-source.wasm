@@ -11,12 +11,16 @@ const encoder = new NativeTextEncoder();
 const safeMapGet = Map.prototype.get;
 const safeMapSet = Map.prototype.set;
 const safeMapKeys = Map.prototype.keys;
+const safeMapEntries = Map.prototype.entries;
+const safeMapIteratorNext = Object.getPrototypeOf(new NativeMap().entries()).next;
 const safeMapHas = Map.prototype.has;
 const safeSetHas = Set.prototype.has;
 const safeSetAdd = Set.prototype.add;
 const safeArrayPush = Array.prototype.push;
 const safeArrayIsArray = Array.isArray;
 const safeStringIncludes = String.prototype.includes;
+const safeCharCodeAt = String.prototype.charCodeAt;
+const safeJSONStringify = JSON.stringify;
 const safeEncode = TextEncoder.prototype.encode;
 const safeArrayFind = Array.prototype.find;
 const safeFreeze = Object.freeze;
@@ -25,10 +29,10 @@ function utf8(value, limit, optional = false, allowNul = false) {
     throw new TypeError("invalid pipeline identifier");
   if (value.length > limit) throw new RangeError("pipeline byte limit");
   for (let i = 0; i < value.length; ++i) {
-    const c = value.charCodeAt(i);
+    const c = safeCharCodeAt.call(value, i);
     if (c >= 0xd800 && c <= 0xdbff) {
-      if (++i >= value.length || value.charCodeAt(i) < 0xdc00 ||
-          value.charCodeAt(i) > 0xdfff) throw new TypeError("invalid Unicode");
+      if (++i >= value.length || safeCharCodeAt.call(value, i) < 0xdc00 ||
+          safeCharCodeAt.call(value, i) > 0xdfff) throw new TypeError("invalid Unicode");
     } else if (c >= 0xdc00 && c <= 0xdfff) throw new TypeError("invalid Unicode");
   }
   const data = safeEncode.call(encoder, value);
@@ -43,7 +47,7 @@ export function actorRouteHash64(key) {
 }
 export class ActorPipelinePolicy {
   #routes;
-  #cursor = new Map();
+  #cursor = new NativeMap();
   #retired = false;
   constructor(stages, edges) {
     if (!safeArrayIsArray(stages) || !safeArrayIsArray(edges))
@@ -70,7 +74,8 @@ export class ActorPipelinePolicy {
       safeArrayPush.call(edgeSnapshot, {source, target, payload});
     }
     const byId = new NativeMap(), routes = new NativeMap(), parents = new NativeMap();
-    for (const {id, type, role, inbound, outbound} of stageSnapshot) {
+    for (let i = 0; i < stageSnapshot.length; ++i) {
+      const {id, type, role, inbound, outbound} = stageSnapshot[i];
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
       if (safeMapHas.call(byId, id)) throw new TypeError("duplicate pipeline instance");
@@ -82,7 +87,8 @@ export class ActorPipelinePolicy {
       safeMapSet.call(parents, id, 0);
     }
     const seen = new NativeSet();
-    for (const edge of edgeSnapshot) {
+    for (let i = 0; i < edgeSnapshot.length; ++i) {
+      const edge = edgeSnapshot[i];
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
       const from = safeMapGet.call(byId, source), to = safeMapGet.call(byId, target);
@@ -90,16 +96,26 @@ export class ActorPipelinePolicy {
           from.role === "writable" || to.role === "readable" ||
           from.outbound !== payload || to.inbound !== payload)
         throw new TypeError("unknown or mistyped pipeline edge");
-      const pair = JSON.stringify([source, target]);
+      const pair = safeJSONStringify([source, target]);
       if (safeSetHas.call(seen, pair)) throw new TypeError("duplicate pipeline edge");
       safeSetAdd.call(seen, pair);
       if (!safeMapHas.call(routes, source)) safeMapSet.call(routes, source, []);
       safeArrayPush.call(safeMapGet.call(routes, source), safeFreeze({source, target, payload}));
       safeMapSet.call(parents, target, safeMapGet.call(parents, target) + 1);
     }
-    const indegree = new NativeMap(parents), ready = [];
+    const indegree = new NativeMap(), ready = [];
+    // Iterate native Map internal entries without invoking a replaceable
+    // Map.prototype[Symbol.iterator] or MapIterator.prototype.next.
+    const forEachTrustedEntry = (map, fn) => {
+      const iterator = safeMapEntries.call(map);
+      for (let step = safeMapIteratorNext.call(iterator); !step.done;
+           step = safeMapIteratorNext.call(iterator)) {
+        fn(step.value[0], step.value[1]);
+      }
+    };
+    forEachTrustedEntry(parents, (id, count) => safeMapSet.call(indegree, id, count));
     let root = false;
-    for (const [id, stage] of byId) {
+    forEachTrustedEntry(byId, (id, stage) => {
       const input = safeMapGet.call(parents, id), output = safeMapGet.call(routes, id)?.length ?? 0;
       if ((!input && !output) || (stage.role === "readable" && !output) ||
           (stage.role === "writable" && !input) ||
@@ -109,21 +125,26 @@ export class ActorPipelinePolicy {
         safeArrayPush.call(ready, id);
         if (stage.role === "readable" || stage.role === "duplex") root = true;
       }
-    }
+    });
     if (!root) throw new TypeError("pipeline requires ingress root");
     let visited = 0;
     for (let i = 0; i < ready.length; i++) {
       const id = ready[i]; visited++;
-      for (const edge of safeMapGet.call(routes, id) ?? []) {
+      const outgoing = safeMapGet.call(routes, id) ?? [];
+      for (let j = 0; j < outgoing.length; j++) {
+        const edge = outgoing[j];
         const n = safeMapGet.call(indegree, edge.target) - 1;
         safeMapSet.call(indegree, edge.target, n);
         if (n === 0) safeArrayPush.call(ready, edge.target);
       }
     }
     if (visited !== stageCount) throw new TypeError("cyclic pipeline graph");
-    this.#routes = new NativeMap([...routes].map(([id, list])=>[id, safeFreeze(list)]));
+    this.#routes = new NativeMap();
+    forEachTrustedEntry(routes, (id, list) =>
+      safeMapSet.call(this.#routes, id, safeFreeze(list)));
     // Pre-seed all RR cursors at trusted graph construction, never on a turn.
-    for (const source of safeMapKeys.call(this.#routes)) safeMapSet.call(this.#cursor, source, 0);
+    forEachTrustedEntry(this.#routes, (source) =>
+      safeMapSet.call(this.#cursor, source, 0));
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
