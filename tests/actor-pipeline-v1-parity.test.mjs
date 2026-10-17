@@ -82,9 +82,9 @@ test('TextEncoder and String prototype poisoning cannot alter route hash or admi
       configurable: true, writable: true, value() { return 65; }
     });
     assert.equal(actorRouteHash64('alpha'), value);
-    assert.throws(() => actorRouteHash64('\\ud800'), /Unicode/);
+    assert.throws(() => actorRouteHash64('\ud800'), /Unicode/);
     assert.throws(() => new ActorPipelinePolicy(
-      [{...stages[0], id:'producer\\0forged'}, ...stages.slice(1)], edges),
+      [{...stages[0], id:'producer\0forged'}, ...stages.slice(1)], edges),
       /pipeline identifier/);
   } finally {
     Object.defineProperty(TextEncoder.prototype, 'encode', encode);
