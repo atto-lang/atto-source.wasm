@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {runInNewContext} from "node:vm";
 import {ActorArena} from "../src/actor-arena.mjs";
 
 test("shared actors get private arenas, not transferable heap handles", () => {
@@ -91,6 +92,17 @@ test("shared worker backing is rejected before it can tear an actor write", () =
     assert.throws(() => arena.write(turn, handle, shared), /shared backing/);
     assert.deepEqual([...arena.read(turn, handle)], [0, 0, 0, 0],
       "denied write must leave target bytes intact");
+    // SAB created in another realm fails instanceof, even when a local typed
+    // array views it. Its backing must still be rejected without side effects.
+    const foreignShared = runInNewContext("new SharedArrayBuffer(4)");
+    assert.equal(foreignShared instanceof SharedArrayBuffer, false);
+    const localView = new Uint8Array(foreignShared);
+    localView.set([8, 7, 6, 5]);
+    assert.throws(() => arena.write(turn, handle, localView), /shared backing/);
+    assert.deepEqual([...arena.read(turn, handle)], [0, 0, 0, 0]);
+    Object.defineProperty(foreignShared, Symbol.toStringTag, {value: "ArrayBuffer"});
+    assert.throws(() => arena.write(turn, handle, localView), /shared backing/,
+      "overridden toStringTag must not bypass intrinsic shared-memory detection");
   }
   arena.write(turn, handle, Uint8Array.from([1, 2, 3, 4]));
   assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
