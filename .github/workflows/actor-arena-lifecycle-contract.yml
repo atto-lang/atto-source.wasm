@@ -108,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
-          import json, os, subprocess
+          import json, os, re, subprocess
           from pathlib import Path
           def git(*args):
               return subprocess.check_output(["git", *args], text=True).strip()
@@ -133,12 +133,20 @@ jobs:
                   raise SystemExit("lifecycle source-free blob/mode/symlink drift after tests")
           workflow_path = ".github/workflows/actor-arena-lifecycle-contract.yml"
           workflow_sha = git("rev-parse", f"HEAD:{workflow_path}")
+          # GitHub may execute the PR merge-ref workflow while checking out
+          # the PR source HEAD. Record both identities; never conflate them.
+          definition_sha = os.environ.get("GITHUB_WORKFLOW_SHA", "")
+          definition_ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
+          if (not re.fullmatch(r"[0-9a-f]{40}", definition_sha)
+                  or not definition_ref.startswith(
+                      os.environ["GITHUB_REPOSITORY"] + "/" + workflow_path + "@refs/")):
+              raise SystemExit("GitHub workflow definition identity unavailable")
           if (git("hash-object", workflow_path) != workflow_sha
                   or git("ls-tree", "HEAD", "--", workflow_path)
                        != f"100644 blob {workflow_sha}\t{workflow_path}"
                   or not Path(workflow_path).is_file()
                   or Path(workflow_path).is_symlink()):
-              raise SystemExit("committed lifecycle workflow differs from executed workflow")
+              raise SystemExit("checked-out PR HEAD workflow file drift")
           import subprocess as process
           if process.check_output(
                   ["git", "status", "--porcelain", "--", *blobs, workflow_path],
@@ -157,7 +165,10 @@ jobs:
             "run_id": int(os.environ["GITHUB_RUN_ID"]),
             "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
             "workflow_path": workflow_path,
-            "workflow_blob_sha": workflow_sha,
+            "source_head_workflow_blob_sha": workflow_sha,
+            "github_execution_workflow_ref": definition_ref,
+            "github_execution_workflow_commit_sha": definition_sha,
+            "github_workflow_equivalence_certified": False,
             "source_free_blobs": {
               "contracts/v1/actor_arena_lifecycle_v1.json": "b921f18d8be719957f2301ffd1881c23ecb85ea8",
               "scripts/verify_actor_arena_lifecycle_contract.py": "26bca4b2e8511b4db204338b94fa400173bcea1a",
