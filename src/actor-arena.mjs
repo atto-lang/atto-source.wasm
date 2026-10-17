@@ -4,6 +4,21 @@
 const PAGE = 65536;
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
+// Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
+// a local Uint8Array while failing instanceof SharedArrayBuffer.
+const sharedByteLength = typeof SharedArrayBuffer === "function"
+  ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
+  : null;
+function isSharedBacking(buffer) {
+  if (sharedByteLength === null) return false;
+  try {
+    sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
+    return true;
+  } catch (error) {
+    if (error instanceof TypeError) return false;
+    throw error;
+  }
+}
 
 export class ActorArena {
   #memory;
@@ -141,7 +156,7 @@ export class ActorArena {
     }
     // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
     // tearing the actor's snapshot. Require owned, non-shared input bytes.
-    if (typeof SharedArrayBuffer !== "undefined" && data.buffer instanceof SharedArrayBuffer) {
+    if (isSharedBacking(data.buffer)) {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
