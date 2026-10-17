@@ -119,6 +119,10 @@ class SerdePolicyRegression(unittest.TestCase):
         flags = observed.call_args.args[1]
         self.assertTrue(flags & os.O_NOFOLLOW)
         self.assertTrue(flags & os.O_NONBLOCK)
+        # A present but unusable zero-valued flag must fail closed.
+        with mock.patch.object(policy.os, 'O_NOFOLLOW', 0, create=True):
+            with self.assertRaisesRegex(policy.ContractError, 'no safe'):
+                policy.verify_file()
 
     def test_reject_path_swapped_to_symlink_at_open(self):
         with tempfile.TemporaryDirectory() as root:
