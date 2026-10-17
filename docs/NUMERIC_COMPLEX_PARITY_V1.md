@@ -25,7 +25,7 @@ This contract is an implementation target, not a declaration of runtime feature 
 ## Reference corpus and limitations
 
 `contracts/v1/numeric-complex/complex128-finite-reference-v1.json`
-holds eleven cases for add/subtract/multiply/divide/conjugate and one
+holds thirteen cases for add/subtract/multiply/divide/conjugate and one
 complex row-major matrix multiplication. Operands are short decimal text
 first parsed as **IEEE binary64**. The source-free Python oracle then
 uses **exact rational arithmetic on those decoded binary64 values** and
@@ -36,6 +36,9 @@ as its own correctness oracle, and includes:
 - Known [#1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
   exponent-separation repro, expected imaginary bits `02aa36a9fdaa506a`,
   **not zero** despite the tiny magnitude.
+- A balanced finite division whose simple scaled-double result is one ULP
+  wrong in each component, plus a subnormal-output division that requires
+  exact final rounding rather than compensated scaling alone.
 - Equal huge and tiny finite numerator/denominator pairs that should
   give `1+0i` without avoidable intermediate overflow or underflow.
 - Minimum binary64 subnormal imaginary product (`0000000000000001`),
@@ -106,28 +109,32 @@ The **current Java actor/serde/arena draft** [#1124](https://github.com/ores-tru
 now forward-ports only the reviewed `Complex` evaluator record from Java
 precision branch [#1033](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1033)
 onto the current integration source—not the stale matrix/EE #120 tree.
-It replaces naïve multiply/divide with bounded exceptional exact-binary-input
-decimal fallback, power-of-two-scaled normal finite division, and the
-wide-exponent small-component recovery path. It orders guest numeric
+It replaces naïve multiply/divide with power-of-two scaling, a primitive
+compensated double-double finite fast path, and an exact-rational fallback
+for wide component spreads, zero/overflow ambiguity and subnormal final
+rounding. The exact fallback converts the exact binary64-input rational
+directly to nearest-even binary64 with `BigInteger` arithmetic; it no
+longer depends on a fixed decimal `MathContext`. It orders guest numeric
 equality before object identity (`NaN != NaN` even for the same complex
 instance), preserves signed-zero formatting, and rejects implicit
 BigInt/Decimal narrowing into binary64 complex.
 
 The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
-contains six focused **real guest-language GraalVM JUnit tests**:
+contains eight focused **real guest-language GraalVM JUnit tests**:
 basic complex addition/subtraction/cross-term multiplication, scaled
 large/small division, [#1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
 representable tiny imaginary result, minimum subnormal multiplication,
-complex NaN self-equality and large/small purely imaginary division.
+complex NaN self-equality, large/small purely imaginary division, a
+balanced one-ULP division regression and exact subnormal-result rounding.
 Java's existing Maven `verify` CI selects its normal JUnit test suite.
 These tests are **committed, NOT passed** on an allocated source runner.
 
 This is **not** all of #120: guest Vector/Matrix/EE, stable
 `Complex<T>` generic typing, complex serialization, AOT/native and
-GPU execution still require integration and test. Decimal slow-path
-precision is deliberately finite (`MathContext(1800, HALF_EVEN)`)
-and has **not** been proven correctly rounded for every binary64
-edge, midpoint or exceptional input. Keep [division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
+GPU execution still require integration and test. The exact-rational fallback removes the previous fixed-precision decimal
+rounding assumption. The compensated allocation-free fast path is still
+not a formal proof of correct rounding for every finite binary64 tuple,
+and IEEE NaN/Infinity/signed-zero semantics remain separately pending. Keep [division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
 open until independent differential fuzz, ULP/rounding policy and
 exact-head GraalVM+LLVM checks pass. Other four backends retain their
 `unverified` status with no implied scalar/guest implementation.
