@@ -182,7 +182,7 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite contains at least 60 unittest methods and is
+The source-free regression suite contains at least 63 unittest methods and is
 executed for three rounds when GitHub Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
 
@@ -211,3 +211,11 @@ pinned artifact action works on an allocated runner. This was **not**
 any of the five source repositories' native compiler CI and did not
 transport their private Git trees. Numerical/actor guest parity remains
 unverified until backend-native tests execute with reviewed provenance.
+
+The hardened verifier also strictly rejects boolean JSON values masquerading
+as integer GitHub job run IDs, final run IDs, or final run-attempt numbers.
+Three adversarial regressions reproduced the original acceptance gap and passed
+after the fix in the **source-free** private carrier's 63-test execution:
+https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/38989909170.
+This does not authorize private compiler/actor source export and does not
+attest native guest-language compilation or execution.
