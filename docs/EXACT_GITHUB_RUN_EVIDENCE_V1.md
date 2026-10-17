@@ -255,3 +255,20 @@ The existing Java destination allowlist remains deny-by-default. Security incide
 [platform-conformance #22](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/22)
 and [Java security integration #1123](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1123)
 are independent authorization/review gates; this extension cannot waive them.
+
+## Final identity revalidation and time-of-check protections
+
+The verifier now performs a **second read** of the source repository's
+numeric ID, canonical full name, private visibility, archived and disabled
+flags *after* collecting and rechecking the workflow run and job steps.
+This prevents a mid-query repository rename, re-creation, publication or
+archival from being certified using stale preflight metadata. It also
+rejects a boolean masquerading as a numeric workflow ID on the final run
+read (Python would otherwise consider `True == 1`).
+
+The shared regression inventory has at least **69 distinct unittest methods**,
+including mutation tests that change repository metadata between the initial
+and final read and spoof the final workflow ID. Run this entire suite on the
+exact checked-out PR tree with no skips before accepting any contract proof.
+As always, **source-free evidence is not native compiler/guest parity evidence**,
+and no verifier change grants permission to export private source.
