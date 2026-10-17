@@ -120,6 +120,38 @@ class PersistentActorPolicyTest(unittest.TestCase):
             validate_raw(nested)
 
 
+    def test_missing_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (None, 0):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "safe independent"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_malformed_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (True, False, -1, "not-an-int", 1.5):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "safe independent"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_aliased_secure_open_mask_denies_without_open(self):
+        candidates = (("O_NOFOLLOW", os.O_NONBLOCK),
+                      ("O_NONBLOCK", os.O_NOFOLLOW | os.O_NONBLOCK),
+                      ("O_BINARY", os.O_NONBLOCK))
+        for flag, value in candidates:
+            with self.subTest(flag=flag, value=value):
+                with patch.object(os, flag, value, create=True):
+                    with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                        with self.assertRaisesRegex(ContractError, "safe independent"):
+                            read_bounded_contract(DATA)
+                        opened.assert_not_called()
+
     def test_pinned_fixture_read_is_supported(self):
         self.assertEqual(read_bounded_contract(DATA)["version"], 1)
 
@@ -202,7 +234,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 32
+    expected = 35
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
