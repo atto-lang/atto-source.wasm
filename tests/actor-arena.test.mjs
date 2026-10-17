@@ -246,3 +246,47 @@ test("read never gives Symbol.species a private actor backing buffer", () => {
   arena.endTurn(turn);
   arena.retire();
 });
+
+test("WeakMap prototype mutation cannot forge or revive actor handles", () => {
+  const arena = new ActorArena({actorId: 39, incarnation: 1});
+  const turn = arena.beginTurn();
+  const original = arena.allocPersistent(turn, 4);
+  arena.write(turn, original, Uint8Array.of(6, 7, 8, 9));
+  const forged = Object.freeze({});
+  const methods = new Map(["get", "delete", "set"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(WeakMap.prototype, name)]));
+  const nativeGet = methods.get("get").value;
+  try {
+    Object.defineProperty(WeakMap.prototype, "get", {
+      configurable: true, writable: true,
+      value(handle) {
+        if (handle === forged) return {offset: 0, length: 4};
+        return nativeGet.call(this, handle);
+      }
+    });
+    assert.throws(() => arena.read(turn, forged), /foreign or stale/,
+      "a fake WeakMap.get entry must not grant actor memory read authority");
+    Object.defineProperty(WeakMap.prototype, "delete", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    arena.dropPersistent(turn, original);
+    const recycled = arena.allocPersistent(turn, 4);
+    arena.write(turn, recycled, Uint8Array.of(1, 2, 3, 4));
+    assert.throws(() => arena.read(turn, original), /foreign or stale/,
+      "a no-op WeakMap.delete must not restore stale handle authority");
+    Object.defineProperty(WeakMap.prototype, "set", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    const scratch = arena.allocScratch(turn, 4);
+    arena.write(turn, scratch, Uint8Array.of(5, 5, 5, 5));
+    assert.deepEqual([...arena.read(turn, scratch)], [5, 5, 5, 5],
+      "new allocations must use native WeakMap.set even when poisoned");
+    assert.deepEqual([...arena.read(turn, recycled)], [1, 2, 3, 4]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    for (const [name, descriptor] of methods) {
+      Object.defineProperty(WeakMap.prototype, name, descriptor);
+    }
+  }
+});
