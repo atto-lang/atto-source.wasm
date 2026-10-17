@@ -12,7 +12,7 @@ ENUM = re.compile(r'[A-Za-z_][A-Za-z0-9_./:-]*::[A-Za-z_][A-Za-z0-9_]*\Z')
 
 
 def checked(value, bound):
-    if not isinstance(value, str) or not value or any(ord(c) < 32 or ord(c) == 127 for c in value):
+    if not isinstance(value, str) or not value or value.isspace() or any(ord(c) < 32 or ord(c) == 127 for c in value):
         raise ValueError('missing or control-bearing identifier')
     raw = value.encode('utf-8', errors='strict')
     if len(raw) > bound:
