@@ -740,6 +740,68 @@ class RunContract(unittest.TestCase):
 
 
 
+class StrictApiJSONContract(unittest.TestCase):
+    """API transport must not silently reinterpret ambiguous run metadata."""
+
+    def test_canonical_github_object_is_accepted(self):
+        data = module._strict_api_json(
+            b'{"id":17,"repository":{"id":1400792274},"ok":true}')
+        self.assertEqual(data["repository"]["id"], 1400792274)
+        self.assertIs(data["ok"], True)
+
+    def test_duplicate_keys_rejected_even_in_nested_metadata(self):
+        for raw in (
+            b'{"id":17,"id":18}',
+            b'{"repository":{"id":1,"id":2}}',
+            b'{"repository":{"owner":{"login":"a","login":"b"}}}',
+        ):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(module.Denied, "duplicate"):
+                    module._strict_api_json(raw)
+
+    def test_nonstandard_and_nonfinite_json_denied(self):
+        for raw in (
+            b'{"id":NaN}', b'{"id":Infinity}', b'{"id":-Infinity}',
+            b'{"id":1e999}', b'{"id":-1e999}',
+            b'{"id":' + b"9" * 65 + b"}",
+            b'{"id":1.' + b"1" * 130 + b"}",
+            b'{"id":+1}', b'{"id":01}', b'{"id":1} trailing',
+        ):
+            with self.subTest(raw=raw[:80]):
+                with self.assertRaises(module.Denied):
+                    module._strict_api_json(raw)
+
+    def test_input_shape_encoding_and_size_denied(self):
+        for raw in (b'[]', b'null', b'2', b'""', b'{not-json}',
+                    b'{"id":"\\xff"}', b'{"bad":' + b"x" * 20 + b"}",
+                    b'{"id":1}\xff', "{}", None,
+                    b' ' * (module.MAX_API_JSON_BYTES + 1)):
+            with self.subTest(sample=str(raw)[:65]):
+                with self.assertRaises(module.Denied):
+                    module._strict_api_json(raw)
+
+    def test_authenticated_fetch_applies_strict_parser(self):
+        class Response:
+            status = 200
+            def __init__(self, body):
+                self.body = body
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, length):
+                return self.body[:length]
+
+        with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
+            with patch.object(module.urllib.request, "urlopen",
+                              return_value=Response(b'{"id":17,"id":18}')):
+                with self.assertRaisesRegex(module.Denied, "duplicate"):
+                    module._api_get("repos/example/repo")
+            with patch.object(module.urllib.request, "urlopen",
+                              return_value=Response(b'{"id":17}')):
+                self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
+
+
 class WorkflowIsolationContract(unittest.TestCase):
     """Prevent candidate import-path shadowing in CI report generation."""
 

@@ -112,7 +112,7 @@ workflow YAML Git blob (as this verifier requires), source HEAD and tree.
 The verifier denies duplicate step names within a job, because two steps
 with the same display name cannot unambiguously satisfy a named proof step.
 All required jobs and steps must be explicit sequences; malformed caller
-inputs deny verification. These guards are checked by all 73 independently defined source-free
+inputs deny verification. These guards are checked by the current source-free
 regression cases, three times in the CI workflow. The
 regressions are not native Oreslang compiler or runtime conformance tests.
 
@@ -185,8 +185,8 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite defines 73 unittest methods, and the workflow
-requires at least 73 per round in three rounds when Actions runners are available. Passing
+The initial source-free regression suite defined 73 unittest methods; the current workflow
+requires at least 82 per round in three rounds when Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
 
 ## Short-lived Actions evidence artifact
@@ -223,13 +223,13 @@ https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/3898
 This does not authorize private compiler/actor source export and does not
 attest native guest-language compilation or execution.
 
-## Independently pinned run attempt (73-case regression gate)
+## Independently pinned run attempt (82-case regression gate)
 
 The verifier requires `--run-attempt N` from independently approved release
 evidence, and compares it with GitHub's run attempt and every job's attempt.
 The existing final reread also checks that the same attempt remains current.
 A dynamically chosen latest attempt cannot silently replace reviewed evidence.
-The workflow requires at least 73 source-free unittest methods for three rounds.
+The workflow requires at least 82 source-free unittest methods for three rounds.
 
 Example additional CLI argument: `--run-attempt 2` (replace 2 with the
 independently recorded value for that run; never infer it from the run being
@@ -268,7 +268,7 @@ archival from being certified using stale preflight metadata. It also
 rejects a boolean masquerading as a numeric workflow ID on the final run
 read (Python would otherwise consider `True == 1`).
 
-The shared regression inventory has at least **73 distinct unittest methods**,
+The shared regression inventory has at least **82 distinct unittest methods**,
 including mutation tests that change repository metadata between the initial
 and final read and spoof the final workflow ID. Run this entire suite on the
 exact checked-out PR tree with no skips before accepting any contract proof.
@@ -282,7 +282,7 @@ candidate-controlled Python import paths. This prevents local `json.py` or
 `pathlib.py` and environment `PYTHONPATH` from shadowing standard-library
 imports during metadata reporting. Two new static regressions check both
 inline Python heredocs in the checked-in workflow, raising the source-free
-contract to **73 tests per round** (three rounds, no skips). This does not
+contract to **82 tests per round** (three rounds, no skips). This does not
 prove guest runtime execution, workflow-file integrity, or source-export
 permission; independent protected-main approval and native execution remain required.
 
@@ -327,6 +327,12 @@ Both `repository.id` and `head_repository.id` on the **final** workflow-run
 reread must be true JSON integers, not floating-point numbers that compare
 equal to a reviewed numeric ID in Python. Two adversarial tests change each
 ID to an equivalent float only on the final API response. The shared
-source-free gate requires at least **77** unittest methods across each
+source-free gate requires at least **82** unittest methods across each
 of three no-skip rounds. This is metadata verification, not Oreslang runtime
 certification or authorization to export private source.
+
+## Strict JSON transport and 82-case gate (2026-10-16)
+
+The authenticated GitHub evidence API must fail closed on duplicate JSON keys, nested key collisions, nonstandard NaN/Infinity, overlarge/nonfinite numerical tokens, malformed JSON, invalid top-level types and responses above 4 MiB. Five additional source-free negative and positive tests protect this boundary. The **current** minimum is 82 tests per round, three complete rounds with no skips/expected failures/unexpected successes; older 73/75/77 counts above describe prior milestones, not the current gate.
+
+Canonical verifier/test/workflow Git blobs: `1d7b03db64a8576b5c4271b6f7571df503dffd81`, `45ada59ac6001254897edf9f8cd3b75ef4f58acc`, `c62d13b3c3e9d666d90f752bcf96cbe07588a648`. [Private source-free carrier run 38997306268](https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/38997306268) executed 82×3 = 246 tests successfully, evidence artifact 12087537928. No compiler/runtime private source exported; **native five-backend guest parity and source-head CI remain uncertified**.
