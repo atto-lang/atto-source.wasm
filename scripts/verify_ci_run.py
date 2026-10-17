@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -32,11 +33,22 @@ HOUSEKEEPING_STEPS = frozenset({
 })
 
 
+def _evidence_label(value, limit=250):
+    # Untrusted REST display labels must be one visible line, without bidi
+    # controls or zero-width formatting. Those can visually impersonate an
+    # approved runner, CI job, or native guest test step in log/report UIs.
+    return (isinstance(value, str) and bool(value.strip())
+            and len(value) <= limit
+            and not any(unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                        for ch in value))
+
+
 def executable_step_name(name):
     # Runner-generated lifecycle steps cannot substitute for a required
     # build, test, or native guest-execution step.
-    return (isinstance(name, str) and name not in HOUSEKEEPING_STEPS
-            and not name.startswith(("Post ", "Pre ")))
+    return (_evidence_label(name)
+            and name.strip().casefold() not in {s.casefold() for s in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post)\s", name.strip().casefold()) is None)
 
 
 class Denied(ValueError):
@@ -134,6 +146,16 @@ def _strict_api_json(raw):
     return _object(data, "GitHub API response")
 
 
+class _DenyRedirects(urllib.request.HTTPRedirectHandler):
+    """Never forward GitHub API credentials to another redirect target.
+
+    urllib's default redirect handler forwards Request Authorization headers,
+    including to another host. API evidence must come from api.github.com.
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Denied("authenticated GitHub API redirect denied")
+
+
 def _api_get(path):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -148,7 +170,7 @@ def _api_get(path):
                  "User-Agent": "oreslang-exact-ci-evidence-v1"},
         method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.build_opener(_DenyRedirects).open(req, timeout=20) as resp:
             if resp.status != 200:
                 raise Denied("GitHub API did not return HTTP 200")
             raw = resp.read(4 * 1024 * 1024 + 1)
@@ -186,7 +208,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
         raise Denied("explicit job and executable step names are required")
-    if any(not isinstance(x, str) or not x.strip() or len(x) > 180
+    if any(not _evidence_label(x, limit=180)
            for x in [*required_jobs, *required_steps]):
         raise Denied("invalid required job or step name")
     if len(set(required_jobs)) != len(required_jobs) or len(set(required_steps)) != len(required_steps):
@@ -286,15 +308,14 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         # blank runner_name, for failed-before-start infrastructure jobs.
         if (type(job.get("runner_id")) is not int
                 or job["runner_id"] <= 0
-                or not isinstance(job.get("runner_name"), str)
-                or not job["runner_name"].strip()):
+                or not _evidence_label(job.get("runner_name"))):
             raise Denied("workflow job lacks a real allocated runner")
         job_start = _timestamp(job.get("started_at"), "job start")
         job_end = _timestamp(job.get("completed_at"), "job completion")
         if job_end < job_start:
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
-        if not isinstance(name, str) or not name:
+        if not _evidence_label(name):
             raise Denied("missing workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
@@ -323,7 +344,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                 raise Denied("workflow step timestamps overlap or contradict execution order")
             previous_step_end = step_end
             step_name = step.get("name")
-            if not isinstance(step_name, str) or not step_name:
+            if not _evidence_label(step_name):
                 raise Denied("workflow step has no name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
