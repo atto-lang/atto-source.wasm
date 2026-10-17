@@ -487,6 +487,52 @@ test("external callback leases pin fixed-pool reuse after logical retirement", (
   arena.retire();
 });
 
+test("tracked external callbacks hold and deterministically release actor lifetime", () => {
+  const arena = new ActorArena({actorId: 77, incarnation: 1, kind: "shared"});
+  const turn = arena.beginTurn();
+  const tracked = arena.trackExternalCallback(turn, value => value + 1);
+  assert.equal(arena.outstandingExternalLeases, 1);
+  arena.endTurn(turn);
+  arena.retire();
+  assert.equal(arena.physicallyReclaimed, false,
+    "registered callback must pin fixed-pool pages after logical retirement");
+
+  assert.equal(tracked.fire(40), 41);
+  assert.equal(arena.outstandingExternalLeases, 0);
+  assert.equal(arena.physicallyReclaimed, true);
+  assert.throws(() => tracked.fire(41), /already fired or closed/);
+  tracked.close(); // idempotent lease cleanup retry after successful fire
+});
+
+test("throwing and abandoned tracked callbacks still release actor lifetime", () => {
+  const throwing = new ActorArena({actorId: 78, incarnation: 1});
+  const throwingTurn = throwing.beginTurn();
+  const trackedThrow = throwing.trackExternalCallback(throwingTurn, () => {
+    throw new Error("synthetic callback failure");
+  });
+  throwing.endTurn(throwingTurn);
+  throwing.retire();
+  assert.throws(() => trackedThrow.fire(), /synthetic callback failure/);
+  assert.equal(throwing.outstandingExternalLeases, 0);
+  assert.equal(throwing.physicallyReclaimed, true);
+  assert.throws(() => trackedThrow.fire(), /already fired or closed/);
+
+  const abandoned = new ActorArena({actorId: 79, incarnation: 1});
+  const abandonedTurn = abandoned.beginTurn();
+  const trackedAbandoned = abandoned.trackExternalCallback(
+    abandonedTurn, () => { throw new Error("must not run"); });
+  abandoned.endTurn(abandonedTurn);
+  abandoned.retire();
+  assert.equal(abandoned.outstandingExternalLeases, 1);
+  assert.equal(abandoned.physicallyReclaimed, false);
+
+  trackedAbandoned.close();
+  trackedAbandoned.close();
+  assert.equal(abandoned.outstandingExternalLeases, 0);
+  assert.equal(abandoned.physicallyReclaimed, true);
+  assert.throws(() => trackedAbandoned.fire(), /already fired or closed/);
+});
+
 test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
   const before = actorArenaPoolStats();
   const first = new ActorArena({actorId: 70, incarnation: 1, kind: "private"});
