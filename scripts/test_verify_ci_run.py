@@ -126,6 +126,51 @@ class RunContract(unittest.TestCase):
                         expected_run_attempt=1)
         self.assertEqual(calls[0], 2)
 
+    def test_final_repository_metadata_must_remain_private_and_identical(self):
+        path = self.prefix
+        baseline = copy.deepcopy(self.values[path])
+        for field, value in (("id", self.repo_id + 1),
+                             ("full_name", "rebound/foreign"),
+                             ("private", False),
+                             ("archived", True),
+                             ("disabled", True),
+                             ("id", True)):
+            with self.subTest(field=field, value=value):
+                seen = [0]
+                def mutate_on_second_metadata_read(resource):
+                    data = copy.deepcopy(self.values[resource])
+                    if resource == path:
+                        seen[0] += 1
+                        if seen[0] == 2:
+                            data[field] = value
+                    return data
+                with self.assertRaisesRegex(
+                        module.Denied, "changed identity or privacy"):
+                    self.verify(mutate_on_second_metadata_read, self.backend,
+                                self.commit, self.tree, self.run_id,
+                                ["unit"], ["Execute test suite"])
+                self.assertEqual(seen[0], 2)
+        self.values[path] = baseline
+
+    def test_final_workflow_id_must_have_exact_integer_type(self):
+        # True == 1 in Python: without a strict type check the old final
+        # reread could mistake a boolean for reviewed numeric workflow ID 1.
+        run_path = self.prefix + "/actions/runs/17"
+        self.values[run_path]["workflow_id"] = 1
+        seen = [0]
+        def change_final_run_id(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                seen[0] += 1
+                if seen[0] == 2:
+                    data["workflow_id"] = True
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(change_final_run_id, self.backend, self.commit,
+                        self.tree, self.run_id, ["unit"],
+                        ["Execute test suite"], workflow_id=1)
+        self.assertEqual(seen[0], 2)
+
     def test_run_changed_during_collection_denied(self):
         run_path = self.prefix + "/actions/runs/17"
         original = copy.deepcopy(self.values[run_path])

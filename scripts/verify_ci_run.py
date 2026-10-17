@@ -305,6 +305,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or final_run["run_attempt"] != attempt
             or final_run.get("head_sha") != commit
             or final_run.get("event") != expected_event
+            or type(final_run.get("workflow_id")) is not int
             or final_run.get("workflow_id") != workflow_id
             or final_run.get("status") != "completed"
             or final_run.get("conclusion") != "success"
@@ -312,6 +313,17 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
             or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
         raise Denied("workflow run changed during evidence collection")
+    # Recheck source repository identity/visibility after collecting all jobs:
+    # a rename, replacement, or public visibility transition must not pass
+    # using only its earlier preflight metadata.
+    final_meta = _object(fetch(prefix), "final repository")
+    if (type(final_meta.get("id")) is not int
+            or final_meta.get("id") != repo_id
+            or final_meta.get("full_name") != repo
+            or final_meta.get("private") is not True
+            or final_meta.get("archived") is not False
+            or final_meta.get("disabled") is not False):
+        raise Denied("source repository changed identity or privacy during evidence collection")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
             "workflow_run_path": expected_run_path,
