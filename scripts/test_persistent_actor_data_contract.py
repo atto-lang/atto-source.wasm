@@ -2,6 +2,8 @@
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
 import json
+import hashlib
+import re
 import os
 import stat
 import unittest
@@ -12,6 +14,37 @@ from verify_persistent_actor_data_contract import (ContractError, validate, vali
                                                     read_bounded_contract)
 
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
+ROOT = DATA.parents[2]
+WORKFLOW = ROOT / ".github/workflows/persistent-actor-data-contract.yml"
+PINNED = (
+    "contracts/v1/persistent_actor_data_v1.json",
+    "scripts/verify_persistent_actor_data_contract.py",
+    "scripts/test_persistent_actor_data_contract.py",
+)
+
+def check_workflow_git_blob_pins(workflow):
+    for name in PINNED:
+        body = (ROOT / name).read_bytes()
+        header = b"blob " + str(len(body)).encode("ascii") + b"\0"
+        actual = hashlib.sha1(header + body).hexdigest()
+        pattern = re.compile(
+            r'(?m)^[ \t]*test "\$\(git hash-object ' + re.escape(name) +
+            r'\)" = "([0-9a-f]{40})"[ \t]*$')
+        matches = pattern.findall(workflow)
+        if matches != [actual]:
+            raise AssertionError("persistent CI pin missing, ambiguous or stale: " + name)
+        tree_line = (
+            'test "$(git ls-tree HEAD -- ' + name +
+            ' | awk \'{print $1 ":" $2 ":" $3}\')" = "100644:blob:' + actual + '"'
+        )
+        if workflow.count(tree_line) != 1:
+            raise AssertionError("persistent CI tree mode/type pin missing or ambiguous: " + name)
+        regular_line = "test -f " + name + " && test ! -L " + name
+        if workflow.count(regular_line) != 1:
+            raise AssertionError("persistent CI working-tree regular-file check missing or ambiguous: " + name)
+
+
+
 
 
 class PersistentActorPolicyTest(unittest.TestCase):
@@ -27,6 +60,42 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
     def test_original(self):
         validate(self.base)
+
+    def test_workflow_git_blob_pins_match_exact_source(self):
+        check_workflow_git_blob_pins(WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_workflow_rejects_stale_script_pin(self):
+        original = WORKFLOW.read_text(encoding="utf-8")
+        check_workflow_git_blob_pins(original)
+        script = PINNED[-1]
+        body = (ROOT / script).read_bytes()
+        digest = hashlib.sha1(
+            b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+        ).hexdigest()
+        replacement = "0" * 40 if digest != "0" * 40 else "1" * 40
+        tampered = original.replace(
+            'git hash-object ' + script + ')" = "' + digest + '"',
+            'git hash-object ' + script + ')" = "' + replacement + '"')
+        self.assertNotEqual(tampered, original)
+        with self.assertRaisesRegex(AssertionError, "stale"):
+            check_workflow_git_blob_pins(tampered)
+
+    def test_workflow_rejects_missing_tree_mode_pin(self):
+        original = WORKFLOW.read_text(encoding="utf-8")
+        check_workflow_git_blob_pins(original)
+        name = PINNED[0]
+        body = (ROOT / name).read_bytes()
+        digest = hashlib.sha1(
+            b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+        ).hexdigest()
+        tree_line = (
+            'test "$(git ls-tree HEAD -- ' + name +
+            ' | awk \'{print $1 ":" $2 ":" $3}\')" = "100644:blob:' + digest + '"'
+        )
+        tampered = original.replace(tree_line, "# removed committed mode/type pin")
+        self.assertNotEqual(tampered, original)
+        with self.assertRaisesRegex(AssertionError, "tree mode/type"):
+            check_workflow_git_blob_pins(tampered)
 
     def test_duplicate_wire_key(self):
         with self.assertRaises(ContractError):
@@ -381,7 +450,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 44
+    expected = 47
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
