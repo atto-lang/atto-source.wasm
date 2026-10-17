@@ -93,6 +93,86 @@ test('TextEncoder and String prototype poisoning cannot alter route hash or admi
   }
 });
 
+test('route hashing ignores poisoned typed-array iterator and numeric constructors', () => {
+  const p = policy();
+  const referenceHash = actorRouteHash64('beta');
+  const referenceTarget = p.forwardByKey('producer-1', 'beta').target;
+  assert.equal(referenceTarget, 'worker-c');
+  const iterator = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  const bigint = Object.getOwnPropertyDescriptor(globalThis, 'BigInt');
+  const number = Object.getOwnPropertyDescriptor(globalThis, 'Number');
+  let hash, target;
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () { yield 0; }
+    });
+    Object.defineProperty(globalThis, 'BigInt', {
+      configurable: true, writable: true, value() { return 0n; }
+    });
+    Object.defineProperty(globalThis, 'Number', {
+      configurable: true, writable: true, value() { return 0; }
+    });
+    hash = actorRouteHash64('beta');
+    target = p.forwardByKey('producer-1', 'beta').target;
+  } finally {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    Object.defineProperty(globalThis, 'BigInt', bigint);
+    Object.defineProperty(globalThis, 'Number', number);
+  }
+  assert.equal(hash, referenceHash);
+  assert.equal(target, referenceTarget);
+});
+
+test('duplicate edges cannot evade admission through poisoned JSON.stringify', () => {
+  const stringify = Object.getOwnPropertyDescriptor(JSON, 'stringify');
+  let admitted = false, rejected = false, counter = 0;
+  try {
+    Object.defineProperty(JSON, 'stringify', {
+      configurable: true, writable: true,
+      value() { return 'fresh-edge-' + (++counter); }
+    });
+    try {
+      new ActorPipelinePolicy(stages, [edges[0], edges[0], ...edges.slice(1)]);
+      admitted = true;
+    } catch (error) {
+      rejected = error instanceof TypeError &&
+        /duplicate pipeline edge/.test(String(error));
+    }
+  } finally {
+    Object.defineProperty(JSON, 'stringify', stringify);
+  }
+  assert.equal(admitted, false, 'duplicate edge must never reach the route table');
+  assert.equal(rejected, true, 'reject duplicate edge with explicit diagnostic');
+});
+
+test('mutable Array and Map iterators cannot remove graph stages or edges', () => {
+  const arrayIterator = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  const mapIterator = Object.getOwnPropertyDescriptor(Map.prototype, Symbol.iterator);
+  let target, count, cyclicDenied = false;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () {}
+    });
+    Object.defineProperty(Map.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () {}
+    });
+    const p = policy();
+    target = p.forwardTo('producer-1', 'worker-b').target;
+    count = p.forwardAll('producer-1').length;
+    try {
+      new ActorPipelinePolicy(stages, [edges[0], edges[0], ...edges.slice(1)]);
+    } catch (error) {
+      cyclicDenied = error instanceof TypeError;
+    }
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, arrayIterator);
+    Object.defineProperty(Map.prototype, Symbol.iterator, mapIterator);
+  }
+  assert.equal(target, 'worker-b');
+  assert.equal(count, 3);
+  assert.equal(cyclicDenied, true);
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
