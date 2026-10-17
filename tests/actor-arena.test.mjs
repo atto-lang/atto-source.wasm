@@ -214,3 +214,35 @@ test("arena ownership survives poisoned Uint8Array methods", () => {
     Object.defineProperty(WebAssembly.Memory.prototype, "buffer", savedMemoryBuffer);
   }
 });
+
+test("read never gives Symbol.species a private actor backing buffer", () => {
+  const arena = new ActorArena({actorId: 36, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.of(1, 2, 3, 4));
+  const original = Object.getOwnPropertyDescriptor(Uint8Array.prototype, "constructor");
+  let leakedBuffer = null;
+  try {
+    // Built-in TypedArray.subarray passes its source buffer to the species
+    // constructor. The current actor read path must not invoke it at all.
+    Object.defineProperty(Uint8Array.prototype, "constructor", {
+      configurable: true, writable: true,
+      value: {
+        [Symbol.species](buffer, offset, length) {
+          leakedBuffer = buffer;
+          return new Uint8Array(buffer, offset, length);
+        }
+      }
+    });
+    const copy = arena.read(turn, handle);
+    assert.deepEqual([...copy], [1, 2, 3, 4]);
+    assert.equal(leakedBuffer, null, "the private WebAssembly.Memory buffer must never escape");
+    copy[0] = 99;
+    assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  } finally {
+    if (original) Object.defineProperty(Uint8Array.prototype, "constructor", original);
+    else delete Uint8Array.prototype.constructor;
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
