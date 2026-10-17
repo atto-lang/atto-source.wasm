@@ -116,13 +116,13 @@ regressions are not native Oreslang compiler or runtime conformance tests.
 Example invocation now includes:
 
 ```bash
-python3 scripts/verify_ci_run.py --backend java \\
-  --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \\
-  --run-id "$GITHUB_RUN_ID" \\
-  --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \\
-  --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \\
+python3 scripts/verify_ci_run.py --backend java \
+  --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \
+  --run-id "$GITHUB_RUN_ID" \
+  --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \
+  --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
   --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
-  --require-job "exact-run-evidence-contract" \\
+  --require-job "exact-run-evidence-contract" \
   --require-step "Run all five-backend source-free security regressions"
 ```
 
