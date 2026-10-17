@@ -1,5 +1,13 @@
 // Host-only checked route selector; does not expose guest imports or actor execution.
 const encoder = new TextEncoder();
+// Capture graph-authority operations at module import. Guest libraries may
+// subsequently replace these prototype methods; selector authority must
+// never follow those replacements.
+const safeMapGet = Map.prototype.get;
+const safeMapSet = Map.prototype.set;
+const safeMapKeys = Map.prototype.keys;
+const safeArrayFind = Array.prototype.find;
+const safeFreeze = Object.freeze;
 function utf8(value, limit, optional = false, allowNul = false) {
   if (typeof value !== "string" || (!optional && !value) || (!allowNul && value.includes("\0")))
     throw new TypeError("invalid pipeline identifier");
@@ -81,13 +89,13 @@ export class ActorPipelinePolicy {
       }
     }
     if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
-    this.#routes = new Map([...routes].map(([id, list])=>[id, Object.freeze(list)]));
+    this.#routes = new Map([...routes].map(([id, list])=>[id, safeFreeze(list)]));
     // Pre-seed all RR cursors at trusted graph construction, never on a turn.
-    for (const source of this.#routes.keys()) this.#cursor.set(source, 0);
+    for (const source of safeMapKeys.call(this.#routes)) safeMapSet.call(this.#cursor, source, 0);
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
-    const routes = this.#routes.get(source);
+    const routes = safeMapGet.call(this.#routes, source);
     if (!routes?.length) throw new TypeError("source has no downstream");
     return routes;
   }
@@ -98,12 +106,12 @@ export class ActorPipelinePolicy {
   }
   forwardAll(source) { return this.#connected(source); }
   forwardRoundRobin(source) {
-    const routes = this.#connected(source), cursor = this.#cursor.get(source);
-    this.#cursor.set(source, (cursor + 1) % routes.length);
+    const routes = this.#connected(source), cursor = safeMapGet.call(this.#cursor, source);
+    safeMapSet.call(this.#cursor, source, (cursor + 1) % routes.length);
     return routes[cursor];
   }
   forwardTo(source, target) {
-    const route = this.#connected(source).find(e => e.target === target);
+    const route = safeArrayFind.call(this.#connected(source), e => e.target === target);
     if (!route) throw new TypeError("target is not connected");
     return route;
   }
