@@ -103,7 +103,16 @@ test("shared worker backing is rejected before it can tear an actor write", () =
     Object.defineProperty(foreignShared, Symbol.toStringTag, {value: "ArrayBuffer"});
     assert.throws(() => arena.write(turn, handle, localView), /shared backing/,
       "overridden toStringTag must not bypass intrinsic shared-memory detection");
+    const disguised = new Uint8Array(new SharedArrayBuffer(4));
+    Object.defineProperty(disguised, "buffer", {value: new ArrayBuffer(4)});
+    assert.throws(() => arena.write(turn, handle, disguised), /shared backing/,
+      "shadowing .buffer must not hide a real shared backing store");
   }
+  const short = Uint8Array.from([9, 8]);
+  Object.defineProperty(short, "byteLength", {value: 4});
+  assert.throws(() => arena.write(turn, handle, short), /exact-size/,
+    "shadowing .byteLength must not permit a partial actor-memory write");
+  assert.deepEqual([...arena.read(turn, handle)], [0, 0, 0, 0]);
   arena.write(turn, handle, Uint8Array.from([1, 2, 3, 4]));
   assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
   arena.endTurn(turn);
