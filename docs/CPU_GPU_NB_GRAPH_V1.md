@@ -290,3 +290,41 @@ commits. The private-source export allowlist on Java `main` remains
 empty, `main` is reported unprotected, and the open P0 public-carrier
 exposure incident must be contained. **Do not transfer more private
 source to another organization solely to obtain Actions minutes.**
+
+## Integrated-main and delegated-compiler parity gate (2026-10-16)
+
+All five draft graph branches were checked against their latest available
+`main`; Java, LLVM, .NET and Forge explicitly reconciled intervening
+mainline commits, and Wasm required no mainline merge. The reconciliation
+preserves Java actor runtime/AsyncNativeIo/performance files, LLVM
+logging/CTest, Forge mailbox lifecycle/CTest, and .NET mailbox admission,
+source lexer and test-runner behavior. **Git ancestry and blob preservation
+are static merge evidence, not a successful compiler or runtime build.**
+
+The Wasm delegated native frontend test requires
+`ORESLANG_LLVM_COMPILER` to be an absolute path to a regular executable
+file and `ORESLANG_LLVM_COMPILER_SHA256` to match its bytes. Compiler
+identity must be verified independently by the build/release owner; a
+self-supplied digest alone is not trusted provenance. No compiler means
+the test is **SKIPPED**, never passing real Wasm source conformance.
+Actual `cpu` / `gpu` source lowering and GPU hardware execution remain
+unimplemented.
+
+**Validation separation:**
+- Each native graph plan must reject forged dependencies, invalid opcodes,
+  incorrect host/device types and implicit GPU fallback before scheduling.
+- Java/​LLVM/​Forge/​.NET host-graph Future tests must cover
+  executor rejection after enqueue and duplicate delivery; Java also
+  refuses synchronous graph execution on an actor carrier.
+- For source-level capability, run a real compiler and positive scalar
+  source fixture plus registered negative `.ores` cases with no output
+  artifact. A host-only graph test does not satisfy a source compiler gate.
+- Accept a GitHub Actions report only with exact candidate commit/tree,
+  executed nonempty test steps, job-to-step binding, and correct run attempt.
+  The shared evidence verifier is tracked separately in Java #1112,
+  LLVM #495, .NET #56, Forge #50, Wasm #52; do not silently treat a
+  source-free/mock verifier test as compilation proof.
+- No private-source mirror is authorized solely by available Actions
+  minutes. Require the protected-origin policy and reviewed destination
+  allowlist before any cross-org transfer; current source-org zero-step
+  failures do not prove passing or failing code tests.
