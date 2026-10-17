@@ -358,3 +358,19 @@ sanitizer or five-backend semantic parity. Do not promote the PR without
 GitHub job/step execution and independent exact-SHA artifact verification.
 Private-source cross-organization export remains prohibited until a merged
 protected-branch policy and independent security approvals explicitly permit it.
+
+## Current five-backend CI evidence gate — 17 October 2026
+
+**Integration-branch minimum: 87 distinct source-free regression cases per
+round, three rounds, no skips.** This supersedes earlier 73/77/83/86-case
+historical descriptions in this document for these specific integration PRs.
+All five backends now use matching exact Git blobs for the verifier, tests and
+source-local workflow. The verifier rejects ambiguous and nonfinite API JSON,
+wrong source/run/workflow identity, blank or disguised runner-housekeeping
+steps, and unexpected redirects carrying API bearer credentials. The workflow
+keeps checkout credentials unpersisted and writes a metadata-only,
+non-certifying evidence report. Repository native Actions at the audited heads
+failed with no observed execution steps or uploaded artifacts, so no Python
+suite or compiler/guest run is certified. Private-source cross-organization
+transfer remains prohibited pending protected-branch independent approval and
+containment of security incident #22.
