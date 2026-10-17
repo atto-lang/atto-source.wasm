@@ -295,3 +295,28 @@ are allowed because GitHub returns second-resolution timestamps. The two
 additional source-free regressions reject overlapping intervals and accept
 adjacent intervals. This is an API evidence consistency check, not an
 independent proof of the commands' effects or any guest runtime semantics.
+
+## Explicit workflow-run SHA versus actual checkout SHA (2026-10-16)
+
+The source-free Actions job deliberately checks out `github.event.pull_request.head.sha`
+and compares it to `git rev-parse HEAD`. For a `pull_request` event,
+`github.sha` may instead be the GitHub-generated **merge commit**. A
+successful run's API `head_sha` therefore must **not** be silently treated
+as the checked-out PR source SHA. These two values are different proof scopes.
+
+The minimal JSON evidence now records `workflow_trigger_sha` from
+`github.sha`, `workflow_trigger_event` from `github.event_name`, and
+`trigger_sha_matches_reported_checkout` (which can only be true after a
+successful checkout identity step). These are **diagnostic fields** from the
+candidate workflow, not a cryptographic GitHub attestation; the report still
+sets `verified_execution_claim: false` and explicitly excludes native
+compiler/guest parity. Independently inspect run/head/job metadata, the source
+commit and Git tree, and executed steps before any promotion.
+
+Two source-free regressions assert the workflow's SHA fields and execute its
+actual isolated Python report writer for three synthetic conditions: a
+different PR-trigger/checkout SHA, a matching SHA, and a failed source-identity
+check despite matching bytes. Any removed assertion or accidental true result
+must fail tests. The checked-in regression inventory is at least **75** tests
+per iteration (three iterations). It does not grant private-source transfer
+permission or prove real Actions capacity.
