@@ -9,3 +9,7 @@ The Wasm backend compiles Oreslang through an explicitly supplied native `oresla
 `tests/refinement-admission-delegated.py` performs that gate against a caller-supplied pinned compiler. It is intentionally not part of ordinary Node tests because a synthetic or absent compiler cannot establish semantic admission.
 
 Even after LLVM parsing exists, Wasm still needs its own runtime-boundary evidence for generated validators, serialization, actor DATA, imported artifacts, Unicode code-point length, and any Zorde descriptor consumed in a Wasm host.
+
+## Inclusive comparison spelling
+
+Canonical textual inclusive bounds are `gte` and `lte`; symbolic `>=` and `<=` are equivalent source spellings. Legacy `ge` and `le` are deliberately invalid and must never be accepted as aliases. Until this backend implements checked refinement lowering, both canonical/symbolic valid refinements and legacy-invalid refinements remain fail-closed admission cases rather than erased base types.
