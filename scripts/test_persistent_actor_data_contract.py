@@ -3,6 +3,7 @@
 import copy
 import json
 import os
+import stat
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -110,8 +111,11 @@ class PersistentActorPolicyTest(unittest.TestCase):
         self.assertEqual(read_bounded_contract(DATA)["version"], 1)
 
     def test_reject_symlinked_contract_fixture(self):
-        # No OS-specific symlink creation privileges needed on Windows.
-        with patch.object(Path, "is_symlink", return_value=True):
+        # Exercise the actual lstat-based admission path, not a stale
+        # Path.is_symlink() preflight that the secure reader no longer calls.
+        native = DATA.lstat()
+        symlink = os.stat_result((stat.S_IFLNK | 0o777,) + tuple(native)[1:])
+        with patch.object(Path, "lstat", return_value=symlink):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
 
