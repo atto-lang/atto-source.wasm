@@ -319,20 +319,27 @@ export class ActorArena {
     this.#requireTurn(turn);
     const entry = weakMapGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
-    weakMapDelete.call(this.#handles, handle);
-    --this.#persistentCount;
-    arrayPush.call(this.#freePersistent, {...entry});
-    arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
-    const coalesced = [];
-    // Do not use Array iteration protocols here: Array.prototype[Symbol.iterator]
-    // is mutable userland code and must never observe private free-list metadata.
+    // Build and coalesce replacement free-list metadata BEFORE consuming the
+    // live handle. An allocation/sort failure must not retire a slot while
+    // leaving its capacity permanently missing from the free list.
+    const prepared = [];
     for (let i = 0; i < this.#freePersistent.length; ++i) {
       const segment = this.#freePersistent[i];
+      arrayPush.call(prepared, {offset: segment.offset, length: segment.length});
+    }
+    arrayPush.call(prepared, {offset: entry.offset, length: entry.length});
+    arraySort.call(prepared, (a, b) => a.offset - b.offset);
+    const coalesced = [];
+    // Use intrinsic array operations and never leak authority via iterators.
+    for (let i = 0; i < prepared.length; ++i) {
+      const segment = prepared[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
     }
+    typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
+    weakMapDelete.call(this.#handles, handle);
+    --this.#persistentCount;
     this.#freePersistent = coalesced;
   }
 
