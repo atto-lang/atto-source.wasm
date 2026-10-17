@@ -37,8 +37,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -I scripts/verify_actor_arena_lifecycle_contract.py
-          python3 -I scripts/test_actor_arena_lifecycle_contract.py
+          python3 -I -m py_compile scripts/verify_actor_arena_lifecycle_contract.py scripts/test_actor_arena_lifecycle_contract.py
+          python3 -I - <<'PY'
+          import importlib.util
+          import sys
+          import unittest
+          from pathlib import Path
+
+          vpath = Path("scripts/verify_actor_arena_lifecycle_contract.py")
+          vspec = importlib.util.spec_from_file_location("verify_actor_arena_lifecycle_contract", vpath)
+          if vspec is None or vspec.loader is None:
+              raise SystemExit("missing lifecycle verifier")
+          verifier = importlib.util.module_from_spec(vspec)
+          sys.modules[vspec.name] = verifier
+          vspec.loader.exec_module(verifier)
+
+          verifier.validate_raw(Path("contracts/v1/actor_arena_lifecycle_v1.json").read_bytes())
+
+          tpath = Path("scripts/test_actor_arena_lifecycle_contract.py")
+          tspec = importlib.util.spec_from_file_location("actor_arena_lifecycle_tests", tpath)
+          if tspec is None or tspec.loader is None:
+              raise SystemExit("missing lifecycle tests")
+          tests = importlib.util.module_from_spec(tspec)
+          tspec.loader.exec_module(tests)
+
+          suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.ActorArenaLifecyclePolicyTest)
+          if suite.countTestCases() != 27:
+              raise SystemExit("lifecycle test count differs from exactly 27")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if (result.testsRun != 27 or not result.wasSuccessful() or result.skipped
+                  or result.expectedFailures or result.unexpectedSuccesses):
+              raise SystemExit("lifecycle policy tests failed or incomplete")
+          PY
       - name: Emit non-certifying exact-head receipt
         shell: bash
         run: |
