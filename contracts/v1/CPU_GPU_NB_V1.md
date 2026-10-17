@@ -40,12 +40,12 @@ Unary GPU work, explicitly yielding a device-resident result:
 
 ~~~ores
 pub suspends routine transform(input: HostBuffer<f32>): HostBuffer<f32> {
-    const device = await Gpu.upload(rt take input);
+    const device = await Gpu.upload(input);
     const submitted = nb gpu {
-        transform_kernel(rt take device)  // typed GpuBuffer<f32> tail value
+        transform_kernel(device)  // typed GpuBuffer<f32> tail value
     };                                   // Future<GpuBuffer<f32>>
     const output = await submitted;       // GpuBuffer<f32>
-    return await Gpu.download(rt take output);
+    return await Gpu.download(output);
 }
 ~~~
 
@@ -54,12 +54,12 @@ Nested placement, explicitly staging the host/device transition:
 ~~~ores
 pub suspends routine nested(input: GpuBuffer<f32>): GpuBuffer<f32> {
     return gpu {
-        const stage1 = kernel_a(rt take input);      // GpuBuffer<f32>
+        const stage1 = kernel_a(input);      // GpuBuffer<f32>
         const host = cpu {
-            await Gpu.download(rt take stage1);     // HostBuffer<f32>
+            await Gpu.download(stage1);     // HostBuffer<f32>
         };
-        const stage2 = await Gpu.upload(rt take host);
-        kernel_b(rt take stage2)                    // typed tail expression
+        const stage2 = await Gpu.upload(host);
+        kernel_b(stage2)                    // typed tail expression
     };
 }
 ~~~
@@ -75,6 +75,12 @@ gpu { kernel_write(output); }              // void GPU effect, valid after lower
 const done2 = nb gpu { kernel_write(output); }; // Future<void>
 const invalid = gpu {};                    // reject: empty device region, no typed value
 ~~~
+
+## Owned-by-value parameters: implicit move (no redundant rt take)
+
+For an owned/move-only value, **passing it by value to a consuming parameter already transfers ownership** in the current Java Oreslang semantics. Therefore the canonical GPU pipeline examples use `Gpu.upload(input)`, `transform_kernel(device)`, and `Gpu.download(result)` without `rt take`. These operations are specified to consume their buffer argument; using the moved source afterward must fail type checking. See Java `FunctionArityOwnershipTest` and `MovedLetReinitializationTest`.
+
+This is **not** a blanket rule that every call consumes every argument. A declared borrowing parameter uses a loan and keeps the owner usable after the loan ends; copy/share have separate effects and safety requirements. Explicit `rt take` remains useful for intentionally selecting a destructive move in an ambiguous context, not as mandatory boilerplate on consuming calls. The future GPU API must encode parameter modes in its typed signature and enforce ownership across each launch, transfer, cancellation and actor boundary.
 
 ## Streaming is orthogonal
 
