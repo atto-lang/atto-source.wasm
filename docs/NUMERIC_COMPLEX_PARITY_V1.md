@@ -25,7 +25,7 @@ This contract is an implementation target, not a declaration of runtime feature 
 ## Reference corpus and limitations
 
 `contracts/v1/numeric-complex/complex128-finite-reference-v1.json`
-holds thirteen cases for add/subtract/multiply/divide/conjugate and one
+holds sixteen cases for add/subtract/multiply/divide/conjugate and one
 complex row-major matrix multiplication. Operands are short decimal text
 first parsed as **IEEE binary64**. The source-free Python oracle then
 uses **exact rational arithmetic on those decoded binary64 values** and
@@ -79,7 +79,7 @@ explicitly says native/guest parity is **false**.
    only between two digits for INT/FLOAT/IMAG. Reject lossy implicit exact
    Decimal or BigInt conversions. Do not assume the proposed `Complex<T>`
    generic is available from the lowercase `complex` type.
-2. **Arithmetic:** execute all thirteen scalar vectors through the actual
+2. **Arithmetic:** execute all sixteen scalar vectors through the actual
    compiler/guest runtime, including wide-exponent divisions,
    subnormal imaginary components, signed cross terms and conjugation.
    For finite complex128 multiplication and division, the v1 target is the
@@ -205,7 +205,7 @@ execution.
 
 ## Frozen finite-reference input and issue identity admission
 
-The finite-complex128 oracle now pins all **13** scalar vector identities
+The finite-complex128 oracle now pins all **16** scalar vector identities
 to their exact operation and binary64 input decimal strings, and pins
 the `1×2 @ 2×1` complex matrix input planes. It also checks exact
 source-issue anchors for Java #120, #1033, and division issue #1042.
