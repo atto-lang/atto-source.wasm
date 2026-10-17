@@ -2,7 +2,7 @@
   "schema": 1,
   "checks": [
     {
-      "context": "aot",
+      "context": "private-ci-policy",
       "appId": 15368
     }
   ]
