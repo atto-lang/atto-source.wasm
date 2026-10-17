@@ -26,6 +26,57 @@ def run_raw(verifier: pathlib.Path, contents: str):
                               stderr=subprocess.PIPE, timeout=10)
 
 
+def guard_file_shapes(verifier: pathlib.Path, original: dict):
+    """Only a bounded, unique regular routing contract can be executed."""
+    import os
+    with tempfile.TemporaryDirectory(prefix="ores-v1-file-") as work:
+        root = pathlib.Path(work)
+        valid = root / "valid.json"
+        valid.write_text(json.dumps(original, ensure_ascii=True), encoding="utf-8")
+        if subprocess.run([sys.executable, str(verifier), str(valid)],
+                          capture_output=True, timeout=4).returncode != 0:
+            raise AssertionError("ordinary valid JSON file unexpectedly rejected")
+        oversized = root / "oversized.json"
+        with oversized.open("wb") as out:
+            out.truncate(256 * 1024 + 1)
+        checks = [("oversized regular file", oversized)]
+        alias = root / "linked.json"
+        try:
+            os.link(valid, alias)
+        except OSError:
+            pass
+        else:
+            checks.append(("hardlink to valid fixture", alias))
+            checks.append(("valid file with extra hardlink", valid))
+        symbolic = root / "symlink.json"
+        try:
+            symbolic.symlink_to(valid)
+        except (OSError, NotImplementedError):
+            pass
+        else:
+            checks.append(("symlink to valid fixture", symbolic))
+        if hasattr(os, "mkfifo"):
+            fifo = root / "pipe.json"
+            try:
+                os.mkfifo(fifo)
+            except OSError:
+                pass
+            else:
+                checks.append(("named pipe must not block", fifo))
+        for name, path in checks:
+            with subprocess.Popen([sys.executable, str(verifier), str(path)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) as proc:
+                try:
+                    proc.communicate(timeout=4)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.communicate()
+                    raise AssertionError(name + " blocked instead of rejecting")
+                if proc.returncode == 0:
+                    raise AssertionError("unsafe actor contract file ACCEPTED: " + name)
+    return len(checks)
+
+
 def main():
     root = pathlib.Path(__file__).resolve().parent
     verifier = root / "verify_actor_pipeline_v1.py"
@@ -96,7 +147,8 @@ def main():
     if failures:
         print("Unsafe fixtures ACCEPTED:", failures, file=sys.stderr)
         raise SystemExit(1)
-    print(f"ORES_ACTOR_PIPELINE_CONTRACT_MUTATION_PASS rejected={len(samples) + len(malformed_json)}")
+    file_guards = guard_file_shapes(verifier, original)
+    print(f"ORES_ACTOR_PIPELINE_CONTRACT_MUTATION_PASS rejected={len(samples) + len(malformed_json)} file_guards={file_guards}")
 
 
 if __name__ == "__main__":
