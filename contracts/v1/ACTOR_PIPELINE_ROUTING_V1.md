@@ -16,8 +16,18 @@ ownership, message admission and single-flight execution in that backend.
   missing port. Edges must match the exact nominal output/input payload type.
 - `readable`: outgoing only, no inbound; `writable`: incoming only,
   no outbound; `transform` and `duplex`: both typed ports.
+- A `transform` must have at least one **actual connected inbound edge** and
+  at least one **actual connected outbound edge**. Merely declaring a typed
+  output port does not make a terminal transform a valid pipeline sink.
 - Reject duplicate, self, unknown, mismatched, cyclic, isolated and
   wrongly directed edges. Graphs must have an authorized ingress root.
+- Actor instance identities are compared as **exact UTF-8 sequences**, not
+  Unicode-normalized or case-folded strings. For example, composed `é` and
+  decomposed `e + U+0301` remain distinct instances. The supervisor must
+  avoid visually ambiguous names in administrative interfaces.
+- An edge's identity is the **structural tuple** `(source instance ID,
+  target instance ID)`, never string concatenation using user-controlled
+  delimiters. `(a:b, c)` and `(a, b:c)` are separate valid connections.
 - Connection order is the supervisor-published edge order, never hash map
   iteration order or task scheduling order. On topology generation change,
   rebuild selectors only after quiescence or an explicit abort barrier.
@@ -40,6 +50,20 @@ Reject malformed Unicode; do not replace invalid code points or treat the
 first NUL as string termination. The canonical `"\\u0000"` vector
 hashes to `af63bd4c8601b7df`, which selects `worker-a` in the
 three-consumer fixture.
+
+**Direct reply rule (v1):** `self.reply(value)` is a single new
+reverse-DATA admission **directly to the authenticated ingress actor**, not an
+implicit chain of intermediate actor handler invocations. The immutable
+forward actor path remains sealed in VM metadata for audit and fan-in
+correlation; its origin is the only authorized target. The current forward
+frame is consumed exactly once. The reply receives a new branch-unique route
+ID while preserving the flow ID and graph generation. The ingress actor
+cannot reply to itself, and a returning frame cannot be forwarded or
+re-replied. `self.backward(value)` remains one immediate upstream hop along
+that same immutable path; the two methods have deliberately different
+execution semantics. Failed actual mailbox admission retires only the
+undelivered new reply frame: earlier admitted sibling branches remain live.
+This contract is not a guest API availability claim.
 
 `forward_all` is **not transactional**. A successful receipt is only
 mailbox admission, not processing or exactly-once delivery. Partial success
