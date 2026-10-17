@@ -81,6 +81,55 @@ class PrivateAbstractActorHookContractTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("INVALID", result.stderr)
 
+    def test_source_body_tampering_is_rejected(self):
+        self.fail_mutation(lambda d: d["vectors"][1].update(source=d["vectors"][0]["source"]))
+
+    def test_nonempty_diagnostic_rewrite_is_rejected(self):
+        self.fail_mutation(lambda d: d["vectors"][3].update(diagnostic="silently accepted"))
+
+    def test_backend_candidate_reference_tampering_is_rejected(self):
+        self.fail_mutation(lambda d: d["backend_capabilities"]["llvm"].update(candidate="unreviewed"))
+
+    def test_extra_backend_claim_is_rejected(self):
+        self.fail_mutation(lambda d: d["backend_capabilities"]["forge"].update(compiled=True))
+
+    def test_top_level_forged_compiler_evidence_is_rejected(self):
+        self.fail_mutation(lambda d: d.update(compiler_executed=True))
+
+    def test_vector_forged_runtime_evidence_is_rejected(self):
+        self.fail_mutation(lambda d: d["vectors"][0].update(runtime_verified=True))
+
+    def test_unhashable_rule_raises_contract_error(self):
+        self.fail_mutation(lambda d: d["rules"].__setitem__(0, ["unhashable"]))
+
+    def test_unhashable_vector_id_raises_contract_error(self):
+        self.fail_mutation(lambda d: d["vectors"][0].update(id=["unhashable"]))
+
+    def test_duplicate_top_level_json_member_is_rejected(self):
+        raw = MANIFEST_PATH.read_bytes().replace(b'"contract":', b'"contract": "forged", "contract":', 1)
+        with self.assertRaises(verifier.ContractError):
+            verifier.validate_raw(raw)
+
+    def test_duplicate_nested_json_member_is_rejected(self):
+        raw = MANIFEST_PATH.read_bytes().replace(b'"candidate":', b'"candidate": "forged", "candidate":', 1)
+        with self.assertRaises(verifier.ContractError):
+            verifier.validate_raw(raw)
+
+    def test_malformed_bom_nonfinite_and_oversized_json_is_rejected(self):
+        raw = MANIFEST_PATH.read_bytes()
+        for payload in (b"\xef\xbb\xbf" + raw, b"\xff" + raw,
+                        raw.replace(b'"status": "normative_expected_not_compiler_evidence"', b'"status": NaN', 1),
+                        b" " * (128 * 1024 + 1)):
+            with self.subTest(size=len(payload)):
+                with self.assertRaises(verifier.ContractError):
+                    verifier.validate_raw(payload)
+
+    def test_strict_raw_manifest_returns_no_compiler_proof(self):
+        result = verifier.validate_raw(MANIFEST_PATH.read_bytes())
+        self.assertTrue(result["contract_valid"])
+        self.assertFalse(result["compiler_executed"])
+        self.assertFalse(result["parity_proven"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.2.2
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Attest exact checked-out commit and Git tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          printf 'Actor-hook contract checkout %s\n' "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
       - name: Run adversarial manifest verification tests
         run: python3 -m unittest discover -s contracts/v1 -p 'test_private_abstract_actor_hook_v1.py' -v
       - name: Verify each backend has a fail-closed declared contract
