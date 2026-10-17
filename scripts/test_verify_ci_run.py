@@ -675,6 +675,27 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
 
+    def test_overlapping_step_timestamps_cannot_prove_execution(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        for index, bad_start in ((1, "2026-10-16T10:00:30Z"),
+                                 (2, "2026-10-16T10:01:30Z")):
+            with self.subTest(step=index):
+                original = steps[index]["started_at"]
+                steps[index]["started_at"] = bad_start
+                try:
+                    with self.assertRaisesRegex(module.Denied, "overlap|execution order"):
+                        self.validate()
+                finally:
+                    steps[index]["started_at"] = original
+
+    def test_adjacent_equal_step_timestamps_allowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        steps[1]["started_at"] = steps[0]["completed_at"]
+        steps[2]["started_at"] = steps[1]["completed_at"]
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
     def test_negative_or_uppercase_sha(self):
         for sha in ("A"*40,"zz"*20,"a"*39):
             with self.subTest(sha=sha):
