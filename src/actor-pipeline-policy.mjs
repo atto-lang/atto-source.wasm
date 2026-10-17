@@ -70,7 +70,7 @@ export class ActorPipelinePolicy {
         throw new TypeError("unknown or mistyped pipeline edge");
       // NUL is forbidden in both stage IDs; this pair key is unambiguous
       // without calling mutable global JSON.stringify.
-      const pair = source + "\\0" + target;
+      const pair = source + "\0" + target;
       if (nativeSetHas.call(seen, pair)) throw new TypeError("duplicate pipeline edge");
       nativeSetAdd.call(seen, pair);
       if (!nativeMapHas.call(routes, source)) nativeMapSet.call(routes, source, []);
