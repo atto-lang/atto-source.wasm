@@ -501,6 +501,41 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 });
 
 
+test("runtime pool remains usable when Array push/pop are poisoned before module load", async () => {
+  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+  let ImportedArena, ImportedStats, failure = null;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value() { throw new Error("preload poisoned Array.push reached runtime pool"); }
+    });
+    Object.defineProperty(Array.prototype, "pop", {
+      configurable: true, writable: true,
+      value() { throw new Error("preload poisoned Array.pop reached runtime pool"); }
+    });
+    const mod = await import("../src/actor-arena.mjs?preload-array-poison=" + Date.now());
+    ImportedArena = mod.ActorArena;
+    ImportedStats = mod.actorArenaPoolStats;
+    const before = ImportedStats();
+    const first = new ImportedArena({actorId: 75, incarnation: 1});
+    first.retire();
+    const returned = ImportedStats();
+    const second = new ImportedArena({actorId: 76, incarnation: 1});
+    const reused = ImportedStats();
+    second.retire();
+    assert.equal(returned.freeArenas, before.freeArenas + 1);
+    assert.equal(reused.committedPages, returned.committedPages);
+    assert.equal(reused.freeArenas, returned.freeArenas - 1);
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Array.prototype, "push", push);
+    Object.defineProperty(Array.prototype, "pop", pop);
+  }
+  assert.equal(failure, null, failure?.stack ?? String(failure));
+});
+
 test("runtime arena pool reuse never depends on growable Array push/pop", () => {
   const first = new ActorArena({actorId: 73, incarnation: 1});
   const t1 = first.beginTurn();
