@@ -1,0 +1,6 @@
+# Private CI export authorization policy.
+# Keep these as the final non-comment CODEOWNERS rules.
+/.github/CODEOWNERS @ORESoftware
+/.github/private-ci-approved-repositories.txt @ORESoftware
+/.github/private-ci-approved-source-snapshots.txt @ORESoftware
+/.github/private-ci-required-checks.json @ORESoftware
