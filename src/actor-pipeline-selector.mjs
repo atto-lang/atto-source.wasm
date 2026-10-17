@@ -31,6 +31,18 @@ function ownData(object, name) {
     throw new TypeError("routing graph requires own data fields");
   return descriptor.value;
 }
+// Lifecycle barriers must be plain, own boolean DATA fields. Destructuring
+// user-supplied options executes accessors before the retirement check and
+// can reenter a trusted supervisor operation during argument evaluation.
+function ownOptionalBoolean(object, name) {
+  if (typeof object !== "object" || object === null)
+    throw new TypeError("invalid actor routing generation options");
+  const field = Object.getOwnPropertyDescriptor(object, name);
+  if (!field) return false;
+  if (!Object.hasOwn(field, "value") || typeof field.value !== "boolean")
+    throw new TypeError("generation barrier flags must be own booleans");
+  return field.value;
+}
 export function routeKeySlot(key, count) {
   if (!Number.isSafeInteger(count) || count < 1 || count > 4096)
     throw new RangeError("invalid downstream edge count");
@@ -170,8 +182,10 @@ export class ActorPipelineSelector {
     const edges = this.#connected(source);
     return edges[routeKeySlot(key, edges.length)];
   }
-  advanceGeneration(successor, {quiescent = false, aborted = false} = {}) {
+  advanceGeneration(successor, options = {}) {
     this.#ensureActive();
+    const quiescent = ownOptionalBoolean(options, "quiescent");
+    const aborted = ownOptionalBoolean(options, "aborted");
     if (!Number.isSafeInteger(successor) || successor <= this.#generation ||
         (!quiescent && !aborted))
       throw new TypeError("actor routing generation barrier required");
