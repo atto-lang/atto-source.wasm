@@ -36,6 +36,11 @@ const typedArraySet = typedArrayPrototype.set;
 const typedArrayFill = typedArrayPrototype.fill;
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+// instanceof Uint8Array trusts mutable Symbol.hasInstance. An attacker could
+// admit an Int16Array of matching byteLength, then TypedArray#set would
+// coerce/copy elements rather than exact bytes into actor-private storage.
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype, Symbol.toStringTag).get;
 const sharedByteLength = typeof SharedArrayBuffer === "function"
   ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
   : null;
@@ -187,7 +192,8 @@ export class ActorArena {
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    if (!(data instanceof NativeUint8Array) || typedArrayByteLength.call(data) !== length) {
+    if (typedArrayTag.call(data) !== "Uint8Array" ||
+        typedArrayByteLength.call(data) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
     // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
