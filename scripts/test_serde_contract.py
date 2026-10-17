@@ -54,6 +54,31 @@ class SerdePolicyRegression(unittest.TestCase):
             with self.subTest(token=token), self.assertRaises(policy.ContractError):
                 policy.decode_document(('{"number":' + token + '}').encode('utf-8'))
 
+
+    def test_reject_unlisted_actor_requirement(self):
+        self.mutate(lambda d: d['boundaries']['actor_data']['requirements'].append(
+            'userland_codec_can_mint_control'))
+
+    def test_reject_unlisted_network_requirement(self):
+        self.mutate(lambda d: d['boundaries']['network_data']['requirements'].append(
+            'skip_permission_checks'))
+
+    def test_reject_unlisted_wire_scalar(self):
+        self.mutate(lambda d: d['wire_profile']['portable_scalar_subset'].append(
+            'unchecked_pointer'))
+
+    def test_reject_unsupported_record_codec_promoted(self):
+        self.mutate(lambda d: d['wire_profile']['unsupported_without_verified_runtime_codec'].remove(
+            'record'))
+
+    def test_reject_unlisted_runtime_conformance_category(self):
+        self.mutate(lambda d: d['verification']['categories'].append(
+            'static_policy_proves_native_guest_runtime'))
+
+    def test_reject_unbounded_direct_json_decode(self):
+        with self.assertRaisesRegex(policy.ContractError, 'oversized'):
+            policy.decode_document(b' ' * (policy.MAX_CONTRACT_BYTES + 1))
+
     def test_reject_disabled_invariant(self):
         self.mutate(lambda d: d['invariants'].update(capabilities_cannot_be_nested_in_data=False))
 
@@ -216,7 +241,7 @@ class SerdePolicyRegression(unittest.TestCase):
 if __name__ == '__main__':
     # unittest discover exits 0 even if no tests are discovered. A security
     # gate cannot treat a renamed/deleted suite or skipped test as green.
-    expected = 36
+    expected = 42
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
     if suite.countTestCases() != expected:
         raise SystemExit(f'FAIL: expected {expected} serde regressions, '
