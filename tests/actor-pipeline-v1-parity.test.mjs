@@ -15,6 +15,84 @@ for (const {key, fnv1a64_hex, target} of fixture.operations.by_key) {
   });
 }
 
+test('host prototype poisoning cannot redirect frozen actor routes', () => {
+  const original = Object.getOwnPropertyDescriptor(Object, 'freeze');
+  try {
+    Object.defineProperty(Object, 'freeze', {
+      configurable: true, writable: true, value(value) { return value; }
+    });
+    const p = policy();
+    const published = p.forwardAll('producer-1');
+    assert.equal(Object.isFrozen(published), true);
+    assert.equal(Object.isFrozen(published[0]), true);
+    assert.throws(() => { published[0].target = 'unconnected-forged-worker'; }, TypeError);
+    assert.throws(() => { published.push({target:'forged'}); }, TypeError);
+    assert.deepEqual(p.forwardAll('producer-1').map(x => x.target),
+      fixture.operations.forward_all);
+    assert.equal(p.forwardRoundRobin('producer-1').target, 'worker-a');
+    assert.equal(p.forwardTo('producer-1', 'worker-b').target, 'worker-b');
+  } finally {
+    Object.defineProperty(Object, 'freeze', original);
+  }
+});
+
+test('Map prototype poisoning cannot spoof route membership or RR advancement', () => {
+  const p = policy();
+  const get = Object.getOwnPropertyDescriptor(Map.prototype, 'get');
+  const set = Object.getOwnPropertyDescriptor(Map.prototype, 'set');
+  try {
+    Object.defineProperty(Map.prototype, 'get', {
+      configurable: true, writable: true,
+      value(key) {
+        if (key === 'producer-1') return [{source:key,target:'forged',payload:'Event'}];
+        return get.value.call(this,key);
+      }
+    });
+    Object.defineProperty(Map.prototype, 'set', {
+      configurable: true, writable: true,
+      value(key, val) {
+        if (key === 'producer-1') return this; // forged refusal to advance RR
+        return set.value.call(this,key,val);
+      }
+    });
+    const targets = Array.from({length:6}, () =>
+      p.forwardRoundRobin('producer-1').target);
+    assert.deepEqual(targets, fixture.operations.forward_round_robin);
+    assert.equal(p.forwardTo('producer-1', 'worker-b').target, 'worker-b');
+    assert.throws(() => p.forwardTo('producer-1', 'forged'), /not connected/);
+  } finally {
+    Object.defineProperty(Map.prototype, 'get', get);
+    Object.defineProperty(Map.prototype, 'set', set);
+  }
+});
+
+test('TextEncoder and String prototype poisoning cannot alter route hash or admit NUL IDs', () => {
+  const value = actorRouteHash64('alpha');
+  const encode = Object.getOwnPropertyDescriptor(TextEncoder.prototype, 'encode');
+  const includes = Object.getOwnPropertyDescriptor(String.prototype, 'includes');
+  const charCodeAt = Object.getOwnPropertyDescriptor(String.prototype, 'charCodeAt');
+  try {
+    Object.defineProperty(TextEncoder.prototype, 'encode', {
+      configurable: true, writable: true, value() { return new Uint8Array([0]); }
+    });
+    Object.defineProperty(String.prototype, 'includes', {
+      configurable: true, writable: true, value() { return false; }
+    });
+    Object.defineProperty(String.prototype, 'charCodeAt', {
+      configurable: true, writable: true, value() { return 65; }
+    });
+    assert.equal(actorRouteHash64('alpha'), value);
+    assert.throws(() => actorRouteHash64('\ud800'), /Unicode/);
+    assert.throws(() => new ActorPipelinePolicy(
+      [{...stages[0], id:'producer\0forged'}, ...stages.slice(1)], edges),
+      /pipeline identifier/);
+  } finally {
+    Object.defineProperty(TextEncoder.prototype, 'encode', encode);
+    Object.defineProperty(String.prototype, 'includes', includes);
+    Object.defineProperty(String.prototype, 'charCodeAt', charCodeAt);
+  }
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
