@@ -327,6 +327,45 @@ test("shared worker backing is rejected before it can tear an actor write", () =
   arena.retire();
 });
 
+test("interleaved persistent allocations never overlap or revive stale handles", () => {
+  const arena = new ActorArena({actorId: 49, incarnation: 1});
+  const turn = arena.beginTurn();
+  let seed = 0x12345678;
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed;
+  };
+  const live = [], stale = [];
+  for (let i = 0; i < 5000; ++i) {
+    if (live.length >= 28 || (live.length > 0 && random() % 3 === 0)) {
+      const [item] = live.splice(random() % live.length, 1);
+      arena.dropPersistent(turn, item.handle);
+      stale.push(item.handle);
+    } else {
+      const length = 1 + random() % 64;
+      const handle = arena.allocPersistent(turn, length);
+      const data = new Uint8Array(length).fill(random() % 251);
+      assert.deepEqual([...arena.read(turn, handle)], Array(length).fill(0));
+      arena.write(turn, handle, data);
+      live.push({handle, data});
+    }
+    if (i % 64 === 0) {
+      for (const item of live) {
+        assert.deepEqual([...arena.read(turn, item.handle)], [...item.data]);
+      }
+      if (stale.length) {
+        assert.throws(() => arena.read(turn, stale[stale.length - 1]), /foreign or stale/);
+      }
+    }
+  }
+  for (const item of live) {
+    assert.deepEqual([...arena.read(turn, item.handle)], [...item.data]);
+    arena.dropPersistent(turn, item.handle);
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test('many allocation/drop cycles reuse space and reject stale handles', () => {
   const arena = new ActorArena({actorId: 32, incarnation: 1});
   const turn = arena.beginTurn();
