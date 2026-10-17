@@ -1,0 +1,61 @@
+{
+  "backend_support": {
+    "forge": {
+      "candidate_quiescence_implementation": true,
+      "candidate_stage": "candidate-native-raii-external-lease",
+      "exact_head_ci_certified": false,
+      "guest_lowering_certified": false,
+      "native_aot_certified": false,
+      "zero_host_gc_certified": false
+    },
+    "java": {
+      "candidate_quiescence_implementation": true,
+      "candidate_stage": "candidate-ffm-lifetime-pin",
+      "exact_head_ci_certified": false,
+      "guest_lowering_certified": false,
+      "native_aot_certified": false,
+      "zero_host_gc_certified": false
+    },
+    "llvm": {
+      "candidate_quiescence_implementation": true,
+      "candidate_stage": "candidate-native-generation-lease",
+      "exact_head_ci_certified": false,
+      "guest_lowering_certified": false,
+      "native_aot_certified": false,
+      "zero_host_gc_certified": false
+    },
+    "net": {
+      "candidate_quiescence_implementation": true,
+      "candidate_stage": "candidate-unmanaged-external-lease",
+      "exact_head_ci_certified": false,
+      "guest_lowering_certified": false,
+      "native_aot_certified": false,
+      "zero_host_gc_certified": false
+    },
+    "wasm": {
+      "candidate_quiescence_implementation": true,
+      "candidate_stage": "candidate-fixed-page-pool-external-lease",
+      "exact_head_ci_certified": false,
+      "guest_lowering_certified": false,
+      "native_aot_certified": false,
+      "zero_host_gc_certified": false
+    }
+  },
+  "contract": "oreslang-actor-arena-quiescence-v1",
+  "required_invariants": [
+    "logical-retirement-revokes-arena-authority-immediately",
+    "physical-reclaim-waits-for-active-turns",
+    "physical-reclaim-waits-for-live-borrows-if-supported",
+    "physical-reclaim-waits-for-external-lifetime-owners",
+    "external-lifetime-authority-grants-no-memory-access",
+    "external-release-may-run-off-carrier",
+    "external-release-is-idempotent-and-retry-safe",
+    "stale-external-authority-cannot-release-newer-owner",
+    "reclaim-failure-never-publishes-capacity-or-false-success",
+    "reused-capacity-is-zeroized-before-admission",
+    "ownership-and-quota-accounting-fails-closed",
+    "source-free-pass-does-not-promote-runtime-certification"
+  ],
+  "scope": "source-free cross-backend reclamation semantics; not guest lowering, native AOT, exact-head CI, or zero-GC certification",
+  "version": 1
+}
