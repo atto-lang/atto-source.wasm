@@ -30,6 +30,7 @@ const arraySplice = Array.prototype.splice;
 const arrayPush = Array.prototype.push;
 const arrayPop = Array.prototype.pop;
 const arraySort = Array.prototype.sort;
+const promiseThen = Promise.prototype.then;
 // The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
 // Capture its native internal-slot accessor before unrelated user code can
 // redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
@@ -251,6 +252,28 @@ export class ActorArena {
         live = false;
       }
     });
+  }
+
+  // Register a real Promise completion while the actor turn is admitted.
+  // The returned Promise preserves the source result/error, while the opaque
+  // lease is released exactly once by whichever carrier settles the Promise.
+  trackExternalCompletion(turn, pending) {
+    const lease = this.acquireExternalLease(turn);
+    try {
+      return promiseThen.call(
+        pending,
+        value => {
+          lease.close();
+          return value;
+        },
+        error => {
+          lease.close();
+          throw error;
+        });
+    } catch (error) {
+      lease.close();
+      throw error;
+    }
   }
 
   #releaseExternalLease() {
