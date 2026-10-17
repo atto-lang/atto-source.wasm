@@ -675,11 +675,57 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
 
+    def test_overlapping_step_timestamps_cannot_prove_execution(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        for index, bad_start in ((1, "2026-10-16T10:00:30Z"),
+                                 (2, "2026-10-16T10:01:30Z")):
+            with self.subTest(step=index):
+                original = steps[index]["started_at"]
+                steps[index]["started_at"] = bad_start
+                try:
+                    with self.assertRaisesRegex(module.Denied, "overlap|execution order"):
+                        self.validate()
+                finally:
+                    steps[index]["started_at"] = original
+
+    def test_adjacent_equal_step_timestamps_allowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        steps[1]["started_at"] = steps[0]["completed_at"]
+        steps[2]["started_at"] = steps[1]["completed_at"]
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
     def test_negative_or_uppercase_sha(self):
         for sha in ("A"*40,"zz"*20,"a"*39):
             with self.subTest(sha=sha):
                 with self.assertRaises(module.Denied):
                     self.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
+
+
+
+class WorkflowIsolationContract(unittest.TestCase):
+    """Prevent candidate import-path shadowing in CI report generation."""
+
+    @staticmethod
+    def workflow_text():
+        return (Path(__file__).resolve().parents[1]
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(encoding="utf-8")
+
+    def test_report_writer_uses_isolated_python(self):
+        workflow = self.workflow_text()
+        marker = "      - name: Write minimal run evidence (not compiled guest parity)"
+        writer = workflow.split(marker, 1)[1].split(
+            "      - name: Upload minimal source-free CI evidence", 1)[0]
+        self.assertIn("python3 -I - <<'PY'", writer)
+        self.assertNotIn("python3 - <<'PY'", writer)
+
+    def test_all_inline_python_heredocs_use_isolated_mode(self):
+        inline_python = [line.strip() for line in self.workflow_text().splitlines()
+                         if "python3" in line and "<<'PY'" in line]
+        self.assertEqual(len(inline_python), 2)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+
 
 
 if __name__ == "__main__":
