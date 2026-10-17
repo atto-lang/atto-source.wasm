@@ -12,6 +12,11 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // may later mutate prototype methods; never call a replaceable method on a
 // live view of actor-owned WebAssembly.Memory.
 const NativeUint8Array = Uint8Array;
+const NativeWasmMemory = WebAssembly.Memory;
+const NativeWeakMap = WeakMap;
+const nativeWeakGet = WeakMap.prototype.get;
+const nativeWeakSet = WeakMap.prototype.set;
+const nativeWeakDelete = WeakMap.prototype.delete;
 const nativeUint8Set = Uint8Array.prototype.set;
 const nativeUint8Fill = Uint8Array.prototype.fill;
 const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(
@@ -38,8 +43,8 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new NativeWeakMap();
+  #scratch = new NativeWeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -55,7 +60,7 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new NativeWasmMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
@@ -87,7 +92,7 @@ export class ActorArena {
     nativeUint8Fill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#turn = null;
   }
 
@@ -124,7 +129,7 @@ export class ActorArena {
     }
     const handle = Object.freeze({});
     const slot = {offset, length};
-    (scratch ? this.#scratch : this.#handles).set(handle, slot);
+    nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
     nativeUint8Fill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
@@ -134,10 +139,10 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle);
+    const entry = nativeWeakGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
     nativeUint8Fill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
-    this.#handles.delete(handle);
+    nativeWeakDelete.call(this.#handles, handle);
     --this.#persistentCount;
     this.#freePersistent.push({...entry});
     this.#freePersistent.sort((a, b) => a.offset - b.offset);
@@ -152,7 +157,8 @@ export class ActorArena {
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle) ?? this.#scratch.get(handle);
+    const entry = nativeWeakGet.call(this.#handles, handle) ??
+      nativeWeakGet.call(this.#scratch, handle);
     if (!entry) throw new Error("foreign or stale arena handle");
     return entry;
   }
@@ -188,8 +194,8 @@ export class ActorArena {
     nativeUint8Fill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new NativeWeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#freePersistent = [];
   }
