@@ -112,6 +112,38 @@
       ]
     },
     {
+      "id": "divide-compensated-balanced-one-ulp",
+      "op": "divide",
+      "a": [
+        "-1.9297622926115045e138",
+        "1.5512392579051227e150"
+      ],
+      "b": [
+        "-1.4976784258940757e292",
+        "-1.8366476025309775e288"
+      ],
+      "expected_bits": [
+        "a1a44d4536bbf436",
+        "a274356ca64e27d2"
+      ]
+    },
+    {
+      "id": "divide-subnormal-output-exact-rounding",
+      "op": "divide",
+      "a": [
+        "-4.273780448709542e-254",
+        "-2.0788903192019146e-253"
+      ],
+      "b": [
+        "-1.1323026279913343e49",
+        "-1.2990151610525855e55"
+      ],
+      "expected_bits": [
+        "000b82005cde5227",
+        "80025da2cf24c378"
+      ]
+    },
+    {
       "id": "divide-large-avoid-intermediate-overflow",
       "op": "divide",
       "a": [
