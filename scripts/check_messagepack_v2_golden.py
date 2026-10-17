@@ -37,6 +37,10 @@ def parse_shape(text):
                     require(i < len(text), "unterminated shape")
                     if text[i] == ",":
                         i += 1
+                        # Canonical Java/C++ descriptors never emit a trailing
+                        # comma, even for fixed-size shapes.
+                        require(i < len(text) and text[i] != "]",
+                                "trailing shape separator")
                     elif text[i] != "]":
                         raise ValueError("bad shape separator")
                 # Unreachable: the closing bracket returns above.
@@ -129,17 +133,36 @@ def verify(document):
     require(type(vectors) is list and len(vectors) == 6, "six vectors required")
     require({v["schema_id"] for v in vectors} == SCHEMAS, "missing or duplicate schemas")
     for v in vectors:
+        raw_hex = v["hex"]
+        require(type(raw_hex) is str
+                and len(raw_hex) % 2 == 0
+                and all(c in "0123456789abcdef" for c in raw_hex),
+                "noncanonical lowercase contiguous hex")
         try:
-            given = bytes.fromhex(v["hex"])
+            given = bytes.fromhex(raw_hex)
         except (TypeError, ValueError) as exc:
             raise ValueError("bad hex") from exc
         require(given == canonical(v), "golden bytes mismatch independent oracle")
     return True
 
+def load_canonical_json(text):
+    # A repeated key can silently replace the schema, vector shape or bytes
+    # under ordinary json.loads(), making security fixture reviews ambiguous.
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            require(key not in result, "duplicate JSON fixture key")
+            result[key] = value
+        return result
+    def reject_constant(value):
+        raise ValueError("nonfinite JSON fixture constant: " + value)
+    return json.loads(text, object_pairs_hook=unique_pairs,
+                      parse_constant=reject_constant)
+
 def main():
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else (
         Path(__file__).resolve().parents[1] / "contracts/v1/messagepack_collection_vectors.json")
-    document = json.loads(path.read_text(encoding="utf-8"))
+    document = load_canonical_json(path.read_text(encoding="utf-8"))
     verify(document)
     rejected = 0
     for index in range(6):
