@@ -690,3 +690,33 @@ test("persistent free-list coalescing ignores poisoned Array iterator", () => {
     arena.retire();
   }
 });
+
+
+test("persistent churn never revives stale aliases or leaks recycled capacity", () => {
+  const arena = new ActorArena({actorId: 88701, incarnation: 1, kind: "private"});
+  const turn = arena.beginTurn();
+  try {
+    for (let round = 0; round < 512; ++round) {
+      const left = arena.allocPersistent(turn, 8);
+      const middle = arena.allocPersistent(turn, 16);
+      const right = arena.allocPersistent(turn, 8);
+      arena.write(turn, left, Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8));
+      arena.dropPersistent(turn, middle);
+      const recycled = arena.allocPersistent(turn, 16);
+      assert.deepEqual([...arena.read(turn, recycled)], Array(16).fill(0),
+        "freed middle extent leaked old bytes");
+      assert.throws(() => arena.read(turn, middle), /foreign|stale/,
+        "same-offset allocation resurrected old authority");
+      arena.dropPersistent(turn, left);
+      arena.dropPersistent(turn, recycled);
+      arena.dropPersistent(turn, right);
+      const coalesced = arena.allocPersistent(turn, 32);
+      assert.deepEqual([...arena.read(turn, coalesced)], Array(32).fill(0));
+      arena.dropPersistent(turn, coalesced);
+      assert.throws(() => arena.read(turn, left), /foreign|stale/);
+    }
+  } finally {
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
