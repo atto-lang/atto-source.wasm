@@ -21,6 +21,10 @@ def checked(value, bound):
 
 
 def link(case):
+    if not isinstance(case, dict):
+        raise ValueError('nominal ABI record must be a mapping')
+    if not {'owner', 'domain', 'name', 'positions'}.issubset(case):
+        raise ValueError('nominal ABI record is missing a required field')
     owner = checked(case['owner'], 1024)
     domain = case['domain']
     if domain not in ('INSTANCE', 'STATIC'):
@@ -31,7 +35,11 @@ def link(case):
         raise ValueError('arity bound')
     symbol = '$methodoverload$v1$' + owner + checked(domain, 8) + name + str(len(positions)) + '$'
     for position in positions:
+        if not isinstance(position, dict) or set(position) != {'kind', 'id'}:
+            raise ValueError('malformed nominal ABI parameter record')
         kind, identity = position['kind'], position['id']
+        if not isinstance(kind, str) or not isinstance(identity, str):
+            raise ValueError('non-string nominal ABI parameter identity')
         if kind == 'PRIMITIVE':
             if identity not in PRIMITIVES:
                 raise ValueError('invalid primitive')
@@ -47,15 +55,22 @@ def link(case):
 def normalize_compiler_factory(case):
     # This stage is distinct from the public aggregate ABI boundary. Java
     # Position canonicalizes String; the LLVM signature() factory does too.
+    # 'layer' is fixture metadata, NOT an authorization or provenance token.
     if not isinstance(case, dict) or case.get('layer') != 'trusted-compiler-signature-factory':
-        raise ValueError('not a reviewed compiler factory input')
+        raise ValueError('not a canonicalization fixture')
     result = {k: v for k, v in case.items() if k != 'layer'}
     if not isinstance(result.get('positions'), list):
         raise ValueError('invalid compiler signature positions')
-    result['positions'] = [
-        {'kind': p['kind'], 'id': 'string' if p['kind'] == 'PRIMITIVE' and p['id'] == 'String' else p['id']}
-        for p in result['positions']
-    ]
+    positions = []
+    for position in result['positions']:
+        if not isinstance(position, dict) or set(position) != {'kind', 'id'}:
+            raise ValueError('invalid compiler factory position')
+        kind, identity = position['kind'], position['id']
+        if not isinstance(kind, str) or not isinstance(identity, str):
+            raise ValueError('invalid compiler factory identity')
+        positions.append({'kind': kind, 'id':
+                          'string' if kind == 'PRIMITIVE' and identity == 'String' else identity})
+    result['positions'] = positions
     return result
 
 
@@ -76,11 +91,53 @@ class GoldenContract(unittest.TestCase):
 
     def test_golden_symbols(self):
         cases = self.doc['accept']
-        self.assertGreaterEqual(len(cases), 4)
+        self.assertEqual({case['id'] for case in cases},
+                         {'color', 'mode', 'static-color', 'other-owner', 'unicode-owner'})
+        self.assertEqual(len(cases), 5)
         for case in cases:
             with self.subTest(case=case['id']):
                 self.assertEqual(link(case), case['symbol'])
         self.assertEqual(len(set(x['symbol'] for x in cases)), len(cases))
+
+    def test_adversarial_schema_values_reject_without_implicit_python_errors(self):
+        base = next(c for c in self.doc['accept'] if c['id'] == 'color')
+        malformed = [None, [], 'string', {},
+                     {**base, 'owner': None}, {**base, 'domain': []},
+                     {**base, 'name': None}, {**base, 'positions': None},
+                     {**base, 'positions': 'string'},
+                     {**base, 'positions': [None]},
+                     {**base, 'positions': [{}]},
+                     {**base, 'positions': [{'kind': 'ENUM'}]},
+                     {**base, 'positions': [{'kind': 'ENUM', 'id': []}]},
+                     {**base, 'positions': [{'kind': 'PRIMITIVE', 'id': []}]},
+                     {**base, 'positions': [{'kind': [], 'id': 'int'}]},
+                     {**base, 'positions': [{'kind': 'ENUM', 'id': 'root::Color', 'tag': 1}]},
+                     {**base, 'positions': [{'kind': 'ENUM', 'id': 'root::Color'}] * 65}]
+        for index, case in enumerate(malformed):
+            with self.subTest(index=index):
+                with self.assertRaises(ValueError):
+                    link(case)
+
+    def test_corpus_removal_and_duplicates_are_detected(self):
+        positives = self.doc['accept']
+        negatives = self.doc['reject']
+        self.assertEqual(len(positives), len({x['id'] for x in positives}))
+        self.assertEqual(len(negatives), len({x['id'] for x in negatives}))
+        self.assertEqual(len(self.doc['normalization']), 1)
+        self.assertEqual(self.doc['normalization'][0]['id'], 'factory-String-to-string')
+        self.assertEqual(self.doc['normalization'][0]['layer'], 'trusted-compiler-signature-factory')
+        self.assertEqual(self.doc['normalization'][0]['positions'][0]['id'], 'String')
+
+    def test_malformed_compiler_factory_positions_rejected(self):
+        base = self.doc['normalization'][0]
+        for positions in (None, [], [None], [{}], [{'kind':'PRIMITIVE','id':[]}],
+                          [{'kind':'PRIMITIVE'}]):
+            with self.subTest(positions=repr(positions)):
+                if positions == []:
+                    # A zero-argument factory call is structurally legal.
+                    continue
+                with self.assertRaises(ValueError):
+                    normalize_compiler_factory({**base, 'positions': positions})
 
     def test_factory_alias_canonicalization_is_not_raw_abi_admission(self):
         # Raw String in a constructed ABI record must not be silently
@@ -102,6 +159,11 @@ class GoldenContract(unittest.TestCase):
             self.fail('missing primitive-alias regression')
 
     def test_negative_abi_shapes(self):
+        self.assertEqual({case['id'] for case in self.doc['reject']},
+                         {'invalid-domain', 'owner-control', 'bad-surrogate',
+                          'oversize-name', 'unqualified-enum', 'primitive-alias',
+                          'forged-kind', 'arity-limit', 'blank-owner', 'blank-name'})
+        self.assertEqual(len(self.doc['reject']), 10)
         for case in self.doc['reject']:
             with self.subTest(case=case['id']):
                 with self.assertRaises((ValueError, UnicodeError)):
