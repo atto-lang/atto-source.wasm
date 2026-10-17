@@ -316,7 +316,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
         if not _evidence_label(name):
-            raise Denied("missing workflow job name")
+            raise Denied("missing or unsafe workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
         job_names.add(name)
@@ -345,7 +345,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             previous_step_end = step_end
             step_name = step.get("name")
             if not _evidence_label(step_name):
-                raise Denied("workflow step has no name")
+                raise Denied("workflow step has no safe single-line name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
             seen_step_names.add(step_name)
