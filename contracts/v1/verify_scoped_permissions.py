@@ -18,7 +18,7 @@ REPORT_SCHEMA = "oreslang.scoped-permissions.report.v1"
 BACKENDS = {"llvm", "net", "wasm", "forge", "java"}
 SHA = re.compile(r"[0-9a-f]{40}")
 VALID_DECISIONS = {"allow", "deny", "accept", "reject"}
-CANONICAL_VECTORS_SHA256 = "b481b72d9e5fdb2c1a4d4de7745a02f7ec3af8a937b0f067885d184efc3cb308"
+CANONICAL_VECTORS_SHA256 = "de3594482d10623241a94cf531fd9e4fe71c49769dd68b2098f4ed5363870ac5"
 
 def pairs_no_duplicates(pairs):
     obj = {}
