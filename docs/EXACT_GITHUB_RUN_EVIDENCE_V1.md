@@ -1,4 +1,4 @@
-# Exact GitHub Actions run evidence contract v1 — five Oreslang source backends
+# Exact GitHub Actions run evidence contract v1 — five Oreslang source backends and three Rx variants
 
 This repository carries **the same** `scripts/verify_ci_run.py` and
 `scripts/test_verify_ci_run.py` as `oreslang-source.java`, `.llvm`, `.net`,
@@ -8,8 +8,8 @@ checks out private source, starts workflows, or changes repository policy.
 ## Purpose
 
 The verifier checks that a **real GitHub Actions run** corresponds to a
-specific immutable commit and its actual Git tree **and approved workflow file path**, in one of the five exact
-private repositories with pinned numeric repository IDs. It independently
+specific immutable commit and its actual Git tree **and approved workflow file path**, in one of eight exact
+private repositories (five compiler backends plus three Rx prototypes) with pinned numeric repository IDs. It independently
 fetches the repository, commit, run and *all* Actions jobs through GitHub's
 read-only API. It rejects nonprivate/mismatched/archived identities, wrong
 commit/tree, foreign run/head repository, wrong run SHA, foreign/missing workflow path, uncompleted/failed
@@ -71,7 +71,7 @@ executed for a different event context, or which sources a job checked out.
 Branch protection, executed-workflow-ref attestation, and source export policy
 remain separate mandatory gates.
 
-Supported `--backend`: `java`, `llvm`, `net`, `wasm`, `forge`. Run it inside a
+Supported `--backend`: `java`, `llvm`, `net`, `wasm`, `forge`, `rx_pull`, `rx_callbacks`, `rx_channels`. Run it inside a
 trusted local environment or a **reviewed** source-scoped CI workflow with a
 read-only token. The GitHub Actions token must have adequate `actions: read`
 and `contents: read` access; no cross-organization checkout is needed.
@@ -235,3 +235,22 @@ not private-source export permission, backend-native compiler execution,
 or full semantic parity. Source export remains blocked pending protected-main
 CODEOWNER enforcement, an approved private destination, and closure of the
 private-source exposure incident's resumption gates.
+
+## Rx prototype evidence parity (three additional exact private identities)
+
+The identical verifier also recognizes the three **private** Rx userland prototypes:
+`rx_pull` = `ores-truffle-oreslang/rx-ores` (GitHub repository ID 1407870560),
+`rx_callbacks` = `ores-truffle-oreslang/rx-ores-callbacks` (ID 1407871059),
+and `rx_channels` = `ores-truffle-oreslang/rx-oreslang-channels` (ID 1407757001).
+These are pinned *source repository* identities, **not** approved cross-organization
+private-code export destinations. A successful source-free workflow validates
+GitHub-run provenance only. An Rx guest conformance receipt additionally needs
+an independently reviewed matching `compiler.lock` source commit/tree, real
+Oreslang compiler execution, negative-parameter and cancellation fixtures,
+common downstream benchmark checksum, and output/log evidence. A runner canary,
+zero-step run, stale artifact or job on an unrelated repository cannot qualify.
+
+The existing Java destination allowlist remains deny-by-default. Security incident
+[platform-conformance #22](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/22)
+and [Java security integration #1123](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1123)
+are independent authorization/review gates; this extension cannot waive them.

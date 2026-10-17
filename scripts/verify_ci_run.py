@@ -19,6 +19,9 @@ REPOS = {
     "net": ("ores-truffle-oreslang/oreslang-source.net", 1419704375),
     "wasm": ("ores-truffle-oreslang/oreslang-source.wasm", 1419858954),
     "forge": ("ores-truffle-oreslang/oreslang-source.forge", 1419703674),
+    "rx_pull": ("ores-truffle-oreslang/rx-ores", 1407870560),
+    "rx_callbacks": ("ores-truffle-oreslang/rx-ores-callbacks", 1407871059),
+    "rx_channels": ("ores-truffle-oreslang/rx-oreslang-channels", 1407757001),
 }
 SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_PAGES = 10

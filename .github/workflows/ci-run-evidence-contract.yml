@@ -37,7 +37,7 @@ jobs:
           git diff --cached --quiet
           printf 'commit=%s\n' "$actual" >> "$GITHUB_OUTPUT"
           printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-      - name: Run all five-backend source-free security regressions
+      - name: Run all eight-repository source-free security regressions
         id: regressions
         run: |
           set -euo pipefail
