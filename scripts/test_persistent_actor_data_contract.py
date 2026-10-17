@@ -10,8 +10,21 @@ import unittest
 import tempfile
 from unittest.mock import patch
 from pathlib import Path
-from verify_persistent_actor_data_contract import (ContractError, validate, validate_raw,
-                                                    read_bounded_contract)
+import importlib.util
+
+# Resolve the source-pinned neighbor by file path under Python isolated mode.
+# Never accept an ambient PYTHONPATH module with the same import name.
+_POLICY_PATH = Path(__file__).with_name("verify_persistent_actor_data_contract.py")
+_POLICY_SPEC = importlib.util.spec_from_file_location(
+    "_oreslang_persistent_actor_data_policy", _POLICY_PATH)
+if _POLICY_SPEC is None or _POLICY_SPEC.loader is None:
+    raise RuntimeError("cannot load adjacent pinned actor-data policy verifier")
+_policy = importlib.util.module_from_spec(_POLICY_SPEC)
+_POLICY_SPEC.loader.exec_module(_policy)
+ContractError = _policy.ContractError
+validate = _policy.validate
+validate_raw = _policy.validate_raw
+read_bounded_contract = _policy.read_bounded_contract
 
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
 ROOT = DATA.parents[2]
@@ -192,6 +205,69 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 read_bounded_contract(path)
 
 
+    def test_missing_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (None, 0):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "safe independent"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_malformed_secure_open_mask_denies_without_open(self):
+        for flag in ("O_NOFOLLOW", "O_NONBLOCK"):
+            for value in (True, False, -1, "not-an-int", 1.5):
+                with self.subTest(flag=flag, value=value):
+                    with patch.object(os, flag, value, create=True):
+                        with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                            with self.assertRaisesRegex(ContractError, "safe independent"):
+                                read_bounded_contract(DATA)
+                            opened.assert_not_called()
+
+    def test_aliased_secure_open_mask_denies_without_open(self):
+        candidates = (("O_NOFOLLOW", os.O_NONBLOCK),
+                      ("O_NONBLOCK", os.O_NOFOLLOW | os.O_NONBLOCK),
+                      ("O_BINARY", os.O_NONBLOCK))
+        for flag, value in candidates:
+            with self.subTest(flag=flag, value=value):
+                with patch.object(os, flag, value, create=True):
+                    with patch.object(os, "open", side_effect=AssertionError("unsafe open")) as opened:
+                        with self.assertRaisesRegex(ContractError, "safe independent"):
+                            read_bounded_contract(DATA)
+                        opened.assert_not_called()
+
+    def test_short_read_with_stable_file_metadata_fails_closed(self):
+        # Simulate short and empty reads without changing fstat or lstat.
+        # Reject the incomplete payload before JSON interpretation.
+        actual_fdopen = os.fdopen
+
+        class ShortStream:
+            def __init__(self, inner, trim):
+                self.inner = inner
+                self.trim = trim
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return self.inner.__exit__(*args)
+
+            def fileno(self):
+                return self.inner.fileno()
+
+            def read(self, limit):
+                data = self.inner.read(limit)
+                return data[:-self.trim] if self.trim < len(data) else b""
+
+        for trim in (1, 1000000):
+            with self.subTest(trim=trim):
+                def truncated_fdopen(fd, mode):
+                    return ShortStream(actual_fdopen(fd, mode), trim)
+                with patch.object(os, "fdopen", side_effect=truncated_fdopen):
+                    with self.assertRaisesRegex(ContractError, "short read"):
+                        read_bounded_contract(DATA)
+
     def test_reject_changed_open_descriptor_during_read(self):
         # Simulate a file changing after the initial descriptor identity
         # check. A normal start-of-read lstat alone must never certify it.
@@ -230,7 +306,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 34
+    expected = 38
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
