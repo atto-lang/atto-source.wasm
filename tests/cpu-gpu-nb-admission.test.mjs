@@ -10,8 +10,30 @@ import {spawnSync} from "node:child_process";
 // LLVM frontend only when it is supplied; never pass via a pretend compiler.
 const compiler = process.env.ORESLANG_LLVM_COMPILER;
 const pinnedSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256;
+
+// A syntax error mentioning "gpu" is not proof of fail-closed domain admission.
+// Require a domain identifier AND an explicit capability/refusal reason.
+function isDomainRefusal(stderr) {
+  return /\\b(cpu|gpu|nb|nonblocking)\\b|execution[- ]domain/i.test(stderr) &&
+    /\\b(unsupported|unavailable|reserved|disabled|unimplemented)\\b|not[ -](?:yet[ -])?(?:implemented|supported|lowered)/i.test(stderr);
+}
+
+test("source-free refusal classifier rejects unrelated diagnostics", () => {
+  for (const diagnostic of [
+    "error: syntax error near gpu",
+    "error: CPU input file could not be opened",
+    "error: parse failed on nb",
+    "error: unsupported integer syntax"
+  ]) assert.equal(isDomainRefusal(diagnostic), false, diagnostic);
+  for (const diagnostic of [
+    "CPU/GPU execution domain and nb graph lowering unsupported; no implicit CPU fallback",
+    "gpu source execution is not yet lowered",
+    "nb CPU regions disabled"
+  ]) assert.equal(isDomainRefusal(diagnostic), true, diagnostic);
+});
+
 test("CPU/GPU/nb nested regions fail closed before Wasm compilation", {
-  skip: !compiler && "requires the pinned real oreslang-llvmc"
+  skip: !compiler && !pinnedSha256 && "requires the pinned real oreslang-llvmc"
 }, () => {
   // Runner configuration is not proof of a genuine compiler. Require
   // an independently reviewed binary SHA-256 before interpreting any
@@ -44,8 +66,8 @@ test("CPU/GPU/nb nested regions fail closed before Wasm compilation", {
       assert.equal(compiled.signal, null, "compiler timed out or was killed");
       assert.equal(compiled.status, 1, source);
       assert.equal(compiled.stdout, "", "invalid source emitted LLVM IR");
-      assert.match(compiled.stderr, /\b(cpu|gpu|nb|nonblocking)\b|execution[- ]domain/i,
-        "rejection must identify the unsupported CPU/GPU/nb domain, not a generic parser or IO failure");
+      assert.equal(isDomainRefusal(compiled.stderr), true,
+        "rejection must give a domain-specific unsupported/unavailable reason, not a generic syntax or IO error");
       assert.deepEqual(readdirSync(dir).sort(), ["main.ores"],
         "failed compilation published an unexpected artifact");
     }
