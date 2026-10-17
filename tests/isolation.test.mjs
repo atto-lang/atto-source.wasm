@@ -73,16 +73,31 @@ test("admission rejects unbounded linear memory", () => {
   const wasm = compile(simple, {maxMemory: false});
   assert.throws(() => admitCoreGuest(wasm), /memory requires fixed|bounded/);
 });
-test("admission rejects any host import", () => {
+test("admission rejects any host import", async () => {
   const wasm = compile('target triple = "wasm32-unknown-unknown"\n' +
     'declare i64 @forbidden()\n' +
     'define i64 @main() { %x = call i64 @forbidden()\n ret i64 %x }\n',
     {allowUndefined: true});
   assert.ok(WebAssembly.Module.imports(new WebAssembly.Module(wasm)).length > 0);
   assert.throws(() => admitCoreGuest(wasm), /host imports denied/);
-  // Exercise the *running* worker boundary too, not only the synchronous
-  // admission/inspection helper. No imports can be supplied to the worker.
+  // Exercise the running worker boundary too: the zero-capability worker
+  // must reject a module with any host import, not only the sync helper.
   await assert.rejects(runIsolatedCoreGuest(wasm), /host imports denied/);
+});
+test("unlowered actor routing imports remain denied for every self operation", () => {
+  for (const method of ["forward", "forward_all", "forward_round_robin",
+    "forward_to", "forward_by_key", "backward", "reply"]) {
+    const name = "ores_actor_" + method;
+    const module = compile('target triple = "wasm32-unknown-unknown"\n' +
+      'declare i64 @' + name + '(i64)\n' +
+      'define i64 @main() { %x = call i64 @' + name +
+      '(i64 42)\n ret i64 %x }\n', {allowUndefined: true});
+    const imports = WebAssembly.Module.imports(new WebAssembly.Module(module));
+    assert.ok(imports.some(item => item.name === name),
+      "missing actor host import probe: " + method);
+    assert.throws(() => admitCoreGuest(module), /host imports denied/,
+      "unlowered Wasm guest routing import accepted: " + method);
+  }
 });
 test("admission rejects unexpected start section and wrong result signature", () => {
   const wasm = compile(simple);
