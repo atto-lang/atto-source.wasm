@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import textwrap
 import importlib.util
 from pathlib import Path
 import unittest
@@ -71,6 +77,26 @@ class RunContract(unittest.TestCase):
 
     def rejected(self):
         with self.assertRaises(module.Denied):
+            self.validate()
+
+    def test_disguised_runner_housekeeping_cannot_count_as_execution(self):
+        for disguised in (" ", "\t", "  Set up job ", "set UP job",
+                          " POST Checkout", "pre Setup", " Complete job "):
+            with self.subTest(step=disguised):
+                self.assertFalse(module.executable_step_name(disguised))
+        self.assertTrue(module.executable_step_name("Prepare build"))
+        self.assertTrue(module.executable_step_name("Execute test suite"))
+
+    def test_whitespace_only_job_name_denied_with_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["name"] = " \t "
+        with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
+            self.validate()
+
+    def test_whitespace_only_step_name_denied_despite_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
+        with self.assertRaisesRegex(module.Denied, "no name"):
             self.validate()
 
 
@@ -734,6 +760,55 @@ class RunContract(unittest.TestCase):
 
 
 
+    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        normal = job["runner_name"]
+        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
+                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
+            with self.subTest(label=repr(malicious)):
+                job["runner_name"] = malicious
+                self.rejected()
+        job["runner_name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+
+    def test_observed_job_and_step_names_reject_spoofed_labels(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for target in (job, job["steps"][1]):
+            normal = target["name"]
+            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
+                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
+                with self.subTest(target=normal, label=repr(malicious)):
+                    target["name"] = malicious
+                    self.rejected()
+            target["name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+
+    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
+        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
+                          "CI\u2066Fake", "CI\u200bFake"):
+            with self.subTest(name=repr(malicious)):
+                for job_names, step_names in (([malicious], ["Execute test suite"]),
+                                              (["unit"], [malicious])):
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, job_names, step_names)
+
+
+    def test_legible_unicode_display_names_are_not_disallowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        job["name"] = "native — unité"
+        job["runner_name"] = "GitHub Actions — runner"
+        job["steps"][1]["name"] = "Exécuter native tests"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
+        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
+
+
 class StrictApiJSONContract(unittest.TestCase):
     """API transport must not silently reinterpret ambiguous run metadata."""
 
@@ -787,33 +862,124 @@ class StrictApiJSONContract(unittest.TestCase):
                 return self.body[:length]
 
         with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17,"id":18}')):
+            with patch.object(module.urllib.request, "build_opener") as builder:
+                builder.return_value.open.return_value = Response(b'{"id":17,"id":18}')
                 with self.assertRaisesRegex(module.Denied, "duplicate"):
                     module._api_get("repos/example/repo")
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17}')):
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+                builder.return_value.open.return_value = Response(b'{"id":17}')
                 self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+
+    def test_authenticated_redirect_cannot_forward_bearer_token(self):
+        class RedirectingOpener:
+            def __init__(self, handler):
+                self.handler = handler
+                self.forwarded = False
+            def open(self, req, timeout):
+                self.assertion = req.get_header("Authorization")
+                # This simulates the first redirect in urllib without any
+                # network request to another organization or host.
+                self.handler.redirect_request(
+                    req, None, 302, "Found", {},
+                    "https://outside.example.invalid/collect")
+                self.forwarded = True
+                raise AssertionError("redirect unexpectedly followed")
+
+        instances = []
+        def opener_factory(handler):
+            instance = RedirectingOpener(handler())
+            instances.append(instance)
+            return instance
+
+        with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
+            with patch.object(module.urllib.request, "build_opener",
+                              side_effect=opener_factory):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._api_get("repos/example/repo")
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0].assertion, "Bearer synthetic-only")
+        self.assertFalse(instances[0].forwarded)
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._DenyRedirects().redirect_request(
+                        module.urllib.request.Request(
+                            "https://api.github.com/repos/example/repo",
+                            headers={"Authorization": "Bearer synthetic-only"}),
+                        None, status, "Redirect", {},
+                        "https://other.example.invalid/capture")
 
 
 
 class WorkflowIsolationContract(unittest.TestCase):
-    """Validate the checked-in workflow, never non-existent template steps."""
+    """Prevent candidate import-path shadowing in CI report generation."""
 
     @staticmethod
     def workflow_text():
         return (Path(__file__).resolve().parents[1]
-                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(
-                    encoding="utf-8")
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(encoding="utf-8")
+
+    def test_report_writer_uses_isolated_python(self):
+        workflow = self.workflow_text()
+        marker = "      - name: Write minimal run evidence (not compiled guest parity)"
+        writer = workflow.split(marker, 1)[1].split(
+            "      - name: Upload minimal source-free CI evidence", 1)[0]
+        self.assertIn("python3 -I - <<'PY'", writer)
+        self.assertNotIn("python3 - <<'PY'", writer)
 
     def test_all_inline_python_heredocs_use_isolated_mode(self):
+        inline_python = [line.strip() for line in self.workflow_text().splitlines()
+                         if "python3" in line and "<<'PY'" in line]
+        self.assertEqual(len(inline_python), 2)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+
+
+    def test_report_pins_distinct_trigger_and_checkout_metadata(self):
         workflow = self.workflow_text()
-        inline = [line.strip() for line in workflow.splitlines()
-                  if "python3" in line and "<<'PY'" in line]
-        self.assertGreaterEqual(len(inline), 1)
-        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline))
-        self.assertNotIn("python3 - <<'PY'", workflow)
-        self.assertIn("python3 -I -m py_compile", workflow)
+        self.assertIn("RUN_TRIGGER_SHA: ${{ github.sha }}", workflow)
+        self.assertIn("RUN_TRIGGER_EVENT: ${{ github.event_name }}", workflow)
+        self.assertIn('"workflow_trigger_sha": os.environ["RUN_TRIGGER_SHA"]', workflow)
+        self.assertIn('"workflow_trigger_event": os.environ["RUN_TRIGGER_EVENT"]', workflow)
+        self.assertIn('os.environ["RUN_TRIGGER_SHA"] == os.environ["OBSERVED_HEAD"]', workflow)
+        self.assertIn('os.environ["SOURCE_OUTCOME"] == "success"', workflow)
+        self.assertIn('"verified_execution_claim": False', workflow)
+
+    def test_isolated_report_writer_exercises_source_vs_trigger_sha(self):
+        workflow = self.workflow_text()
+        section = workflow.split(
+            "      - name: Write minimal run evidence (not compiled guest parity)", 1
+        )[1].split("      - name: Upload minimal source-free CI evidence", 1)[0]
+        body = section.split("          python3 -I - <<\'PY\'\n", 1)[1].split(
+            "\n          PY\n", 1)[0]
+        script = textwrap.dedent(body)
+        for label, trigger, checkout, outcome, expected in (
+                ("PR synthetic-merge SHA differs", "a"*40, "b"*40, "success", False),
+                ("matching exact SHA", "b"*40, "b"*40, "success", True),
+                ("unverified checkout outcome", "b"*40, "b"*40, "failure", False)):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temp:
+                env = dict(os.environ)
+                env.update({
+                    "RUN_TRIGGER_SHA": trigger, "RUN_TRIGGER_EVENT": "pull_request",
+                    "OBSERVED_HEAD": checkout, "EXPECTED_HEAD": "b"*40,
+                    "OBSERVED_TREE": "c"*40, "SOURCE_OUTCOME": outcome,
+                    "REGRESSION_OUTCOME": "success", "REPOSITORY_ID": "1400792274",
+                    "GITHUB_REPOSITORY": "ores-truffle-oreslang/oreslang-source.java",
+                    "GITHUB_RUN_ID": "101", "GITHUB_RUN_ATTEMPT": "1",
+                    "RUNNER_TEMP": temp,
+                })
+                proc = subprocess.run([sys.executable, "-I", "-"], input=script,
+                                      text=True, env=env, capture_output=True,
+                                      timeout=10, check=False)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                with open(os.path.join(temp, "source-free-ci-evidence.json"),
+                          encoding="utf-8") as handle:
+                    report = json.load(handle)
+                self.assertEqual(report["workflow_trigger_sha"], trigger)
+                self.assertEqual(report["workflow_trigger_event"], "pull_request")
+                self.assertIs(report["trigger_sha_matches_reported_checkout"], expected)
+                self.assertIs(report["verified_execution_claim"], False)
+
 
     def test_workflow_checkout_is_pinned_and_uncredentialed(self):
         workflow = self.workflow_text()
