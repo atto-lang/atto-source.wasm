@@ -40,8 +40,14 @@ jobs:
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
+          test "$(git ls-tree HEAD -- contracts/v1/persistent_actor_data_v1.json | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:83a40f637ab77437108d02fedc8cde997f753928"
+          test -f contracts/v1/persistent_actor_data_v1.json && test ! -L contracts/v1/persistent_actor_data_v1.json
           test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "b51f648518aa4f0573a732716988684171b94867"
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "eb720c94a686b316eede6e3d0bdb746fd3a7cef1"
+          test "$(git ls-tree HEAD -- scripts/verify_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:b51f648518aa4f0573a732716988684171b94867"
+          test -f scripts/verify_persistent_actor_data_contract.py && test ! -L scripts/verify_persistent_actor_data_contract.py
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "843d2e6f462ee1d8ab33dc0ad86d6c90b11d27e8"
+          test "$(git ls-tree HEAD -- scripts/test_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:843d2e6f462ee1d8ab33dc0ad86d6c90b11d27e8"
+          test -f scripts/test_persistent_actor_data_contract.py && test ! -L scripts/test_persistent_actor_data_contract.py
       - name: Compile contract and test files in isolated Python mode
         run: python3 -I -m py_compile scripts/verify_persistent_actor_data_contract.py scripts/test_persistent_actor_data_contract.py
       - name: Reject capability and fixture drift

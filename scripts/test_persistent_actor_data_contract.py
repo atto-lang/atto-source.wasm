@@ -46,6 +46,15 @@ def check_workflow_git_blob_pins(workflow):
         matches = pattern.findall(workflow)
         if matches != [actual]:
             raise AssertionError("persistent CI pin missing, ambiguous or stale: " + name)
+        tree_line = (
+            'test "$(git ls-tree HEAD -- ' + name +
+            ' | awk \'{print $1 ":" $2 ":" $3}\')" = "100644:blob:' + actual + '"'
+        )
+        if workflow.count(tree_line) != 1:
+            raise AssertionError("persistent CI tree mode/type pin missing or ambiguous: " + name)
+        regular_line = "test -f " + name + " && test ! -L " + name
+        if workflow.count(regular_line) != 1:
+            raise AssertionError("persistent CI working-tree regular-file check missing or ambiguous: " + name)
 
 
 
@@ -80,6 +89,23 @@ class PersistentActorPolicyTest(unittest.TestCase):
             'git hash-object ' + script + ')" = "' + replacement + '"')
         self.assertNotEqual(tampered, original)
         with self.assertRaisesRegex(AssertionError, "stale"):
+            check_workflow_git_blob_pins(tampered)
+
+    def test_workflow_rejects_missing_tree_mode_pin(self):
+        original = WORKFLOW.read_text(encoding="utf-8")
+        check_workflow_git_blob_pins(original)
+        name = PINNED[0]
+        body = (ROOT / name).read_bytes()
+        digest = hashlib.sha1(
+            b"blob " + str(len(body)).encode("ascii") + b"\0" + body
+        ).hexdigest()
+        tree_line = (
+            'test "$(git ls-tree HEAD -- ' + name +
+            ' | awk \'{print $1 ":" $2 ":" $3}\')" = "100644:blob:' + digest + '"'
+        )
+        tampered = original.replace(tree_line, "# removed committed mode/type pin")
+        self.assertNotEqual(tampered, original)
+        with self.assertRaisesRegex(AssertionError, "tree mode/type"):
             check_workflow_git_blob_pins(tampered)
 
     def test_duplicate_wire_key(self):
@@ -306,7 +332,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 38
+    expected = 39
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
