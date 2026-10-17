@@ -24,6 +24,42 @@ test('full immutable fan-out and explicit destination', () => {
   assert.throws(() => p.forward('producer-1'), /ambiguous/);
 });
 
+test('route selectors ignore monkey-patched Map.get/set and Array.find', () => {
+  const p = policy(); // graph was approved before hostile prototype changes
+  const savedGet = Object.getOwnPropertyDescriptor(Map.prototype, 'get');
+  const savedSet = Object.getOwnPropertyDescriptor(Map.prototype, 'set');
+  const savedFind = Object.getOwnPropertyDescriptor(Array.prototype, 'find');
+  const results = [];
+  try {
+    Object.defineProperty(Map.prototype, 'get', {
+      ...savedGet, value() { return Object.freeze([{target: 'attacker'}]); }
+    });
+    Object.defineProperty(Map.prototype, 'set', {
+      ...savedSet, value() { throw new Error('hijacked Map.set'); }
+    });
+    Object.defineProperty(Array.prototype, 'find', {
+      ...savedFind, value() { return {target: 'attacker'}; }
+    });
+    results.push(p.forwardTo('producer-1', 'worker-b').target);
+    results.push(p.forwardRoundRobin('producer-1').target);
+    results.push(p.forwardRoundRobin('producer-1').target);
+    results.push(p.forwardByKey('producer-1', fixture.operations.by_key[0].key).target);
+    try { p.forwardTo('producer-1', 'attacker'); results.push('incorrectly admitted'); }
+    catch (err) { results.push(err instanceof TypeError ? 'rejected' : 'wrong failure'); }
+  } finally {
+    Object.defineProperty(Map.prototype, 'get', savedGet);
+    Object.defineProperty(Map.prototype, 'set', savedSet);
+    Object.defineProperty(Array.prototype, 'find', savedFind);
+  }
+  assert.deepEqual(results, [
+    'worker-b',
+    fixture.operations.forward_round_robin[0],
+    fixture.operations.forward_round_robin[1],
+    fixture.operations.by_key[0].target,
+    'rejected'
+  ]);
+});
+
 test('constructor-seeded RR cycles, independent sessions, fresh generation', () => {
   for (let round = 0; round < 256; ++round) {
     const p = policy();
