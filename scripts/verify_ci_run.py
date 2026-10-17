@@ -35,8 +35,14 @@ HOUSEKEEPING_STEPS = frozenset({
 def executable_step_name(name):
     # Runner-generated lifecycle steps cannot substitute for a required
     # build, test, or native guest-execution step.
-    return (isinstance(name, str) and name not in HOUSEKEEPING_STEPS
-            and not name.startswith(("Post ", "Pre ")))
+    if not isinstance(name, str):
+        return False
+    normalized = name.strip().casefold()
+    # A blank or disguised runner-generated step is not build/test execution.
+    # Normalize padding and case before excluding housekeeping and pre/post.
+    return (bool(normalized)
+            and normalized not in {step.casefold() for step in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post)\s", normalized) is None)
 
 
 class Denied(ValueError):
@@ -294,7 +300,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if job_end < job_start:
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
-        if not isinstance(name, str) or not name:
+        if not isinstance(name, str) or not name.strip():
             raise Denied("missing workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
@@ -323,7 +329,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
                 raise Denied("workflow step timestamps overlap or contradict execution order")
             previous_step_end = step_end
             step_name = step.get("name")
-            if not isinstance(step_name, str) or not step_name:
+            if not isinstance(step_name, str) or not step_name.strip():
                 raise Denied("workflow step has no name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
