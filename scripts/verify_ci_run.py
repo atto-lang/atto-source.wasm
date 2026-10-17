@@ -300,7 +300,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if job_end < job_start:
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
-        if not isinstance(name, str) or not name:
+        if not isinstance(name, str) or not name.strip():
             raise Denied("missing workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
