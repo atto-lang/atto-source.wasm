@@ -51,6 +51,9 @@ def validate_raw(raw):
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
                           parse_constant=_bad_constant, parse_float=finite_float)
+    except ContractError:
+        # Preserve the explicit non-finite-number denial reason.
+        raise
     except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise ContractError("invalid canonical UTF-8 JSON") from exc
     validate(data)
