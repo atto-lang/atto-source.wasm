@@ -70,8 +70,10 @@ function poolBytes() {
 
 function leaseArenaBase() {
   let base;
+  let reused = false;
   if (freeArenaBases.length !== 0) {
     base = arrayPop.call(freeArenaBases);
+    reused = true;
   } else {
     let oldPages;
     try {
@@ -81,8 +83,15 @@ function leaseArenaBase() {
     }
     base = oldPages * PAGE;
   }
-  // Belt-and-suspenders zero on admission as well as retirement.
-  typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
+  try {
+    // Belt-and-suspenders zero on admission as well as retirement.
+    typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
+  } catch (error) {
+    // A failed admission must not strand reusable capacity. Newly grown pages
+    // are safe to publish too: no actor has observed them yet.
+    arrayPush.call(freeArenaBases, base);
+    throw error;
+  }
   ++leasedArenas;
   return base;
 }
@@ -111,8 +120,10 @@ function isSharedBacking(buffer) {
     sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
     return true;
   } catch (error) {
-    if (error instanceof TypeError) return false;
-    throw error;
+    // SharedArrayBuffer.prototype.byteLength has exactly one expected failure
+    // here: a non-SAB receiver. Do not consult mutable TypeError instanceof
+    // hooks merely to classify ordinary ArrayBuffer input.
+    return false;
   }
 }
 
@@ -229,7 +240,10 @@ export class ActorArena {
     arrayPush.call(this.#freePersistent, {...entry});
     arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    // Do not use Array iteration protocols here: Array.prototype[Symbol.iterator]
+    // is mutable userland code and must never observe private free-list metadata.
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
