@@ -182,12 +182,19 @@ def verify_file(path=CONTRACT):
         if exc.errno == errno.ELOOP:
             raise ContractError('contract must not be a symlink') from exc
         raise
-    with os.fdopen(fd, 'rb') as stream:
-        info = os.fstat(stream.fileno())
+    try:
+        # Validate the opened descriptor BEFORE fdopen: fdopen can itself
+        # reject directories, leaving ownership of fd ambiguous.
+        info = os.fstat(fd)
         require(stat.S_ISREG(info.st_mode), 'contract must be a regular file')
         require(info.st_size <= MAX_CONTRACT_BYTES, 'oversized contract')
-        raw = stream.read(MAX_CONTRACT_BYTES + 1)
-        require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
+        with os.fdopen(fd, 'rb') as stream:
+            fd = -1  # stream has taken ownership; it closes on every exit.
+            raw = stream.read(MAX_CONTRACT_BYTES + 1)
+            require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
+    finally:
+        if fd >= 0:
+            os.close(fd)
     digest = hashlib.sha256(raw).hexdigest()
     require(digest == EXPECTED_SHA256, 'contract bytes drift; bump policy version deliberately')
     verify_document(decode_document(raw))
