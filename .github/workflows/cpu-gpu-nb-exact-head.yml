@@ -71,7 +71,7 @@ jobs:
             echo 'SHA-only compiler configuration unexpectedly passed' >&2
             exit 1
           fi
-          if env ORESLANG_LLVM_COMPILER=/bin/false -u ORESLANG_LLVM_COMPILER_SHA256 \
+          if env -u ORESLANG_LLVM_COMPILER_SHA256 ORESLANG_LLVM_COMPILER=/bin/false \
               node --test tests/cpu-gpu-nb-admission.test.mjs \
               >"$RUNNER_TEMP/wasm-domain-evidence/compiler-only.txt" 2>&1; then
             echo 'compiler-only configuration unexpectedly passed' >&2
