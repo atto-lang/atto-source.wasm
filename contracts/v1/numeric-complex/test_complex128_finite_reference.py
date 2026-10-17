@@ -205,7 +205,11 @@ class ComplexReferenceContract(unittest.TestCase):
             x = copy.deepcopy(self.doc)
             candidate = x["operations"][idx]
             original = candidate["a"][0]
-            candidate["a"][0] = "2" if original != "2" else "3"
+            # Preserve each vector's exponent scale, otherwise the
+            # mutation itself may overflow before validation can reject it.
+            candidate["a"][0] = ("5e-324" if original == "0"
+                                 else (original[1:] if original.startswith("-")
+                                       else "-" + original))
             candidate["expected_bits"] = actual_bits(candidate)
             with self.subTest(id=candidate["id"]), self.assertRaisesRegex(
                     ValueError, "approved complex source inputs"):
