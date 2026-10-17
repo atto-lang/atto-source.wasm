@@ -114,7 +114,8 @@ def _api_get(path):
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
            job_step_pairs=None, workflow_path=None, workflow_id=None,
-           workflow_blob_sha=None, expected_event=None):
+           workflow_blob_sha=None, expected_event=None,
+           expected_run_path=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -131,6 +132,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("expected an exact trusted workflow path under .github/workflows")
     workflow_id = _int(workflow_id, "independently pinned workflow id")
     workflow_blob_sha = _sha(workflow_blob_sha)
+    if not _run_workflow_path_matches(expected_run_path, workflow_path):
+        raise Denied("expected independently pinned exact workflow run path")
     if expected_event not in ("push", "pull_request"):
         raise Denied("only independently selected push or pull_request event is permitted")
     if not isinstance(required_jobs, (list, tuple)) or not isinstance(required_steps, (list, tuple)):
@@ -189,7 +192,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or run.get("head_sha") != commit
             or run.get("event") != expected_event
             or type(run.get("workflow_id")) is not int or run["workflow_id"] != workflow_id
-            or not _run_workflow_path_matches(run.get("path"), workflow_path)
+            or run.get("path") != expected_run_path
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"):
         raise Denied("workflow run is not a successful exact-repository HEAD execution")
@@ -296,12 +299,13 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or final_run.get("workflow_id") != workflow_id
             or final_run.get("status") != "completed"
             or final_run.get("conclusion") != "success"
-            or not _run_workflow_path_matches(final_run.get("path"), workflow_path)
+            or final_run.get("path") != expected_run_path
             or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
             or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
         raise Denied("workflow run changed during evidence collection")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
+            "workflow_run_path": expected_run_path,
             "event": expected_event,
             "head_commit": commit,
             "head_tree": tree, "workflow_blob_sha": workflow_blob_sha,
@@ -318,6 +322,8 @@ def main(argv=None):
     parser.add_argument("--run-id", required=True, type=int)
     parser.add_argument("--event", required=True, choices=("push", "pull_request"),
                         help="Independently pinned GitHub event type; no dispatch or chained runs")
+    parser.add_argument("--workflow-run-path", required=True,
+                        help="Exact independently approved GitHub run.path including any @ref")
     parser.add_argument("--workflow-path", required=True,
                         help="Exact independently reviewed .github/workflows/*.yml path")
     parser.add_argument("--workflow-id", required=True, type=int,
@@ -342,7 +348,8 @@ def main(argv=None):
                         job_step_pairs=pairs, workflow_path=args.workflow_path,
                         workflow_id=args.workflow_id,
                         workflow_blob_sha=args.workflow_blob_sha,
-                        expected_event=args.event)
+                        expected_event=args.event,
+                        expected_run_path=args.workflow_run_path)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
