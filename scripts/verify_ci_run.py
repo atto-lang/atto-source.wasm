@@ -7,6 +7,7 @@ It never copies source, triggers CI, or mutates GitHub state.
 import argparse
 from datetime import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -87,6 +88,48 @@ def _timestamp(value, label):
         raise Denied(label + " has an invalid execution timestamp") from exc
 
 
+MAX_API_JSON_BYTES = 4 * 1024 * 1024
+
+
+def _strict_api_json(raw):
+    # GitHub evidence must not depend on Python's permissive last-key-wins
+    # parser, JavaScript-only nonfinite numbers, or lossy giant numeric tokens.
+    if not isinstance(raw, bytes) or len(raw) > MAX_API_JSON_BYTES:
+        raise Denied("GitHub API JSON response is missing or oversized")
+
+    def unique_keys(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise Denied("GitHub API JSON has duplicate object keys")
+            result[name] = value
+        return result
+
+    def no_constant(value):
+        raise Denied("GitHub API JSON contains a nonstandard number")
+
+    def strict_int(value):
+        if len(value) > 64:
+            raise Denied("GitHub API JSON integer is oversized")
+        return int(value)
+
+    def strict_float(value):
+        if len(value) > 128:
+            raise Denied("GitHub API JSON floating-point token is oversized")
+        number = float(value)
+        if not math.isfinite(number):
+            raise Denied("GitHub API JSON contains a nonfinite number")
+        return number
+
+    try:
+        data = json.loads(raw, object_pairs_hook=unique_keys,
+                          parse_constant=no_constant, parse_int=strict_int,
+                          parse_float=strict_float)
+    except (UnicodeError, ValueError, OverflowError, RecursionError) as exc:
+        raise Denied("malformed GitHub API JSON response") from exc
+    return _object(data, "GitHub API response")
+
+
 def _api_get(path):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -107,12 +150,7 @@ def _api_get(path):
             raw = resp.read(4 * 1024 * 1024 + 1)
     except (OSError, urllib.error.HTTPError, urllib.error.URLError) as exc:
         raise Denied("authenticated GitHub API query failed") from exc
-    if len(raw) > 4 * 1024 * 1024:
-        raise Denied("GitHub response too large")
-    try:
-        return _object(json.loads(raw), "GitHub API response")
-    except (ValueError, UnicodeError) as exc:
-        raise Denied("malformed GitHub JSON response") from exc
+    return _strict_api_json(raw)
 
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
