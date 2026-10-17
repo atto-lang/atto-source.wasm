@@ -173,7 +173,7 @@ def verify_file(path=CONTRACT):
     # Keep the integrity check on one descriptor. A separate lstat()/read_bytes()
     # would allow a symlink swap between checking the path and opening it.
     # NONBLOCK also prevents a malicious FIFO from hanging before fstat rejects it.
-    if not hasattr(os, 'O_NOFOLLOW') or not hasattr(os, 'O_NONBLOCK'):
+    if not getattr(os, 'O_NOFOLLOW', 0) or not getattr(os, 'O_NONBLOCK', 0):
         raise ContractError('no safe nofollow/nonblocking open available')
     flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, 'O_CLOEXEC', 0)
     try:
