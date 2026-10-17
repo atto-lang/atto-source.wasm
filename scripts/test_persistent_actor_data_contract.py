@@ -232,6 +232,28 @@ class PersistentActorPolicyTest(unittest.TestCase):
                                 read_bounded_contract(DATA)
 
 
+    def test_secure_flags_reject_directory_access_and_optional_aliases(self):
+        # All required bits must be independent; checking only NOFOLLOW vs
+        # NONBLOCK misses shims that alias a real mode or directory flag.
+        scenarios = (
+            ("O_DIRECTORY", 0),
+            ("O_DIRECTORY", None),
+            ("O_DIRECTORY", os.O_NOFOLLOW),
+            ("O_NOFOLLOW", os.O_DIRECTORY),
+            ("O_NONBLOCK", os.O_ACCMODE),
+            ("O_ACCMODE", os.O_NOFOLLOW),
+            ("O_ACCMODE", 0),
+            ("O_CLOEXEC", os.O_NOFOLLOW),
+            ("O_BINARY", os.O_NONBLOCK),
+            ("O_BINARY", -1),
+        )
+        for name, value in scenarios:
+            with self.subTest(flag=name, value=value):
+                with patch.object(os, name, value, create=True):
+                    with patch.object(os, "open", side_effect=AssertionError("unsafe open")):
+                        with self.assertRaisesRegex(ContractError, "secure no-follow"):
+                            read_bounded_contract(DATA)
+
     def test_reject_oversized_contract_file(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.json"
@@ -242,7 +264,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 36
+    expected = 37
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
