@@ -8,6 +8,11 @@ claim parity where the backends differ. Every backend must fail closed until
 it implements AST, effects, ownership, graph lowering and actual execution.
 No implicit GPU→CPU fallback is ever permitted.
 
+**Normative precedence:** source-level no-value and empty-GPU rules follow
+`contracts/v1/CPU_GPU_NB_V1.md`: `void`/`Future<void>`, with no implicit `Unit`
+value and no fabricated empty GPU launch. Host-only graph executors may retain
+an internal `Unit` sentinel without exposing it through `.ores` source typing.
+
 ## Decision: placement, nonblocking, stream are three independent axes
 
 `cpu` and `gpu` select an **execution domain**. `nb` requests a
@@ -21,7 +26,7 @@ backpressured producer/consumer contract**; `nb` alone does not create one.
 | `nb cpu { body }` | `Future<T>` | Submit a CPU graph, complete once |
 | `nb gpu { body }` | `Future<T>` | Submit a GPU graph, complete once |
 | `nb select ...` | unchanged | Existing nonblocking select; not placement |
-| `nb gpu { writech(output, value); ... }` | `Future<Unit>`, plus separately declared `Channel<V>` | Explicit bounded streaming via channels |
+| Explicit host-owned `Channel<V>` publication after a completed region | `Future<void>` for a no-value host publishing task, plus a separately declared `Channel<V>` | A GPU kernel cannot call `writech`; a bounded host continuation publishes the completed value |
 
 Here `T` is the **actual resulting expression type**, not necessarily a
 host-owned primitive. GPU results normally contain opaque device-resident
@@ -29,14 +34,19 @@ values (`GpuBuffer<T>` or a typed device scalar) until an explicitly
 authorized download. Neither `nb` nor assignment downloads device data.
 No implicit blocking wait is inserted into a nonblocking expression.
 
-**Empty block:** the proposed first-class singleton `Unit` (`()` value)
-is the result of an empty block. It is *not* a unary number or uninitialized
-value. `void` remains the existing no-return API annotation; compilers need
-an agreed `Unit` representation before accepting
-`const x = gpu {};`. The last value expression without a semicolon is the
-proposed region result, or an explicit value-result form can be selected by
-the grammar team; an ordinary `return` must not silently return from the
-enclosing routine. This is not existing parser behavior.
+**No-value blocks:** a region that performs allowed effects but has no value
+tail has a `void` result. `nb` wraps that result as `Future<void>`. There is
+no source-level `Unit` singleton introduced by the v1 execution-region
+contract. In particular, `const x = cpu { effect(); };` is not a legal
+value binding, and a bare empty `gpu {}` is rejected rather than fabricating
+a kernel launch, result, or completion value. An effectful `gpu { ... }` may
+be a statement only once the typed launch and device-effect checks exist.
+An internal host-graph `Unit` completion sentinel is an implementation detail,
+not an Oreslang expression value or an alternate type spelling. The last
+value expression without a semicolon is the proposed region result, or an
+explicit value-result form can be selected by the grammar team; ordinary
+`return` must not silently return from the enclosing routine. This is not
+existing parser behavior.
 
 ## Separate execution regions from anonymous GPU kernel declarations
 
@@ -57,12 +67,12 @@ remains a statically typed callable kernel.
 ```ores
 // DESIGN FIXTURE ONLY: not yet accepted as executable .ores source.
 pub routine sample(): void {
-    const empty = gpu {};               // Unit, *after* GPU completion
-    const future = nb gpu {              // Future<Unit>, not a Channel
-        const first = cpu { 21 * 2 };    // typed CPU step; waits for input deps
-        const second = gpu { first * 2 };// explicit GPU-safe scalar lowering needed
-        const third = cpu { second };    // illegal *as host data* absent download
+    cpu { log_metric(); }                // effect-only host region: void
+    const future = nb gpu {              // Future<void>, not a Channel
+        kernel_write(output);           // illustrative GPU-safe effect
     };
+    // A subsequent host continuation must await a real completion fence.
+    // An implicit GPU->CPU read of `output` is still illegal.
 }
 ```
 
@@ -125,9 +135,11 @@ Scalar results require an explicit reduction/unique-writer proof.
 
 ## Portable parity vectors / required tests
 
-- Accept in future: synchronous CPU and GPU regions with `Unit` and
-  expression values; nested CPU→GPU→CPU→GPU graph with checked explicit
-  transfers; `Future<T>` and independent bounded `Channel<T>` streams.
+- Accept in future: synchronous CPU and effectful GPU regions with typed
+  expression values or `void` statements; nested CPU→GPU→CPU→GPU graph with
+  checked explicit transfers; `Future<T>` (including `Future<void>`) and
+  independently bounded `Channel<T>` streams. An empty GPU region remains
+  invalid and cannot be used as a value.
 - Reject until supported: `gpu {}`, `cpu {}`, `nb gpu {}`, `nb cpu {}`,
   `gpu { cpu { gpu {} } }`, `nb gpu { nb cpu {} }`, and GPU callable
   syntax on a backend lacking trusted lowering.
@@ -171,7 +183,7 @@ blocks, and no general GPU backend is enabled by this contract.
 
 | Backend | Host-side implementation | Source-language execution |
 | --- | --- | --- |
-| Java | `ExecutionGraphV1`: immutable typed graph, `Unit`, checked i64 CPU steps, OresFuture, cancellation; `ExecutionSurfaceV1`: eager region vs `gpu () {}` callable disambiguation; `ExecutionGraphChannelV1`: one-value publication into explicitly bounded ChannelRuntime | Not enabled; real AST/type/effect/owned region integration required |
+| Java | `ExecutionGraphV1`: immutable typed host graph, **internal** `Unit` completion sentinel, checked i64 CPU steps, OresFuture, cancellation; `ExecutionSurfaceV1`: eager region vs `gpu () {}` callable disambiguation; `ExecutionGraphChannelV1`: one-value publication into explicitly bounded ChannelRuntime | Not enabled; no source-level `Unit` admission; real AST/type/effect/owned region integration required |
 | LLVM | `ExecutionGraphV1.hpp`: typed graph, checked native CPU steps, cancellable one-shot futures, strict device/transfer refusal | Not enabled; general source lowering required |
 | Forge | Independent namespace port of LLVM typed CPU graph and cancellation tests, registered with CTest | Not enabled; scalar bootstrap admission only |
 | .NET | Native AOT-safe `ExecutionGraphV1.cs`: typed checked CPU graph, externally admitted Task<T> futures and cancellation, explicit unsupported device/transfer nodes | Not enabled; scalar CIL source bootstrap only |
