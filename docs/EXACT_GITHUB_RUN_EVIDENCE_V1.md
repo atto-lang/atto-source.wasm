@@ -121,6 +121,7 @@ python3 scripts/verify_ci_run.py --backend java \
   --commit "$PINNED_HEAD_SHA" --tree "$PINNED_GIT_TREE_SHA" \
   --run-id "$GITHUB_RUN_ID" --event "push" \
   --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \
+  --workflow-run-path ".github/workflows/ci-run-evidence-contract.yml@refs/heads/main" \
   --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
   --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
   --require-job "exact-run-evidence-contract" \
@@ -130,6 +131,25 @@ python3 scripts/verify_ci_run.py --backend java \
 These checks do not authorize private-source cross-organization mirroring.
 Actual compiler source transfer remains blocked by independent protected-main
 policy approval and the open incident containment actions.
+
+
+## Exact workflow-run ref pinning
+
+`--workflow-path` still identifies the reviewed workflow file inside the
+source commit. The new mandatory `--workflow-run-path` specifies the
+**exact**, independently approved GitHub Actions `run.path` string, including
+a full `@ref` qualifier when GitHub returns one (for example,
+`.github/workflows/ci.yml@refs/heads/main`). The verifier compares that
+string byte-for-byte with both the initial and final run responses.
+An otherwise valid run for `ci.yml@refs/heads/unreviewed` **cannot**
+satisfy a pin for `ci.yml@refs/heads/main`.
+
+A file-only match or a workflow blob from the candidate tree cannot prove
+that an alternate ref actually executed the reviewed workflow. Obtain this
+pin from trusted review policy, never by copying the candidate response's
+`path`. Valid documented unqualified run paths can be pinned exactly;
+no qualified/unqualified fallback is allowed. This does not change the
+need to inspect native guest results, source privacy, or branch protection.
 
 ## Workflow-content and job-HEAD pins
 
@@ -162,6 +182,6 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite contains at least 58 unittest methods and is
+The source-free regression suite contains at least 60 unittest methods and is
 executed for three rounds when GitHub Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
