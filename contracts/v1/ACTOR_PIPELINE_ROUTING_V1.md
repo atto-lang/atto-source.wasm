@@ -16,8 +16,18 @@ ownership, message admission and single-flight execution in that backend.
   missing port. Edges must match the exact nominal output/input payload type.
 - `readable`: outgoing only, no inbound; `writable`: incoming only,
   no outbound; `transform` and `duplex`: both typed ports.
+- A `transform` must have at least one **actual connected inbound edge** and
+  at least one **actual connected outbound edge**. Merely declaring a typed
+  output port does not make a terminal transform a valid pipeline sink.
 - Reject duplicate, self, unknown, mismatched, cyclic, isolated and
   wrongly directed edges. Graphs must have an authorized ingress root.
+- Actor instance identities are compared as **exact UTF-8 sequences**, not
+  Unicode-normalized or case-folded strings. For example, composed `é` and
+  decomposed `e + U+0301` remain distinct instances. The supervisor must
+  avoid visually ambiguous names in administrative interfaces.
+- An edge's identity is the **structural tuple** `(source instance ID,
+  target instance ID)`, never string concatenation using user-controlled
+  delimiters. `(a:b, c)` and `(a, b:c)` are separate valid connections.
 - Connection order is the supervisor-published edge order, never hash map
   iteration order or task scheduling order. On topology generation change,
   rebuild selectors only after quiescence or an explicit abort barrier.
@@ -34,6 +44,13 @@ ownership, message admission and single-flight execution in that backend.
 | `self.backward(value)` | one correlated immediate authenticated upstream hop |
 | `self.reply(value)` | correlated reverse path to the original sender, preserving branch identity |
 
+Graph identifiers prohibit embedded NUL. **Routing keys are different**:
+they may be empty or contain U+0000, hashed as their exact UTF-8 bytes.
+Reject malformed Unicode; do not replace invalid code points or treat the
+first NUL as string termination. The canonical `"\\u0000"` vector
+hashes to `af63bd4c8601b7df`, which selects `worker-a` in the
+three-consumer fixture.
+
 `forward_all` is **not transactional**. A successful receipt is only
 mailbox admission, not processing or exactly-once delivery. Partial success
 is returned per edge, never hidden. A moved unique value cannot be fanned
@@ -46,6 +63,13 @@ no borrowed loans across suspension, and lifecycle barriers: STOP seals
 new admission; accepted mail and terminal cleanup obey supervisor policy;
 DONE follows complete cleanup. No actor carrier may block on a host
 retirement gate.
+
+**Keyed route validation order:** validate the active graph generation and
+caller-authorized downstream source **before** inspecting or hashing the
+user-supplied UTF-8 key. Unknown sources and retired generations must fail
+with their routing/retirement diagnostic even if the key is malformed.
+The scheduler's actor identity authorization remains a separate, stronger
+precondition before any selector operation.
 
 ## Fixed cross-backend selector vectors
 
