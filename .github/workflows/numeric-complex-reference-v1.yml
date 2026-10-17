@@ -1,4 +1,4 @@
-name: Complex128 finite-reference conformance (not guest parity)
+name: Complex128 reference conformance (finite + IEEE special; not guest parity)
 on:
   pull_request:
     paths:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  finite-complex128-reference:
+  complex128-reference:
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -31,31 +31,39 @@ jobs:
           git diff --cached --quiet
           printf 'commit=%s\n' "$observed" >> "$GITHUB_OUTPUT"
           printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
-      - name: Execute 10 complex reference tests in three complete rounds
-        id: finite_oracles
+      - name: Execute finite and IEEE-special reference suites in three complete rounds
+        id: reference_oracles
         shell: bash
         run: |
           set -euo pipefail
-          python3 -I -m py_compile contracts/v1/numeric-complex/test_complex128_finite_reference.py
+          python3 -I -m py_compile \
+            contracts/v1/numeric-complex/test_complex128_finite_reference.py \
+            contracts/v1/numeric-complex/test_complex128_ieee_special.py
           python3 -I - <<'PY'
           import importlib.util
           from pathlib import Path
           import unittest
 
-          path = Path("contracts/v1/numeric-complex/test_complex128_finite_reference.py")
-          spec = importlib.util.spec_from_file_location("complex128_finite_v1", path)
-          if spec is None or spec.loader is None:
-              raise SystemExit("NUMERIC_COMPLEX_TEST_SOURCE_MISSING")
-          module = importlib.util.module_from_spec(spec)
-          spec.loader.exec_module(module)
+          suites = (
+              ("finite", Path("contracts/v1/numeric-complex/test_complex128_finite_reference.py"), 10),
+              ("ieee_special", Path("contracts/v1/numeric-complex/test_complex128_ieee_special.py"), 8),
+          )
           for round_id in range(1, 4):
-              suite = unittest.defaultTestLoader.loadTestsFromModule(module)
-              if suite.countTestCases() != 10:
-                  raise SystemExit("NUMERIC_COMPLEX_V1_TEST_COUNT_CHANGED")
-              result = unittest.TextTestRunner(verbosity=2).run(suite)
-              if result.testsRun != 10 or not result.wasSuccessful() or result.skipped or result.expectedFailures or result.unexpectedSuccesses:
-                  raise SystemExit("NUMERIC_COMPLEX_REFERENCE_ROUND_FAILED")
-              print(f"NUMERIC_COMPLEX_FINITE_REFERENCE_ROUND_{round_id}=10_NOT_GUEST")
+              for label, path, expected in suites:
+                  spec = importlib.util.spec_from_file_location("complex128_" + label, path)
+                  if spec is None or spec.loader is None:
+                      raise SystemExit("NUMERIC_COMPLEX_TEST_SOURCE_MISSING_" + label)
+                  module = importlib.util.module_from_spec(spec)
+                  spec.loader.exec_module(module)
+                  suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+                  if suite.countTestCases() != expected:
+                      raise SystemExit("NUMERIC_COMPLEX_V1_TEST_COUNT_CHANGED_" + label)
+                  result = unittest.TextTestRunner(verbosity=2).run(suite)
+                  if (result.testsRun != expected or not result.wasSuccessful()
+                          or result.skipped or result.expectedFailures
+                          or result.unexpectedSuccesses):
+                      raise SystemExit("NUMERIC_COMPLEX_REFERENCE_ROUND_FAILED_" + label)
+                  print(f"NUMERIC_COMPLEX_{label.upper()}_ROUND_{round_id}={expected}_NOT_GUEST")
           PY
       - name: Write non-certifying reference run metadata
         if: ${{ always() }}
@@ -65,7 +73,7 @@ jobs:
           OBSERVED_HEAD: ${{ steps.identity.outputs.commit }}
           OBSERVED_TREE: ${{ steps.identity.outputs.tree }}
           IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
-          ORACLE_OUTCOME: ${{ steps.finite_oracles.outcome }}
+          ORACLE_OUTCOME: ${{ steps.reference_oracles.outcome }}
           REPOSITORY_ID: ${{ github.repository_id }}
         run: |
           set -euo pipefail
@@ -75,7 +83,7 @@ jobs:
           from pathlib import Path
 
           data = {
-              "schema": "oreslang-complex128-reference-only-v1",
+              "schema": "oreslang-complex128-reference-only-v2",
               "classification": "REFERENCE_ONLY_NOT_NATIVE_COMPILER_PARITY",
               "repository": os.environ["GITHUB_REPOSITORY"],
               "repository_id": os.environ["REPOSITORY_ID"],
@@ -85,7 +93,7 @@ jobs:
               "observed_checkout_commit": os.environ["OBSERVED_HEAD"],
               "observed_checkout_tree": os.environ["OBSERVED_TREE"],
               "checkout_step_outcome": os.environ["IDENTITY_OUTCOME"],
-              "rational_reference_step_outcome": os.environ["ORACLE_OUTCOME"],
+              "finite_and_ieee_reference_step_outcome": os.environ["ORACLE_OUTCOME"],
               "runner_name": os.environ.get("RUNNER_NAME", ""),
               "native_compiler_executed": False,
               "guest_execution_verified": False,
