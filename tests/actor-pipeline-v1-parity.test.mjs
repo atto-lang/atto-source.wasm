@@ -115,9 +115,12 @@ test('route hashing ignores poisoned typed-array iterator and numeric constructo
     hash = actorRouteHash64('beta');
     target = p.forwardByKey('producer-1', 'beta').target;
   } finally {
-    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
-    Object.defineProperty(globalThis, 'BigInt', bigint);
-    Object.defineProperty(globalThis, 'Number', number);
+    if (iterator) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    else delete Uint8Array.prototype[Symbol.iterator];
+    if (bigint) Object.defineProperty(globalThis, 'BigInt', bigint);
+    else delete globalThis.BigInt;
+    if (number) Object.defineProperty(globalThis, 'Number', number);
+    else delete globalThis.Number;
   }
   assert.equal(hash, referenceHash);
   assert.equal(target, referenceTarget);
