@@ -185,3 +185,29 @@ carrier run cannot certify a different source repository's commit.
 The source-free regression suite contains at least 60 unittest methods and is
 executed for three rounds when GitHub Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
+
+## Short-lived Actions evidence artifact
+
+The identical `.github/workflows/ci-run-evidence-contract.yml` in all five
+backends captures the expected pull-request HEAD, exact checked-out Git
+commit/tree, repository ID, runner name and the source-free regression-step
+outcome. It attempts to upload a **three-day-retention**, metadata-only
+`source-free-ci-evidence-<run-id>-<attempt>` artifact, including when a
+regression fails; it does **not** upload private compiler source or binaries.
+
+The JSON intentionally includes `verified_execution_claim: false`.
+It is a self-reported diagnostic, **not** a signed or independently
+verified compiler attestation. A missing ZIP on a zero-runner/zero-step
+workflow is expected and must never be treated as evidence of a pass.
+A present ZIP is also insufficient: compare the actual GitHub run ID,
+attempt, numeric repository and runner IDs, exact commit/tree, required
+job/step outcomes, and relevant native test reports using an independent
+read-only verifier before making an execution claim.
+
+A synthetic hosted-runner upload control passed at
+[ClipTown Actions run 38989763414](https://github.com/cliptown/cliptown-e2e/actions/runs/38989763414)
+with artifact `source-free-ci-evidence-38989763414-1`, showing that the
+pinned artifact action works on an allocated runner. This was **not**
+any of the five source repositories' native compiler CI and did not
+transport their private Git trees. Numerical/actor guest parity remains
+unverified until backend-native tests execute with reviewed provenance.
