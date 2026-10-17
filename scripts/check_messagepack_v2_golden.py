@@ -57,6 +57,45 @@ def parse_shape(text):
     check(tree)
     return tree
 
+SCALAR_SHAPES = {"bool": "B", "int64": "I", "float64": "F", "string": "S"}
+SEQUENCE_SHAPES = {"Tuple": "T", "FixedArray": "FA", "FixedList": "FL",
+                   "Array": "A", "List": "L"}
+
+def declared_shape_descriptor(vector):
+    # Metadata is part of the public cross-backend fixture contract.
+    # A matching hex envelope must not launder a mislabelled kind or shape.
+    def element(spec, depth=0):
+        require(depth <= 64, "metadata nesting depth")
+        if type(spec) is str:
+            require(spec in SCALAR_SHAPES, "unknown scalar metadata")
+            return SCALAR_SHAPES[spec]
+        require(type(spec) is dict and len(spec) == 1,
+                "invalid collection metadata")
+        kind, member = next(iter(spec.items()))
+        require(kind in SEQUENCE_SHAPES, "unknown nested collection kind")
+        prefix = SEQUENCE_SHAPES[kind]
+        if kind in ("Array", "List"):
+            return prefix + "[" + element(member, depth + 1) + "]"
+        require(type(member) is list and len(member) <= 100_000,
+                "invalid fixed metadata members")
+        return prefix + "[" + ",".join(element(x, depth + 1)
+                                       for x in member) + "]"
+
+    kind = vector["kind"]
+    shape = vector["shape"]
+    if kind in SCALAR_SHAPES:
+        require(shape == kind, "scalar kind/shape mismatch")
+        return SCALAR_SHAPES[kind]
+    require(kind in SEQUENCE_SHAPES, "unknown fixture kind")
+    prefix = SEQUENCE_SHAPES[kind]
+    if kind in ("Array", "List"):
+        require(type(shape) is dict and set(shape) == {"element"},
+                "variable collection requires one element type")
+        return prefix + "[" + element(shape["element"], 1) + "]"
+    require(type(shape) is list and len(shape) <= 100_000,
+            "fixed collection must list member types")
+    return prefix + "[" + ",".join(element(x, 1) for x in shape) + "]"
+
 def pack_array(n):
     require(0 <= n <= 100_000, "array length budget")
     if n <= 15:
@@ -120,6 +159,8 @@ def canonical(vector):
             and all(33 <= ord(ch) <= 126 for ch in schema), "schema ID")
     shape = vector["shape_descriptor"]
     require(type(shape) is str and len(shape) <= 1_048_576, "shape")
+    require(declared_shape_descriptor(vector) == shape,
+            "fixture kind/shape metadata disagrees with pinned wire descriptor")
     tree = parse_shape(shape)
     digest = hashlib.sha256(("oreslang.actor.shape.v2/" + shape).encode("ascii")).digest()
     data = (pack_array(4) + pack_integer(2) + pack_string(schema)
@@ -166,10 +207,12 @@ def main():
     verify(document)
     rejected = 0
     for index in range(6):
-        for field in ("schema_id", "shape_descriptor", "input", "hex"):
+        for field in ("kind", "shape", "schema_id", "shape_descriptor", "input", "hex"):
             tampered = copy.deepcopy(document)
             item = tampered["vectors"][index]
-            if field == "schema_id": item[field] += ".forged"
+            if field == "kind": item[field] = "Tuple" if item[field] != "Tuple" else "List"
+            elif field == "shape": item[field] = "bool" if item[field] != "bool" else "string"
+            elif field == "schema_id": item[field] += ".forged"
             elif field == "shape_descriptor": item[field] = "B" if item[field] == "S" else "S"
             elif field == "input": item[field] = None
             else: item[field] = "00" + item[field][2:]
@@ -179,8 +222,8 @@ def main():
                 rejected += 1
             else:
                 raise AssertionError("mutated golden fixture accepted: " + field)
-    assert rejected == 24, rejected
-    print("PASS 6 canonical MessagePack v2 vectors and 24 negative fixture mutations (source-free oracle)")
+    assert rejected == 36, rejected
+    print("PASS 6 canonical MessagePack v2 vectors and 36 negative fixture mutations (source-free oracle)")
 
 if __name__ == "__main__":
     main()
