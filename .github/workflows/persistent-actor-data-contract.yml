@@ -45,7 +45,7 @@ jobs:
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
           test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "e423ef5aef92a48eb1fb5c38578b986f20da2130"
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "462b5fa9d39a79e6631959a295af169b46c039b4"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "eec6eb9f1f08aac8c569f1d24cd53b795c91fcc9"
       - name: Reject capability and fixture drift
         run: python3 scripts/verify_persistent_actor_data_contract.py
       - name: Execute exactly 44 source-free policy tests in three rounds
@@ -96,7 +96,7 @@ jobs:
           expected = {
               "contracts/v1/persistent_actor_data_v1.json": "83a40f637ab77437108d02fedc8cde997f753928",
               "scripts/verify_persistent_actor_data_contract.py": "e423ef5aef92a48eb1fb5c38578b986f20da2130",
-              "scripts/test_persistent_actor_data_contract.py": "462b5fa9d39a79e6631959a295af169b46c039b4"}
+              "scripts/test_persistent_actor_data_contract.py": "eec6eb9f1f08aac8c569f1d24cd53b795c91fcc9"}
           counts = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])
                                / "persistent-actor-round-counts.json").read_text())
           if (blobs != expected or git("rev-parse", "HEAD") != os.environ["EXPECTED_HEAD"]
