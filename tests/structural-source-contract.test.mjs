@@ -98,3 +98,34 @@ test("Wasm bridge refuses unimplemented structural tuple width and optional-tail
     await rm(work, {recursive: true, force: true});
   }
 });
+
+test("LLVM-backed Wasm rejects unsupported v2 optional and borrowed tuple slots", {
+  skip: !process.env.ORESLANG_LLVM_COMPILER
+}, async () => {
+  const work = await mkdtemp(join(tmpdir(), "ores-wasm-v2-slot-guards-"));
+  try {
+    const fixtures = [
+      ["optional-middle", "fnc take((int?,string,int) v):int{return 1;}"],
+      ["option-value", "fnc take((int,Option<string>) v):int{return 1;}"],
+      ["borrowed-slot", "fnc take(structural (&mut int,int) v):int{return 1;}"]
+    ];
+    for (const [name, text] of fixtures) {
+      const input = join(work, name + ".ores");
+      await writeFile(input, text, {flag:"wx"});
+      const before = await readdir(work);
+      const result = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [input], {
+        cwd:work, encoding:"utf8", timeout:15000, maxBuffer:1024*1024
+      });
+      assert.equal(result.error, undefined, name + ": native compiler must run");
+      assert.equal(result.signal, null, name + ": compiler must diagnose instead of crash");
+      assert.ok(Number.isInteger(result.status) && result.status > 0,
+        name + ": unsupported tuple form must not compile");
+      assert.notEqual(result.stderr.trim(), "", name + ": missing diagnostic");
+      assert.equal(result.stdout.trim(), "", name + ": rejected source emitted LLVM IR");
+      assert.deepEqual(await readdir(work), before,
+        name + ": rejected source must not create any artifact");
+    }
+  } finally {
+    await rm(work, {recursive:true, force:true});
+  }
+});
