@@ -310,3 +310,53 @@ oversized bodies, plus the actual authenticated fetch-to-parser call path.
 Matching Git blobs in Java, LLVM, .NET, WASM and Forge are a **CI evidence
 contract parity** property; they do not establish native compiler execution,
 guest actor semantics, or authorization to mirror private source.
+
+## Five-backend source-free runner-allocation canary (2026-10-16 ET)
+
+All five `oreslang-source.*` integration branches carry byte-identical
+`.github/workflows/source-free-runner-allocation-canary.yml`
+(Git blob `32f204e2b0f4a03abf3b18691cc2475cff76479d`).
+It triggers only when the canary workflow file changes on
+`integration/serde-routing-actor-arena-20261016`, uses
+`permissions: {}`, **does not checkout or read private source**, and does
+not use a user-supplied PAT/secret. On an allocated runner only, it checks
+the exact GitHub event, ref, workflow ref, pinned numeric source repository
+identity, provided commit context, run/attempt IDs and runner environment,
+then writes a three-day metadata-only diagnostic artifact. No output of
+this canary is a compiler, native guest, actor or release proof. The reported
+commit is `GITHUB_SHA` context **not** independently authenticated Git
+source tree content, and the actual allocated numeric `runner_id` must
+be verified separately via read-only GitHub job API.
+
+Exact-source canary runs (each recorded `runner_id=0`,
+**0 completed job steps**, **0 artifacts**, `failure`):
+
+| Backend | Run | Job ID |
+| --- | --- | --- |
+| Java | [38996778405](https://github.com/ores-truffle-oreslang/oreslang-source.java/actions/runs/38996778405) | 117290968841 |
+| LLVM | [38996785587](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/actions/runs/38996785587) | 117290988640 |
+| .NET | [38996790571](https://github.com/ores-truffle-oreslang/oreslang-source.net/actions/runs/38996790571) | 117291003529 |
+| Wasm | [38996797790](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/actions/runs/38996797790) | 117291025788 |
+| Forge | [38996802494](https://github.com/ores-truffle-oreslang/oreslang-source.forge/actions/runs/38996802494) | 117291040605 |
+
+These minimal no-checkout workflows corroborate an **organization-level
+runner scheduling/authorization blocker** but do not determine whether
+billing, quota, Actions policy or other GitHub restrictions caused it.
+
+A separately authored **source-free model**, with no private compiler
+Git tree, passed **9/9 Python adversarial test methods** on funded private
+[ClipTown run 38996995244](https://github.com/cliptown/cliptown-e2e/actions/runs/38996995244),
+exact carrier SHA `30882925903818420c98b0a047e3a3e53bc827f1`,
+job `117291630420`, and uploaded the three-day
+[metadata artifact 12087671913](https://github.com/cliptown/cliptown-e2e/actions/runs/38996995244/artifacts/12087671913).
+It covers the five numeric source IDs, forged run/workflow refs,
+zero/invalid run identities and missing/unsafe runner labels, not
+real Oreslang compiler or actor execution.
+
+**Next gate:** an authorized source admin must contain the outstanding
+cross-org public-source exposure, establish protected source policy and
+diagnose Actions runner allocation. An alternative private organization's
+available minutes alone does not approve transferring source. After that,
+an independently reviewed exact-head backend-native CI run must execute
+tests and upload verified compiler/guest JUnit or equivalent results before
+a release claim or draft merge.
