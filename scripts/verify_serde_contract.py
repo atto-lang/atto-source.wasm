@@ -58,6 +58,8 @@ def reject_json_constant(token):
 
 
 def decode_document(raw):
+    require(type(raw) is bytes, 'policy JSON must be exact bytes')
+    require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized policy JSON')
     try:
         return json.loads(raw.decode('utf-8', errors='strict'),
                           object_pairs_hook=unique_object,
@@ -107,7 +109,8 @@ def verify_document(doc):
             'actor_data_envelope', 'network_data_codec', 'userland_serializable',
             'userland_sendable_authorization'})}
     for field, (values, mandatory) in required.items():
-        require(mandatory <= unique_set(values, field), field + ' missing mandatory guarantees')
+        require(mandatory == unique_set(values, field),
+                field + ' missing mandatory or contains unknown guarantees')
     invariants = doc.get('invariants')
     exact_fields(invariants, {
         'sendable_is_not_serializable', 'serializable_is_not_sendable',
@@ -144,12 +147,15 @@ def verify_document(doc):
     for field, mandatory in {
         'portable_scalar_subset': {'bool', 'signed_i64', 'finite_f64', 'valid_utf8'},
         'typed_collections': {'tuple', 'fixed_array', 'fixed_list', 'array', 'list'},
-        'unsupported_without_verified_runtime_codec': {'option', 'result', 'capability'},
+        'unsupported_without_verified_runtime_codec': {
+            'option', 'result', 'record', 'enum', 'class', 'unsigned_integer',
+            'bigint', 'decimal', 'complex', 'capability'},
         'invalid_bytes_reject': {'invalid_utf8', 'noncanonical_numbers',
                                  'oversized_lengths', 'wrong_shape',
                                  'schema_mismatch', 'wire_downgrade'},
     }.items():
-        require(mandatory <= unique_set(wire.get(field), field), field + ' drift')
+        require(mandatory == unique_set(wire.get(field), field),
+                field + ' missing or contains unknown wire entries')
     verification = doc.get('verification')
     exact_fields(verification, {
         'categories', 'requires_executable_code_to_claim_implemented',
@@ -162,7 +168,7 @@ def verify_document(doc):
     require({'positive_scalar', 'nested_capability_reject', 'network_without_permission_reject',
              'control_in_data_reject', 'schema_version_mismatch_reject',
              'sender_snapshot_mutation', 'rejected_send_ownership_rollback',
-             'bounded_decode', 'generation_replay_reject', 'cross_backend_golden_bytes'} <=
+             'bounded_decode', 'generation_replay_reject', 'cross_backend_golden_bytes'} ==
             unique_set(verification.get('categories'), 'verification categories'),
             'missing runtime conformance category')
     return True
