@@ -110,7 +110,7 @@ workflow YAML Git blob (as this verifier requires), source HEAD and tree.
 The verifier denies duplicate step names within a job, because two steps
 with the same display name cannot unambiguously satisfy a named proof step.
 All required jobs and steps must be explicit sequences; malformed caller
-inputs deny verification. These guards are checked by all 67 independently defined source-free
+inputs deny verification. These guards are checked by all 69 independently defined source-free
 regression cases, three times in the CI workflow. The
 regressions are not native Oreslang compiler or runtime conformance tests.
 
@@ -183,8 +183,8 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite defines 67 unittest methods, and the workflow
-requires at least 67 per round in three rounds when Actions runners are available. Passing
+The source-free regression suite defines 69 unittest methods, and the workflow
+requires at least 69 per round in three rounds when Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
 
 ## Short-lived Actions evidence artifact
@@ -221,13 +221,13 @@ https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/3898
 This does not authorize private compiler/actor source export and does not
 attest native guest-language compilation or execution.
 
-## Independently pinned run attempt (67-case regression gate)
+## Independently pinned run attempt (69-case regression gate)
 
 The verifier requires `--run-attempt N` from independently approved release
 evidence, and compares it with GitHub's run attempt and every job's attempt.
 The existing final reread also checks that the same attempt remains current.
 A dynamically chosen latest attempt cannot silently replace reviewed evidence.
-The workflow requires at least 67 source-free unittest methods for three rounds.
+The workflow requires at least 69 source-free unittest methods for three rounds.
 
 Example additional CLI argument: `--run-attempt 2` (replace 2 with the
 independently recorded value for that run; never infer it from the run being
