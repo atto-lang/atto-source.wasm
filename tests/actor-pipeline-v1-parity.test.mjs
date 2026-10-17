@@ -15,6 +15,30 @@ for (const {key, fnv1a64_hex, target} of fixture.operations.by_key) {
   });
 }
 
+test('FNV route bytes are immune to poisoned typed-array iterator and byteLength', () => {
+  const expected = actorRouteHash64('device-42');
+  const expectedTarget = policy().forwardByKey('producer-1', 'device-42').target;
+  const iterator = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+  const size = Object.getOwnPropertyDescriptor(typedArrayProto, 'byteLength');
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, value: function* () { yield 0; yield 0; }
+    });
+    Object.defineProperty(typedArrayProto, 'byteLength', {
+      configurable: true, get() { return 0; }
+    });
+    assert.equal(actorRouteHash64('device-42'), expected);
+    const p = policy();
+    assert.equal(p.forwardByKey('producer-1', 'device-42').target, expectedTarget);
+    assert.throws(() => actorRouteHash64('x'.repeat(4097)), /byte limit/);
+  } finally {
+    if (iterator) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    else delete Uint8Array.prototype[Symbol.iterator];
+    Object.defineProperty(typedArrayProto, 'byteLength', size);
+  }
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
