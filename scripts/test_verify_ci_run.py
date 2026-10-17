@@ -56,6 +56,7 @@ class RunContract(unittest.TestCase):
 
     def verify(self, *args, **kwargs):
         kwargs.setdefault("workflow_id", 991)
+        kwargs.setdefault("expected_run_path", ".github/workflows/ci.yml")
         kwargs.setdefault("expected_event", "push")
         kwargs.setdefault("workflow_blob_sha", "c" * 40)
         return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
@@ -170,6 +171,7 @@ class RunContract(unittest.TestCase):
         self.assertIn("NOT_GUEST", self.validate()["statement"])
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
         self.assertEqual(self.validate()["workflow_path"], ".github/workflows/ci.yml")
+        self.assertEqual(self.validate()["workflow_run_path"], ".github/workflows/ci.yml")
         self.assertEqual(self.validate()["event"], "push")
 
     def test_inventory_has_all_five_distinct_pinned_repositories(self):
@@ -247,8 +249,11 @@ class RunContract(unittest.TestCase):
                       ".github/workflows/ci.yml@refs/pull/123/merge"):
             with self.subTest(value=value):
                 self.values[key]["path"] = value
-                self.assertEqual(self.validate()["verified_jobs"], 1)
-        for value in (".github/workflows/ci.yml@", 
+                result = self.verify(self.fetch, self.backend, self.commit,
+                                     self.tree, self.run_id, ["unit"],
+                                     ["Execute test suite"], expected_run_path=value)
+                self.assertEqual(result["workflow_run_path"], value)
+        for value in (".github/workflows/ci.yml@",
                       ".github/workflows/ci.yml@../main",
                       ".github/workflows/ci.yml@main@wrong",
                       ".github/workflows/ci.yml@refs//heads/main",
@@ -256,7 +261,39 @@ class RunContract(unittest.TestCase):
                       ".github/workflows/ci.yml@/refs/heads/main"):
             with self.subTest(value=value):
                 self.values[key]["path"] = value
-                self.rejected()
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit,
+                                self.tree, self.run_id, ["unit"],
+                                ["Execute test suite"], expected_run_path=value)
+
+    def test_independently_pinned_run_ref_cannot_be_substituted(self):
+        run = self.prefix + "/actions/runs/17"
+        approved = ".github/workflows/ci.yml@refs/heads/main"
+        self.values[run]["path"] = approved
+        self.assertEqual(
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_path=approved)["workflow_run_path"], approved)
+        for actual in (".github/workflows/ci.yml",
+                       ".github/workflows/ci.yml@refs/heads/feature",
+                       ".github/workflows/ci.yml@refs/pull/123/merge"):
+            with self.subTest(actual=actual):
+                self.values[run]["path"] = actual
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_path=approved)
+
+    def test_workflow_run_path_required_and_cannot_traverse(self):
+        for expected in (None, "", False, 2, ".github/workflows/ci.yml@",
+                         ".github/workflows/ci.yml@../main",
+                         ".github/workflows/ci.yml@refs//heads/main",
+                         ".github/workflows/ci.yml.bak@main"):
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(module.Denied, "independently pinned exact"):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_path=expected)
 
     def test_trusted_workflow_path_is_mandatory(self):
         with self.assertRaisesRegex(module.Denied, "trusted workflow path"):
