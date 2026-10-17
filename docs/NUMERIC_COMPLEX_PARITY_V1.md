@@ -51,11 +51,21 @@ parser, compiler, stdlib, matrix evaluator, or GPU kernel**. The manifest
 explicitly records **all five backends as `unverified`** and rejects
 attempts to promote that value based on self-reported or synthetic checks.
 
-The exact same contract and 10-method source-free test file are shared
-byte-for-byte across Java, LLVM, .NET, Wasm and Forge. A restricted
-`numeric-complex-reference-v1.yml` attempts three full, no-skip replays
-at the exact pull request source HEAD, with a short-lived metadata-only
-artifact that explicitly says native/guest parity is **false**.
+The finite contract is now paired with
+`contracts/v1/numeric-complex/complex128-ieee-special-v1.json`, a
+14-vector raw-bit special-value corpus. It pins signed-zero quadrants,
+finite-overflow-to-infinity, subnormal ties-to-even, division by zero,
+finite/infinite division, compiler-rt-style infinity recovery and
+subnormal-divisor prescaling. Expected NaN components are classification
+checks only; NaN payload bits are deliberately **not** standardized by
+this arithmetic contract.
+
+Both fixtures and their **18 total source-free test methods** (10 finite
+plus 8 IEEE-special) are shared byte-for-byte across Java, LLVM, .NET,
+Wasm and Forge. The restricted `numeric-complex-reference-v1.yml`
+requires three complete no-skip rounds of both suites at the exact pull
+request source HEAD, with a short-lived metadata-only artifact that
+explicitly says native/guest parity is **false**.
 
 ## Acceptance gates for genuine cross-backend support
 
@@ -72,11 +82,13 @@ artifact that explicitly says native/guest parity is **false**.
    round-to-nearest, ties-to-even. Backends may optimize that result only
    with an equivalence proof or a guarded fallback. Do not silently convert
    complex128 to complex64.
-3. **IEEE edge semantics:** decide and test NaN, infinities, signed
-   zero, division by zero, exact zero cancellation, `eq`/unordered
-   comparisons and optional total ordering **before** treating them as
-   universal positive golden cases. This finite oracle intentionally
-   leaves these cases pending rather than guessing.
+3. **IEEE edge semantics:** arithmetic signed-zero, infinities, division
+   by zero, subnormal divisor scaling, finite overflow and NaN-result
+   classification are frozen by `complex128-ieee-special-v1.json`.
+   Backends must match raw bits for every non-NaN component and return a
+   NaN for every NaN-classified component. NaN payload preservation,
+   `eq`/unordered comparisons and any optional total ordering remain
+   separate contracts and must not be inferred from this arithmetic gate.
 4. **Matrices and actor safety:** execute matrix `@`, shape mismatch,
    transpose versus Hermitian, singular/rank-deficient solves, row-major
    real/imag storage, immutable transfers and ownership/quota isolation.
@@ -118,11 +130,14 @@ significand/power-of-two pair, perform the exact products/sums or rational
 quotient with bounded `BigInteger` work, and round each output component
 once using IEEE binary64 round-to-nearest, ties-to-even. There is no fixed
 decimal `MathContext` and no unproven compensated result in the finite v1
-path. Exceptional NaN/Infinity/zero-divisor behavior remains a separately
-versioned policy gate. The evaluator orders guest numeric equality before
-object identity (`NaN != NaN` even for the same complex instance),
-preserves signed-zero formatting, and rejects implicit BigInt/Decimal
-narrowing into binary64 complex.
+path. Stacked Java hardening [#1140](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1140)
+adds compiler-rt-style exceptional multiplication/division recovery,
+finite-divisor prescaling, and signed-zero preservation for the exact
+division path; those semantics are now reflected in the shared IEEE-special
+corpus. The evaluator orders guest numeric equality before object identity
+(`NaN != NaN` even for the same complex instance), preserves signed-zero
+formatting, and rejects implicit BigInt/Decimal narrowing into binary64
+complex.
 
 The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
 contains nine focused **real guest-language GraalVM JUnit tests**:
@@ -144,9 +159,29 @@ division and subnormal-output division. A separate local differential audit
 compared 20,000 random finite multiplications and 20,000 random finite
 divisions against independently generated exact-rational results with no
 nonzero-component bit mismatches; this is useful engineering evidence but
-is **not** authorized exact-head source CI. IEEE NaN/Infinity/zero-divisor
-and complete signed-zero semantics remain separately pending. Keep
-[division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
+is **not** authorized exact-head source CI. The arithmetic IEEE-special contract is now explicit, but exact-head Java
+Maven/GraalVM/Native Image execution remains blocked by runner admission.
+Keep [division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
 open until exact-head GraalVM+LLVM execution and independent review pass.
-Other four backends retain their `unverified` status with no implied
-scalar/guest implementation.
+All five backend execution-status fields remain `unverified`; a committed
+implementation or source-free oracle is not a compiled parity claim.
+
+## LLVM typed scalar integration progress (2026-10-17)
+
+A focused branch stacked on LLVM integration PR
+[#504](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/504)
+introduces the first real native complex128 value category without weakening
+the existing checked-i64 ownership boundary. This first slice is deliberately
+narrow: zero-argument, return-only `complex` functions may contain binary64
+real/imaginary literals, exact-range integer promotion, unary negation,
+addition and subtraction. LLVM lowers them by value as `{ double, double }`.
+Complex parameters, locals, calls, multiplication/division, Wasm and Cortex-M
+remain fail-closed until their ABI/ownership/exact-rounding paths are added.
+
+The branch also registers a positive object-verification test and a native C
+ABI harness that calls two compiler-generated complex functions and checks four
+raw binary64 component values. These tests are **committed but not source-CI
+certified**: the source organization still terminates jobs before runner step
+execution. Source-free Clang/GCC scanner checks and a synthetic LLVM aggregate
+ABI link passed independently, but they do not replace exact-head compiler
+execution.
