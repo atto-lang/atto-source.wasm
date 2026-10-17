@@ -1,0 +1,44 @@
+name: Private CI export policy
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  private-ci-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Validate fail-closed export policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          owner="@ORESoftware"
+          paths=["/.github/CODEOWNERS","/.github/private-ci-approved-repositories.txt","/.github/private-ci-approved-source-snapshots.txt","/.github/private-ci-required-checks.json","/.github/workflows/private-ci-policy.yml"]
+          rules=[x.strip() for x in Path(".github/CODEOWNERS").read_text().splitlines() if x.strip() and not x.lstrip().startswith("#")]
+          if rules[-len(paths):] != [f"{p} {owner}" for p in paths]: raise SystemExit("private CI CODEOWNERS final block mismatch")
+          def entries(p): return [x.strip() for x in Path(p).read_text().splitlines() if x.strip() and not x.lstrip().startswith("#")]
+          repos=entries(".github/private-ci-approved-repositories.txt"); rr=re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]* [1-9][0-9]*$")
+          if any(not rr.fullmatch(x) for x in repos): raise SystemExit("invalid destination policy")
+          rn=[x.split()[0] for x in repos]; ri=[x.split()[1] for x in repos]
+          if len(rn)!=len(set(rn)) or len(ri)!=len(set(ri)): raise SystemExit("duplicate destination policy")
+          snaps=entries(".github/private-ci-approved-source-snapshots.txt"); sr=re.compile(r"^[0-9a-f]{40} [0-9a-f]{40} [1-9][0-9]*$")
+          if any(not sr.fullmatch(x) for x in snaps): raise SystemExit("invalid snapshot policy")
+          sc=[x.split()[0] for x in snaps]; sd=[x.split()[2] for x in snaps]
+          if len(sc)!=len(set(sc)) or len(sd)!=len(set(sd)): raise SystemExit("duplicate snapshot policy")
+          data=json.loads(Path(".github/private-ci-required-checks.json").read_text())
+          if set(data)!={"schema","checks"} or data["schema"]!=1 or not isinstance(data["checks"],list) or not 1<=len(data["checks"])<=16: raise SystemExit("invalid required-check schema")
+          seen=set(); required=False
+          for item in data["checks"]:
+              if set(item)!={"context","appId"} or not isinstance(item["context"],str) or not item["context"] or len(item["context"])>100 or not isinstance(item["appId"],int) or item["appId"]<=0: raise SystemExit("invalid required-check entry")
+              if item["context"] in seen: raise SystemExit("duplicate required-check context")
+              seen.add(item["context"]); required |= item["context"]=="private-ci-policy" and item["appId"]==15368
+          if not required: raise SystemExit("private-ci-policy must be bound to GitHub Actions app 15368")
+          print("private CI export policy: PASS")
+          PY
