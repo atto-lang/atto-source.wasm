@@ -8,8 +8,21 @@ import unittest
 import tempfile
 from unittest.mock import patch
 from pathlib import Path
-from verify_persistent_actor_data_contract import (ContractError, validate, validate_raw,
-                                                    read_bounded_contract)
+import importlib.util
+
+# Resolve the source-pinned neighbor by file path under Python isolated mode.
+# Never accept an ambient PYTHONPATH module with the same import name.
+_POLICY_PATH = Path(__file__).with_name("verify_persistent_actor_data_contract.py")
+_POLICY_SPEC = importlib.util.spec_from_file_location(
+    "_oreslang_persistent_actor_data_policy", _POLICY_PATH)
+if _POLICY_SPEC is None or _POLICY_SPEC.loader is None:
+    raise RuntimeError("cannot load adjacent pinned actor-data policy verifier")
+_policy = importlib.util.module_from_spec(_POLICY_SPEC)
+_POLICY_SPEC.loader.exec_module(_policy)
+ContractError = _policy.ContractError
+validate = _policy.validate
+validate_raw = _policy.validate_raw
+read_bounded_contract = _policy.read_bounded_contract
 
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
 
