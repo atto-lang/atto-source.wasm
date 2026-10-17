@@ -21,8 +21,7 @@ test("real LLVM compiler admits a scalar positive control before tuple negatives
   const work = await mkdtemp(join(tmpdir(), "ores-wasm-positive-"));
   try {
     const source = join(work, "valid.ores");
-    await writeFile(source, "pub fnc main(): int { return 42; }\\n".replace("\\n", "\n"),
-      {flag:"wx"});
+    await writeFile(source, "pub fnc main(): int { return 42; }\n", {flag:"wx"});
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [source], {
       cwd:work, encoding:"utf8", timeout:15000, maxBuffer:1024*1024
     });
