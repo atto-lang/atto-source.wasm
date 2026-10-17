@@ -99,3 +99,29 @@ test('bounded graph snapshot ignores hostile iterators and changing lengths', ()
   delete sparseEdges[0];
   assert.throws(() => new ActorPipelinePolicy(stages, sparseEdges), /invalid pipeline edge/);
 });
+
+
+test('changing caller length cannot conceal an unreachable directed cycle', () => {
+  const cyclicStages = [
+    {id:'root', type:'Producer', role:'readable', inbound:'', outbound:'Event'},
+    {id:'loop-a', type:'Worker', role:'transform', inbound:'Event', outbound:'Event'},
+    {id:'loop-b', type:'Worker', role:'transform', inbound:'Event', outbound:'Event'},
+    {id:'sink', type:'Sink', role:'writable', inbound:'Event', outbound:''},
+  ];
+  const cyclicEdges = [
+    {source:'root', target:'sink', payload:'Event'},
+    {source:'loop-a', target:'loop-b', payload:'Event'},
+    {source:'loop-b', target:'loop-a', payload:'Event'},
+  ];
+  let reads = 0;
+  const tampered = new Proxy(cyclicStages, {
+    get(target, key, receiver) {
+      // Old code admitted four stages, then checked a forged count of two
+      // against the two acyclic vertices reached by topological sorting.
+      if (key === 'length') return ++reads === 1 ? 4 : 2;
+      return Reflect.get(target, key, receiver);
+    }
+  });
+  assert.throws(() => new ActorPipelinePolicy(tampered, cyclicEdges), /cyclic/);
+  assert.equal(reads, 1, 'only the admitted source count may be consulted');
+});
