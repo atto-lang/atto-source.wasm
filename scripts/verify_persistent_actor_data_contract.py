@@ -136,7 +136,7 @@ def read_bounded_contract(path):
         if (type(nonblock) is not int or type(nofollow) is not int
                 or nonblock <= 0 or nofollow <= 0 or nonblock & nofollow):
             raise ContractError("secure no-follow/nonblocking flags unavailable or aliased")
-        flags = os.O_RDONLY | nonblock | nofollow | getattr(os, "O_BINARY", 0)
+        flags = os.O_RDONLY | nonblock | nofollow | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
         fd = os.open(path, flags)
         try:
             stream = os.fdopen(fd, "rb")
