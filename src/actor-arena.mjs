@@ -13,6 +13,9 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // live view of actor-owned WebAssembly.Memory.
 const NativeUint8Array = Uint8Array;
 const nativeFreeze = Object.freeze;
+const nativeIsSafeInteger = Number.isSafeInteger;
+const nativeSetHas = Set.prototype.has;
+const NativeTypeError = TypeError;
 const nativeArrayFindIndex = Array.prototype.findIndex;
 const nativeArrayPush = Array.prototype.push;
 const nativeArraySplice = Array.prototype.splice;
@@ -29,6 +32,8 @@ const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+const typedArrayTag = Object.getOwnPropertyDescriptor(
+  typedArrayPrototype, Symbol.toStringTag).get;
 const sharedByteLength = typeof SharedArrayBuffer === "function"
   ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
   : null;
@@ -38,7 +43,7 @@ function isSharedBacking(buffer) {
     sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
     return true;
   } catch (error) {
-    if (error instanceof TypeError) return false;
+    if (error instanceof NativeTypeError) return false;
     throw error;
   }
 }
@@ -58,9 +63,9 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!Number.isSafeInteger(actorId) || actorId <= 0 ||
-        !Number.isSafeInteger(incarnation) || incarnation <= 0 ||
-        !kinds.has(kind)) throw new TypeError("invalid actor arena owner");
+    if (!nativeIsSafeInteger(actorId) || actorId <= 0 ||
+        !nativeIsSafeInteger(incarnation) || incarnation <= 0 ||
+        !nativeSetHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
@@ -103,7 +108,7 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!nativeIsSafeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid arena allocation length");
     }
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
@@ -181,7 +186,18 @@ export class ActorArena {
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    if (!(data instanceof Uint8Array) || typedArrayByteLength.call(data) !== length) {
+    // Trust the native typed-array internal slot, not mutable global
+    // Uint8Array / instanceof / Symbol.hasInstance. Cross-realm Uint8Array
+    // inputs remain valid; Int8Array, spoofed objects and detached views
+    // never gain write authority through a forged constructor identity.
+    let validBytes = false;
+    try {
+      validBytes = typedArrayTag.call(data) === "Uint8Array" &&
+        typedArrayByteLength.call(data) === length;
+    } catch (error) {
+      if (!(error instanceof NativeTypeError)) throw error;
+    }
+    if (!validBytes) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
     // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
