@@ -39,14 +39,34 @@ export class ActorPipelinePolicy {
   #cursor = new NativeMap();
   #retired = false;
   constructor(stages, edges) {
-    if (!nativeArrayIsArray(stages) || stages.length < 2 || stages.length > 1024 ||
-        !nativeArrayIsArray(edges) || !edges.length || edges.length > 4096)
+    if (!nativeArrayIsArray(stages) || !nativeArrayIsArray(edges))
       throw new RangeError("pipeline graph budget");
+    // Read each caller-owned length exactly once, then snapshot only the admitted
+    // indexed slots. Hostile proxies/iterators cannot grow the graph after budget
+    // admission or later forge the cycle-check cardinality.
+    const stageCount = stages.length, edgeCount = edges.length;
+    if (stageCount < 2 || stageCount > 1024 || edgeCount < 1 || edgeCount > 4096)
+      throw new RangeError("pipeline graph budget");
+    const stageSnapshot = [], edgeSnapshot = [];
+    for (let i = 0; i < stageCount; ++i) {
+      const item = stages[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline stage");
+      const {id, type, role, inbound = "", outbound = ""} = item;
+      nativeArrayPush.call(stageSnapshot, {id, type, role, inbound, outbound});
+    }
+    for (let i = 0; i < edgeCount; ++i) {
+      const item = edges[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline edge");
+      const {source, target, payload} = item;
+      nativeArrayPush.call(edgeSnapshot, {source, target, payload});
+    }
     const byId = new NativeMap(), routes = new NativeMap(), parents = new NativeMap();
     const stageIds = [];
-    // Index by validated input length; Array.prototype[Symbol.iterator] is mutable.
-    for (let i = 0; i < stages.length; ++i) {
-      const {id, type, role, inbound = "", outbound = ""} = stages[i];
+    // Index by the admitted snapshot; Array.prototype[Symbol.iterator] is mutable.
+    for (let i = 0; i < stageCount; ++i) {
+      const {id, type, role, inbound = "", outbound = ""} = stageSnapshot[i];
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
       if (nativeMapHas.call(byId, id)) throw new TypeError("duplicate pipeline instance");
@@ -59,8 +79,8 @@ export class ActorPipelinePolicy {
       nativeArrayPush.call(stageIds, id);
     }
     const seen = new NativeSet();
-    for (let i = 0; i < edges.length; ++i) {
-      const edge = edges[i];
+    for (let i = 0; i < edgeCount; ++i) {
+      const edge = edgeSnapshot[i];
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
       const from = nativeMapGet.call(byId, source), to = nativeMapGet.call(byId, target);
@@ -108,7 +128,7 @@ export class ActorPipelinePolicy {
         if (n === 0) nativeArrayPush.call(ready, edge.target);
       }
     }
-    if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
+    if (visited !== stageCount) throw new TypeError("cyclic pipeline graph");
     this.#routes = new NativeMap();
     for (let i = 0; i < stageIds.length; ++i) {
       const id = stageIds[i], list = nativeMapGet.call(routes, id);
