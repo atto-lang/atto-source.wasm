@@ -73,6 +73,57 @@ class RunContract(unittest.TestCase):
             self.validate()
 
 
+    def _switch_fixture_to_run_id_one(self):
+        old = self.prefix + "/actions/runs/17"
+        new = self.prefix + "/actions/runs/1"
+        self.values[new] = self.values.pop(old)
+        self.values[new]["id"] = 1
+        old_jobs = old + "/jobs?filter=latest&per_page=100&page=1"
+        new_jobs = new + "/jobs?filter=latest&per_page=100&page=1"
+        self.values[new_jobs] = self.values.pop(old_jobs)
+        self.values[new_jobs]["jobs"][0]["run_id"] = 1
+        self.run_id = 1
+
+    def test_boolean_job_run_id_cannot_impersonate_run_one(self):
+        self._switch_fixture_to_run_id_one()
+        path = self.prefix + "/actions/runs/1/jobs?filter=latest&per_page=100&page=1"
+        self.values[path]["jobs"][0]["run_id"] = True
+        self.rejected()
+
+    def test_boolean_final_run_id_cannot_impersonate_run_one(self):
+        self._switch_fixture_to_run_id_one()
+        run_path = self.prefix + "/actions/runs/1"
+        calls = [0]
+        def mutate_second_read(path):
+            data = copy.deepcopy(self.values[path])
+            if path == run_path:
+                calls[0] += 1
+                if calls[0] == 2:
+                    data["id"] = True
+            return data
+        with self.assertRaises(module.Denied):
+            self.verify(mutate_second_read, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(calls[0], 2)
+
+    def test_boolean_final_attempt_cannot_impersonate_attempt_one(self):
+        self.values[self.prefix + "/actions/runs/17"]["run_attempt"] = 1
+        job_path = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[job_path]["jobs"][0]["run_attempt"] = 1
+        run_path = self.prefix + "/actions/runs/17"
+        calls = [0]
+        def mutate_second_read(path):
+            data = copy.deepcopy(self.values[path])
+            if path == run_path:
+                calls[0] += 1
+                if calls[0] == 2:
+                    data["run_attempt"] = True
+            return data
+        with self.assertRaises(module.Denied):
+            self.verify(mutate_second_read, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(calls[0], 2)
+
     def test_run_changed_during_collection_denied(self):
         run_path = self.prefix + "/actions/runs/17"
         original = copy.deepcopy(self.values[run_path])
