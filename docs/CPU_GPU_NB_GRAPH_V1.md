@@ -340,3 +340,42 @@ unimplemented.
   minutes. Require the protected-origin policy and reviewed destination
   allowlist before any cross-org transfer; current source-org zero-step
   failures do not prove passing or failing code tests.
+
+## 2026-10-16 strict native domain-refusal audit
+
+An unsupported-source test must not count an unrelated syntax, file-I/O
+or driver diagnostic as a CPU/GPU/`nb` capability refusal merely because
+the diagnostic mentions one of those keywords. LLVM and Wasm negative
+admission probes now require **all three**: an explicit cpu/gpu/nb
+identifier, an unsupported/unavailable/reserved/not-lowered reason, and
+source/execution/region/graph/lowering context. LLVM adds a separate
+source-free Python classifier regression and CTest registration; Wasm
+adds source-free Node classifier assertions. These tests do not compile
+guest Oreslang programs.
+
+The LLVM frontend now reserves `cpu` in its native keyword table and
+provides explicit, stable `cpu` and `nb` execution-region
+fail-closed diagnostics; device and source AST lowering remain
+unimplemented. Java, Forge and .NET retain their existing fail-closed
+behavior. Wasm now refuses to treat a **partially configured** LLVM
+compiler/SHA-256 pair as a skipped conformance test; both absent means
+SKIPPED (not executed). The configured checksum must originate from
+an independently trusted release/CI manifest, not the candidate itself.
+
+**Scope of local verification**: source-free Python and Node
+classifier checks passed (2 Python unittest methods, 2 Node tests);
+the locally reconstructed native C++ graph fixture passed 83 directed
+tests under GCC Debug/Release and Clang ASan+UBSan, 20,000 rejected
+randomized malformed IR inputs, and 1,024 concurrent duplicate-task
+pairs plus late executor rejection in those three compiler modes.
+These are *reproduced local components*, **not** actual LLVM/Forge
+repository builds or SHA-pinned full GitHub workflow runs.
+
+**Exact-source merge gate**: compile and execute current PR-head
+native/frontend, Java/JUnit/Graal, .NET/Native AOT, Forge/CMake, and
+Wasm-with-pinned-real-LLVM suites in an authorized environment; report
+source SHA, completed step IDs and no-artifact negative outputs.
+Recent source org CI failures without assigned runners/steps do not
+count as executed tests. An alternate-org private Git-tree mirror
+remains forbidden while Java `main` is unprotected, the reviewed
+destination allowlist is empty and the P0 public-carrier incident open.
