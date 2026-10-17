@@ -155,10 +155,13 @@ def validate(data):
         raise ValueError("reference contract must not claim guest parity")
     if data["backend_guest_execution"] != dict.fromkeys(BACKENDS, "unverified"):
         raise ValueError("backend execution claims must remain unverified")
-    if not isinstance(data["source_anchors"], dict) or set(data["source_anchors"]) != {
-        "java_complex_reference", "java_precision_hardening", "open_division_issue"
-    }:
-        raise ValueError("missing source issue anchors")
+    required_anchors = {
+        "java_complex_reference": "ores-truffle-oreslang/oreslang-source.java#120",
+        "java_precision_hardening": "ores-truffle-oreslang/oreslang-source.java#1033",
+        "open_division_issue": "ores-truffle-oreslang/oreslang-source.java#1042",
+    }
+    if data["source_anchors"] != required_anchors:
+        raise ValueError("altered numeric source issue anchors")
     if not isinstance(data["pending_explicit_semantics"], list) or len(data["pending_explicit_semantics"]) < 6:
         raise ValueError("unresolved exceptional/GPU semantics must stay visible")
     cases = data["operations"]
@@ -220,11 +223,8 @@ class ComplexReferenceContract(unittest.TestCase):
         x = copy.deepcopy(self.doc)
         x["source_anchors"]["open_division_issue"] = (
             "ores-truffle-oreslang/oreslang-source.java#1042-fake")
-        # Explicitly assert a known invariant even if the shape checker
-        # later changes how it handles descriptive metadata.
-        self.assertNotEqual(
-            x["source_anchors"]["open_division_issue"],
-            "ores-truffle-oreslang/oreslang-source.java#1042")
+        with self.assertRaisesRegex(ValueError, "altered numeric source issue anchors"):
+            validate(x)
 
     def test_schema_and_oracles(self):
         validate(self.doc)
