@@ -264,6 +264,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         ran_useful_step = False
         seen_step_names = set()
         last_number = 0
+        previous_step_end = job_start
         for item_step in steps:
             step = _object(item_step, "workflow step")
             if step.get("status") != "completed" or step.get("conclusion") != "success":
@@ -276,6 +277,9 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             step_end = _timestamp(step.get("completed_at"), "step completion")
             if not (job_start <= step_start <= step_end <= job_end):
                 raise Denied("workflow step timing falls outside completed job")
+            if step_start < previous_step_end:
+                raise Denied("workflow step timestamps overlap or contradict execution order")
+            previous_step_end = step_end
             step_name = step.get("name")
             if not isinstance(step_name, str) or not step_name:
                 raise Denied("workflow step has no name")
