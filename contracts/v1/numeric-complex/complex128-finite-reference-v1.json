@@ -192,6 +192,22 @@
       ]
     },
     {
+      "id": "divide-subnormal-normalization-preserves-small-component",
+      "op": "divide",
+      "a": [
+        "1e300",
+        "1e-20"
+      ],
+      "b": [
+        "0",
+        "1"
+      ],
+      "expected_bits": [
+        "3bc79ca10c924223",
+        "fe37e43c8800759c"
+      ]
+    },
+    {
       "id": "multiply-negative-signs",
       "op": "multiply",
       "a": [
