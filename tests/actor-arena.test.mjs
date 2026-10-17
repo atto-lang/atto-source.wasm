@@ -58,6 +58,39 @@ test("stolen, forged and sibling turn tokens cannot end an actor turn", () => {
   sibling.retire();
 });
 
+test("poisoned Uint8Array instanceof cannot forge or deny byte-exact arena writes", () => {
+  const arena = new ActorArena({actorId: 64, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 8);
+  const baseline = Uint8Array.of(11, 22, 33, 44, 55, 66, 77, 88);
+  arena.write(turn, handle, baseline);
+  const previous = Object.getOwnPropertyDescriptor(Uint8Array, Symbol.hasInstance);
+  try {
+    Object.defineProperty(Uint8Array, Symbol.hasInstance, {
+      configurable: true, value() { return true; }
+    });
+    const forged = new Int16Array([256, 257, 258, 259]);
+    Object.defineProperty(forged, Symbol.toStringTag, {
+      configurable: true, value: "Uint8Array"
+    });
+    assert.throws(() => arena.write(turn, handle, forged), /exact-size Uint8Array/,
+      "same byteLength does not make 16-bit element writes byte-safe");
+    assert.deepEqual([...arena.read(turn, handle)], [...baseline],
+      "forged write must not modify any actor-private bytes");
+    Object.defineProperty(Uint8Array, Symbol.hasInstance, {
+      configurable: true, value() { return false; }
+    });
+    arena.write(turn, handle, Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8));
+    assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4, 5, 6, 7, 8],
+      "genuine bytes must still pass when instanceof is poisoned to false");
+  } finally {
+    if (previous) Object.defineProperty(Uint8Array, Symbol.hasInstance, previous);
+    else delete Uint8Array[Symbol.hasInstance];
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
+
 test("poisoned Object.freeze cannot steal opaque turn or memory handle", () => {
   // A hostile same-realm script can rewrite Object.freeze after this module
   // has loaded. Native ActorArena must capture the original intrinsic.
