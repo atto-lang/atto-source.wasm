@@ -156,6 +156,11 @@ def read_bounded_contract(path):
             after = os.fstat(stream.fileno())
             if not same_file(opened, after):
                 raise ContractError("persistent contract changed during read")
+            # Short reads can indicate partial or substituted data even when
+            # a filesystem reports stable inode, size, and timestamps.
+            # Never validate only a prefix of the pinned fixture.
+            if len(data) != after.st_size:
+                raise ContractError("persistent contract short read")
         if not same_file(after, path.lstat()):
             raise ContractError("persistent contract path changed during read")
     except OSError as exc:
