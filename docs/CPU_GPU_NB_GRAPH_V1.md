@@ -379,3 +379,56 @@ Recent source org CI failures without assigned runners/steps do not
 count as executed tests. An alternate-org private Git-tree mirror
 remains forbidden while Java `main` is unprotected, the reviewed
 destination allowlist is empty and the P0 public-carrier incident open.
+
+## CPU owned-region and typed host graph parity gates (2026-10-16)
+
+This is a **cross-repository implementation ledger**, not an executable
+source-language or GPU conformance claim. The shared 22-case owned f32 region
+contract remains a separate proposed contract in Java #1097, LLVM #483,
+.NET #47, Forge #43 and Wasm #45. Its exact-v1 case list must not silently
+be changed when adding host-graph integration cases.
+
+| Backend | Owned scalar f32 CPU region | Typed one-shot host i64 graph | Owned f32 -> host graph bridge | Guest `cpu/gpu/nb` |
+| --- | --- | --- | --- | --- |
+| Java/Graal | Draft #1066/#1086, reconciled on #1122 | Draft #1096, CPU-only graph | Draft #1125; one `OresFuture<Long>` | Fail closed; typed source lowering unimplemented |
+| LLVM | Draft #445, whole-batch read/write loans | Draft #481 host-only graph | **Not implemented**; matching compiler-owned adapter required | Fail closed; no general device compiler |
+| .NET | **Not implemented** | Draft #44, bounded-executor `Task<T>` host graph | **Not implemented** | Scalar bootstrap, unsupported domain |
+| Forge | **Not implemented** | Draft #41, bounded-executor one-shot CPU graph | **Not implemented** | Scalar bootstrap, unsupported domain |
+| Wasm | No independent region runtime; must inherit *verified* pinned LLVM source semantics | No independent host-graph runtime in zero-import guest | **Not implemented** | Delegate only; no implicit WebGPU/host capability |
+
+**Relative parity now means verified boundaries, not fabricated equivalence.**
+All backends must preserve one-shot `Future<T>` vs explicit bounded
+`Channel<T>`, no GPU->CPU fallback, no host callbacks inside kernels, and
+fail-closed unsupported source domains. Java's `Unit` graph sentinel and the
+equivalent .NET/Forge graph unit value are internal host IR; the proposed v1
+source surface remains `void`/`Future<void>` **pending authoritative
+resolution of Java issue #1098**. No empty GPU launch can be fabricated.
+
+### Acceptance sequence for any backend claiming owned f32 + graph parity
+
+1. First prove allocation identity, shape/row/field/privilege admission,
+   stale-root rejection, half-open slices, and *held* whole-batch read/write
+   loans in real native/managed tests. Planner-level independence is not
+   permission to concurrently borrow fields from a buffer-wide loan holder.
+2. Admit only a CPU-typed graph with a single completion and a caller-supplied
+   bounded trusted executor. Duplicate delivery, queued-then-rejected executor,
+   cancellation before execution, and actor-carrier scheduling must all be
+   tested; cancellation after work starts cannot retroactively undo writes.
+3. Run the actual source repository head (and an integrated tree against
+   current `main`) through its complete compiler/test suite. Positive
+   `.ores` region tests are **not** satisfied by host-only IR tests.
+4. Verify run ID, original commit/tree SHA, nonempty executed job steps,
+   test count and failure diagnostics. A zero-step workflow failure or a
+   self-authored report is neither a test pass nor a code regression.
+5. Never export private compiler sources to an alternate organization solely
+   to borrow Actions minutes. The source's protected-origin policy, approved
+   destination identity/allowlist and open disclosure incident must be
+   resolved independently before any such transfer.
+
+**Focused regression coverage:** Java #1125 must remain synchronized with
+the newer #1122 planner and Unicode metadata tests. The .NET #44 host-graph
+suite now includes 128 concurrent duplicate-delivery pairs and 64
+cancel-vs-worker races, mirroring Forge's existing host-graph stress intent.
+Those additions are **committed but not a hosted exact-head test pass**.
+LLVM #445 already carries native planner Unicode/ownership regressions; its
+latest source-org four-way CPU matrix failed with zero executed steps.
