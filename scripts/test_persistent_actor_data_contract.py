@@ -2,9 +2,14 @@
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
 import json
+import os
+import stat
 import unittest
+import tempfile
+from unittest.mock import patch
 from pathlib import Path
-from verify_persistent_actor_data_contract import ContractError, validate, validate_raw
+from verify_persistent_actor_data_contract import (ContractError, validate, validate_raw,
+                                                    read_bounded_contract)
 
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
 
@@ -12,7 +17,7 @@ DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data
 class PersistentActorPolicyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base = validate_raw(DATA.read_bytes())
+        cls.base = read_bounded_contract(DATA)
 
     def reject(self, transform):
         value = copy.deepcopy(self.base)
@@ -102,7 +107,94 @@ class PersistentActorPolicyTest(unittest.TestCase):
             validate_raw(nested)
 
 
+    def test_pinned_fixture_read_is_supported(self):
+        self.assertEqual(read_bounded_contract(DATA)["version"], 1)
+
+    def test_reject_symlinked_contract_fixture(self):
+        # Exercise the descriptor-based lstat admission instead of the old
+        # Path.is_symlink() preflight (which the hardened reader no longer uses).
+        original = DATA.lstat()
+        fake = os.stat_result((stat.S_IFLNK | 0o777,) + tuple(original)[1:])
+        with patch.object(Path, "lstat", return_value=fake):
+            with self.assertRaisesRegex(ContractError, "regular file"):
+                read_bounded_contract(DATA)
+
+    def test_reject_exponent_overflow_before_schema_interpretation(self):
+        with self.assertRaisesRegex(ContractError, "non-finite"):
+            validate_raw(b'{"version": 1e999}')
+
+    def test_reject_directory_as_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(Path(temp))
+
+    def test_reject_hardlinked_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            data = Path(temp) / "valid.json"
+            data.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(data, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows runner volumes do not permit hardlinks;
+                # the cross-platform OS-independent directory case still runs.
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(alias)
+
+    def test_reject_oversized_contract_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "oversized.json"
+            with path.open("wb") as stream:
+                stream.truncate(64 * 1024 + 1)
+            with self.assertRaisesRegex(ContractError, "oversized"):
+                read_bounded_contract(path)
+
+
+    def test_reject_changed_open_descriptor_during_read(self):
+        # Simulate a file changing after the initial descriptor identity
+        # check. A normal start-of-read lstat alone must never certify it.
+        original = os.fstat
+        reads = [0]
+        def mutated(fd):
+            before = original(fd)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # st_ino differs after payload read
+                return os.stat_result(fields)
+            return before
+        with patch.object(os, "fstat", side_effect=mutated):
+            with self.assertRaisesRegex(ContractError, "changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
+
+    def test_reject_replaced_contract_path_after_read(self):
+        # Simulate a rename/swap after data was read successfully. The
+        # final name must still refer to the exact opened descriptor.
+        original = Path.lstat
+        reads = [0]
+        def mutated(path):
+            before = original(path)
+            reads[0] += 1
+            if reads[0] == 2:
+                fields = list(before)
+                fields[1] += 1  # same pathname, different inode
+                return os.stat_result(fields)
+            return before
+        with patch.object(Path, "lstat", mutated):
+            with self.assertRaisesRegex(ContractError, "path changed during read"):
+                read_bounded_contract(DATA)
+        self.assertEqual(reads[0], 2)
 
 
 if __name__ == "__main__":
-    unittest.main()
+    expected = 32
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
+    if suite.countTestCases() != expected:
+        raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
+                         f"found {suite.countTestCases()}")
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if (result.testsRun != expected or not result.wasSuccessful() or
+            result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+        raise SystemExit("FAIL persistent-data regressions incomplete or skipped")
