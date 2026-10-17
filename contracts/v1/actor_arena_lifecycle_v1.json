@@ -1,0 +1,160 @@
+{
+  "contract": "oreslang-actor-arena-lifecycle-v1",
+  "version": 1,
+  "scope": "source-level lifecycle capability declarations and fail-closed evidence requirements; not guest/runtime parity certification",
+  "lifecycle_order": [
+    "logical-termination",
+    "authority-revocation",
+    "byte-scrub",
+    "physical-reclamation"
+  ],
+  "backend_support": {
+    "java": {
+      "logical_termination": "source-implemented-unverified",
+      "authority_revocation": "source-implemented-unverified",
+      "byte_scrub": "source-implemented-unverified",
+      "physical_reclamation": "runtime-dependent-not-certifiable",
+      "scratch_turn_revocation": "source-implemented-unverified",
+      "incarnation_fencing": "source-implemented-unverified",
+      "foreign_carrier_denial": "source-implemented-unverified",
+      "nonrecycling_identity": "source-implemented-unverified",
+      "guest_allocation_lowering": "unverified",
+      "ffi_borrow_io_quiescence": "unverified",
+      "exact_head_native_evidence": "pending"
+    },
+    "llvm": {
+      "logical_termination": "source-implemented-unverified",
+      "authority_revocation": "source-implemented-unverified",
+      "byte_scrub": "source-implemented-unverified",
+      "physical_reclamation": "source-implemented-unverified",
+      "scratch_turn_revocation": "source-implemented-unverified",
+      "incarnation_fencing": "source-implemented-unverified",
+      "foreign_carrier_denial": "source-implemented-unverified",
+      "nonrecycling_identity": "source-implemented-unverified",
+      "guest_allocation_lowering": "unverified",
+      "ffi_borrow_io_quiescence": "unverified",
+      "exact_head_native_evidence": "pending"
+    },
+    "net": {
+      "logical_termination": "source-implemented-unverified",
+      "authority_revocation": "source-implemented-unverified",
+      "byte_scrub": "source-implemented-unverified",
+      "physical_reclamation": "source-implemented-unverified",
+      "scratch_turn_revocation": "source-implemented-unverified",
+      "incarnation_fencing": "source-implemented-unverified",
+      "foreign_carrier_denial": "source-implemented-unverified",
+      "nonrecycling_identity": "source-implemented-unverified",
+      "guest_allocation_lowering": "unverified",
+      "ffi_borrow_io_quiescence": "unverified",
+      "exact_head_native_evidence": "pending"
+    },
+    "wasm": {
+      "logical_termination": "source-implemented-unverified",
+      "authority_revocation": "source-implemented-unverified",
+      "byte_scrub": "source-implemented-unverified",
+      "physical_reclamation": "runtime-dependent-not-certifiable",
+      "scratch_turn_revocation": "source-implemented-unverified",
+      "incarnation_fencing": "source-implemented-unverified",
+      "foreign_carrier_denial": "source-implemented-unverified",
+      "nonrecycling_identity": "source-implemented-unverified",
+      "guest_allocation_lowering": "unverified",
+      "ffi_borrow_io_quiescence": "unverified",
+      "exact_head_native_evidence": "pending"
+    },
+    "forge": {
+      "logical_termination": "source-implemented-unverified",
+      "authority_revocation": "source-implemented-unverified",
+      "byte_scrub": "source-implemented-unverified",
+      "physical_reclamation": "source-implemented-unverified",
+      "scratch_turn_revocation": "source-implemented-unverified",
+      "incarnation_fencing": "source-implemented-unverified",
+      "foreign_carrier_denial": "source-implemented-unverified",
+      "nonrecycling_identity": "source-implemented-unverified",
+      "guest_allocation_lowering": "unverified",
+      "ffi_borrow_io_quiescence": "unverified",
+      "exact_head_native_evidence": "pending"
+    }
+  },
+  "cases": [
+    {
+      "id": "done-is-not-reclaimed",
+      "expect": "separate-states"
+    },
+    {
+      "id": "revoke-before-scrub",
+      "expect": "ordered"
+    },
+    {
+      "id": "scrub-before-reclaim",
+      "expect": "ordered"
+    },
+    {
+      "id": "scratch-dies-at-turn-end",
+      "expect": "deny-stale"
+    },
+    {
+      "id": "stale-incarnation-denied",
+      "expect": "deny-stale"
+    },
+    {
+      "id": "foreign-carrier-denied",
+      "expect": "deny"
+    },
+    {
+      "id": "malformed-owner-does-not-consume-identity",
+      "expect": "no-consumption"
+    },
+    {
+      "id": "identity-never-wraps-or-recycles",
+      "expect": "fail-closed"
+    },
+    {
+      "id": "identity-exhaustion-is-permanent",
+      "expect": "fail-closed"
+    },
+    {
+      "id": "borrow-quiescence-before-reclaim",
+      "expect": "required"
+    },
+    {
+      "id": "ffi-quiescence-before-reclaim",
+      "expect": "required"
+    },
+    {
+      "id": "io-quiescence-before-reclaim",
+      "expect": "required"
+    },
+    {
+      "id": "java-no-deterministic-physical-release-claim",
+      "expect": "runtime-dependent"
+    },
+    {
+      "id": "wasm-no-deterministic-physical-release-claim",
+      "expect": "runtime-dependent"
+    },
+    {
+      "id": "llvm-native-reclaim-needs-exact-head-proof",
+      "expect": "pending-evidence"
+    },
+    {
+      "id": "net-native-reclaim-needs-exact-head-proof",
+      "expect": "pending-evidence"
+    },
+    {
+      "id": "forge-native-reclaim-needs-exact-head-proof",
+      "expect": "pending-evidence"
+    },
+    {
+      "id": "guest-allocation-lowering-needs-proof",
+      "expect": "pending-evidence"
+    },
+    {
+      "id": "native-job-must-execute-steps",
+      "expect": "nonzero-steps"
+    },
+    {
+      "id": "receipt-must-bind-head-and-tree",
+      "expect": "authenticated"
+    }
+  ]
+}
