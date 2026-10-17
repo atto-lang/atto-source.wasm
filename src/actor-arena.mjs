@@ -6,6 +6,7 @@ const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
 const safeInteger = Number.isSafeInteger;
+const nativeFreeze = Object.freeze;
 const setHas = Set.prototype.has;
 // Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
@@ -93,7 +94,7 @@ export class ActorArena {
   beginTurn() {
     this.#bytes();
     if (this.#turn !== null) throw new Error("actor already admitted");
-    const turn = Object.freeze({});
+    const turn = nativeFreeze({});
     this.#turn = turn;
     return turn;
   }
@@ -138,7 +139,7 @@ export class ActorArena {
       }
       ++this.#persistentCount;
     }
-    const handle = Object.freeze({});
+    const handle = nativeFreeze({});
     const slot = {offset, length};
     weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
     typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
