@@ -32,6 +32,32 @@ test("shared actors get private arenas, not transferable heap handles", () => {
   assert.throws(() => a.beginTurn(), /retired/);
 });
 
+test("stolen, forged and sibling turn tokens cannot end an actor turn", () => {
+  const owner = new ActorArena({actorId: 61, incarnation: 3});
+  const sibling = new ActorArena({actorId: 62, incarnation: 3});
+  const ownerTurn = owner.beginTurn();
+  const siblingTurn = sibling.beginTurn();
+  const handle = owner.allocPersistent(ownerTurn, 4);
+  owner.write(ownerTurn, handle, Uint8Array.from([10, 20, 30, 40]));
+
+  assert.throws(() => owner.endTurn(siblingTurn), /turn authority/);
+  assert.throws(() => owner.endTurn(Object.freeze({})), /turn authority/);
+  assert.throws(() => sibling.endTurn(ownerTurn), /turn authority/);
+  assert.throws(() => owner.retire(), /active actor turn/);
+  assert.deepEqual([...owner.read(ownerTurn, handle)], [10, 20, 30, 40],
+    "foreign turn revocation must not clear live actor data");
+
+  owner.endTurn(ownerTurn);
+  assert.throws(() => owner.endTurn(ownerTurn), /turn authority/);
+  const next = owner.beginTurn();
+  assert.throws(() => owner.read(ownerTurn, handle), /turn authority/);
+  assert.deepEqual([...owner.read(next, handle)], [10, 20, 30, 40]);
+  owner.endTurn(next);
+  sibling.endTurn(siblingTurn);
+  owner.retire();
+  sibling.retire();
+});
+
 test("scratch invalidates and zeroes at each mailbox turn", () => {
   const arena = new ActorArena({actorId: 3, incarnation: 4});
   const turn = arena.beginTurn();
