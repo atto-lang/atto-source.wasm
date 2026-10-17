@@ -1,9 +1,10 @@
 // Host-only checked route selector; does not expose guest imports or actor execution.
 // Pin native route-authority and UTF-8 operations before host prototype mutations.
 const NativeMap = Map, NativeSet = Set, nativeFreeze = Object.freeze;
+const nativeBigInt = BigInt, nativeNumber = Number;
 const nativeMapGet = Map.prototype.get, nativeMapSet = Map.prototype.set;
-const nativeMapHas = Map.prototype.has, nativeMapEntries = Map.prototype.entries;
-const nativeMapKeys = Map.prototype.keys, nativeSetHas = Set.prototype.has;
+const nativeMapHas = Map.prototype.has;
+const nativeSetHas = Set.prototype.has;
 const nativeSetAdd = Set.prototype.add, nativeArrayIsArray = Array.isArray;
 const nativeArrayPush = Array.prototype.push, nativeArrayFind = Array.prototype.find;
 const nativeStringIncludes = String.prototype.includes;
@@ -27,8 +28,10 @@ function utf8(value, limit, optional = false, allowNul = false) {
 }
 export function actorRouteHash64(key) {
   let hash = 0xcbf29ce484222325n;
-  for (const b of utf8(key, 4096, true, true))
-    hash = ((hash ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  const bytes = utf8(key, 4096, true, true);
+  // Neither mutable BigInt nor a poisoned typed-array iterator may control routing.
+  for (let i = 0; i < bytes.length; ++i)
+    hash = ((hash ^ nativeBigInt(bytes[i])) * 0x100000001b3n) & 0xffffffffffffffffn;
   return hash;
 }
 export class ActorPipelinePolicy {
@@ -40,7 +43,10 @@ export class ActorPipelinePolicy {
         !nativeArrayIsArray(edges) || !edges.length || edges.length > 4096)
       throw new RangeError("pipeline graph budget");
     const byId = new NativeMap(), routes = new NativeMap(), parents = new NativeMap();
-    for (const {id, type, role, inbound = "", outbound = ""} of stages) {
+    const stageIds = [];
+    // Index by validated input length; Array.prototype[Symbol.iterator] is mutable.
+    for (let i = 0; i < stages.length; ++i) {
+      const {id, type, role, inbound = "", outbound = ""} = stages[i];
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
       if (nativeMapHas.call(byId, id)) throw new TypeError("duplicate pipeline instance");
@@ -50,9 +56,11 @@ export class ActorPipelinePolicy {
         throw new TypeError("invalid pipeline role or ports");
       nativeMapSet.call(byId, id, {role, inbound, outbound});
       nativeMapSet.call(parents, id, 0);
+      nativeArrayPush.call(stageIds, id);
     }
     const seen = new NativeSet();
-    for (const edge of edges) {
+    for (let i = 0; i < edges.length; ++i) {
+      const edge = edges[i];
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
       const from = nativeMapGet.call(byId, source), to = nativeMapGet.call(byId, target);
@@ -60,7 +68,9 @@ export class ActorPipelinePolicy {
           from.role === "writable" || to.role === "readable" ||
           from.outbound !== payload || to.inbound !== payload)
         throw new TypeError("unknown or mistyped pipeline edge");
-      const pair = JSON.stringify([source, target]);
+      // NUL is forbidden in both stage IDs; this pair key is unambiguous
+      // without calling mutable global JSON.stringify.
+      const pair = source + "\0" + target;
       if (nativeSetHas.call(seen, pair)) throw new TypeError("duplicate pipeline edge");
       nativeSetAdd.call(seen, pair);
       if (!nativeMapHas.call(routes, source)) nativeMapSet.call(routes, source, []);
@@ -68,9 +78,14 @@ export class ActorPipelinePolicy {
         nativeFreeze({source, target, payload}));
       nativeMapSet.call(parents, target, nativeMapGet.call(parents, target) + 1);
     }
-    const indegree = new NativeMap(parents), ready = [];
+    const indegree = new NativeMap(), ready = [];
+    for (let i = 0; i < stageIds.length; ++i) {
+      const id = stageIds[i];
+      nativeMapSet.call(indegree, id, nativeMapGet.call(parents, id));
+    }
     let root = false;
-    for (const [id, stage] of byId) {
+    for (let i = 0; i < stageIds.length; ++i) {
+      const id = stageIds[i], stage = nativeMapGet.call(byId, id);
       const input = nativeMapGet.call(parents, id), output = nativeMapGet.call(routes, id)?.length ?? 0;
       if ((!input && !output) || (stage.role === "readable" && !output) ||
           (stage.role === "writable" && !input) ||
@@ -85,7 +100,9 @@ export class ActorPipelinePolicy {
     let visited = 0;
     for (let i = 0; i < ready.length; i++) {
       const id = ready[i]; visited++;
-      for (const edge of nativeMapGet.call(routes, id) ?? []) {
+      const outgoing = nativeMapGet.call(routes, id);
+      for (let j = 0; j < (outgoing?.length ?? 0); ++j) {
+        const edge = outgoing[j];
         const n = nativeMapGet.call(indegree, edge.target) - 1;
         nativeMapSet.call(indegree, edge.target, n);
         if (n === 0) nativeArrayPush.call(ready, edge.target);
@@ -93,10 +110,14 @@ export class ActorPipelinePolicy {
     }
     if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
     this.#routes = new NativeMap();
-    for (const [id, list] of nativeMapEntries.call(routes))
-      nativeMapSet.call(this.#routes, id, nativeFreeze(list));
-    // Pre-seed all RR cursors at trusted graph construction, never on a turn.
-    for (const source of nativeMapKeys.call(this.#routes)) nativeMapSet.call(this.#cursor, source, 0);
+    for (let i = 0; i < stageIds.length; ++i) {
+      const id = stageIds[i], list = nativeMapGet.call(routes, id);
+      if (list) {
+        nativeMapSet.call(this.#routes, id, nativeFreeze(list));
+        // Pre-seed RR cursor without ever consulting mutable Map iterators.
+        nativeMapSet.call(this.#cursor, id, 0);
+      }
+    }
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
@@ -122,7 +143,7 @@ export class ActorPipelinePolicy {
   }
   forwardByKey(source, key) {
     const routes = this.#connected(source);
-    return routes[Number(actorRouteHash64(key) % BigInt(routes.length))];
+    return routes[nativeNumber(actorRouteHash64(key) % nativeBigInt(routes.length))];
   }
   close() { this.#retired = true; }
 }
