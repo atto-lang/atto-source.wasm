@@ -105,11 +105,25 @@ def validate(doc):
                  "unsafe fixture outcome changed: " + item["id"])
 
 
+def read_bounded_contract(path):
+    # Verify the actual read length before parsing untrusted canonical JSON.
+    # A caller-provided symlink must not redirect a fixture to another file.
+    path = Path(path)
+    if not path.is_file() or path.is_symlink():
+        raise ContractError("persistent contract must be a regular file")
+    try:
+        with path.open("rb") as stream:
+            data = stream.read(64 * 1024 + 1)
+    except OSError as exc:
+        raise ContractError("cannot read persistent contract") from exc
+    return validate_raw(data)
+
+
 if __name__ == "__main__":
     path = Path(sys.argv[1]) if len(sys.argv) == 2 else (
         Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json")
     try:
-        d = validate_raw(path.read_bytes())
+        d = read_bounded_contract(path)
     except (OSError, ContractError) as exc:
         print("PERSISTENT_ACTOR_CONTRACT_DENIED: " + str(exc), file=sys.stderr)
         sys.exit(1)
