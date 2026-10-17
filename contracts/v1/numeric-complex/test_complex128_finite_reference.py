@@ -20,6 +20,7 @@ REQUIRED = frozenset((
     "divide-subnormal-output-exact-rounding",
     "divide-large-avoid-intermediate-overflow",
     "divide-small-avoid-intermediate-underflow", "divide-min-subnormal",
+    "divide-subnormal-normalization-preserves-small-component",
     "multiply-negative-signs", "conjugate",
 ))
 
@@ -38,6 +39,7 @@ PINNED_COMPLEX_INPUTS = {
     "divide-large-avoid-intermediate-overflow": ["divide",["1e308","1e308"],["1e308","1e308"]],
     "divide-small-avoid-intermediate-underflow": ["divide",["1e-300","1e-300"],["1e-300","1e-300"]],
     "divide-min-subnormal": ["divide",["0","5e-324"],["0","5e-324"]],
+    "divide-subnormal-normalization-preserves-small-component": ["divide",["1e300","1e-20"],["0","1"]],
     "multiply-negative-signs": ["multiply",["-2","3"],["4","-5"]],
     "conjugate": ["conjugate",["3","4"]],
 }
