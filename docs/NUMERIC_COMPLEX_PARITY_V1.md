@@ -144,7 +144,8 @@ corpus. The evaluator orders guest numeric equality before object identity
 formatting, and rejects implicit BigInt/Decimal narrowing into binary64
 complex. Integral value promotion into `complex`/`complex128` is
 lossless-only (absolute value at most 2^53); the same rule is enforced at
-arithmetic and declared-return coercion boundaries. Java now rejects
+arithmetic, typed binding/parameter, and declared-return coercion boundaries.
+Java now rejects
 `complex64` at type resolution rather than silently backing a binary32
 spelling with the binary64 `Complex128Math` runtime. Decimal/complex
 mixing is also rejected statically and the type lattice preserves their
