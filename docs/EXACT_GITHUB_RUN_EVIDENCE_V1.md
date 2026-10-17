@@ -64,11 +64,12 @@ and requires the actual GitHub run's `path` to identify the supplied
 append an `@ref` qualifier (for example,
 `.github/workflows/ci.yml@main` or `@refs/pull/123/merge`); the verifier
 accepts a well-formed qualifier but rejects suffix-sharing filenames, empty
-qualifiers, traversal and malformed ref spellings. This ties evidence to the
-expected workflow **filename**, but does **not** independently attest the YAML
-bytes, the supplied ref or the reviewed actions.
-Branch protection, workflow-content SHA pins, and source export policy remain
-separate mandatory gates.
+qualifiers, traversal and malformed ref spellings. This ties evidence to the expected workflow **filename**. The mandatory
+independently pinned `--workflow-blob-sha` additionally verifies the YAML Git
+blob at the run HEAD. Neither check proves which workflow ref GitHub actually
+executed for a different event context, or which sources a job checked out.
+Branch protection, executed-workflow-ref attestation, and source export policy
+remain separate mandatory gates.
 
 Supported `--backend`: `java`, `llvm`, `net`, `wasm`, `forge`. Run it inside a
 trusted local environment or a **reviewed** source-scoped CI workflow with a
@@ -139,3 +140,16 @@ API blob at the exact run HEAD, with file type and path checked. Each job's
 that GitHub executed the same YAML bytes when the event uses an alternate
 base ref; controllers must attest the executed workflow ref separately.
 These checks do not authorize private source export or certify native parity.
+
+## Run-attempt consistency hardening
+
+After checking all paginated job/step evidence, the verifier fetches the run
+metadata again and rejects a changed attempt, completion result, HEAD SHA,
+workflow ID/path or repository identity. This guards against combining
+successful run metadata with jobs fetched across a rerun. The re-read is
+not an atomic GitHub API snapshot; release controllers should pin a finished
+attempt and independently examine the archived native test artifacts.
+
+The source-free regression suite contains at least 55 unittest methods and is
+executed for three rounds when GitHub Actions runners are available. Passing
+these tests alone does not establish that any backend-native tests ran.
