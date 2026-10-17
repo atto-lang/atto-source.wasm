@@ -1,0 +1,80 @@
+name: Actor arena lifecycle v1 policy conformance
+on:
+  push:
+    branches:
+      - hardening/persistent-data-evidence-parity-20261016
+    paths:
+      - contracts/v1/actor_arena_lifecycle_v1.json
+      - scripts/verify_actor_arena_lifecycle_contract.py
+      - scripts/test_actor_arena_lifecycle_contract.py
+      - .github/workflows/actor-arena-lifecycle-contract.yml
+  pull_request:
+    paths:
+      - contracts/v1/actor_arena_lifecycle_v1.json
+      - scripts/verify_actor_arena_lifecycle_contract.py
+      - scripts/test_actor_arena_lifecycle_contract.py
+      - .github/workflows/actor-arena-lifecycle-contract.yml
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact source head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Pin exact shared lifecycle blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git hash-object contracts/v1/actor_arena_lifecycle_v1.json)" = "60a69cb0c8e034523cb99d6f00db0af48f3d1d6c"
+          test "$(git hash-object scripts/verify_actor_arena_lifecycle_contract.py)" = "26a8f773a4266b5e4dd14423aed522aceaa4b158"
+          test "$(git hash-object scripts/test_actor_arena_lifecycle_contract.py)" = "ce9936a50ec14fde058f4d7562f42b656f0cea73"
+      - name: Execute lifecycle contract and 27 adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/verify_actor_arena_lifecycle_contract.py
+          python3 -I scripts/test_actor_arena_lifecycle_contract.py
+      - name: Emit non-certifying exact-head receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p lifecycle-evidence
+          python3 -I - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          report = {
+            "schema": "oreslang.actor_arena_lifecycle_source_head_v1",
+            "classification": "POLICY_ONLY_NOT_NATIVE_OR_GUEST_CERTIFICATION",
+            "repository": os.environ["GITHUB_REPOSITORY"],
+            "head_sha": git("rev-parse", "HEAD"),
+            "head_tree": git("rev-parse", "HEAD^{tree}"),
+            "run_id": int(os.environ["GITHUB_RUN_ID"]),
+            "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "source_free_blobs": {
+              "contracts/v1/actor_arena_lifecycle_v1.json": "60a69cb0c8e034523cb99d6f00db0af48f3d1d6c",
+              "scripts/verify_actor_arena_lifecycle_contract.py": "26a8f773a4266b5e4dd14423aed522aceaa4b158",
+              "scripts/test_actor_arena_lifecycle_contract.py": "ce9936a50ec14fde058f4d7562f42b656f0cea73"
+            },
+            "policy_tests_executed": 27,
+            "native_runtime_certified": False,
+            "guest_runtime_certified": False,
+            "physical_reclamation_certified": False
+          }
+          Path("lifecycle-evidence/actor-arena-lifecycle-source-head.json").write_text(
+              json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
+      - name: Upload lifecycle policy evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: actor-arena-lifecycle-source-head
+          path: lifecycle-evidence/actor-arena-lifecycle-source-head.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
