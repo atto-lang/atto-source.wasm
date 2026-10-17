@@ -432,6 +432,30 @@
           "id": "root::Color"
         }
       ]
+    },
+    {
+      "owner": "   ",
+      "domain": "DYNAMIC",
+      "name": "choose",
+      "positions": [
+        {
+          "kind": "ENUM",
+          "id": "root::Color"
+        }
+      ],
+      "id": "blank-owner"
+    },
+    {
+      "owner": "root.Picker",
+      "domain": "DYNAMIC",
+      "name": "   ",
+      "positions": [
+        {
+          "kind": "ENUM",
+          "id": "root::Color"
+        }
+      ],
+      "id": "blank-name"
     }
   ],
   "normalization": [
