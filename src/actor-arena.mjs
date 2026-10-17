@@ -12,6 +12,11 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
 const NativeMemory = WebAssembly.Memory;
+const NativeWeakMap = WeakMap;
+// WeakMap authority operations must bypass mutable userland prototypes.
+const weakMapGet = NativeWeakMap.prototype.get;
+const weakMapSet = NativeWeakMap.prototype.set;
+const weakMapDelete = NativeWeakMap.prototype.delete;
 // The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
 // Capture its native internal-slot accessor before unrelated user code can
 // redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
@@ -40,8 +45,8 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new NativeWeakMap();
+  #scratch = new NativeWeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -89,7 +94,7 @@ export class ActorArena {
     typedArrayFill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#turn = null;
   }
 
@@ -126,7 +131,7 @@ export class ActorArena {
     }
     const handle = Object.freeze({});
     const slot = {offset, length};
-    (scratch ? this.#scratch : this.#handles).set(handle, slot);
+    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
     typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
@@ -136,10 +141,10 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle);
+    const entry = weakMapGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
     typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
-    this.#handles.delete(handle);
+    weakMapDelete.call(this.#handles, handle);
     --this.#persistentCount;
     this.#freePersistent.push({...entry});
     this.#freePersistent.sort((a, b) => a.offset - b.offset);
@@ -154,7 +159,7 @@ export class ActorArena {
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle) ?? this.#scratch.get(handle);
+    const entry = weakMapGet.call(this.#handles, handle) ?? weakMapGet.call(this.#scratch, handle);
     if (!entry) throw new Error("foreign or stale arena handle");
     return entry;
   }
@@ -190,8 +195,8 @@ export class ActorArena {
     typedArrayFill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new NativeWeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#freePersistent = [];
   }
