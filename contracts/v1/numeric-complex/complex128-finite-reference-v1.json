@@ -192,6 +192,54 @@
       ]
     },
     {
+      "id": "divide-nonzero-near-cancellation",
+      "op": "divide",
+      "a": [
+        "0.9999999947592926",
+        "1.0000000008845844"
+      ],
+      "b": [
+        "0.9999999973991033",
+        "1.0000000035243972"
+      ],
+      "expected_bits": [
+        "3feffffffe952fe2",
+        "bcd2dab72384c7b8"
+      ]
+    },
+    {
+      "id": "divide-preserve-small-component-across-scale",
+      "op": "divide",
+      "a": [
+        "1e300",
+        "1e-20"
+      ],
+      "b": [
+        "0",
+        "1"
+      ],
+      "expected_bits": [
+        "3bc79ca10c924223",
+        "fe37e43c8800759c"
+      ]
+    },
+    {
+      "id": "divide-zero-numerator-tiny-divisor",
+      "op": "divide",
+      "a": [
+        "0",
+        "0"
+      ],
+      "b": [
+        "0",
+        "5e-324"
+      ],
+      "expected_bits": [
+        "0000000000000000",
+        "0000000000000000"
+      ]
+    },
+    {
       "id": "multiply-negative-signs",
       "op": "multiply",
       "a": [
