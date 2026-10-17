@@ -115,7 +115,7 @@ def _api_get(path):
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
            job_step_pairs=None, workflow_path=None, workflow_id=None,
            workflow_blob_sha=None, expected_event=None,
-           expected_run_path=None):
+           expected_run_path=None, expected_run_attempt=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -131,6 +131,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or any(part in ("", ".", "..") for part in workflow_path.split("/"))):
         raise Denied("expected an exact trusted workflow path under .github/workflows")
     workflow_id = _int(workflow_id, "independently pinned workflow id")
+    expected_run_attempt = _int(expected_run_attempt, "independently pinned run attempt")
     workflow_blob_sha = _sha(workflow_blob_sha)
     if not _run_workflow_path_matches(expected_run_path, workflow_path):
         raise Denied("expected independently pinned exact workflow run path")
@@ -186,6 +187,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     run_repo = _object(run.get("repository"), "run repository")
     head_repo = _object(run.get("head_repository"), "run head repository")
     attempt = _int(run.get("run_attempt"), "run attempt")
+    if attempt != expected_run_attempt:
+        raise Denied("run attempt differs from independently pinned attempt")
     if (type(run.get("id")) is not int or run["id"] != run_id
             or type(run_repo.get("id")) is not int or run_repo["id"] != repo_id
             or type(head_repo.get("id")) is not int or head_repo["id"] != repo_id
@@ -323,6 +326,8 @@ def main(argv=None):
     parser.add_argument("--commit", required=True)
     parser.add_argument("--tree", required=True)
     parser.add_argument("--run-id", required=True, type=int)
+    parser.add_argument("--run-attempt", required=True, type=int,
+                        help="Independently pinned positive GitHub run attempt number")
     parser.add_argument("--event", required=True, choices=("push", "pull_request"),
                         help="Independently pinned GitHub event type; no dispatch or chained runs")
     parser.add_argument("--workflow-run-path", required=True,
@@ -352,7 +357,8 @@ def main(argv=None):
                         workflow_id=args.workflow_id,
                         workflow_blob_sha=args.workflow_blob_sha,
                         expected_event=args.event,
-                        expected_run_path=args.workflow_run_path)
+                        expected_run_path=args.workflow_run_path,
+                        expected_run_attempt=args.run_attempt)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
