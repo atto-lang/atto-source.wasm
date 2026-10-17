@@ -703,5 +703,30 @@ class RunContract(unittest.TestCase):
                     self.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
 
 
+
+class WorkflowIsolationContract(unittest.TestCase):
+    """Prevent candidate import-path shadowing in CI report generation."""
+
+    @staticmethod
+    def workflow_text():
+        return (Path(__file__).resolve().parents[1]
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(encoding="utf-8")
+
+    def test_report_writer_uses_isolated_python(self):
+        workflow = self.workflow_text()
+        marker = "      - name: Write minimal run evidence (not compiled guest parity)"
+        writer = workflow.split(marker, 1)[1].split(
+            "      - name: Upload minimal source-free CI evidence", 1)[0]
+        self.assertIn("python3 -I - <<'PY'", writer)
+        self.assertNotIn("python3 - <<'PY'", writer)
+
+    def test_all_inline_python_heredocs_use_isolated_mode(self):
+        inline_python = [line.strip() for line in self.workflow_text().splitlines()
+                         if "python3" in line and "<<'PY'" in line]
+        self.assertEqual(len(inline_python), 2)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
