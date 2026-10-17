@@ -360,3 +360,38 @@ available minutes alone does not approve transferring source. After that,
 an independently reviewed exact-head backend-native CI run must execute
 tests and upload verified compiler/guest JUnit or equivalent results before
 a release claim or draft merge.
+
+## CI execution-name Unicode spoofing hardening
+
+The shared `scripts/verify_ci_run.py` denies unsafe GitHub REST display
+labels for runner, job, required test-step, and reported executed steps:
+empty/whitespace-only names, excessively long values, control characters,
+Unicode bidirectional/zero-width format characters, and Unicode line or
+paragraph separators (categories `Cc`, `Cf`, `Cs`, `Zl`, `Zp`).
+Normal visible international characters remain accepted. The change
+prevents visually forged or multiline metadata from masquerading as a
+reviewed CI proof step; it does **not** certify guest semantics or make
+self-reported step names independently trustworthy.
+
+Each backend's CI-evidence suite has **82 declared tests**, including four
+additional adversarial tests covering runner, job and step-name spoofing,
+untrusted proof names and readable non-ASCII labels. The existing
+`ci-run-evidence-contract.yml` enforces at least 82 tests in each of
+three no-skip test rounds, preserving its backend-specific checkout,
+report-generation and artifact policies. Identical verifier blob
+`495ecce19762e8f93d465b5554c8c0b2fab4bf40` is committed
+across Java, LLVM, .NET, Wasm and Forge. The existing test fixture's
+workflow-isolation section differs intentionally between Java and the
+other four sources, so do not overwrite it merely to force a test-file
+SHA match.
+
+Independently authored **source-free** Unicode-model checks passed
+**8/8** tests on allocated private
+[ClipTown run 38999163974](https://github.com/cliptown/cliptown-e2e/actions/runs/38999163974),
+exact carrier SHA `4048c33ec61a342f471d9a8fa792eaed8f9f0b81`;
+the hosted run uploaded
+[artifact 12088571324](https://github.com/cliptown/cliptown-e2e/actions/runs/38999163974/artifacts/12088571324).
+This was an independent model; **the checked-in Oreslang Python suites and
+native compilers did not execute on ClipTown**. No private Git tree was
+copied across organizations. Existing source-org Actions failed before
+runner allocation, and export/incident security gates remain unresolved.
