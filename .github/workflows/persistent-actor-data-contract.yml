@@ -1,0 +1,52 @@
+name: Persistent actor data v1 policy conformance
+on:
+  pull_request:
+    paths:
+      - 'contracts/v1/persistent_actor_data_v1.json'
+      - 'scripts/verify_persistent_actor_data_contract.py'
+      - 'scripts/test_persistent_actor_data_contract.py'
+      - '.github/workflows/persistent-actor-data-contract.yml'
+      - 'src/actor-arena.mjs'
+      - 'tests/actor-arena.test.mjs'
+  push:
+    paths:
+      - 'contracts/v1/persistent_actor_data_v1.json'
+      - 'scripts/verify_persistent_actor_data_contract.py'
+      - 'scripts/test_persistent_actor_data_contract.py'
+      - '.github/workflows/persistent-actor-data-contract.yml'
+      - 'src/actor-arena.mjs'
+      - 'tests/actor-arena.test.mjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Pin identical five-backend contract source blobs
+        shell: bash
+        run: |
+          test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
+          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "afde8f59bacb20564844a1a51381004ad66ec981"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "1b67922a4ac2994bab7da3f7b214d936ca23a0dd"
+      - name: Reject capability and fixture drift
+        run: python3 scripts/verify_persistent_actor_data_contract.py
+      - name: Execute negative policy mutation suite
+        run: python3 scripts/test_persistent_actor_data_contract.py -v
+
+  host-arena:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Execute real WebAssembly.Memory actor arena tests
+        run: node --test tests/actor-arena.test.mjs
