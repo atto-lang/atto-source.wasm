@@ -44,6 +44,7 @@ python3 scripts/test_verify_ci_run.py
 GH_TOKEN="$READ_ONLY_GITHUB_TOKEN" python3 scripts/verify_ci_run.py \
   --backend llvm --commit "$EXACT_RUN_HEAD_SHA" --tree "$EXACT_RUN_HEAD_TREE" \
   --run-id "$RUN_ID" --workflow-path ".github/workflows/ci.yml" \
+  --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
   --require-job 'test' --require-step 'Run CTest'
 ```
 
