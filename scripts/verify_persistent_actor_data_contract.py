@@ -5,6 +5,7 @@ A passing contract check proves the fixture and capability declarations agree,
 NOT that the backend has implemented persistent maps or passed runtime tests.
 """
 import json
+import math
 import os
 from pathlib import Path
 import stat
@@ -42,9 +43,16 @@ def validate_raw(raw):
         raise ContractError("invalid or oversized persistent contract")
     if raw.startswith(b"\xef\xbb\xbf"):
         raise ContractError("BOM forbidden")
+    def finite_float(text):
+        value = float(text)
+        if not math.isfinite(value):
+            raise ContractError("non-finite JSON float or exponent overflow")
+        return value
     try:
         data = json.loads(raw.decode("utf-8"), object_pairs_hook=_unique_pairs,
-                          parse_constant=_bad_constant)
+                          parse_constant=_bad_constant, parse_float=finite_float)
+    except ContractError:
+        raise
     except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise ContractError("invalid canonical UTF-8 JSON") from exc
     validate(data)
@@ -108,29 +116,38 @@ def validate(doc):
 
 
 def read_bounded_contract(path):
-    """Read an identity-pinned regular file; deny symlink/hardlink/FIFO swaps.
-
-    The initial stat alone is not authority: verify the opened descriptor,
-    verify it did not change while reading, then recheck the path binding.
-    """
+    """Reject nonregular, hardlinked, raced and oversized JSON before decoding."""
     path = Path(path)
+    fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
+              "st_mtime_ns", "st_ctime_ns")
     def same_file(a, b):
-        return all(getattr(a, name) == getattr(b, name) for name in (
-            "st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
-            "st_mtime_ns", "st_ctime_ns"
-        ))
+        return all(getattr(a, key) == getattr(b, key) for key in fields)
     try:
-        # Retain the explicit symlink denial for platforms without O_NOFOLLOW.
-        if path.is_symlink():
-            raise ContractError("persistent contract must be a unique regular file")
         before = path.lstat()
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
             raise ContractError("persistent contract must be a unique regular file")
         if not 0 < before.st_size <= 64 * 1024:
             raise ContractError("empty or oversized persistent contract")
-        flags = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
-                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
-        with os.fdopen(os.open(path, flags), "rb") as stream:
+        # A missing O_NOFOLLOW permits final-component symlink substitution
+        # between lstat() and open(). A missing O_NONBLOCK permits a
+        # substituted FIFO to block indefinitely. Never silently downgrade.
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        nonblock = getattr(os, "O_NONBLOCK", None)
+        binary = getattr(os, "O_BINARY", 0)
+        if (type(nofollow) is not int or nofollow <= 0
+                or type(nonblock) is not int or nonblock <= 0
+                or (nofollow & nonblock)
+                or type(binary) is not int or binary < 0
+                or (binary & (nofollow | nonblock))):
+            raise ContractError("safe independent non-following and non-blocking open flags unavailable")
+        flags = os.O_RDONLY | nonblock | nofollow | binary
+        fd = os.open(path, flags)
+        try:
+            stream = os.fdopen(fd, "rb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with stream:
             opened = os.fstat(stream.fileno())
             if not stat.S_ISREG(opened.st_mode) or not same_file(before, opened):
                 raise ContractError("persistent contract changed before read")
@@ -138,10 +155,15 @@ def read_bounded_contract(path):
             after = os.fstat(stream.fileno())
             if not same_file(opened, after):
                 raise ContractError("persistent contract changed during read")
+            # Short reads can indicate partial or substituted data even when
+            # a filesystem reports stable inode, size, and timestamps.
+            # Never validate only a prefix of the pinned fixture.
+            if len(data) != after.st_size:
+                raise ContractError("persistent contract short read")
         if not same_file(after, path.lstat()):
             raise ContractError("persistent contract path changed during read")
     except OSError as exc:
-        raise ContractError("cannot read persistent contract") from exc
+        raise ContractError("persistent contract unavailable or unsafe") from exc
     return validate_raw(data)
 
 
