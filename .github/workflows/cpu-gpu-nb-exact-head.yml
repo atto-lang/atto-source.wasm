@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           env -u ORESLANG_LLVM_COMPILER -u ORESLANG_LLVM_COMPILER_SHA256 \
-            node --test tests/cpu-gpu-nb-admission.test.mjs \
+            node --test --test-reporter=tap tests/cpu-gpu-nb-admission.test.mjs \
             | tee "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
           grep -Eq '^# pass 1$' "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
           grep -Eq '^# fail 0$' "$RUNNER_TEMP/wasm-domain-evidence/source-free-tap.txt"
