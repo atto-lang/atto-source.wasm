@@ -27,6 +27,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checked-out exact source HEAD and tree
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_TESTED_SOURCE_COMMIT=$EXPECTED_SOURCE_HEAD"
+          echo "EXACT_TESTED_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Pin identical five-backend contract source blobs
         shell: bash
         run: |
@@ -42,6 +54,8 @@ jobs:
       - name: Record source-local checkout identity (diagnostic only)
         if: ${{ always() }}
         shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
@@ -74,6 +88,8 @@ jobs:
               "event": os.environ["GITHUB_EVENT_NAME"],
               "ref": os.environ["GITHUB_REF"],
               "workflow_run_sha": os.environ["GITHUB_SHA"],
+              "expected_tested_source_commit": os.environ["EXPECTED_SOURCE_HEAD"],
+              "checkout_matches_expected_source": rev("HEAD") == os.environ["EXPECTED_SOURCE_HEAD"],
               "checkout_commit": rev("HEAD"),
               "checkout_tree": rev("HEAD^{tree}"),
               "runner_name": os.environ.get("RUNNER_NAME", ""),
@@ -101,6 +117,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify checked-out exact source HEAD and tree
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_TESTED_SOURCE_COMMIT=$EXPECTED_SOURCE_HEAD"
+          echo "EXACT_TESTED_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
@@ -111,6 +139,8 @@ jobs:
       - name: Record source-local checkout identity (diagnostic only)
         if: ${{ always() }}
         shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           python3 -I - <<'PY'
@@ -143,6 +173,8 @@ jobs:
               "event": os.environ["GITHUB_EVENT_NAME"],
               "ref": os.environ["GITHUB_REF"],
               "workflow_run_sha": os.environ["GITHUB_SHA"],
+              "expected_tested_source_commit": os.environ["EXPECTED_SOURCE_HEAD"],
+              "checkout_matches_expected_source": rev("HEAD") == os.environ["EXPECTED_SOURCE_HEAD"],
               "checkout_commit": rev("HEAD"),
               "checkout_tree": rev("HEAD^{tree}"),
               "runner_name": os.environ.get("RUNNER_NAME", ""),
