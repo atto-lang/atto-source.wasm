@@ -84,10 +84,9 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/on:\n  push:\n    branches: \[main\]/);
   assert.match(workflow,/pull_request:\n    paths:/);
   for(const path of [
-    "aot-host/**", "tests/aot-architecture.test.mjs",
-    "tests/real-aot-gate.test.mjs", "scripts/verify-real-aot.mjs",
-    "scripts/cleanup-real-compiler.mjs",
-    "rust-toolchain.toml", ".github/workflows/aot-host.yml"
+    "aot-host/**", "scripts/**", "src/**", "tests/**",
+    "examples/**", "package.json", "rust-toolchain.toml",
+    ".github/workflows/aot-host.yml"
   ]){
     assert.ok(workflow.includes('      - "'+path+'"'),"AOT CI must trigger for "+path);
   }
