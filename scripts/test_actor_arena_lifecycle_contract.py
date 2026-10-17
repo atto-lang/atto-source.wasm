@@ -70,6 +70,9 @@ class ActorArenaLifecyclePolicyTest(unittest.TestCase):
     def test_foreign_carrier_denial_cannot_be_weakened(self):
         self.reject(lambda d: d["backend_support"]["java"].update(
             foreign_carrier_denial="unverified"))
+    def test_capability_fabrication_denial_cannot_be_weakened(self):
+        self.reject(lambda d: d["backend_support"]["llvm"].update(
+            capability_fabrication_denial="unverified"))
     def test_nonrecycling_identity_cannot_be_weakened(self):
         self.reject(lambda d: d["backend_support"]["forge"].update(
             nonrecycling_identity="unverified"))
@@ -81,6 +84,10 @@ class ActorArenaLifecyclePolicyTest(unittest.TestCase):
         self.reject(lambda d: next(x for x in d["cases"]
                                    if x["id"] == "done-is-not-reclaimed")
                     .update(expect="same-state"))
+    def test_raw_capability_coordinates_expectation_pinned(self):
+        self.reject(lambda d: next(x for x in d["cases"]
+                                   if x["id"] == "raw-capability-coordinates-denied")
+                    .update(expect="allow-fabrication"))
     def test_native_steps_must_be_nonzero(self):
         self.reject(lambda d: next(x for x in d["cases"]
                                    if x["id"] == "native-job-must-execute-steps")
@@ -97,7 +104,7 @@ class ActorArenaLifecyclePolicyTest(unittest.TestCase):
             validate_raw(b"[" * 5000 + b"0" + b"]" * 5000)
 
 if __name__ == "__main__":
-    expected = 27
+    expected = 29
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ActorArenaLifecyclePolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL lifecycle gate: expected {expected}, found {suite.countTestCases()}")
