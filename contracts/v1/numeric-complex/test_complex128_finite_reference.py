@@ -16,6 +16,8 @@ REQUIRED = frozenset((
     "add-mixed-sign", "subtract-mixed-sign", "multiply-cross-terms",
     "multiply-subnormal-imaginary", "divide-basic",
     "divide-extreme-exponent-separation-1042",
+    "divide-compensated-balanced-one-ulp",
+    "divide-subnormal-output-exact-rounding",
     "divide-large-avoid-intermediate-overflow",
     "divide-small-avoid-intermediate-underflow", "divide-min-subnormal",
     "multiply-negative-signs", "conjugate",
