@@ -1,7 +1,7 @@
 # Numerical parity admission contract v1
 
 All five private repos track the same immutable fixture blob
-`cb28b5678d380f02c5e4e43bd763da04bdb996fe`, first staged on Java
+`80436f21a95816e2d5e40274daba9b923b3bcec9`, first staged on Java
 PR #1033 and LLVM PR #427. Copy it without changing a byte.
 
 ## Shared real-source i64 corpus
