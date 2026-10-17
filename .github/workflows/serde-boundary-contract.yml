@@ -34,5 +34,5 @@ jobs:
         run: python3 scripts/test_serde_contract.py
       - name: Compare six canonical MessagePack v2 wire vectors and 36 mutations (source-free)
         run: python3 scripts/check_messagepack_v2_golden.py
-      - name: Reject noncanonical shape JSON hex and scalar fixture mutations (source-free)
+      - name: Run exactly 16 pinned-oracle regressions without skips (source-free)
         run: python3 scripts/test_messagepack_v2_golden.py
