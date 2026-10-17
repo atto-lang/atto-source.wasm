@@ -70,6 +70,36 @@ test("configured project.root source graph is denied before Wasm publication",as
   }finally{await rm(root,{recursive:true,force:true})}
 });
 
+// Existing files and a real nested package marker must not make an
+// incomplete single-source Wasm compilation appear to support source graphs.
+// Both explicit relative and bare child imports remain publication-denied.
+test("Wasm refuses nested-package relative and bare imports before artifacts",async()=>{
+  const root=await mkdtemp(join(tmpdir(),"ores-wasm-nested-imports-"));
+  try{
+    const routes=join(root,"src","routes"),child=join(routes,"child");
+    await mkdir(child,{recursive:true});
+    await writeFile(join(root,".ores.pkg.toml"),'schema_version = "1"\n');
+    await writeFile(join(child,".oreslangc.cfg.toml"),'schema_version = "1"\n');
+    await writeFile(join(child,"secret.ores"),'pub fnc secret(): int { return 42; }\n');
+    const source=join(routes,"main.ores");
+    const compiler=join(root,"compiler-stub"),output=join(root,"guest.wasm");
+    await writeFile(compiler,"non-executed placeholder",{mode:0o500});
+    for(const specifier of ["./child/secret","child/secret"]){
+      await writeFile(source,
+        'import fnc secret from "'+specifier+'";\npub fnc main(): int { return secret(); }\n');
+      for(const publication of ["legacy","atomic"]){
+        await assert.rejects(
+          compileOresToWasm({compiler,source,output,publication}),
+          /source imports require verified complete Wasm module graph/);
+        for(const suffix of ["",".provenance.json",".artifact.json",
+                             ".current.json",".releases",".publication.lock"]){
+          await assert.rejects(access(output+suffix),{code:"ENOENT"});
+        }
+      }
+    }
+  }finally{await rm(root,{recursive:true,force:true})}
+});
+
 test("Wasm scanner ignores quoted import text and comments but not real code",()=>{
   for(const text of [
     '// import fnc helper from "+/lib/helper";\npub fnc main(): int {return 42;}\n',
