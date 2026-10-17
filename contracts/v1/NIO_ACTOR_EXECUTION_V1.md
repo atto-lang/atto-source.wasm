@@ -89,11 +89,42 @@ Backends without proven RT admission must explicitly deny #hard.
 
 | Backend | NIO status | Actor physical turns | RT status |
 | --- | --- | --- | --- |
-| Java/GraalVM | VM readiness manager now lazily starts reactor #0; experimental TCP is shared on that manager, but a transitional lazy private completion pool and legacy HTTP/FS adapters still need migration | Host credits 1..3, live actor default single-flight | Hybrid GC; no hard-RT guarantee |
+| Java/GraalVM | VM readiness starts reactor #0 lazily; full OresContext now binds NIO terminal notifications to existing actor carriers and drains them before actor shutdown. Standalone OresVM/readiness groups still retain a transitional lazy private 0..2-worker completion pool. Legacy HTTP/FS paths need migration | Host credits 1..3, live actor default single-flight; opt-in 4..256 global static carrier cap with CONTROL reserve | Hybrid GC; no hard-RT guarantee |
 | LLVM | Linux epoll manager configures throughput at zero pthreads and lazily starts reactor #0; native VM attachment exists, source await bridge incomplete | Host credits 1..3, native execution authority still single-owner | Zero tracing-GC substrate and fixed prestart profile; no WCET guarantee |
 | .NET | Source compiler/runtime has no guest NIO implementation | Host credits 1..3 only; no guest parallel actor execution | Managed GC; no hard-RT claim |
 | WASM | Zero-import scalar guest; no guest NIO or reactors | No guest actor execution, reject physical-turn requests | No hard-RT claim |
 | Forge | Mailbox prototype; no guest NIO/reactor | Host credits 1..3 only; no source parallel actor execution | Native/no tracing-GC host credit path; no hard-RT claim |
+
+## Incremental Java enforcement (2026-10-17)
+
+- In a fully constructed Java `OresContext`, the readiness manager is bound
+  **before first watch** to the existing actor dispatcher's host-only
+  notification execution path. The selector does not invoke a Future
+  subscriber, and this path does not create NIO-specific completion threads.
+  A bounded staged-notification queue retries when actor turns retire. Host
+  callbacks can consume an actor carrier but must never consume CONTROL or
+  selector carriers; guest continuation resumption must still be enqueued
+  through the owning actor scheduler.
+- `OresContext.close()` stops and drains NIO before actor dispatchers retire.
+  A standalone `OresVM` or `NioReadinessGroup` retains the transitional lazy
+  private completion executor for compatibility. Do **not** claim universal
+  zero-worker completion topology until standalone users require an explicit
+  host executor or an owning scheduler.
+- `-Dores.runtime.carriers.global.max=N` (4..256) opts an `OresContext`
+  into an immediately enforceable *conservative static* physical-carrier cap:
+  CONTROL has one reserved carrier permit, and PRIVATE/SHARED/UNTRUSTED each
+  get `floor((N - 1) / 3)` maximum resident carriers. Native lane/affinity
+  configurations remain isolated; Java non-affine expansion cannot bypass the
+  domain cap. The total possible CONTROL+actor carriers is <= N. Up to two
+  permits may remain unallocated. This is **not yet work-conserving**: a busy
+  domain cannot borrow idle permits from another, and the legacy unconfigured
+  runtime still uses independent per-domain maxima.
+- The global execution-carrier cap excludes dedicated kernel readiness
+  reactors and user-explicit fixed `OresScheduler(N)` threads. It does not
+  certify guest multi-turn actor execution or RT latency.
+- These branch changes require current-head JDK 25 Maven/JUnit, Native Image
+  and real compiled guest TCP qualification before merge. Existing funded
+  exact-blob evidence predates this addition.
 
 ## Required differential fixtures
 
