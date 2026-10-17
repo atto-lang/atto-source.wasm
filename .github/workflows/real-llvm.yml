@@ -14,6 +14,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
+      # When the native LLVM compiler is required, source negative tests may
+      # not pass only because they were skipped.
+      ORESLANG_REQUIRE_STRUCTURAL_COMPILER: '1'
       ORESLANG_LLVM_SOURCE_SHA: 8e2bc48e77e51eff06f811b451a69b2f7c77055f
     steps:
       - name: Require authorized private LLVM read access
