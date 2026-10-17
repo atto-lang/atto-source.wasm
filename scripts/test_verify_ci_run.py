@@ -56,6 +56,7 @@ class RunContract(unittest.TestCase):
 
     def verify(self, *args, **kwargs):
         kwargs.setdefault("workflow_id", 991)
+        kwargs.setdefault("expected_run_attempt", 2)
         kwargs.setdefault("expected_run_path", ".github/workflows/ci.yml")
         kwargs.setdefault("expected_event", "push")
         kwargs.setdefault("workflow_blob_sha", "c" * 40)
@@ -121,7 +122,8 @@ class RunContract(unittest.TestCase):
             return data
         with self.assertRaises(module.Denied):
             self.verify(mutate_second_read, self.backend, self.commit, self.tree,
-                        self.run_id, ["unit"], ["Execute test suite"])
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_attempt=1)
         self.assertEqual(calls[0], 2)
 
     def test_run_changed_during_collection_denied(self):
@@ -146,6 +148,21 @@ class RunContract(unittest.TestCase):
                                 self.tree, self.run_id, ["unit"], ["Execute test suite"])
                 self.assertEqual(calls[0], 2)
         self.values[run_path] = original
+
+    def test_independently_pinned_run_attempt_required(self):
+        for attempt in (None, False, True, 0, -1, "2"):
+            with self.subTest(attempt=attempt):
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_attempt=attempt)
+
+    def test_independently_pinned_run_attempt_mismatch_denied(self):
+        with self.assertRaisesRegex(module.Denied, "independently pinned attempt"):
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_attempt=1)
+        self.assertEqual(self.validate()["run_attempt"], 2)
 
     def test_workflow_blob_pin_required(self):
         with self.assertRaises(module.Denied):
