@@ -99,3 +99,35 @@ vectors and fail-closed negative mutations. Its uploaded
 is only metadata/runner evidence. No private Oreslang Git tree was
 mirrored to this carrier. The source organization previously produced
 jobs with no allocated runner, so actual source CI remains unverified.
+
+## Java scalar integration progress (2026-10-17)
+
+The **current Java actor/serde/arena draft** [#1124](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1124)
+now forward-ports only the reviewed `Complex` evaluator record from Java
+precision branch [#1033](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1033)
+onto the current integration source—not the stale matrix/EE #120 tree.
+It replaces naïve multiply/divide with bounded exceptional exact-binary-input
+decimal fallback, power-of-two-scaled normal finite division, and the
+wide-exponent small-component recovery path. It orders guest numeric
+equality before object identity (`NaN != NaN` even for the same complex
+instance), preserves signed-zero formatting, and rejects implicit
+BigInt/Decimal narrowing into binary64 complex.
+
+The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
+contains six focused **real guest-language GraalVM JUnit tests**:
+basic complex addition/subtraction/cross-term multiplication, scaled
+large/small division, [#1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
+representable tiny imaginary result, minimum subnormal multiplication,
+complex NaN self-equality and large/small purely imaginary division.
+Java's existing Maven `verify` CI selects its normal JUnit test suite.
+These tests are **committed, NOT passed** on an allocated source runner.
+
+This is **not** all of #120: guest Vector/Matrix/EE, stable
+`Complex<T>` generic typing, complex serialization, AOT/native and
+GPU execution still require integration and test. Decimal slow-path
+precision is deliberately finite (`MathContext(1800, HALF_EVEN)`)
+and has **not** been proven correctly rounded for every binary64
+edge, midpoint or exceptional input. Keep [division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
+open until independent differential fuzz, ULP/rounding policy and
+exact-head GraalVM+LLVM checks pass. Other four backends retain their
+`unverified` status with no implied scalar/guest implementation.
