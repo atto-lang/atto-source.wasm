@@ -290,3 +290,49 @@ test("WeakMap prototype mutation cannot forge or revive actor handles", () => {
     }
   }
 });
+
+test("allocator metadata stays private when Array prototype methods are poisoned", () => {
+  const arena = new ActorArena({actorId: 40, incarnation: 1});
+  const turn = arena.beginTurn();
+  const live = arena.allocPersistent(turn, 4);
+  const freed = arena.allocPersistent(turn, 65532);
+  arena.write(turn, live, Uint8Array.of(9, 8, 7, 6));
+  const methods = new Map(["push", "sort", "findIndex", "splice"].map(name =>
+    [name, Object.getOwnPropertyDescriptor(Array.prototype, name)]));
+  const originalPush = methods.get("push").value;
+  let stolenMetadata = null;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value(...items) {
+        if (items.some(item => item && typeof item === "object" &&
+            Object.hasOwn(item, "offset") && Object.hasOwn(item, "length"))) {
+          stolenMetadata = this;
+        }
+        return originalPush.apply(this, items);
+      }
+    });
+    Object.defineProperty(Array.prototype, "sort", {
+      configurable: true, writable: true, value() { return this; }
+    });
+    Object.defineProperty(Array.prototype, "findIndex", {
+      configurable: true, writable: true, value() { return -1; }
+    });
+    Object.defineProperty(Array.prototype, "splice", {
+      configurable: true, writable: true, value() { return []; }
+    });
+    arena.dropPersistent(turn, freed);
+    assert.equal(stolenMetadata, null, "no private free-list may enter a prototype hook");
+    const reused = arena.allocPersistent(turn, 65532);
+    assert.deepEqual([...arena.read(turn, live)], [9, 8, 7, 6],
+      "free-list poisoning must not overlap or clear a live allocation");
+    arena.dropPersistent(turn, reused);
+    assert.deepEqual([...arena.read(turn, live)], [9, 8, 7, 6]);
+  } finally {
+    for (const [name, descriptor] of methods) {
+      Object.defineProperty(Array.prototype, name, descriptor);
+    }
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
