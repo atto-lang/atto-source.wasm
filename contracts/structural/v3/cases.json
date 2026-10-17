@@ -1,0 +1,231 @@
+{
+  "contract": "oreslang.structural-containers.v3",
+  "status": "target-only",
+  "backend_ids": [
+    "java",
+    "llvm",
+    "net",
+    "wasm",
+    "forge"
+  ],
+  "max_fixed_extent": 64,
+  "notice": "Target semantics only. No parser/typechecker/compiler/guest parity can be claimed from this inventory.",
+  "cases": [
+    {
+      "id": "array.homogeneous",
+      "expect": "accept",
+      "source": "structural Array<int> v <- Array<int>",
+      "reason": "readonly homogeneous array loan"
+    },
+    {
+      "id": "array.literal",
+      "expect": "accept",
+      "source": "structural Array<int> v <- [1,2,3]",
+      "reason": "element type and extent inferred once"
+    },
+    {
+      "id": "array.mismatch",
+      "expect": "reject",
+      "source": "structural Array<int> v <- Array<string>",
+      "reason": "wrong element type"
+    },
+    {
+      "id": "array.dynamic.to.fixed",
+      "expect": "reject",
+      "source": "structural FixedArray<int,3> v <- Array<int>",
+      "reason": "unknown extent cannot become fixed"
+    },
+    {
+      "id": "array.no.list.coercion",
+      "expect": "reject",
+      "source": "structural Array<int> v <- List<int>",
+      "reason": "array/list kind distinct"
+    },
+    {
+      "id": "array.readonly.set",
+      "expect": "reject",
+      "source": "v[0] = 7  // v: structural Array<int>",
+      "reason": "readonly view has no write capability"
+    },
+    {
+      "id": "array.numeric.coercion",
+      "expect": "reject",
+      "source": "structural Array<float> v <- Array<int>",
+      "reason": "no implicit numeric reinterpretation through a view"
+    },
+    {
+      "id": "array.unknown",
+      "expect": "reject",
+      "source": "structural Array<int> v <- Array<Unknown>",
+      "reason": "unresolved element cannot certify view"
+    },
+    {
+      "id": "array.hidden.mutable",
+      "expect": "reject",
+      "source": "structural Array<structural Record> v <- Array<mutable Record>",
+      "reason": "nested alias capability cannot be laundered"
+    },
+    {
+      "id": "fixedarray.extent",
+      "expect": "accept",
+      "source": "structural FixedArray<int,3> v <- FixedArray<int,3>",
+      "reason": "static extent proof"
+    },
+    {
+      "id": "fixedarray.wrong.extent",
+      "expect": "reject",
+      "source": "structural FixedArray<int,3> v <- FixedArray<int,4>",
+      "reason": "no width subtyping for fixed arrays"
+    },
+    {
+      "id": "fixedarray.not.tuple",
+      "expect": "reject",
+      "source": "structural (int,int,int) v <- FixedArray<int,3>",
+      "reason": "fixed array is never a tuple"
+    },
+    {
+      "id": "fixedarray.bound.65",
+      "expect": "reject",
+      "source": "structural FixedArray<int,65> v",
+      "reason": "static proof extent bounded at 64"
+    },
+    {
+      "id": "list.readonly",
+      "expect": "accept",
+      "source": "structural List<string> v <- List<string>",
+      "reason": "readonly sequential view for a scoped loan"
+    },
+    {
+      "id": "list.literal.covariance",
+      "expect": "accept",
+      "source": "structural List<string> v <- List<\"literal\">",
+      "reason": "readonly immutable element projection with no repr change"
+    },
+    {
+      "id": "list.writable.covariance",
+      "expect": "reject",
+      "source": "List<string> v <- List<\"literal\"> // write authority requested",
+      "reason": "mutable list elements invariant"
+    },
+    {
+      "id": "list.not.array",
+      "expect": "reject",
+      "source": "structural List<int> v <- Array<int>",
+      "reason": "no implicit array/list interchange"
+    },
+    {
+      "id": "list.push",
+      "expect": "reject",
+      "source": "v.add(1) // v: structural List<int>",
+      "reason": "cannot mutate readonly list"
+    },
+    {
+      "id": "list.unknown",
+      "expect": "reject",
+      "source": "structural List<int> v <- List<Unknown>",
+      "reason": "no unresolved element proof"
+    },
+    {
+      "id": "list.nested.mutable",
+      "expect": "reject",
+      "source": "structural List<List<int>> v <- List<List<int>>",
+      "reason": "nested mutable collection alias not readonly safe"
+    },
+    {
+      "id": "fixedlist.extent",
+      "expect": "accept",
+      "source": "structural FixedList<int,2> v <- FixedList<int,2>",
+      "reason": "fixed sequential view exact extent"
+    },
+    {
+      "id": "fixedlist.wrong.extent",
+      "expect": "reject",
+      "source": "structural FixedList<int,2> v <- FixedList<int,3>",
+      "reason": "fixed list extent invariant"
+    },
+    {
+      "id": "map.readonly",
+      "expect": "accept",
+      "source": "structural Map<string,int> v <- Map<string,int>",
+      "reason": "readonly map view and exact key identity"
+    },
+    {
+      "id": "map.value.literal",
+      "expect": "accept",
+      "source": "structural Map<string,string> v <- Map<string,\"literal\">",
+      "reason": "closed immutable value projection"
+    },
+    {
+      "id": "map.key.invariant",
+      "expect": "reject",
+      "source": "structural Map<string,int> v <- Map<\"literal\",int>",
+      "reason": "map key hash/equality semantics must match exactly"
+    },
+    {
+      "id": "map.value.numeric",
+      "expect": "reject",
+      "source": "structural Map<string,float> v <- Map<string,int>",
+      "reason": "map values cannot coerce numeric representation"
+    },
+    {
+      "id": "map.unknown.key",
+      "expect": "reject",
+      "source": "structural Map<Unknown,int> v",
+      "reason": "unknown key cannot prove stable hash/equality"
+    },
+    {
+      "id": "map.unknown.value",
+      "expect": "reject",
+      "source": "structural Map<string,int> v <- Map<string,Unknown>",
+      "reason": "unknown value cannot support projection"
+    },
+    {
+      "id": "map.mutable.put",
+      "expect": "reject",
+      "source": "v.put(\"key\",1) // v: structural Map<string,int>",
+      "reason": "readonly view cannot insert/update"
+    },
+    {
+      "id": "map.unsafe.key",
+      "expect": "reject",
+      "source": "structural Map<float,int> v <- Map<float,int>",
+      "reason": "noncanonical/NaN-sensitive hash key not proven"
+    },
+    {
+      "id": "map.nested.mutable",
+      "expect": "reject",
+      "source": "structural Map<string,List<int>> v <- Map<string,List<int>>",
+      "reason": "nested mutable value cannot be exposed as readonly"
+    },
+    {
+      "id": "capability.no.escape",
+      "expect": "reject",
+      "source": "actor.send(v) // v: structural List<int>",
+      "reason": "readonly loan cannot escape to actor mailbox without sendability proof"
+    },
+    {
+      "id": "capability.no_await",
+      "expect": "reject",
+      "source": "await next(v) // v: structural Map<string,int>",
+      "reason": "readonly scoped loan cannot escape suspension"
+    },
+    {
+      "id": "overload.no_shape_only",
+      "expect": "reject",
+      "source": "fnc f(structural Array<int>); fnc f(structural List<int>)",
+      "reason": "no same-arity structural-shape overload"
+    },
+    {
+      "id": "spread.no_dynamic_container",
+      "expect": "reject",
+      "source": "f(...list) // list: List<int>",
+      "reason": "unknown extent spread not tuple"
+    },
+    {
+      "id": "map.key.optional",
+      "expect": "accept",
+      "source": "v.get(\"missing\") // v: structural Map<string,int>",
+      "reason": "missing key returns Option<int>, never phantom required key"
+    }
+  ]
+}
