@@ -22,6 +22,10 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source head before policy-gate tests
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Validate shared vector schema only (not runtime proof)
         run: python3 contracts/v1/verify_scoped_permissions.py --validate-only
       - name: Negative report-gate unit tests only (not guest execution)
