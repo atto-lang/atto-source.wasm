@@ -43,6 +43,14 @@ INVARIANTS = (
     "reused-capacity-is-zeroized-before-admission",
     "retirement-is-monotonic-and-idempotent",
     "unsupported-shared-domain-or-general-lowering-fails-closed",
+    "quota-charge-precedes-allocation-and-failed-admission-is-accounting-neutral",
+    "rejected-construction-does-not-consume-capability-identity",
+    "nontrivial-values-drop-exactly-once-before-bulk-reclaim",
+    "identity-and-generation-counters-never-wrap-into-live-authority",
+    "double-release-and-retire-races-cannot-underflow-accounting",
+    "cross-actor-capability-transfer-never-grants-private-arena-authority",
+    "snapshot-restore-cannot-revive-retired-or-stale-authority",
+    "reclaim-failure-keeps-logical-retirement-and-dirty-capacity-unpublished",
 )
 
 class ContractError(ValueError):

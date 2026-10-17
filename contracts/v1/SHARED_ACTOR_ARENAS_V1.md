@@ -13,7 +13,7 @@ Status: **proposed/runtime-integration pending** (2026-10-17). Applies to Java/G
 
 1. Create a unique arena/domain identity, nonzero actor incarnation, generation state and bounded byte/slot quotas. Charge budgets before allocation. Overflow and failed admission must not partially consume capability identity or accounting.
 2. Persistent allocations outlive turns but not actor retirement. Scratch allocations are associated with the admitted turn and are invalidated and cleared on **every** turn exit, including exception, cancellation and suspend/cooperate. Suspending with scratch authority is rejected unless lowered into a separately lifetime-checked continuation allocation.
-3. Every handle is opaque authority for one arena allocation. Implementations may internally use arena/domain ID, slot/offset, generation and incarnation, but callers must not be able to manufacture a live handle from those coordinates. Validate before every read/write/drop and reject foreign, stale, exhausted and out-of-bounds access.
+3. Every handle is opaque authority for one arena allocation. Implementations may internally use arena/domain ID, slot/offset, generation and incarnation, but callers must not be able to manufacture a live handle from those coordinates. Validate before every read/write/drop and reject foreign, stale, exhausted and out-of-bounds access. Copying, serializing, forwarding or otherwise transferring an opaque capability to another actor never grants private-arena authority unless an explicit sharing primitive creates separately validated shared authority.
 4. Actor-local mutation requires its actor execution lease, even when a carrier migrates. Shared-data mutation requires the shared-region synchronization lease. Read leases exclude writes; write leases exclude all others.
 5. **Logical retirement precedes physical reclamation.** Stop/retire first closes admission and revokes new turns, allocations, borrows and callback registrations. Once logical retirement starts, a late callback may release authority but must never reacquire actor memory authority or resurrect the arena.
 6. Any continuation, persistent borrow, FFI operation or I/O callback that can outlive the actor turn must register a bounded **external lifetime pin/loan** before leaving the admitted turn. A lifetime pin grants no arena read/write authority by itself and may be released from the callback carrier.
@@ -21,6 +21,7 @@ Status: **proposed/runtime-integration pending** (2026-10-17). Applies to Java/G
 8. Drop nontrivial values exactly once in deterministic order before bulk reclaim. Zeroize confidential bytes on drop, teardown and before capacity reuse. Native/FFM/mmap resources require explicit release; Java/.NET finalizers and JavaScript GC are never correctness mechanisms.
 9. A supervisor and child may hold shared-domain leases. Parent shutdown alone does not free a shared region; all members and leases must quiesce. Never hold a shared-region lock while invoking arbitrary guest callbacks.
 10. Retirement is monotonic and retryable: a failed physical release must leave the arena logically retired and must not publish dirty/revived capacity. Identity and generation counters must never wrap back into live authority.
+11. Snapshot, rollback and restore are new admissions, not time travel for capabilities: they may reconstruct validated values, but must not revive retired arenas, stale generations, consumed capability identities, outstanding borrows or pre-snapshot external pins.
 
 ## Backend mapping and honesty boundary
 
@@ -39,6 +40,9 @@ LLVM's compiler allocators are not automatically guest-state allocators. `Arena.
 - Actor A cannot dereference actor B's private handle; ActorRef sharing grants no heap access.
 - Persistent state survives turns/carrier migration; scratch survives neither turn exit nor suspension.
 - Cross-arena replay, stale generations, wrong incarnation/carrier, fabricated coordinates and ABA are rejected.
+- Quota is charged before allocation; failed admission/overflow is accounting-neutral and rejected construction does not consume capability identity.
+- Cross-actor capability forwarding cannot smuggle private arena authority, and identity/generation exhaustion fails closed rather than wrapping into live authority.
+- Snapshot/restore cannot resurrect retired or stale authority, outstanding borrows, consumed identities or external lifetime pins.
 - Logical retirement denies all new authority before waiting for external quiescence.
 - A continuation/borrow/FFI/I/O owner that outlives a turn must hold a lifetime pin; the pin itself cannot read or write arena memory.
 - Late callbacks after retirement may release their pin but cannot allocate, open a turn, revive a handle or register another pin.
