@@ -58,7 +58,9 @@ class OptionPatternHarnessTest(unittest.TestCase):
                 "from pathlib import Path\n"
                 "import sys\n"
                 "s = Path(sys.argv[1]).read_text(encoding='utf-8')\n"
-                "sys.exit(0 if 'main(): int { return 42; }' in s else 1)\n",
+                "accepted = 'main(): int { return 42; }' in s\n"
+                "if not accepted: print('oresforge: unsupported Option', file=sys.stderr)\n"
+                "sys.exit(0 if accepted else 1)\n",
                 encoding="utf-8")
             report = Path(root) / "report.json"
             result = self.command(
@@ -78,10 +80,66 @@ class OptionPatternHarnessTest(unittest.TestCase):
                 "import sys\n"
                 "s = Path(sys.argv[1]).read_text(encoding='utf-8')\n"
                 "if 'main(): int { return 42; }' in s: sys.exit(0)\n"
+                "print('oreslang-llvmc: parser rejected syntax', file=sys.stderr)\n"
                 "print('define i64 @main() {')\n"
                 "sys.exit(1)\n", encoding="utf-8")
             result = self.command("--backend", "llvm", "--",
                                   sys.executable, str(fake), "{source}")
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("status=failed", result.stdout)
+
+
+    def test_usage_error_is_not_valid_unsupported_syntax(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake = Path(root) / "usage_error.py"
+            fake.write_text(
+                "from pathlib import Path\\n"
+                "import sys\\n"
+                "s = Path(sys.argv[1]).read_text()\\n"
+                "if 'main(): int { return 42; }' in s: sys.exit(0)\\n"
+                "print('oresforge: invalid CLI usage', file=sys.stderr)\\n"
+                "sys.exit(2)\\n", encoding="utf-8")
+            result = self.command("--backend", "forge", "--",
+                                  sys.executable, str(fake), "{source}")
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("status=failed", result.stdout)
+
+    def test_silent_exit_one_is_not_valid_diagnostic(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake = Path(root) / "silent.py"
+            fake.write_text(
+                "from pathlib import Path\\n"
+                "import sys\\n"
+                "s = Path(sys.argv[1]).read_text()\\n"
+                "sys.exit(0 if 'main(): int { return 42; }' in s else 1)\\n",
+                encoding="utf-8")
+            result = self.command("--backend", "net", "--",
+                                  sys.executable, str(fake), "{source}")
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("status=failed", result.stdout)
+
+    def test_graal_positive_cases_require_real_execution_template(self):
+        result = self.command("--backend", "graal", "--",
+                              "missing-graal-command", "{source}")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("supply --run-command", result.stderr)
+
+    def test_graal_wrong_runtime_result_is_a_failed_oracle(self):
+        with tempfile.TemporaryDirectory() as root:
+            fake = Path(root) / "fake_java.py"
+            fake.write_text(
+                "import sys\\n"
+                "from pathlib import Path\\n"
+                "name = Path(sys.argv[1]).stem\\n"
+                "if '--execute' in sys.argv: sys.exit(0)\\n"
+                "positive = name in {'some-foo', 'none-fallback', "
+                "'and-refinement', 'ownership-projected-copy'}\\n"
+                "if not positive: print('oreslang: unknown name', file=sys.stderr)\\n"
+                "sys.exit(0 if positive else 1)\\n", encoding="utf-8")
+            runtime = sys.executable + " " + str(fake) + " {source} --execute"
+            result = self.command(
+                "--backend", "graal", "--run-command", runtime,
+                "--", sys.executable, str(fake), "{source}")
             self.assertNotEqual(0, result.returncode)
             self.assertIn("status=failed", result.stdout)
 
