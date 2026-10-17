@@ -64,12 +64,14 @@ artifact that explicitly says native/guest parity is **false**.
    real-to-complex promotion and reject lossy implicit exact Decimal
    or BigInt conversions. Do not assume the proposed `Complex<T>`
    generic is available from the lowercase `complex` type.
-2. **Arithmetic:** execute all eleven vectors through the actual
+2. **Arithmetic:** execute all thirteen scalar vectors through the actual
    compiler/guest runtime, including wide-exponent divisions,
    subnormal imaginary components, signed cross terms and conjugation.
-   Define whether each operation promises exact binary64-reference
-   rounding or an explicitly bounded ULP policy. Do not silently
-   convert complex128 to complex64.
+   For finite complex128 multiplication and division, the v1 target is the
+   exact-rational result rounded once per component to IEEE binary64
+   round-to-nearest, ties-to-even. Backends may optimize that result only
+   with an equivalence proof or a guarded fallback. Do not silently convert
+   complex128 to complex64.
 3. **IEEE edge semantics:** decide and test NaN, infinities, signed
    zero, division by zero, exact zero cancellation, `eq`/unordered
    comparisons and optional total ordering **before** treating them as
@@ -109,15 +111,18 @@ The **current Java actor/serde/arena draft** [#1124](https://github.com/ores-tru
 now forward-ports only the reviewed `Complex` evaluator record from Java
 precision branch [#1033](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/1033)
 onto the current integration source—not the stale matrix/EE #120 tree.
-It replaces naïve multiply/divide with power-of-two scaling, a primitive
-compensated double-double finite fast path, and an exact-rational fallback
-for wide component spreads, zero/overflow ambiguity and subnormal final
-rounding. The exact fallback converts the exact binary64-input rational
-directly to nearest-even binary64 with `BigInteger` arithmetic; it no
-longer depends on a fixed decimal `MathContext`. It orders guest numeric
-equality before object identity (`NaN != NaN` even for the same complex
-instance), preserves signed-zero formatting, and rejects implicit
-BigInt/Decimal narrowing into binary64 complex.
+It now routes scalar arithmetic through a dedicated
+`dev.oreslang.runtime.Complex128Math` kernel. Finite multiplication and
+division decode each binary64 input into an exact signed dyadic
+significand/power-of-two pair, perform the exact products/sums or rational
+quotient with bounded `BigInteger` work, and round each output component
+once using IEEE binary64 round-to-nearest, ties-to-even. There is no fixed
+decimal `MathContext` and no unproven compensated result in the finite v1
+path. Exceptional NaN/Infinity/zero-divisor behavior remains a separately
+versioned policy gate. The evaluator orders guest numeric equality before
+object identity (`NaN != NaN` even for the same complex instance),
+preserves signed-zero formatting, and rejects implicit BigInt/Decimal
+narrowing into binary64 complex.
 
 The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
 contains eight focused **real guest-language GraalVM JUnit tests**:
@@ -131,10 +136,16 @@ These tests are **committed, NOT passed** on an allocated source runner.
 
 This is **not** all of #120: guest Vector/Matrix/EE, stable
 `Complex<T>` generic typing, complex serialization, AOT/native and
-GPU execution still require integration and test. The exact-rational fallback removes the previous fixed-precision decimal
-rounding assumption. The compensated allocation-free fast path is still
-not a formal proof of correct rounding for every finite binary64 tuple,
-and IEEE NaN/Infinity/signed-zero semantics remain separately pending. Keep [division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
-open until independent differential fuzz, ULP/rounding policy and
-exact-head GraalVM+LLVM checks pass. Other four backends retain their
-`unverified` status with no implied scalar/guest implementation.
+GPU execution still require integration and test. Direct raw-bit JUnit
+regressions now pin five independently generated multiplication cases that
+the former rounded-product/rounded-sum path missed, plus #1042, balanced
+division and subnormal-output division. A separate local differential audit
+compared 20,000 random finite multiplications and 20,000 random finite
+divisions against independently generated exact-rational results with no
+nonzero-component bit mismatches; this is useful engineering evidence but
+is **not** authorized exact-head source CI. IEEE NaN/Infinity/zero-divisor
+and complete signed-zero semantics remain separately pending. Keep
+[division issue #1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
+open until exact-head GraalVM+LLVM execution and independent review pass.
+Other four backends retain their `unverified` status with no implied
+scalar/guest implementation.
