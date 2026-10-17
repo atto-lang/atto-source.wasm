@@ -43,8 +43,8 @@ jobs:
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
-          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "64de299cfa548cbea3ab15a37f7a7638631fe73e"
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "ff744f14de6d0da46f8bdc6eb1b04208480158b6"
+          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "846a177fdd1d5c1833305a4072cae2b22a14ff17"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "5c9768324162cb6aaabeebaf5efe898120a05b5c"
       - name: Reject capability and fixture drift
         run: python3 scripts/verify_persistent_actor_data_contract.py
       - name: Execute negative policy mutation suite
