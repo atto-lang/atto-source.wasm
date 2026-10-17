@@ -23,11 +23,15 @@ jobs:
         run: python3 -I scripts/check-structural-v2.py --check
       - name: Reject malformed, omitted and promoted structural v2 cases
         run: python3 -I scripts/check-structural-v2.py --self-test
-      - name: Prove neither contract may falsely claim runtime parity
+      - name: Check pinned array/list/map v3 target contract (not implementation parity)
+        run: python3 -I scripts/check-structural-containers-v3.py --check
+      - name: Reject forged v3 collection cases, bounds and backend lists
+        run: python3 -I scripts/check-structural-containers-v3.py --self-test
+      - name: Prove none of the three contracts may falsely claim runtime parity
         shell: bash
         run: |
           set -euo pipefail
-          for script in check-structural-parity.py check-structural-v2.py; do
+          for script in check-structural-parity.py check-structural-v2.py check-structural-containers-v3.py; do
             if python3 -I "scripts/$script" --require-parity > /tmp/structural-parity-status.txt 2>&1; then
               echo "Inventory incorrectly promoted to runtime parity: $script"
               exit 1
@@ -55,6 +59,9 @@ jobs:
             "contracts/v1/structural-parity-audit.v1.json": "5372f178aba16b72b3425f363123152718041e1a",
             "contracts/structural/v2/README.md": "1a61b6267fd2185879628d7879db05804698a310",
             "contracts/structural/v2/cases.json": "57c80adaa4029c6fd3e46a63c490cb193f951568",
+            "contracts/structural/v3/README.md": "6ec3bb0e7a186336e7486ff08736519b4dae2bad",
+            "contracts/structural/v3/cases.json": "0a04e086e50b83fe6fd609fa747a844ce99d36dc",
+            "scripts/check-structural-containers-v3.py": "a6d5aeb4016f370849f81dd811bce9f60889f8b0",
             "scripts/check-structural-parity.py": "94fbc3e6fb57c965a23c59680330ac1153acd1dc",
             "scripts/check-structural-v2.py": "79ae68dbe5236d22af0626a58cae5e5d0140492f",
           }
@@ -107,7 +114,7 @@ jobs:
             "trigger_sha": trigger, "event": env["GITHUB_EVENT_NAME"],
             "run_id": int(env["GITHUB_RUN_ID"]),
             "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
-            "contract_case_counts": {"v1": 14, "v2": 30},
+            "contract_case_counts": {"v1": 14, "v2": 30, "v3": 36},
             "source_blobs": fingerprints,
             "guest_compilation_verified": False,
             "guest_execution_verified": False,
