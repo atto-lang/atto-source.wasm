@@ -5,7 +5,9 @@ A passing contract check proves the fixture and capability declarations agree,
 NOT that the backend has implemented persistent maps or passed runtime tests.
 """
 import json
+import os
 from pathlib import Path
+import stat
 import sys
 
 EXPECTED_IDS = frozenset(["hamt-path-copy","hamt-delete","hamt-aa-bb","hamt-high-hash-bits","hamt-collision-over-64","hamt-nested-root","hamt-array-input","hamt-mutable-map-input","hamt-foreign-reference","hamt-numeric-subclass","hamt-null-value","hamt-clear-empty","hamt-remove-missing","hamt-remove-if-predicate","hamt-shared-mailbox","hamt-private-mailbox","hamt-untrusted-mailbox","hamt-duplicate-send-quota","hamt-drain-credit-release","hamt-depth-257","hamt-node-budget","pure-actor-single-reducer","pure-actor-no-suspend","pure-actor-no-ambient-io","pure-actor-command-effects","persistent-source-syntax","persistent-vector","edn-wire-shortcut","typed-map-mutating-adapter"])
@@ -106,14 +108,38 @@ def validate(doc):
 
 
 def read_bounded_contract(path):
-    # Verify the actual read length before parsing untrusted canonical JSON.
-    # A caller-provided symlink must not redirect a fixture to another file.
+    """Read an identity-pinned regular file; deny symlink/hardlink/FIFO swaps.
+
+    The initial stat alone is not authority: verify the opened descriptor,
+    verify it did not change while reading, then recheck the path binding.
+    """
     path = Path(path)
-    if not path.is_file() or path.is_symlink():
-        raise ContractError("persistent contract must be a regular file")
+    def same_file(a, b):
+        return all(getattr(a, name) == getattr(b, name) for name in (
+            "st_dev", "st_ino", "st_mode", "st_size", "st_nlink",
+            "st_mtime_ns", "st_ctime_ns"
+        ))
     try:
-        with path.open("rb") as stream:
+        # Retain the explicit symlink denial for platforms without O_NOFOLLOW.
+        if path.is_symlink():
+            raise ContractError("persistent contract must be a unique regular file")
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ContractError("persistent contract must be a unique regular file")
+        if not 0 < before.st_size <= 64 * 1024:
+            raise ContractError("empty or oversized persistent contract")
+        flags = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0))
+        with os.fdopen(os.open(path, flags), "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if not stat.S_ISREG(opened.st_mode) or not same_file(before, opened):
+                raise ContractError("persistent contract changed before read")
             data = stream.read(64 * 1024 + 1)
+            after = os.fstat(stream.fileno())
+            if not same_file(opened, after):
+                raise ContractError("persistent contract changed during read")
+        if not same_file(after, path.lstat()):
+            raise ContractError("persistent contract path changed during read")
     except OSError as exc:
         raise ContractError("cannot read persistent contract") from exc
     return validate_raw(data)
