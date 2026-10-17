@@ -125,8 +125,25 @@ jobs:
               "scripts/verify_actor_arena_lifecycle_contract.py": "26bca4b2e8511b4db204338b94fa400173bcea1a",
               "scripts/test_actor_arena_lifecycle_contract.py": "ee71af725c59707002520bffeda2dce4457e46d6"
           }
-          if any(git("hash-object", path) != sha for path, sha in blobs.items()):
-              raise SystemExit("lifecycle source-free blobs changed after policy tests")
+          for path, sha in blobs.items():
+              expected_tree = f"100644 blob {sha}\t{path}"
+              if (git("hash-object", path) != sha
+                      or git("ls-tree", "HEAD", "--", path) != expected_tree
+                      or not Path(path).is_file() or Path(path).is_symlink()):
+                  raise SystemExit("lifecycle source-free blob/mode/symlink drift after tests")
+          workflow_path = ".github/workflows/actor-arena-lifecycle-contract.yml"
+          workflow_sha = git("rev-parse", f"HEAD:{workflow_path}")
+          if (git("hash-object", workflow_path) != workflow_sha
+                  or git("ls-tree", "HEAD", "--", workflow_path)
+                       != f"100644 blob {workflow_sha}\t{workflow_path}"
+                  or not Path(workflow_path).is_file()
+                  or Path(workflow_path).is_symlink()):
+              raise SystemExit("committed lifecycle workflow differs from executed workflow")
+          import subprocess as process
+          if process.check_output(
+                  ["git", "status", "--porcelain", "--", *blobs, workflow_path],
+                  text=True).strip():
+              raise SystemExit("lifecycle proof input worktree became dirty")
           report = {
             "schema": "oreslang.actor_arena_lifecycle_source_head_v1",
             "classification": "POLICY_ONLY_NOT_NATIVE_OR_GUEST_CERTIFICATION",
@@ -139,6 +156,8 @@ jobs:
             "trigger_event": os.environ["GITHUB_EVENT_NAME"],
             "run_id": int(os.environ["GITHUB_RUN_ID"]),
             "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "workflow_path": workflow_path,
+            "workflow_blob_sha": workflow_sha,
             "source_free_blobs": {
               "contracts/v1/actor_arena_lifecycle_v1.json": "b921f18d8be719957f2301ffd1881c23ecb85ea8",
               "scripts/verify_actor_arena_lifecycle_contract.py": "26bca4b2e8511b4db204338b94fa400173bcea1a",
