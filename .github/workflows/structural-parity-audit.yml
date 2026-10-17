@@ -59,9 +59,9 @@ jobs:
             "contracts/v1/structural-parity-audit.v1.json": "5372f178aba16b72b3425f363123152718041e1a",
             "contracts/structural/v2/README.md": "1a61b6267fd2185879628d7879db05804698a310",
             "contracts/structural/v2/cases.json": "57c80adaa4029c6fd3e46a63c490cb193f951568",
-            "contracts/structural/v3/README.md": "a2c229cb5c92dfeba9cb045e20b3b60ea0e20244",
+            "contracts/structural/v3/README.md": "228fd464f5b2bac78755c4837e8e802677962582",
             "contracts/structural/v3/cases.json": "6761f60b3e3bd2ac03c09aa25741f953db79c3cd",
-            "scripts/check-structural-containers-v3.py": "959f4b16b8afebd6799870a085841f191ab421b8",
+            "scripts/check-structural-containers-v3.py": "01bd56bfb1818a60f4bdbdd7ff75f057d1de8274",
             "scripts/check-structural-parity.py": "94fbc3e6fb57c965a23c59680330ac1153acd1dc",
             "scripts/check-structural-v2.py": "79ae68dbe5236d22af0626a58cae5e5d0140492f",
           }

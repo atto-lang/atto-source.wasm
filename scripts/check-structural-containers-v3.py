@@ -10,7 +10,7 @@ CASES = ROOT / "contracts/structural/v3/cases.json"
 README = ROOT / "contracts/structural/v3/README.md"
 EXPECTED_BLOBS = {
     "cases": "6761f60b3e3bd2ac03c09aa25741f953db79c3cd",
-    "readme": "a2c229cb5c92dfeba9cb045e20b3b60ea0e20244",
+    "readme": "228fd464f5b2bac78755c4837e8e802677962582",
 }
 EXPECTED_IDS = frozenset("""
 array.homogeneous array.literal array.mismatch array.dynamic.to.fixed
