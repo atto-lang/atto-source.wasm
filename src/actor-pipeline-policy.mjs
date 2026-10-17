@@ -46,11 +46,31 @@ export class ActorPipelinePolicy {
   #cursor = new Map();
   #retired = false;
   constructor(stages, edges) {
-    if (!safeArrayIsArray(stages) || stages.length < 2 || stages.length > 1024 ||
-        !safeArrayIsArray(edges) || !edges.length || edges.length > 4096)
+    if (!safeArrayIsArray(stages) || !safeArrayIsArray(edges))
       throw new RangeError("pipeline graph budget");
+    // Snapshot bounded caller-owned graph arrays by numeric index only.
+    // A proxy iterator or a mutated length must not bypass budget/cycle
+    // checks or inject an edge after the graph was accepted.
+    const stageCount = stages.length, edgeCount = edges.length;
+    if (stageCount < 2 || stageCount > 1024 || edgeCount < 1 || edgeCount > 4096)
+      throw new RangeError("pipeline graph budget");
+    const stageSnapshot = [], edgeSnapshot = [];
+    for (let i = 0; i < stageCount; ++i) {
+      const item = stages[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline stage");
+      const {id, type, role, inbound = "", outbound = ""} = item;
+      safeArrayPush.call(stageSnapshot, {id, type, role, inbound, outbound});
+    }
+    for (let i = 0; i < edgeCount; ++i) {
+      const item = edges[i];
+      if (!item || typeof item !== "object")
+        throw new TypeError("invalid pipeline edge");
+      const {source, target, payload} = item;
+      safeArrayPush.call(edgeSnapshot, {source, target, payload});
+    }
     const byId = new NativeMap(), routes = new NativeMap(), parents = new NativeMap();
-    for (const {id, type, role, inbound = "", outbound = ""} of stages) {
+    for (const {id, type, role, inbound, outbound} of stageSnapshot) {
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
       if (safeMapHas.call(byId, id)) throw new TypeError("duplicate pipeline instance");
@@ -62,7 +82,7 @@ export class ActorPipelinePolicy {
       safeMapSet.call(parents, id, 0);
     }
     const seen = new NativeSet();
-    for (const edge of edges) {
+    for (const edge of edgeSnapshot) {
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
       const from = safeMapGet.call(byId, source), to = safeMapGet.call(byId, target);
@@ -100,7 +120,7 @@ export class ActorPipelinePolicy {
         if (n === 0) safeArrayPush.call(ready, edge.target);
       }
     }
-    if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
+    if (visited !== stageCount) throw new TypeError("cyclic pipeline graph");
     this.#routes = new NativeMap([...routes].map(([id, list])=>[id, safeFreeze(list)]));
     // Pre-seed all RR cursors at trusted graph construction, never on a turn.
     for (const source of safeMapKeys.call(this.#routes)) safeMapSet.call(this.#cursor, source, 0);
