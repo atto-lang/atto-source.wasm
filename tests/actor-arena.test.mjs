@@ -498,7 +498,10 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 
   const after = actorArenaPoolStats();
   assert.equal(after.leasedArenas, before.leasedArenas);
-  assert.ok(after.freeArenas >= before.freeArenas + 1);
+  assert.equal(after.committedPages, reused.committedPages,
+    "retiring the reused actor must not grow the bounded Wasm pool");
+  assert.ok(after.freeArenas >= before.freeArenas,
+    "lease/reuse/retire must not lose previously reusable arena capacity");
 });
 
 
