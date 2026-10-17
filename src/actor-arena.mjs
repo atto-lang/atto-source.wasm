@@ -19,7 +19,6 @@ const memoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "bu
 const typedArrayPrototype = Object.getPrototypeOf(NativeUint8Array.prototype);
 const typedArraySet = typedArrayPrototype.set;
 const typedArrayFill = typedArrayPrototype.fill;
-const typedArraySubarray = typedArrayPrototype.subarray;
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
 const sharedByteLength = typeof SharedArrayBuffer === "function"
@@ -162,9 +161,13 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
+    const source = this.#bytes();
     const copy = new NativeUint8Array(length);
-    typedArraySet.call(copy, typedArraySubarray.call(this.#bytes(), offset, offset + length));
-    return copy; // independent bytes, no Symbol.species or monkeypatched slice
+    // TypedArray.prototype.subarray/slice invoke Symbol.species. A poisoned
+    // constructor can receive the private backing buffer as an argument.
+    // Indexed byte reads never invoke a constructor, getter or species hook.
+    for (let i = 0; i < length; ++i) copy[i] = source[offset + i];
+    return copy; // true owned copy, no private backing reference escapes
   }
 
   write(turn, handle, data) {
