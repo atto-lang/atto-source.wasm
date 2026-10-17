@@ -5,6 +5,7 @@ const PAGE = 65536;
 const ARENA_PAGES = 2;
 const MAX_POOL_PAGES = 4096; // 256 MiB retained capacity, recycled explicitly.
 const MAX_HANDLES = 4096;
+const MAX_EXTERNAL_LEASES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
 const safeInteger = Number.isSafeInteger;
@@ -17,6 +18,7 @@ const setHas = Set.prototype.has;
 // Bind allocator/copy/zero primitives before user code can monkeypatch them.
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
+const NativeUint32Array = Uint32Array;
 const NativeMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
 // WeakMap authority operations must bypass mutable userland prototypes.
@@ -28,9 +30,7 @@ const weakMapDelete = NativeWeakMap.prototype.delete;
 const arrayFindIndex = Array.prototype.findIndex;
 const arraySplice = Array.prototype.splice;
 const arrayPush = Array.prototype.push;
-const arrayPop = Array.prototype.pop;
 const arraySort = Array.prototype.sort;
-const promiseThen = Promise.prototype.then;
 // The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
 // Capture its native internal-slot accessor before unrelated user code can
 // redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
@@ -62,7 +62,11 @@ const sharedByteLength = typeof SharedArrayBuffer === "function"
  * by the Wasm engine, but no actor capacity depends on GC to become reusable.
  */
 const poolMemory = new NativeMemory({initial: 0, maximum: MAX_POOL_PAGES});
-const freeArenaBases = [];
+// Fixed-capacity free stack: page reuse itself must not depend on growing a
+// JavaScript Array or triggering host GC. Byte offsets fit in uint32 because
+// MAX_POOL_PAGES * PAGE is 256 MiB.
+const freeArenaBases = new NativeUint32Array(MAX_POOL_PAGES / ARENA_PAGES);
+let freeArenaCount = 0;
 let leasedArenas = 0;
 
 function poolBytes() {
@@ -72,8 +76,9 @@ function poolBytes() {
 function leaseArenaBase() {
   let base;
   let reused = false;
-  if (freeArenaBases.length !== 0) {
-    base = arrayPop.call(freeArenaBases);
+  if (freeArenaCount !== 0) {
+    base = freeArenaBases[--freeArenaCount];
+    freeArenaBases[freeArenaCount] = 0;
     reused = true;
   } else {
     let oldPages;
@@ -90,7 +95,10 @@ function leaseArenaBase() {
   } catch (error) {
     // A failed admission must not strand reusable capacity. Newly grown pages
     // are safe to publish too: no actor has observed them yet.
-    arrayPush.call(freeArenaBases, base);
+    if (freeArenaCount >= freeArenaBases.length) {
+      throw new Error("actor arena pool free-stack overflow during lease rollback");
+    }
+    freeArenaBases[freeArenaCount++] = base;
     throw error;
   }
   ++leasedArenas;
@@ -103,7 +111,10 @@ function releaseArenaBase(base) {
   }
   if (leasedArenas <= 0) throw new Error("actor arena pool accounting underflow");
   typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
-  arrayPush.call(freeArenaBases, base);
+  if (freeArenaCount >= freeArenaBases.length) {
+    throw new Error("actor arena pool free-stack overflow");
+  }
+  freeArenaBases[freeArenaCount++] = base;
   --leasedArenas;
 }
 
@@ -112,7 +123,7 @@ export function actorArenaPoolStats() {
   return nativeFreeze({
     committedPages: arrayBufferByteLength.call(memoryBuffer.call(poolMemory)) / PAGE,
     leasedArenas,
-    freeArenas: freeArenaBases.length
+    freeArenas: freeArenaCount
   });
 }
 function isSharedBacking(buffer) {
@@ -236,11 +247,11 @@ export class ActorArena {
 
   // Lifetime-only authority for a continuation/FFI/I/O callback. The lease
   // intentionally grants no memory access. It may outlive the actor turn and
-  // pins the arena's pool capacity until its idempotent close succeeds.
+  // pins the arena's fixed pool capacity until its idempotent close succeeds.
   acquireExternalLease(turn) {
     this.#requireTurn(turn);
-    if (this.#externalLeases >= Number.MAX_SAFE_INTEGER) {
-      throw new RangeError("actor arena external lease count exhausted");
+    if (this.#externalLeases >= MAX_EXTERNAL_LEASES) {
+      throw new RangeError("actor arena external lease quota exhausted");
     }
     ++this.#externalLeases;
     let live = true;
@@ -248,35 +259,10 @@ export class ActorArena {
     return nativeFreeze({
       close() {
         if (!live) return;
-        // Consume logical ownership exactly once before physical reclamation.
-        // If scrub/reclaim fails, CONTROL retries via idempotent retire(); the
-        // callback must not retain or resurrect a logically released pin.
-        live = false;
         arena.#releaseExternalLease();
+        live = false;
       }
     });
-  }
-
-  // Register a real Promise completion while the actor turn is admitted.
-  // The returned Promise preserves the source result/error, while the opaque
-  // lease is released exactly once by whichever carrier settles the Promise.
-  trackExternalCompletion(turn, pending) {
-    const lease = this.acquireExternalLease(turn);
-    try {
-      return promiseThen.call(
-        pending,
-        value => {
-          lease.close();
-          return value;
-        },
-        error => {
-          lease.close();
-          throw error;
-        });
-    } catch (error) {
-      lease.close();
-      throw error;
-    }
   }
 
   #releaseExternalLease() {
@@ -284,10 +270,12 @@ export class ActorArena {
       throw new Error("actor arena external lease accounting underflow");
     }
     --this.#externalLeases;
-    // Reclaim failure leaves #base attached and the arena logically retired.
-    // Do not resurrect a released lifetime owner: CONTROL can call retire()
-    // again, which retries #reclaim() when the owner count remains zero.
-    if (this.#closed && this.#externalLeases === 0) this.#reclaim();
+    try {
+      if (this.#closed && this.#externalLeases === 0) this.#reclaim();
+    } catch (error) {
+      ++this.#externalLeases; // preserve retryable ownership on reclaim failure
+      throw error;
+    }
   }
 
   dropPersistent(turn, handle) {
@@ -347,9 +335,8 @@ export class ActorArena {
   #reclaim() {
     if (this.#base === null) return;
     const base = this.#base;
-    // releaseArenaBase scrubs before publishing the pages as reusable. If it
-    // throws, keep the base attached to this logically retired actor so CONTROL
-    // or the final external lease can retry without publishing dirty capacity.
+    // releaseArenaBase scrubs before publishing pages onto the fixed-capacity
+    // free stack. On failure, retain the base for an exact retry.
     releaseArenaBase(base);
     this.#base = null;
     this.#persistentCount = this.#scratchCount = 0;
