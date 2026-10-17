@@ -1,9 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
-import {mkdtemp,writeFile,rm,readdir} from "node:fs/promises";
+import {mkdtemp,writeFile,readFile,rm,readdir,lstat} from "node:fs/promises";
+import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+
+// A rejected compiler may overwrite a preexisting file without adding a name.
+// Pin both the directory shape and contents so this cannot be mistaken for
+// a clean, fail-closed frontend.
+async function directorySnapshot(root) {
+  const entries = await readdir(root);
+  const out = [];
+  for (const name of entries.sort()) {
+    const path = join(root, name);
+    const info = await lstat(path);
+    assert.ok(info.isFile() && !info.isSymbolicLink(),
+      name + ": unexpected compiler-created directory/symlink");
+    out.push([name, info.mode,
+      createHash("sha256").update(await readFile(path)).digest("hex")]);
+  }
+  return out;
+}
 
 // Required integration CI cannot silently skip its native frontend. Normal
 // Node-only smoke suites may skip compiler-dependent cases, but must not
@@ -30,8 +48,11 @@ test("real LLVM compiler admits a scalar positive control before tuple negatives
     assert.equal(compile.status, 0, "real frontend must accept supported scalar source");
     assert.match(compile.stdout, /define i64 @__oreslang_guest_main\(/,
       "successful frontend must produce real compiler-generated LLVM IR");
+    const expected = await readFile(source);
     assert.deepEqual(await readdir(work), ["valid.ores"],
       "scalar control must not write untracked side artifacts");
+    assert.deepEqual(await readFile(source), expected,
+      "scalar control source bytes must remain readable");
   } finally {
     await rm(work, {recursive:true, force:true});
   }
@@ -54,11 +75,11 @@ test("LLVM-backed Wasm never mislabels unsupported structural source as compiled
       fnc consume(structural Shape value): int { return value.x; }
       fnc main(): int { return 1; }
     `, {flag:"wx"});
-    const before = await readdir(work);
+    const before = await directorySnapshot(work);
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER,[source],{
       cwd: work, encoding:"utf8",timeout:15000,maxBuffer:1024*1024
     });
-    assert.deepEqual(await readdir(work), before, "rejected source must leave no new artifacts");
+    assert.deepEqual(await directorySnapshot(work), before, "rejected source must leave no new artifacts");
     assert.equal(compile.error,undefined,"native compiler must run");
     assert.equal(compile.signal,null,"compiler must diagnose rather than crash");
     assert.ok(Number.isInteger(compile.status) && compile.status > 0,
@@ -83,11 +104,11 @@ test("Wasm bridge refuses unimplemented structural tuple width and optional-tail
       fnc take(structural (int, int, string?) value): int { return 1; }
       fnc main(): int { return take(...(5, 3, "foo", "start")); }
     `, {flag: "wx"});
-    const before = await readdir(work);
+    const before = await directorySnapshot(work);
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [source], {
       cwd: work, encoding: "utf8", timeout: 15000, maxBuffer: 1024 * 1024
     });
-    assert.deepEqual(await readdir(work), before, "rejected source must leave no new artifacts");
+    assert.deepEqual(await directorySnapshot(work), before, "rejected source must leave no new artifacts");
     assert.equal(compile.error, undefined, "native compiler must actually run");
     assert.equal(compile.signal, null, "compiler must diagnose instead of crashing");
     assert.ok(Number.isInteger(compile.status) && compile.status > 0,
@@ -112,7 +133,7 @@ test("LLVM-backed Wasm rejects unsupported v2 optional and borrowed tuple slots"
     for (const [name, text] of fixtures) {
       const input = join(work, name + ".ores");
       await writeFile(input, text, {flag:"wx"});
-      const before = await readdir(work);
+      const before = await directorySnapshot(work);
       const result = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [input], {
         cwd:work, encoding:"utf8", timeout:15000, maxBuffer:1024*1024
       });
@@ -122,7 +143,7 @@ test("LLVM-backed Wasm rejects unsupported v2 optional and borrowed tuple slots"
         name + ": unsupported tuple form must not compile");
       assert.notEqual(result.stderr.trim(), "", name + ": missing diagnostic");
       assert.equal(result.stdout.trim(), "", name + ": rejected source emitted LLVM IR");
-      assert.deepEqual(await readdir(work), before,
+      assert.deepEqual(await directorySnapshot(work), before,
         name + ": rejected source must not create any artifact");
     }
   } finally {
