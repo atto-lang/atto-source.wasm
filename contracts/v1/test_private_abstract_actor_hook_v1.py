@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -130,6 +131,43 @@ class PrivateAbstractActorHookContractTest(unittest.TestCase):
         self.assertFalse(result["compiler_executed"])
         self.assertFalse(result["parity_proven"])
 
+
+    def test_bounded_reader_accepts_exact_pinned_regular_manifest(self):
+        raw = verifier.read_manifest_bounded(MANIFEST_PATH)
+        self.assertEqual(raw, MANIFEST_PATH.read_bytes())
+        self.assertFalse(verifier.validate_raw(raw)["compiler_executed"])
+
+    def test_bounded_reader_rejects_large_manifest_before_loading_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "oversized.json"
+            path.write_bytes(b" " * (128 * 1024 + 1))
+            with self.assertRaises(verifier.ContractError):
+                verifier.read_manifest_bounded(path)
+
+    def test_bounded_reader_rejects_nonregular_directory(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises((OSError, verifier.ContractError)):
+                verifier.read_manifest_bounded(Path(tmp))
+
+    @unittest.skipUnless(hasattr(os, "O_NOFOLLOW"), "OS lacks atomic O_NOFOLLOW")
+    def test_bounded_reader_rejects_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "symlink.json"
+            path.symlink_to(MANIFEST_PATH)
+            with self.assertRaises((OSError, verifier.ContractError)):
+                verifier.read_manifest_bounded(path)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "OS has no FIFO support")
+    def test_bounded_reader_rejects_fifo_without_hanging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "fifo.json"
+            os.mkfifo(path)
+            result = subprocess.run(
+                [sys.executable, str(MODULE_PATH), "--backend", "java",
+                 "--manifest", str(path)],
+                capture_output=True, text=True, check=False, timeout=5)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("PRIVATE_ABSTRACT_ACTOR_HOOK_INVALID", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()
