@@ -125,12 +125,13 @@ preserves signed-zero formatting, and rejects implicit BigInt/Decimal
 narrowing into binary64 complex.
 
 The new **`src/test/java/dev/oreslang/NumericComplexIntegrationTest.java`**
-contains eight focused **real guest-language GraalVM JUnit tests**:
+contains nine focused **real guest-language GraalVM JUnit tests**:
 basic complex addition/subtraction/cross-term multiplication, scaled
 large/small division, [#1042](https://github.com/ores-truffle-oreslang/oreslang-source.java/issues/1042)
 representable tiny imaginary result, minimum subnormal multiplication,
-complex NaN self-equality, large/small purely imaginary division, a
-balanced one-ULP division regression and exact subnormal-result rounding.
+a once-rounded cross-term multiplication regression, complex NaN
+self-equality, large/small purely imaginary division, a balanced one-ULP
+division regression and exact subnormal-result rounding.
 Java's existing Maven `verify` CI selects its normal JUnit test suite.
 These tests are **committed, NOT passed** on an allocated source runner.
 
