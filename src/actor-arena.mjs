@@ -17,6 +17,12 @@ const NativeWeakMap = WeakMap;
 const weakMapGet = NativeWeakMap.prototype.get;
 const weakMapSet = NativeWeakMap.prototype.set;
 const weakMapDelete = NativeWeakMap.prototype.delete;
+// The free-list is also private authority metadata. Prototype-dispatched
+// Array methods can leak or corrupt the internal list through a user hook.
+const arrayFindIndex = Array.prototype.findIndex;
+const arraySplice = Array.prototype.splice;
+const arrayPush = Array.prototype.push;
+const arraySort = Array.prototype.sort;
 // The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
 // Capture its native internal-slot accessor before unrelated user code can
 // redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
@@ -115,13 +121,13 @@ export class ActorArena {
     } else {
       // First-fit over bounded free segments. Removed persistent handles cannot
       // regain authority, even when their bytes are reused at the same offset.
-      const index = this.#freePersistent.findIndex(segment => segment.length >= length);
+      const index = arrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
       if (index !== -1) {
         const segment = this.#freePersistent[index];
         offset = segment.offset;
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) this.#freePersistent.splice(index, 1);
+        if (segment.length === 0) arraySplice.call(this.#freePersistent, index, 1);
       } else {
         if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
         offset = this.#persistentTop;
@@ -146,13 +152,13 @@ export class ActorArena {
     typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
     weakMapDelete.call(this.#handles, handle);
     --this.#persistentCount;
-    this.#freePersistent.push({...entry});
-    this.#freePersistent.sort((a, b) => a.offset - b.offset);
+    arrayPush.call(this.#freePersistent, {...entry});
+    arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
     for (const segment of this.#freePersistent) {
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else coalesced.push(segment);
+      else arrayPush.call(coalesced, segment);
     }
     this.#freePersistent = coalesced;
   }
