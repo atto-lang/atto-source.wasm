@@ -89,7 +89,7 @@ Backends without proven RT admission must explicitly deny #hard.
 
 | Backend | NIO status | Actor physical turns | RT status |
 | --- | --- | --- | --- |
-| Java/GraalVM | VM readiness starts reactor #0 lazily; full OresContext now binds NIO terminal notifications to existing actor carriers and drains them before actor shutdown. Standalone OresVM/readiness groups still retain a transitional lazy private 0..2-worker completion pool. Legacy HTTP/FS paths need migration | Host credits 1..3, live actor default single-flight; opt-in 4..256 global static carrier cap with CONTROL reserve | Hybrid GC; no hard-RT guarantee |
+| Java/GraalVM | VM readiness starts reactor #0 lazily; full OresContext binds terminal notifications to existing actor carriers. The first runnable bound completion may use one short-lived lazy bootstrap submitter solely to move cold carrier submission/startup off the selector; on the full OresContext path the delivery still executes on the actor carrier, and pending I/O alone does not start the helper. Standalone OresVM/readiness groups retain a transitional lazy private 0..2-worker completion pool. Legacy HTTP/FS paths need migration | Host credits 1..3, live actor default single-flight; opt-in 4..256 global static carrier cap with CONTROL reserve | Hybrid GC; no hard-RT guarantee |
 | LLVM | Linux epoll manager configures throughput at zero pthreads and lazily starts reactor #0; native VM attachment exists, source await bridge incomplete | Host credits 1..3, native execution authority still single-owner | Zero tracing-GC substrate and fixed prestart profile; no WCET guarantee |
 | .NET | Source compiler/runtime has no guest NIO implementation | Host credits 1..3 only; no guest parallel actor execution | Managed GC; no hard-RT claim |
 | WASM | Zero-import scalar guest; no guest NIO or reactors | No guest actor execution, reject physical-turn requests | No hard-RT claim |
@@ -99,12 +99,17 @@ Backends without proven RT admission must explicitly deny #hard.
 
 - In a fully constructed Java `OresContext`, the readiness manager is bound
   **before first watch** to the existing actor dispatcher's host-only
-  notification execution path. The selector does not invoke a Future
-  subscriber, and this path does not create NIO-specific completion threads.
-  A bounded staged-notification queue retries when actor turns retire. Host
-  callbacks can consume an actor carrier but must never consume CONTROL or
-  selector carriers; guest continuation resumption must still be enqueued
-  through the owning actor scheduler.
+  notification execution path. Pending I/O starts no actor or bootstrap
+  carrier. When the first terminal notification becomes independently
+  runnable, one short-lived lazy bootstrap submitter may start solely to
+  submit that first delivery through the cold bound executor off the selector
+  stack. On the OresContext ActorRuntime binding the delivery itself executes
+  on the actor carrier, not the helper. After that handoff the helper retires,
+  and remaining bounded staged notifications execute on actor carriers. Host callbacks
+  must never consume CONTROL or selector carriers; guest continuation
+  resumption must still be enqueued through the owning actor scheduler.
+  This transient bootstrap is a Java implementation gap from a topology with
+  no extra handoff thread at all and must remain visible in thread accounting.
 - `OresContext.close()` stops and drains NIO before actor dispatchers retire.
   A standalone `OresVM` or `NioReadinessGroup` retains the transitional lazy
   private completion executor for compatibility. Do **not** claim universal
@@ -130,8 +135,12 @@ Backends without proven RT admission must explicitly deny #hard.
 
 - Throughput cold start: zero VM reactor threads, zero CONTROL/actor carriers
   and zero completion workers. Invalid/rejected I/O admission stays at zero;
-  the first valid readiness watch starts exactly one reactor. Five and 10,000
-  idle/pending reads must not create proportional threads.
+  the first valid readiness watch starts exactly one reactor. Pending watches
+  alone create no actor/bootstrap carrier. A first runnable bound completion
+  may create one transient Java bootstrap submitter; on the OresContext path
+  the callback must execute on the actor carrier and the helper must retire
+  after cold bound-executor handoff. Five and
+  10,000 idle/pending reads must not create proportional threads.
 - Independently runnable CPU work lazily creates carriers under one VM-wide
   budget while preserving CONTROL progress capacity; ActorGroups, actors,
   mailboxes and suspended awaits never directly own OS threads.
