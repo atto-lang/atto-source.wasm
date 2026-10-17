@@ -11,6 +11,11 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // Bind allocator/copy/zero primitives before user code can monkeypatch them.
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
+const NativeMemory = WebAssembly.Memory;
+// The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
+// Capture its native internal-slot accessor before unrelated user code can
+// redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
+const memoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "buffer").get;
 const typedArrayPrototype = Object.getPrototypeOf(NativeUint8Array.prototype);
 const typedArraySet = typedArrayPrototype.set;
 const typedArrayFill = typedArrayPrototype.fill;
@@ -53,7 +58,7 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new NativeMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
@@ -62,7 +67,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new NativeUint8Array(this.#memory.buffer);
+    return new NativeUint8Array(memoryBuffer.call(this.#memory));
   }
 
   #requireTurn(token) {
