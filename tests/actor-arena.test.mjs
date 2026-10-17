@@ -140,6 +140,55 @@ test("mutated typed-array prototypes cannot leak, alter, or prevent arena zeroiz
   }
 });
 
+test("tampered Array.findIndex cannot allocate over another actor-owned handle", () => {
+  const arena = new ActorArena({actorId: 47, incarnation: 1});
+  const turn = arena.beginTurn();
+  const released = arena.allocPersistent(turn, 8);
+  const retained = arena.allocPersistent(turn, 8);
+  arena.write(turn, retained, Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]));
+  arena.dropPersistent(turn, released); // Free segment is only eight bytes.
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, "findIndex");
+  let larger;
+  try {
+    Object.defineProperty(Array.prototype, "findIndex", {
+      configurable: true, writable: true, value() { return 0; }
+    });
+    larger = arena.allocPersistent(turn, 12);
+    arena.write(turn, larger, new Uint8Array(12).fill(99));
+  } finally {
+    Object.defineProperty(Array.prototype, "findIndex", original);
+  }
+  assert.deepEqual([...arena.read(turn, retained)], [1, 2, 3, 4, 5, 6, 7, 8],
+    "an undersized free segment must never overlap live actor memory");
+  arena.dropPersistent(turn, larger);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test("tampered Array push/sort/splice cannot corrupt arena free-list recycling", () => {
+  const arena = new ActorArena({actorId: 48, incarnation: 1});
+  const turn = arena.beginTurn();
+  const released = arena.allocPersistent(turn, 8);
+  const methods = ["push", "sort", "splice"];
+  const originals = methods.map(name => Object.getOwnPropertyDescriptor(Array.prototype, name));
+  let replacement;
+  try {
+    for (const name of methods) Object.defineProperty(Array.prototype, name, {
+      configurable: true, writable: true,
+      value() { throw new Error("hijacked Array." + name); }
+    });
+    arena.dropPersistent(turn, released);
+    replacement = arena.allocPersistent(turn, 8);
+  } finally {
+    methods.forEach((name, i) =>
+      Object.defineProperty(Array.prototype, name, originals[i]));
+  }
+  assert.deepEqual([...arena.read(turn, replacement)], Array(8).fill(0));
+  arena.dropPersistent(turn, replacement);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test("mutated Object.freeze cannot capture actor turn or opaque handle authority", () => {
   const previous = Object.getOwnPropertyDescriptor(Object, "freeze");
   const intercepted = [];
