@@ -813,13 +813,53 @@ class StrictApiJSONContract(unittest.TestCase):
                 return self.body[:length]
 
         with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17,"id":18}')):
+            with patch.object(module.urllib.request, "build_opener") as builder:
+                builder.return_value.open.return_value = Response(b'{"id":17,"id":18}')
                 with self.assertRaisesRegex(module.Denied, "duplicate"):
                     module._api_get("repos/example/repo")
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17}')):
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+                builder.return_value.open.return_value = Response(b'{"id":17}')
                 self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+
+    def test_authenticated_redirect_cannot_forward_bearer_token(self):
+        class RedirectingOpener:
+            def __init__(self, handler):
+                self.handler = handler
+                self.forwarded = False
+            def open(self, req, timeout):
+                self.assertion = req.get_header("Authorization")
+                # This simulates the first redirect in urllib without any
+                # network request to another organization or host.
+                self.handler.redirect_request(
+                    req, None, 302, "Found", {},
+                    "https://outside.example.invalid/collect")
+                self.forwarded = True
+                raise AssertionError("redirect unexpectedly followed")
+
+        instances = []
+        def opener_factory(handler):
+            instance = RedirectingOpener(handler())
+            instances.append(instance)
+            return instance
+
+        with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
+            with patch.object(module.urllib.request, "build_opener",
+                              side_effect=opener_factory):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._api_get("repos/example/repo")
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0].assertion, "Bearer synthetic-only")
+        self.assertFalse(instances[0].forwarded)
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._DenyRedirects().redirect_request(
+                        module.urllib.request.Request(
+                            "https://api.github.com/repos/example/repo",
+                            headers={"Authorization": "Bearer synthetic-only"}),
+                        None, status, "Redirect", {},
+                        "https://other.example.invalid/capture")
 
 
 class WorkflowIsolationContract(unittest.TestCase):

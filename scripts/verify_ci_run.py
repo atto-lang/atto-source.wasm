@@ -140,6 +140,16 @@ def _strict_api_json(raw):
     return _object(data, "GitHub API response")
 
 
+class _DenyRedirects(urllib.request.HTTPRedirectHandler):
+    """Never forward GitHub API credentials to another redirect target.
+
+    urllib's default redirect handler forwards Request Authorization headers,
+    including to another host. API evidence must come from api.github.com.
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Denied("authenticated GitHub API redirect denied")
+
+
 def _api_get(path):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -154,7 +164,7 @@ def _api_get(path):
                  "User-Agent": "oreslang-exact-ci-evidence-v1"},
         method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.build_opener(_DenyRedirects).open(req, timeout=20) as resp:
             if resp.status != 200:
                 raise Denied("GitHub API did not return HTTP 200")
             raw = resp.read(4 * 1024 * 1024 + 1)
