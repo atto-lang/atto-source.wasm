@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Negative policy mutations; no claim of guest/runtime execution."""
 import copy
+import hashlib
+import re
 import json
 import os
 import stat
@@ -27,6 +29,45 @@ read_bounded_contract = _policy.read_bounded_contract
 DATA = Path(__file__).resolve().parents[1] / "contracts/v1/persistent_actor_data_v1.json"
 
 
+
+# Integrity pins are executable checks, not evidence of guest/runtime parity.
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github/workflows/persistent-actor-data-contract.yml"
+PINNED_FILES = (
+    "contracts/v1/persistent_actor_data_v1.json",
+    "scripts/verify_persistent_actor_data_contract.py",
+    "scripts/test_persistent_actor_data_contract.py",
+)
+
+
+def check_workflow_blob_pins(workflow):
+    lines = [line.strip() for line in workflow.splitlines()
+             if "git hash-object" in line]
+    if len(lines) != len(PINNED_FILES):
+        raise AssertionError("missing or duplicated workflow integrity pins")
+    for path in PINNED_FILES:
+        prefix = 'test "$(git hash-object ' + path + ')" = "'
+        matching = [line for line in lines if line.startswith(prefix)]
+        if len(matching) != 1 or not re.fullmatch(
+                re.escape(prefix) + r"[0-9a-f]{40}" + '"', matching[0]):
+            raise AssertionError("missing or malformed integrity pin: " + path)
+        expected = matching[0][len(prefix):-1]
+        raw = (ROOT / path).read_bytes()
+        actual = hashlib.sha1(
+            b"blob " + str(len(raw)).encode("ascii") + b"\x00" + raw
+        ).hexdigest()
+        if expected != actual:
+            raise AssertionError("stale integrity pin: " + path)
+    # These source-only diagnostics must run once per job, after real tests.
+    if (workflow.count("- name: Record source-local checkout identity") != 2
+            or workflow.count("- name: Upload source-local diagnostic metadata") != 2):
+        raise AssertionError("missing or duplicated source-local diagnostics")
+    for line in workflow.splitlines():
+        if "ctest --test-dir" in line and (
+                line.count("'") != 2 or not line.rstrip().endswith("'")):
+            raise AssertionError("unterminated native CTest shell command")
+
+
 class PersistentActorPolicyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -37,6 +78,24 @@ class PersistentActorPolicyTest(unittest.TestCase):
         transform(value)
         with self.assertRaises(ContractError):
             validate(value)
+
+    def test_workflow_blob_pins(self):
+        check_workflow_blob_pins(WORKFLOW.read_text(encoding="utf-8"))
+
+    def test_workflow_pin_mutations(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        prefix = 'test "$(git hash-object ' + PINNED_FILES[0] + ')" = "'
+        match = next(line.strip() for line in workflow.splitlines()
+                     if line.strip().startswith(prefix))
+        mutants = (
+            workflow.replace(match, "", 1),
+            workflow + "\n" + match,
+            workflow.replace(match, match[:-41] + "0" * 40 + '"', 1),
+        )
+        for mutated in mutants:
+            with self.subTest(mutated_pin=mutated != workflow):
+                with self.assertRaises(AssertionError):
+                    check_workflow_blob_pins(mutated)
 
     def test_original(self):
         validate(self.base)
@@ -234,7 +293,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 35
+    expected = 37
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
