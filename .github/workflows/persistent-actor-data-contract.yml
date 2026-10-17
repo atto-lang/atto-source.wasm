@@ -49,8 +49,8 @@ jobs:
           test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "e423ef5aef92a48eb1fb5c38578b986f20da2130"
           test "$(git ls-tree HEAD -- scripts/verify_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:e423ef5aef92a48eb1fb5c38578b986f20da2130"
           test -f scripts/verify_persistent_actor_data_contract.py && test ! -L scripts/verify_persistent_actor_data_contract.py
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "ebf436374bf5deab86925aecfe1b804dd0c94819"
-          test "$(git ls-tree HEAD -- scripts/test_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:ebf436374bf5deab86925aecfe1b804dd0c94819"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "544fca635d7ab77b6496b0a6c917bf17302b2ce0"
+          test "$(git ls-tree HEAD -- scripts/test_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:544fca635d7ab77b6496b0a6c917bf17302b2ce0"
           test -f scripts/test_persistent_actor_data_contract.py && test ! -L scripts/test_persistent_actor_data_contract.py
       - name: Reject capability and fixture drift
         run: python3 scripts/verify_persistent_actor_data_contract.py
@@ -102,7 +102,7 @@ jobs:
           expected = {
               "contracts/v1/persistent_actor_data_v1.json": "83a40f637ab77437108d02fedc8cde997f753928",
               "scripts/verify_persistent_actor_data_contract.py": "e423ef5aef92a48eb1fb5c38578b986f20da2130",
-              "scripts/test_persistent_actor_data_contract.py": "ebf436374bf5deab86925aecfe1b804dd0c94819"}
+              "scripts/test_persistent_actor_data_contract.py": "544fca635d7ab77b6496b0a6c917bf17302b2ce0"}
           counts = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])
                                / "persistent-actor-round-counts.json").read_text())
           if (blobs != expected or git("rev-parse", "HEAD") != os.environ["EXPECTED_HEAD"]
