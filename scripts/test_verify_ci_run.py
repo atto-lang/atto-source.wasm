@@ -795,13 +795,13 @@ class RunContract(unittest.TestCase):
     def test_whitespace_only_job_name_denied_with_real_test_step(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
         self.values[page]["jobs"][0]["name"] = " \t "
-        with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
+        with self.assertRaisesRegex(module.Denied, "missing or unsafe workflow job name"):
             self.validate()
 
     def test_whitespace_only_step_name_denied_despite_real_test_step(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
         self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
-        with self.assertRaisesRegex(module.Denied, "no name"):
+        with self.assertRaisesRegex(module.Denied, "workflow step has no safe single-line name"):
             self.validate()
 
 
