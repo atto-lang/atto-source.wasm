@@ -129,8 +129,19 @@ def read_bounded_contract(path):
             raise ContractError("persistent contract must be a unique regular file")
         if not 0 < before.st_size <= 64 * 1024:
             raise ContractError("invalid or oversized persistent contract")
-        flags = (os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
-                 | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+        # A missing O_NOFOLLOW permits final-component symlink substitution
+        # between lstat() and open(). A missing O_NONBLOCK permits a
+        # substituted FIFO to block indefinitely. Never silently downgrade.
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        nonblock = getattr(os, "O_NONBLOCK", None)
+        binary = getattr(os, "O_BINARY", 0)
+        if (type(nofollow) is not int or nofollow <= 0
+                or type(nonblock) is not int or nonblock <= 0
+                or (nofollow & nonblock)
+                or type(binary) is not int or binary < 0
+                or (binary & (nofollow | nonblock))):
+            raise ContractError("safe independent non-following and non-blocking open flags unavailable")
+        flags = os.O_RDONLY | nonblock | nofollow | binary
         fd = os.open(path, flags)
         try:
             stream = os.fdopen(fd, "rb")
@@ -145,6 +156,11 @@ def read_bounded_contract(path):
             after = os.fstat(stream.fileno())
             if not same_file(opened, after):
                 raise ContractError("persistent contract changed during read")
+            # Short reads can indicate partial or substituted data even when
+            # a filesystem reports stable inode, size, and timestamps.
+            # Never validate only a prefix of the pinned fixture.
+            if len(data) != after.st_size:
+                raise ContractError("persistent contract short read")
         if not same_file(after, path.lstat()):
             raise ContractError("persistent contract path changed during read")
     except OSError as exc:
