@@ -24,6 +24,8 @@ class RunContract(unittest.TestCase):
                           "private": True, "archived": False, "disabled": False},
             self.prefix + "/git/commits/" + self.commit: {
                 "sha": self.commit, "tree": {"sha": self.tree}},
+            self.prefix + "/contents/.github/workflows/ci.yml?ref=" + self.commit: {
+                "type": "file", "path": ".github/workflows/ci.yml", "sha": "c" * 40},
             self.prefix + "/actions/runs/17": {
                 "id": 17, "repository": {"id": self.repo_id},
                 "head_repository": {"id": self.repo_id},
@@ -33,6 +35,7 @@ class RunContract(unittest.TestCase):
             self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
                 "total_count": 1, "jobs": [
                     {"id": 31, "name": "unit", "run_id": 17, "run_attempt": 2,
+                     "head_sha": self.commit,
                      "status": "completed", "conclusion": "success",
                      "runner_id": 1000002089, "runner_name": "GitHub Actions 1",
                      "started_at": "2026-10-16T10:00:00Z",
@@ -52,6 +55,7 @@ class RunContract(unittest.TestCase):
 
     def verify(self, *args, **kwargs):
         kwargs.setdefault("workflow_id", 991)
+        kwargs.setdefault("workflow_blob_sha", "c" * 40)
         return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
 
     def fetch(self, path):
@@ -65,6 +69,37 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.validate()
 
+
+    def test_workflow_blob_pin_required(self):
+        with self.assertRaises(module.Denied):
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        workflow_blob_sha=None)
+
+    def test_workflow_blob_mutation_denied(self):
+        p = self.prefix + "/contents/.github/workflows/ci.yml?ref=" + self.commit
+        self.values[p]["sha"] = "d" * 40
+        self.rejected()
+
+    def test_malformed_workflow_blob_metadata_denied(self):
+        p = self.prefix + "/contents/.github/workflows/ci.yml?ref=" + self.commit
+        original = copy.deepcopy(self.values[p])
+        for key, value in (("type", "dir"), ("path", ".github/workflows/other.yml"),
+                           ("sha", False), ("sha", None)):
+            with self.subTest(key=key, value=value):
+                self.values[p] = copy.deepcopy(original)
+                self.values[p][key] = value
+                self.rejected()
+
+    def test_wrong_job_head_sha_denied(self):
+        p = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[p]["jobs"][0]["head_sha"] = "d" * 40
+        self.rejected()
+
+    def test_missing_job_head_sha_denied(self):
+        p = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        del self.values[p]["jobs"][0]["head_sha"]
+        self.rejected()
 
     def test_workflow_id_pin_is_mandatory(self):
         with self.assertRaisesRegex(module.Denied, "independently pinned workflow id"):
