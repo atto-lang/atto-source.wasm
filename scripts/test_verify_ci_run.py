@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-free regression matrix for five-backend GitHub run proof."""
+"""Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
 import importlib.util
 from pathlib import Path
@@ -30,6 +30,7 @@ class RunContract(unittest.TestCase):
                 "id": 17, "repository": {"id": self.repo_id},
                 "head_repository": {"id": self.repo_id},
                 "head_sha": self.commit, "path": ".github/workflows/ci.yml",
+                "event": "push",
                 "status": "completed",
                 "conclusion": "success", "run_attempt": 2, "workflow_id": 991},
             self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
@@ -55,6 +56,9 @@ class RunContract(unittest.TestCase):
 
     def verify(self, *args, **kwargs):
         kwargs.setdefault("workflow_id", 991)
+        kwargs.setdefault("expected_run_attempt", 2)
+        kwargs.setdefault("expected_run_path", ".github/workflows/ci.yml")
+        kwargs.setdefault("expected_event", "push")
         kwargs.setdefault("workflow_blob_sha", "c" * 40)
         return module.verify(*args, workflow_path=".github/workflows/ci.yml", **kwargs)
 
@@ -69,6 +73,141 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.validate()
 
+
+    def _switch_fixture_to_run_id_one(self):
+        old = self.prefix + "/actions/runs/17"
+        new = self.prefix + "/actions/runs/1"
+        self.values[new] = self.values.pop(old)
+        self.values[new]["id"] = 1
+        old_jobs = old + "/jobs?filter=latest&per_page=100&page=1"
+        new_jobs = new + "/jobs?filter=latest&per_page=100&page=1"
+        self.values[new_jobs] = self.values.pop(old_jobs)
+        self.values[new_jobs]["jobs"][0]["run_id"] = 1
+        self.run_id = 1
+
+    def test_boolean_job_run_id_cannot_impersonate_run_one(self):
+        self._switch_fixture_to_run_id_one()
+        path = self.prefix + "/actions/runs/1/jobs?filter=latest&per_page=100&page=1"
+        self.values[path]["jobs"][0]["run_id"] = True
+        self.rejected()
+
+    def test_boolean_final_run_id_cannot_impersonate_run_one(self):
+        self._switch_fixture_to_run_id_one()
+        run_path = self.prefix + "/actions/runs/1"
+        calls = [0]
+        def mutate_second_read(path):
+            data = copy.deepcopy(self.values[path])
+            if path == run_path:
+                calls[0] += 1
+                if calls[0] == 2:
+                    data["id"] = True
+            return data
+        with self.assertRaises(module.Denied):
+            self.verify(mutate_second_read, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(calls[0], 2)
+
+    def test_boolean_final_attempt_cannot_impersonate_attempt_one(self):
+        self.values[self.prefix + "/actions/runs/17"]["run_attempt"] = 1
+        job_path = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[job_path]["jobs"][0]["run_attempt"] = 1
+        run_path = self.prefix + "/actions/runs/17"
+        calls = [0]
+        def mutate_second_read(path):
+            data = copy.deepcopy(self.values[path])
+            if path == run_path:
+                calls[0] += 1
+                if calls[0] == 2:
+                    data["run_attempt"] = True
+            return data
+        with self.assertRaises(module.Denied):
+            self.verify(mutate_second_read, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_attempt=1)
+        self.assertEqual(calls[0], 2)
+
+    def test_final_repository_metadata_must_remain_private_and_identical(self):
+        path = self.prefix
+        baseline = copy.deepcopy(self.values[path])
+        for field, value in (("id", self.repo_id + 1),
+                             ("full_name", "rebound/foreign"),
+                             ("private", False),
+                             ("archived", True),
+                             ("disabled", True),
+                             ("id", True)):
+            with self.subTest(field=field, value=value):
+                seen = [0]
+                def mutate_on_second_metadata_read(resource):
+                    data = copy.deepcopy(self.values[resource])
+                    if resource == path:
+                        seen[0] += 1
+                        if seen[0] == 2:
+                            data[field] = value
+                    return data
+                with self.assertRaisesRegex(
+                        module.Denied, "changed identity or privacy"):
+                    self.verify(mutate_on_second_metadata_read, self.backend,
+                                self.commit, self.tree, self.run_id,
+                                ["unit"], ["Execute test suite"])
+                self.assertEqual(seen[0], 2)
+        self.values[path] = baseline
+
+    def test_final_workflow_id_must_have_exact_integer_type(self):
+        # True == 1 in Python: without a strict type check the old final
+        # reread could mistake a boolean for reviewed numeric workflow ID 1.
+        run_path = self.prefix + "/actions/runs/17"
+        self.values[run_path]["workflow_id"] = 1
+        seen = [0]
+        def change_final_run_id(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                seen[0] += 1
+                if seen[0] == 2:
+                    data["workflow_id"] = True
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(change_final_run_id, self.backend, self.commit,
+                        self.tree, self.run_id, ["unit"],
+                        ["Execute test suite"], workflow_id=1)
+        self.assertEqual(seen[0], 2)
+
+    def test_run_changed_during_collection_denied(self):
+        run_path = self.prefix + "/actions/runs/17"
+        original = copy.deepcopy(self.values[run_path])
+        for key, value in (("run_attempt", 3), ("conclusion", "failure"),
+                           ("head_sha", "d" * 40), ("workflow_id", 992),
+                           ("event", "workflow_dispatch"),
+                           ("path", ".github/workflows/other.yml"),
+                           ("status", "in_progress")):
+            with self.subTest(key=key):
+                calls = [0]
+                def changing_fetch(path):
+                    data = copy.deepcopy(self.values[path])
+                    if path == run_path:
+                        calls[0] += 1
+                        if calls[0] == 2:
+                            data[key] = value
+                    return data
+                with self.assertRaisesRegex(module.Denied, "changed during evidence collection"):
+                    self.verify(changing_fetch, self.backend, self.commit,
+                                self.tree, self.run_id, ["unit"], ["Execute test suite"])
+                self.assertEqual(calls[0], 2)
+        self.values[run_path] = original
+
+    def test_independently_pinned_run_attempt_required(self):
+        for attempt in (None, False, True, 0, -1, "2"):
+            with self.subTest(attempt=attempt):
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_attempt=attempt)
+
+    def test_independently_pinned_run_attempt_mismatch_denied(self):
+        with self.assertRaisesRegex(module.Denied, "independently pinned attempt"):
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_attempt=1)
+        self.assertEqual(self.validate()["run_attempt"], 2)
 
     def test_workflow_blob_pin_required(self):
         with self.assertRaises(module.Denied):
@@ -145,10 +284,36 @@ class RunContract(unittest.TestCase):
         self.assertIn("NOT_GUEST", self.validate()["statement"])
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
         self.assertEqual(self.validate()["workflow_path"], ".github/workflows/ci.yml")
+        self.assertEqual(self.validate()["workflow_run_path"], ".github/workflows/ci.yml")
+        self.assertEqual(self.validate()["event"], "push")
 
-    def test_inventory_has_all_five_distinct_pinned_repositories(self):
-        self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge"})
-        self.assertEqual(len({v[1] for v in module.REPOS.values()}), 5)
+    def test_inventory_has_all_eight_distinct_pinned_repositories(self):
+        self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge",
+                                                     "rx_pull", "rx_callbacks", "rx_channels"})
+        self.assertEqual(len({v[1] for v in module.REPOS.values()}), 8)
+
+    def test_rx_models_use_exact_pinned_private_repository_ids(self):
+        expected = {
+            "rx_pull": ("ores-truffle-oreslang/rx-ores", 1407870560),
+            "rx_callbacks": ("ores-truffle-oreslang/rx-ores-callbacks", 1407871059),
+            "rx_channels": ("ores-truffle-oreslang/rx-oreslang-channels", 1407757001),
+        }
+        self.assertEqual({key: module.REPOS[key] for key in expected}, expected)
+        self.assertEqual(len(set(expected.values())), 3)
+
+    def test_rx_repository_denies_foreign_numeric_identity(self):
+        for backend in ("rx_pull", "rx_callbacks", "rx_channels"):
+            with self.subTest(backend=backend):
+                self.setUp()
+                rx_repo, _ = module.REPOS[backend]
+                next_prefix = "repos/" + rx_repo
+                self.values = {key.replace(self.prefix, next_prefix): copy.deepcopy(value)
+                               for key, value in self.values.items()}
+                self.backend = backend
+                self.prefix = next_prefix
+                # Old Java ID deliberately remains in the RX metadata.
+                with self.assertRaisesRegex(module.Denied, "identity/visibility"):
+                    self.validate()
 
     def test_wrong_repo_id(self):
         self.values[self.prefix]["id"] += 1
@@ -177,6 +342,33 @@ class RunContract(unittest.TestCase):
         self.values[self.prefix+"/actions/runs/17"]["head_sha"] = "c"*40
         self.rejected()
 
+    def test_run_event_rejects_dispatch_and_untrusted_triggers(self):
+        run = self.prefix + "/actions/runs/17"
+        for event in ("workflow_dispatch", "workflow_run", "pull_request_target",
+                      "repository_dispatch", "schedule", "merge_group",
+                      "", None, False, 7):
+            with self.subTest(event=event):
+                self.values[run]["event"] = event
+                self.rejected()
+
+    def test_expected_event_must_be_independently_pinned(self):
+        for event in ("workflow_dispatch", "workflow_run", "pull_request_target",
+                      "schedule", "merge_group", "", None, False, 123):
+            with self.subTest(event=event):
+                with self.assertRaisesRegex(module.Denied, "independently selected"):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_event=event)
+
+    def test_exact_pull_request_event_is_admitted(self):
+        self.values[self.prefix + "/actions/runs/17"]["event"] = "pull_request"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, ["unit"], ["Execute test suite"],
+                             expected_event="pull_request")
+        self.assertEqual(result["event"], "pull_request")
+        with self.assertRaises(module.Denied):
+            self.validate()
+
     def test_workflow_path_missing_or_wrong_in_actual_run(self):
         key = self.prefix + "/actions/runs/17"
         for value in (None, "", ".github/workflows/other.yml",
@@ -194,8 +386,11 @@ class RunContract(unittest.TestCase):
                       ".github/workflows/ci.yml@refs/pull/123/merge"):
             with self.subTest(value=value):
                 self.values[key]["path"] = value
-                self.assertEqual(self.validate()["verified_jobs"], 1)
-        for value in (".github/workflows/ci.yml@", 
+                result = self.verify(self.fetch, self.backend, self.commit,
+                                     self.tree, self.run_id, ["unit"],
+                                     ["Execute test suite"], expected_run_path=value)
+                self.assertEqual(result["workflow_run_path"], value)
+        for value in (".github/workflows/ci.yml@",
                       ".github/workflows/ci.yml@../main",
                       ".github/workflows/ci.yml@main@wrong",
                       ".github/workflows/ci.yml@refs//heads/main",
@@ -203,7 +398,39 @@ class RunContract(unittest.TestCase):
                       ".github/workflows/ci.yml@/refs/heads/main"):
             with self.subTest(value=value):
                 self.values[key]["path"] = value
-                self.rejected()
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit,
+                                self.tree, self.run_id, ["unit"],
+                                ["Execute test suite"], expected_run_path=value)
+
+    def test_independently_pinned_run_ref_cannot_be_substituted(self):
+        run = self.prefix + "/actions/runs/17"
+        approved = ".github/workflows/ci.yml@refs/heads/main"
+        self.values[run]["path"] = approved
+        self.assertEqual(
+            self.verify(self.fetch, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_path=approved)["workflow_run_path"], approved)
+        for actual in (".github/workflows/ci.yml",
+                       ".github/workflows/ci.yml@refs/heads/feature",
+                       ".github/workflows/ci.yml@refs/pull/123/merge"):
+            with self.subTest(actual=actual):
+                self.values[run]["path"] = actual
+                with self.assertRaises(module.Denied):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_path=approved)
+
+    def test_workflow_run_path_required_and_cannot_traverse(self):
+        for expected in (None, "", False, 2, ".github/workflows/ci.yml@",
+                         ".github/workflows/ci.yml@../main",
+                         ".github/workflows/ci.yml@refs//heads/main",
+                         ".github/workflows/ci.yml.bak@main"):
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(module.Denied, "independently pinned exact"):
+                    self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                self.run_id, ["unit"], ["Execute test suite"],
+                                expected_run_path=expected)
 
     def test_trusted_workflow_path_is_mandatory(self):
         with self.assertRaisesRegex(module.Denied, "trusted workflow path"):
@@ -406,7 +633,7 @@ class RunContract(unittest.TestCase):
                                   self.tree, self.run_id, ["unit"],
                                   ["Execute test suite"], job_step_pairs=pairs)
 
-    def test_success_for_all_five_pinned_backend_ids(self):
+    def test_success_for_all_eight_pinned_repository_ids(self):
         for backend, (repo, numeric_id) in module.REPOS.items():
             with self.subTest(backend=backend):
                 self.setUp()
