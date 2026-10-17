@@ -760,6 +760,55 @@ class RunContract(unittest.TestCase):
 
 
 
+    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        normal = job["runner_name"]
+        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
+                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
+            with self.subTest(label=repr(malicious)):
+                job["runner_name"] = malicious
+                self.rejected()
+        job["runner_name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+
+    def test_observed_job_and_step_names_reject_spoofed_labels(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for target in (job, job["steps"][1]):
+            normal = target["name"]
+            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
+                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
+                with self.subTest(target=normal, label=repr(malicious)):
+                    target["name"] = malicious
+                    self.rejected()
+            target["name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+
+    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
+        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
+                          "CI\u2066Fake", "CI\u200bFake"):
+            with self.subTest(name=repr(malicious)):
+                for job_names, step_names in (([malicious], ["Execute test suite"]),
+                                              (["unit"], [malicious])):
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, job_names, step_names)
+
+
+    def test_legible_unicode_display_names_are_not_disallowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        job["name"] = "native — unité"
+        job["runner_name"] = "GitHub Actions — runner"
+        job["steps"][1]["name"] = "Exécuter native tests"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
+        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
+
+
 class StrictApiJSONContract(unittest.TestCase):
     """API transport must not silently reinterpret ambiguous run metadata."""
 
@@ -813,13 +862,54 @@ class StrictApiJSONContract(unittest.TestCase):
                 return self.body[:length]
 
         with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17,"id":18}')):
+            with patch.object(module.urllib.request, "build_opener") as builder:
+                builder.return_value.open.return_value = Response(b'{"id":17,"id":18}')
                 with self.assertRaisesRegex(module.Denied, "duplicate"):
                     module._api_get("repos/example/repo")
-            with patch.object(module.urllib.request, "urlopen",
-                              return_value=Response(b'{"id":17}')):
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+                builder.return_value.open.return_value = Response(b'{"id":17}')
                 self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
+                self.assertIs(builder.call_args.args[0], module._DenyRedirects)
+
+    def test_authenticated_redirect_cannot_forward_bearer_token(self):
+        class RedirectingOpener:
+            def __init__(self, handler):
+                self.handler = handler
+                self.forwarded = False
+            def open(self, req, timeout):
+                self.assertion = req.get_header("Authorization")
+                # This simulates the first redirect in urllib without any
+                # network request to another organization or host.
+                self.handler.redirect_request(
+                    req, None, 302, "Found", {},
+                    "https://outside.example.invalid/collect")
+                self.forwarded = True
+                raise AssertionError("redirect unexpectedly followed")
+
+        instances = []
+        def opener_factory(handler):
+            instance = RedirectingOpener(handler())
+            instances.append(instance)
+            return instance
+
+        with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
+            with patch.object(module.urllib.request, "build_opener",
+                              side_effect=opener_factory):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._api_get("repos/example/repo")
+        self.assertEqual(len(instances), 1)
+        self.assertEqual(instances[0].assertion, "Bearer synthetic-only")
+        self.assertFalse(instances[0].forwarded)
+        for status in (301, 302, 303, 307, 308):
+            with self.subTest(status=status):
+                with self.assertRaisesRegex(module.Denied, "redirect denied"):
+                    module._DenyRedirects().redirect_request(
+                        module.urllib.request.Request(
+                            "https://api.github.com/repos/example/repo",
+                            headers={"Authorization": "Bearer synthetic-only"}),
+                        None, status, "Redirect", {},
+                        "https://other.example.invalid/capture")
+
 
 
 class WorkflowIsolationContract(unittest.TestCase):
