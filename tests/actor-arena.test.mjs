@@ -140,6 +140,32 @@ test("mutated typed-array prototypes cannot leak, alter, or prevent arena zeroiz
   }
 });
 
+test("mutated Object.freeze cannot capture actor turn or opaque handle authority", () => {
+  const previous = Object.getOwnPropertyDescriptor(Object, "freeze");
+  const intercepted = [];
+  try {
+    Object.defineProperty(Object, "freeze", {
+      configurable: true, writable: true,
+      value(value) { intercepted.push(value); return value; }
+    });
+    const arena = new ActorArena({actorId: 46, incarnation: 1});
+    const turn = arena.beginTurn();
+    const handle = arena.allocPersistent(turn, 4);
+    assert.equal(Object.isFrozen(turn), true);
+    assert.equal(Object.isFrozen(handle), true);
+    assert.equal(intercepted.includes(turn), false,
+      "untrusted monkey patch must never observe an actor turn permit");
+    assert.equal(intercepted.includes(handle), false,
+      "untrusted monkey patch must never observe a persistent memory handle");
+    arena.write(turn, handle, Uint8Array.from([2, 7, 1, 8]));
+    assert.deepEqual([...arena.read(turn, handle)], [2, 7, 1, 8]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    Object.defineProperty(Object, "freeze", previous);
+  }
+});
+
 test("replaced global WebAssembly.Memory constructor cannot coalesce actor heaps", () => {
   const NativeMemory = WebAssembly.Memory;
   const reused = new NativeMemory({initial: 2, maximum: 2});
