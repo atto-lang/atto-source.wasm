@@ -393,3 +393,39 @@ test("actor admission and quotas ignore poisoned Number and Set methods", () => 
   arena.endTurn(turn);
   arena.retire();
 });
+
+test("poisoned Array iterator cannot intercept private arena free lists", () => {
+  const arena = new ActorArena({actorId: 42, incarnation: 1});
+  const turn = arena.beginTurn();
+  // Fill the 64-KiB persistent region so reuse of adjacent 8-byte
+  // blocks requires the allocator to coalesce its private free list.
+  const left = arena.allocPersistent(turn, 8);
+  const right = arena.allocPersistent(turn, 8);
+  const tail = arena.allocPersistent(turn, 65520);
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let calls = 0;
+  let recycled;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true,
+      value() {
+        ++calls;
+        throw new Error("attacker-controlled Array iterator intercepted private free list");
+      }
+    });
+    arena.dropPersistent(turn, left);
+    arena.dropPersistent(turn, right);
+    recycled = arena.allocPersistent(turn, 16);
+  } finally {
+    if (previous) Object.defineProperty(Array.prototype, Symbol.iterator, previous);
+    else delete Array.prototype[Symbol.iterator];
+  }
+  assert.equal(calls, 0, "private allocator must never call mutable Array iterator");
+  assert.deepEqual([...arena.read(turn, recycled)], Array(16).fill(0),
+    "coalesced private memory must be zeroed before it is reused");
+  assert.throws(() => arena.read(turn, left), /foreign or stale/);
+  assert.throws(() => arena.read(turn, right), /foreign or stale/);
+  assert.equal(arena.read(turn, tail).length, 65520);
+  arena.endTurn(turn);
+  arena.retire();
+});
