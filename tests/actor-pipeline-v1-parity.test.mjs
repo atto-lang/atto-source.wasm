@@ -67,3 +67,35 @@ test('parallel pipelines maintain independent selectors', () => {
     if(i%2===0) assert.equal(p2.forwardRoundRobin('producer-1').target,fixture.operations.forward_all[(i/2)%3]);
   }
 });
+
+
+test('bounded graph snapshot ignores hostile iterators and changing lengths', () => {
+  function adversarial(items) {
+    const input = items.map(item => ({...item}));
+    let reads = 0;
+    const proxy = new Proxy(input, {
+      get(target, key, receiver) {
+        if (key === 'length') return ++reads === 1 ? target.length : 999999;
+        if (key === Symbol.iterator)
+          throw new Error('caller iterator must never run');
+        return Reflect.get(target, key, receiver);
+      }
+    });
+    return {proxy, reads: () => reads, input};
+  }
+  const s = adversarial(stages), e = adversarial(edges);
+  const plan = new ActorPipelinePolicy(s.proxy, e.proxy);
+  assert.deepEqual(plan.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
+  assert.equal(s.reads(), 1);
+  assert.equal(e.reads(), 1);
+  s.input[0].id = 'forged';
+  e.input[0].target = 'forged';
+  assert.equal(plan.forwardRoundRobin('producer-1').target, 'worker-a');
+
+  const sparseStages = stages.slice();
+  delete sparseStages[1];
+  assert.throws(() => new ActorPipelinePolicy(sparseStages, edges), /invalid pipeline stage/);
+  const sparseEdges = edges.slice();
+  delete sparseEdges[0];
+  assert.throws(() => new ActorPipelinePolicy(stages, sparseEdges), /invalid pipeline edge/);
+});
