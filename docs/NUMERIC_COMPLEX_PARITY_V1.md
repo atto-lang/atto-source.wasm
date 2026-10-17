@@ -231,3 +231,21 @@ uploaded short-lived [artifact #12110614229](https://github.com/cliptown/cliptow
 Its checks were not copied from the private Oreslang source tree;
 **the actual source finite/IEEE oracle files and Oreslang native guest
 compilers have not been tested successfully by that host**.
+
+
+## Wasm complex128 scalar memory/wire foundation (2026-10-17)
+
+The Wasm host layer now has an allocation-free 16-byte scalar codec matching
+the proposed cross-backend `complex128-wire-v1` layout: real binary64 raw
+bits first, imaginary binary64 raw bits second, both little-endian. Finite
+values, infinities, subnormals and signed zero are preserved; all NaN forms
+canonicalize to positive quiet NaN `0x7ff8000000000000`, and the decoder
+rejects noncanonical NaN wire encodings.
+
+This does **not** claim Wasm complex arithmetic or actor DATA transport.
+`serde_boundary_v1.json` deliberately continues to list `complex` under
+`unsupported_without_verified_runtime_codec` until this scalar codec is
+integrated with a receiver-pinned schema, bounded MessagePack-v2 envelope and
+actual guest/compiler lowering. The current Wasm execution profile still
+requires a zero-import `() -> i64` entry. Complex multi-value ABI, source
+syntax, arithmetic, Matrix and actor serialization remain fail-closed.
