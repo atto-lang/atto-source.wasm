@@ -21,6 +21,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Validate shared vector schema only (not runtime proof)
         run: python3 contracts/v1/verify_scoped_permissions.py --validate-only
       - name: Negative report-gate unit tests only (not guest execution)
