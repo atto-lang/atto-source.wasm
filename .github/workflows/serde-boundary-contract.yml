@@ -82,5 +82,5 @@ jobs:
         with:
           name: serde-policy-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/serde-policy-evidence/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
