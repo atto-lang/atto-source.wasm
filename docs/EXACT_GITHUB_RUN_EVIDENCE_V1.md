@@ -219,3 +219,19 @@ after the fix in the **source-free** private carrier's 63-test execution:
 https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/38989909170.
 This does not authorize private compiler/actor source export and does not
 attest native guest-language compilation or execution.
+
+## Independently pinned run attempt (65-case regression gate)
+
+The verifier requires `--run-attempt N` from independently approved release
+evidence, and compares it with GitHub's run attempt and every job's attempt.
+The existing final reread also checks that the same attempt remains current.
+A dynamically chosen latest attempt cannot silently replace reviewed evidence.
+The workflow runs at least 65 source-free unittest methods for three rounds.
+
+Example additional CLI argument: `--run-attempt 2` (replace 2 with the
+independently recorded value for that run; never infer it from the run being
+validated). Passing this verifier attests GitHub execution metadata only,
+not private-source export permission, backend-native compiler execution,
+or full semantic parity. Source export remains blocked pending protected-main
+CODEOWNER enforcement, an approved private destination, and closure of the
+private-source exposure incident's resumption gates.
