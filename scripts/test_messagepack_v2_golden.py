@@ -60,12 +60,30 @@ class StrictGoldenOracleTest(unittest.TestCase):
             with self.subTest(hex=repr(hex_str)), self.assertRaises(ValueError):
                 wire.verify(mutated)
 
+    def test_declared_kind_and_shape_are_cryptographically_bound(self):
+        for i in range(6):
+            for field in ("kind", "shape"):
+                tampered = copy.deepcopy(self.vectors)
+                vec = tampered["vectors"][i]
+                if field == "kind":
+                    vec[field] = "List" if vec[field] != "List" else "Tuple"
+                else:
+                    vec[field] = "bool" if vec[field] != "bool" else "string"
+                with self.subTest(vector=i, field=field), self.assertRaises(
+                    (ValueError, TypeError, KeyError)
+                ):
+                    wire.verify(tampered)
+
     def test_rejects_mutated_fixtures(self):
         for i in range(6):
-            for field in ("schema_id", "shape_descriptor", "input", "hex"):
+            for field in ("kind", "shape", "schema_id", "shape_descriptor", "input", "hex"):
                 mutated = copy.deepcopy(self.vectors)
                 vec = mutated["vectors"][i]
-                if field == "schema_id":
+                if field == "kind":
+                    vec[field] = "List" if vec[field] != "List" else "Tuple"
+                elif field == "shape":
+                    vec[field] = "bool" if vec[field] != "bool" else "string"
+                elif field == "schema_id":
                     vec[field] += ".forged"
                 elif field == "shape_descriptor":
                     vec[field] = "I" if vec[field] == "S" else "S"
