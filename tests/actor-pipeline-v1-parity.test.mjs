@@ -209,3 +209,54 @@ test('changing caller length cannot conceal an unreachable directed cycle', () =
   assert.throws(() => new ActorPipelinePolicy(tampered, cyclicEdges), /cyclic/);
   assert.equal(reads, 1, 'only the admitted source count may be consulted');
 });
+
+
+test('route hash and by-key selection ignore poisoned typed-array iterator and numeric constructors', () => {
+  const route = policy();
+  const expectedHash = actorRouteHash64('beta');
+  const expectedTarget = route.forwardByKey('producer-1', 'beta').target;
+  const iterator = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  const bigint = Object.getOwnPropertyDescriptor(globalThis, 'BigInt');
+  const number = Object.getOwnPropertyDescriptor(globalThis, 'Number');
+  let hash, target;
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () { yield 0; }
+    });
+    Object.defineProperty(globalThis, 'BigInt', {
+      configurable: true, writable: true, value() { return 0n; }
+    });
+    Object.defineProperty(globalThis, 'Number', {
+      configurable: true, writable: true, value() { return 0; }
+    });
+    hash = actorRouteHash64('beta');
+    target = route.forwardByKey('producer-1', 'beta').target;
+  } finally {
+    if (iterator) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    else delete Uint8Array.prototype[Symbol.iterator];
+    if (bigint) Object.defineProperty(globalThis, 'BigInt', bigint);
+    else delete globalThis.BigInt;
+    if (number) Object.defineProperty(globalThis, 'Number', number);
+    else delete globalThis.Number;
+  }
+  assert.equal(hash, expectedHash);
+  assert.equal(target, expectedTarget);
+});
+
+test('duplicate edge admission ignores poisoned JSON.stringify', () => {
+  const stringify = Object.getOwnPropertyDescriptor(JSON, 'stringify');
+  let rejected = false, counter = 0;
+  try {
+    Object.defineProperty(JSON, 'stringify', {
+      configurable: true, writable: true, value() { return 'forged-' + (++counter); }
+    });
+    try {
+      new ActorPipelinePolicy(stages, [edges[0], edges[0], ...edges.slice(1)]);
+    } catch (error) {
+      rejected = error instanceof TypeError && /duplicate pipeline edge/.test(String(error));
+    }
+  } finally {
+    Object.defineProperty(JSON, 'stringify', stringify);
+  }
+  assert.equal(rejected, true);
+});

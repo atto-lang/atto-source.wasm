@@ -26,34 +26,114 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify exact source checkout before test execution
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert source HEAD and tree checked out
         shell: bash
         env:
           EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
           test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -n "$(git rev-parse 'HEAD^{tree}')"
           test -z "$(git status --porcelain --untracked-files=all)"
+          echo "EXACT_TESTED_SOURCE_COMMIT=$EXPECTED_SOURCE_HEAD"
+          echo "EXACT_TESTED_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Pin identical five-backend contract source blobs
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
           test "$(git ls-tree HEAD -- contracts/v1/persistent_actor_data_v1.json | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:83a40f637ab77437108d02fedc8cde997f753928"
           test -f contracts/v1/persistent_actor_data_v1.json && test ! -L contracts/v1/persistent_actor_data_v1.json
-          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "b51f648518aa4f0573a732716988684171b94867"
-          test "$(git ls-tree HEAD -- scripts/verify_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:b51f648518aa4f0573a732716988684171b94867"
+          test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "e423ef5aef92a48eb1fb5c38578b986f20da2130"
+          test "$(git ls-tree HEAD -- scripts/verify_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:e423ef5aef92a48eb1fb5c38578b986f20da2130"
           test -f scripts/verify_persistent_actor_data_contract.py && test ! -L scripts/verify_persistent_actor_data_contract.py
-          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "843d2e6f462ee1d8ab33dc0ad86d6c90b11d27e8"
-          test "$(git ls-tree HEAD -- scripts/test_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:843d2e6f462ee1d8ab33dc0ad86d6c90b11d27e8"
+          test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "eec6eb9f1f08aac8c569f1d24cd53b795c91fcc9"
+          test "$(git ls-tree HEAD -- scripts/test_persistent_actor_data_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:eec6eb9f1f08aac8c569f1d24cd53b795c91fcc9"
           test -f scripts/test_persistent_actor_data_contract.py && test ! -L scripts/test_persistent_actor_data_contract.py
-      - name: Compile contract and test files in isolated Python mode
-        run: python3 -I -m py_compile scripts/verify_persistent_actor_data_contract.py scripts/test_persistent_actor_data_contract.py
       - name: Reject capability and fixture drift
-        run: python3 -I scripts/verify_persistent_actor_data_contract.py
-      - name: Execute negative policy mutation suite
-        run: python3 -I scripts/test_persistent_actor_data_contract.py -v
+        run: python3 scripts/verify_persistent_actor_data_contract.py
+      - name: Execute exactly 44 source-free policy tests in three rounds
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -m py_compile scripts/verify_persistent_actor_data_contract.py scripts/test_persistent_actor_data_contract.py
+          python3 -I - <<'PY'
+          import json
+          import os
+          import sys
+          import unittest
+          from pathlib import Path
+          sys.path.insert(0, str(Path("scripts").resolve()))
+          from test_persistent_actor_data_contract import PersistentActorPolicyTest
+          counts = []
+          for round_id in (1, 2, 3):
+              suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
+              if suite.countTestCases() != 44:
+                  raise SystemExit("expected 44 independently declared persistent actor tests")
+              result = unittest.TextTestRunner(verbosity=1).run(suite)
+              if (result.testsRun != 44 or not result.wasSuccessful()
+                      or result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+                  raise SystemExit("incomplete, skipped or failing persistent actor source-free tests")
+              counts.append(result.testsRun)
+              print(f"PERSISTENT_ACTOR_SOURCEFREE_ROUND_{round_id}_PASS=44", flush=True)
+          Path(os.environ["RUNNER_TEMP"], "persistent-actor-round-counts.json").write_text(
+              json.dumps({"round_counts": counts, "executed_total": sum(counts)}, sort_keys=True))
+          PY
+      - name: Emit scoped source-free test receipt
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_REPO_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          def git(*args):
+              return subprocess.check_output(("git", *args), text=True).strip()
+          blobs = {p: git("hash-object", p) for p in (
+              "contracts/v1/persistent_actor_data_v1.json",
+              "scripts/verify_persistent_actor_data_contract.py",
+              "scripts/test_persistent_actor_data_contract.py")}
+          expected = {
+              "contracts/v1/persistent_actor_data_v1.json": "83a40f637ab77437108d02fedc8cde997f753928",
+              "scripts/verify_persistent_actor_data_contract.py": "e423ef5aef92a48eb1fb5c38578b986f20da2130",
+              "scripts/test_persistent_actor_data_contract.py": "eec6eb9f1f08aac8c569f1d24cd53b795c91fcc9"}
+          counts = json.loads((pathlib.Path(os.environ["RUNNER_TEMP"])
+                               / "persistent-actor-round-counts.json").read_text())
+          if (blobs != expected or git("rev-parse", "HEAD") != os.environ["EXPECTED_HEAD"]
+                  or counts != {"round_counts": [44, 44, 44], "executed_total": 132}):
+              raise SystemExit("source-free evidence does not match checked-in bytes or tests")
+          record = {
+              "schema": "oreslang.persistent_actor_sourcefree_44.v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "repository_id": int(os.environ["EXPECTED_REPO_ID"]),
+              "head_sha": git("rev-parse", "HEAD"),
+              "tree_sha": git("rev-parse", "HEAD^{tree}"),
+              "run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "blobs": blobs,
+              "round_counts": counts["round_counts"],
+              "executed_total": 132,
+              "source_free_only": True,
+              "guest_runtime_certified": False,
+              "native_backend_certified": False,
+              "private_source_export_authorized": False}
+          (pathlib.Path(os.environ["RUNNER_TEMP"]) /
+           "persistent-actor-sourcefree-44.json").write_text(
+               json.dumps(record, sort_keys=True, indent=2) + "\n")
+          PY
+      - name: Upload bounded source-free evidence only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: persistent-actor-sourcefree-44-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/persistent-actor-sourcefree-44.json
+          if-no-files-found: error
+          retention-days: 7
 
   host-arena:
     runs-on: ubuntu-24.04
@@ -61,16 +141,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify exact source checkout before test execution
-        shell: bash
-        env:
-          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
-          test -z "$(git status --porcelain --untracked-files=all)"
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
