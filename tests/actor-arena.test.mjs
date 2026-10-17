@@ -82,6 +82,64 @@ test('persistent drop reclaims memory without reviving stale handles', () => {
   arena.retire();
 });
 
+test("mutated typed-array prototypes cannot leak, alter, or prevent arena zeroization", () => {
+  const arena = new ActorArena({actorId: 35, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.from([1, 2, 3, 4]));
+  const methods = ["slice", "set", "fill"];
+  const previous = methods.map(name =>
+    Object.getOwnPropertyDescriptor(Uint8Array.prototype, name));
+  const memoryBuffer = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, "buffer");
+  try {
+    // The vulnerable implementation used each of these replaceable methods
+    // on a live Uint8Array over private actor memory.
+    for (const name of methods) {
+      Object.defineProperty(Uint8Array.prototype, name, {
+        configurable: true, writable: true,
+        value: name === "slice"
+          ? function () { return this; }
+          : function () { throw new Error("hijacked " + name); }
+      });
+    }
+    if (memoryBuffer.configurable) {
+      Object.defineProperty(WebAssembly.Memory.prototype, "buffer", {
+        configurable: true,
+        get() { throw new Error("hijacked WebAssembly.Memory.buffer"); }
+      });
+    }
+    const snapshot = arena.read(turn, handle);
+    snapshot[0] = 99;
+    assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4],
+      "read must return an owned copy, not an arena-backed live view");
+    arena.write(turn, handle, Uint8Array.from([9, 8, 7, 6]));
+    assert.deepEqual([...arena.read(turn, handle)], [9, 8, 7, 6]);
+    arena.dropPersistent(turn, handle);
+    const recycled = arena.allocPersistent(turn, 4);
+    assert.deepEqual([...arena.read(turn, recycled)], [0, 0, 0, 0],
+      "recycled persistent allocations must be zero even if fill is patched");
+    const scratch = arena.allocScratch(turn, 4);
+    arena.write(turn, scratch, Uint8Array.from([5, 4, 3, 2]));
+    arena.endTurn(turn);
+    const next = arena.beginTurn();
+    assert.throws(() => arena.read(next, scratch), /foreign or stale/);
+    const freshScratch = arena.allocScratch(next, 4);
+    assert.deepEqual([...arena.read(next, freshScratch)], [0, 0, 0, 0]);
+    arena.endTurn(next);
+    arena.retire();
+  } finally {
+    for (let i = 0; i < methods.length; ++i) {
+      if (previous[i]) Object.defineProperty(Uint8Array.prototype, methods[i], previous[i]);
+      else delete Uint8Array.prototype[methods[i]];
+    }
+    Object.defineProperty(WebAssembly.Memory.prototype, "buffer", memoryBuffer);
+    if (!arena.retired) {
+      try { arena.endTurn(turn); } catch {}
+      try { arena.retire(); } catch {}
+    }
+  }
+});
+
 test("shared worker backing is rejected before it can tear an actor write", () => {
   const arena = new ActorArena({actorId: 34, incarnation: 1});
   const turn = arena.beginTurn();
