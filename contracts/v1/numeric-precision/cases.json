@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "status": "reference-only-not-guest-execution",
-  "notes": "Golden vectors for future Java/LLVM numeric conformance. Binary64 operands use raw IEEE bits and decimal matrices use exact base-10 strings; no backend may claim success simply by parsing this file.",
+  "notes": "Golden vectors for cross-backend numeric conformance. Binary64 and complex128 operands/results use raw IEEE-754 bits and decimal matrices use exact base-10 strings; no backend may claim success simply by parsing this file.",
   "binary64_comparisons": [
     {
       "id": "nan-eq-self",
@@ -227,5 +227,73 @@
       ],
       "error": "shape_mismatch"
     }
-  ]
+  ],
+  "complex128_division": [
+    {
+      "id": "wide-exponent-representable-imaginary",
+      "lhs": {
+        "real_hex": "ef993d7798ff88f6",
+        "imag_hex": "a998ed03995a509d"
+      },
+      "rhs": {
+        "real_hex": "6964e3be344bb334",
+        "imag_hex": "25ec534b07bf02e7"
+      },
+      "expected": {
+        "real_hex": "c623550912a2da11",
+        "imag_hex": "02aa36a9fdaa506a"
+      }
+    },
+    {
+      "id": "opposite-tiny-imaginary-cancellation",
+      "lhs": {
+        "real_hex": "6974e718d7d7625a",
+        "imag_hex": "2b2bff2ee48e0530"
+      },
+      "rhs": {
+        "real_hex": "6974e718d7d7625a",
+        "imag_hex": "ab2bff2ee48e0530"
+      },
+      "expected": {
+        "real_hex": "3ff0000000000000",
+        "imag_hex": "01b56e1fc2f8f359"
+      }
+    },
+    {
+      "id": "identical-extreme-components",
+      "lhs": {
+        "real_hex": "6974e718d7d7625a",
+        "imag_hex": "2b2bff2ee48e0530"
+      },
+      "rhs": {
+        "real_hex": "6974e718d7d7625a",
+        "imag_hex": "2b2bff2ee48e0530"
+      },
+      "expected": {
+        "real_hex": "3ff0000000000000",
+        "imag_hex": "0000000000000000"
+      }
+    },
+    {
+      "id": "minimum-subnormal-self-quotient",
+      "lhs": {
+        "real_hex": "0000000000000001",
+        "imag_hex": "0000000000000001"
+      },
+      "rhs": {
+        "real_hex": "0000000000000001",
+        "imag_hex": "0000000000000001"
+      },
+      "expected": {
+        "real_hex": "3ff0000000000000",
+        "imag_hex": "0000000000000000"
+      }
+    }
+  ],
+  "complex128_policy": {
+    "finite_division_reference": "Treat each finite binary64 component as its exact rational value, evaluate (ac+bd)/(c^2+d^2) and (bc-ad)/(c^2+d^2), then round each final component once to nearest-even binary64.",
+    "fast_path": "May use bounded nonallocating binary64 arithmetic when it produces the same result.",
+    "fallback": "Extended-precision fallback must be resource-bounded and only used for exceptional finite cases.",
+    "special_values": "NaN, infinity, zero-divisor, and signed-zero propagation remain a separate policy surface and are not certified by these finite vectors."
+  }
 }
