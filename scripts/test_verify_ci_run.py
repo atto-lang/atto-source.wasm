@@ -122,7 +122,8 @@ class RunContract(unittest.TestCase):
             return data
         with self.assertRaises(module.Denied):
             self.verify(mutate_second_read, self.backend, self.commit, self.tree,
-                        self.run_id, ["unit"], ["Execute test suite"])
+                        self.run_id, ["unit"], ["Execute test suite"],
+                        expected_run_attempt=1)
         self.assertEqual(calls[0], 2)
 
     def test_run_changed_during_collection_denied(self):
