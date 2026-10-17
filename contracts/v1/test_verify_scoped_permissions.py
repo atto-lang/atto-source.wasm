@@ -50,7 +50,7 @@ class ScopedPermissionGateTests(unittest.TestCase):
             return gate.load_vectors(path)
 
     def test_exact_corpus_and_backends(self):
-        self.assertEqual(len(self.expected), 44)
+        self.assertEqual(len(self.expected), 52)
         self.assertTrue({"default-read-denied", "coarse-ceiling-net",
                          "endpoint-deny-portless", "serialized-no-escalation"}
                         .issubset(self.expected))
