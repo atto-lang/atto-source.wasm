@@ -26,17 +26,28 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact source checkout before test execution
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Pin identical five-backend contract source blobs
         shell: bash
         run: |
           test "$(git hash-object contracts/v1/persistent_actor_data_v1.json)" = "83a40f637ab77437108d02fedc8cde997f753928"
           test "$(git hash-object scripts/verify_persistent_actor_data_contract.py)" = "b51f648518aa4f0573a732716988684171b94867"
           test "$(git hash-object scripts/test_persistent_actor_data_contract.py)" = "eb720c94a686b316eede6e3d0bdb746fd3a7cef1"
+      - name: Compile contract and test files in isolated Python mode
+        run: python3 -I -m py_compile scripts/verify_persistent_actor_data_contract.py scripts/test_persistent_actor_data_contract.py
       - name: Reject capability and fixture drift
-        run: python3 scripts/verify_persistent_actor_data_contract.py
+        run: python3 -I scripts/verify_persistent_actor_data_contract.py
       - name: Execute negative policy mutation suite
-        run: python3 scripts/test_persistent_actor_data_contract.py -v
+        run: python3 -I scripts/test_persistent_actor_data_contract.py -v
 
   host-arena:
     runs-on: ubuntu-24.04
@@ -44,7 +55,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact source checkout before test execution
+        shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
