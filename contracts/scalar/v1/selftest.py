@@ -407,5 +407,53 @@ class ScalarHarnessTest(unittest.TestCase):
         self.assertIn("invalid UTF-8", result[1])
 
 
+    def test_output_limit_enforced_before_process_exits(self):
+        import time
+        source = runner.HERE / "fixtures" / "literal-42.ores"
+        for fd in (1, 2):
+            with self.subTest(stream=fd):
+                code = ("import os,time; data=b'x'*1048576; "
+                        "os.write(" + str(fd) + ",data); time.sleep(10)")
+                started = time.monotonic()
+                ok, details = runner.run_case(
+                    [sys.executable, "-c", code], source, "accept", "42",
+                    "stdout-i64", 4, "forge", "scalar.literal-42")
+                self.assertFalse(ok)
+                self.assertIn("exceeded 64 KiB", details)
+                self.assertLess(time.monotonic() - started, 3,
+                                "output budget must stop a live noisy compiler")
+
+    def test_subprocess_timeout_is_infrastructure_not_semantic_rejection(self):
+        source = runner.HERE / "fixtures" / "reject-unknown.ores"
+        code = ("import sys,time; "
+                "sys.stderr.write('oresforge: expected integer at byte 29\\n'); "
+                "sys.stderr.flush(); time.sleep(10)")
+        ok, details = runner.run_case(
+            [sys.executable, "-c", code], source, "reject", None,
+            "admission", 0.2, "forge", "reject.unknown")
+        self.assertFalse(ok)
+        self.assertIn("TimeoutExpired", details)
+
+    def test_descendant_inheriting_output_cannot_hold_gate_open(self):
+        import os
+        import time
+        if os.name != "posix":
+            self.skipTest("process-group descendant termination is POSIX-only")
+        source = runner.HERE / "fixtures" / "literal-42.ores"
+        code = ("import subprocess,sys; "
+                "subprocess.Popen([sys.executable,'-c',"
+                "'import time;time.sleep(10)'],"
+                "stdout=sys.stdout,stderr=sys.stderr);"
+                "print(42)")
+        started = time.monotonic()
+        ok, details = runner.run_case(
+            [sys.executable, "-c", code], source, "accept", "42",
+            "stdout-i64", 0.3, "forge", "scalar.literal-42")
+        self.assertFalse(ok)
+        self.assertIn("TimeoutExpired", details)
+        self.assertLess(time.monotonic() - started, 3)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
