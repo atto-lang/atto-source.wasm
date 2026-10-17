@@ -40,6 +40,36 @@ def numeric_compare(left, right):
     return {"eq": a == b, "lt": a < b, "le": a <= b, "gt": a > b, "ge": a >= b}
 
 
+
+def binary64_from_hex(value):
+    raw = bytes.fromhex(value)
+    if len(raw) != 8:
+        raise ValueError("binary64 bits must be 8 bytes")
+    return struct.unpack(">d", raw)[0]
+
+
+def binary64_hex(value):
+    return struct.pack(">d", value).hex()
+
+
+def exact_complex_division(case):
+    def exact_component(value):
+        number = binary64_from_hex(value)
+        if not math.isfinite(number):
+            raise ValueError("complex finite reference requires finite operands")
+        return Fraction.from_float(number)
+
+    a = exact_component(case["lhs"]["real_hex"])
+    b = exact_component(case["lhs"]["imag_hex"])
+    c = exact_component(case["rhs"]["real_hex"])
+    d = exact_component(case["rhs"]["imag_hex"])
+    denominator = c * c + d * d
+    if denominator == 0:
+        raise ValueError("complex finite reference forbids zero divisor")
+    real = float((a * c + b * d) / denominator)
+    imaginary = float((b * c - a * d) / denominator)
+    return {"real_hex": binary64_hex(real), "imag_hex": binary64_hex(imaginary)}
+
 def matrix_shape(rows, explicit=None):
     m = len(rows)
     n = len(rows[0]) if m else (explicit[1] if explicit is not None else 0)
@@ -80,6 +110,15 @@ class NumericalReferenceVectorsTest(unittest.TestCase):
                 actual = numeric_compare(numeric_operand(case["lhs"]), numeric_operand(case["rhs"]))
                 expected = {key: case[key] for key in ("eq", "lt", "le", "gt", "ge")}
                 self.assertEqual(expected, actual)
+
+
+    def test_complex128_finite_division(self):
+        policy = self.contract["complex128_policy"]
+        self.assertIn("round each final component once", policy["finite_division_reference"])
+        self.assertIn("separate policy surface", policy["special_values"])
+        for case in self.contract["complex128_division"]:
+            with self.subTest(case=case["id"]):
+                self.assertEqual(case["expected"], exact_complex_division(case))
 
     def test_exact_decimal_matrices(self):
         for case in self.contract["decimal_matrices"]:
