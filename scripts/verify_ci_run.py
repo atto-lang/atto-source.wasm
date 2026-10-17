@@ -284,6 +284,18 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     if pairs and any(step not in steps_by_job.get(job, set())
                      for job, step in pairs):
         raise Denied("required executable step did not run in its bound CI job")
+    # Detect a re-run or changed conclusion during multi-page evidence collection.
+    # Never combine a successful run snapshot with jobs from another attempt.
+    final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
+    if (final_run.get("id") != run_id or final_run.get("run_attempt") != attempt
+            or final_run.get("head_sha") != commit
+            or final_run.get("workflow_id") != workflow_id
+            or final_run.get("status") != "completed"
+            or final_run.get("conclusion") != "success"
+            or not _run_workflow_path_matches(final_run.get("path"), workflow_path)
+            or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
+            or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
+        raise Denied("workflow run changed during evidence collection")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
             "head_commit": commit,
