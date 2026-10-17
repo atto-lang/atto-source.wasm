@@ -110,7 +110,7 @@ workflow YAML Git blob (as this verifier requires), source HEAD and tree.
 The verifier denies duplicate step names within a job, because two steps
 with the same display name cannot unambiguously satisfy a named proof step.
 All required jobs and steps must be explicit sequences; malformed caller
-inputs deny verification. These guards are checked by all 69 independently defined source-free
+inputs deny verification. These guards are checked by all 73 independently defined source-free
 regression cases, three times in the CI workflow. The
 regressions are not native Oreslang compiler or runtime conformance tests.
 
@@ -183,8 +183,8 @@ private test-carrier execution and exact guest snapshot evidence must
 be attested separately under the source-export policy; a successful
 carrier run cannot certify a different source repository's commit.
 
-The source-free regression suite defines 69 unittest methods, and the workflow
-requires at least 69 per round in three rounds when Actions runners are available. Passing
+The source-free regression suite defines 73 unittest methods, and the workflow
+requires at least 73 per round in three rounds when Actions runners are available. Passing
 these tests alone does not establish that any backend-native tests ran.
 
 ## Short-lived Actions evidence artifact
@@ -221,13 +221,13 @@ https://github.com/scintilla-run-test/gleam-runner-conformance/actions/runs/3898
 This does not authorize private compiler/actor source export and does not
 attest native guest-language compilation or execution.
 
-## Independently pinned run attempt (69-case regression gate)
+## Independently pinned run attempt (73-case regression gate)
 
 The verifier requires `--run-attempt N` from independently approved release
 evidence, and compares it with GitHub's run attempt and every job's attempt.
 The existing final reread also checks that the same attempt remains current.
 A dynamically chosen latest attempt cannot silently replace reviewed evidence.
-The workflow requires at least 69 source-free unittest methods for three rounds.
+The workflow requires at least 73 source-free unittest methods for three rounds.
 
 Example additional CLI argument: `--run-attempt 2` (replace 2 with the
 independently recorded value for that run; never infer it from the run being
@@ -266,9 +266,30 @@ archival from being certified using stale preflight metadata. It also
 rejects a boolean masquerading as a numeric workflow ID on the final run
 read (Python would otherwise consider `True == 1`).
 
-The shared regression inventory has at least **69 distinct unittest methods**,
+The shared regression inventory has at least **73 distinct unittest methods**,
 including mutation tests that change repository metadata between the initial
 and final read and spoof the final workflow ID. Run this entire suite on the
 exact checked-out PR tree with no skips before accepting any contract proof.
 As always, **source-free evidence is not native compiler/guest parity evidence**,
 and no verifier change grants permission to export private source.
+
+## Isolated metadata reporting
+
+The source-free CI report writer runs as `python3 -I -` instead of using
+candidate-controlled Python import paths. This prevents local `json.py` or
+`pathlib.py` and environment `PYTHONPATH` from shadowing standard-library
+imports during metadata reporting. Two new static regressions check both
+inline Python heredocs in the checked-in workflow, raising the source-free
+contract to **73 tests per round** (three rounds, no skips). This does not
+prove guest runtime execution, workflow-file integrity, or source-export
+permission; independent protected-main approval and native execution remain required.
+
+## Monotonic runner step execution timestamps
+
+GitHub Actions jobs execute recorded steps sequentially. A successful runner job
+must report step timestamps that stay within its job interval and do not
+move backward into a preceding step's completion interval. Equal boundaries
+are allowed because GitHub returns second-resolution timestamps. The two
+additional source-free regressions reject overlapping intervals and accept
+adjacent intervals. This is an API evidence consistency check, not an
+independent proof of the commands' effects or any guest runtime semantics.
