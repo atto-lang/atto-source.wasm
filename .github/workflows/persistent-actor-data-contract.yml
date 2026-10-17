@@ -38,6 +38,62 @@ jobs:
       - name: Execute negative policy mutation suite
         run: python3 scripts/test_persistent_actor_data_contract.py -v
 
+      # This artifact is metadata only; never upload source, binaries or test logs.
+      - name: Record source-local checkout identity (diagnostic only)
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          sha = re.compile(r"^[a-f0-9]{40}$")
+          workspace = os.environ.get("GITHUB_WORKSPACE", "")
+          def rev(expression):
+              try:
+                  completed = subprocess.run(
+                      ["git", "-C", workspace, "rev-parse", "--verify", expression],
+                      text=True, capture_output=True, timeout=5, check=False)
+              except (OSError, subprocess.TimeoutExpired):
+                  return None
+              value = completed.stdout.strip()
+              return value if completed.returncode == 0 and sha.fullmatch(value) else None
+
+          evidence = {
+              "schema": "oreslang-integration-ci-diagnostic-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "repository_id": os.environ["GITHUB_REPOSITORY_ID"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "job": os.environ["GITHUB_JOB"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "event": os.environ["GITHUB_EVENT_NAME"],
+              "ref": os.environ["GITHUB_REF"],
+              "workflow_run_sha": os.environ["GITHUB_SHA"],
+              "checkout_commit": rev("HEAD"),
+              "checkout_tree": rev("HEAD^{tree}"),
+              "runner_name": os.environ.get("RUNNER_NAME", ""),
+              "verified_execution_claim": False,
+              "native_runtime_parity_certified": False,
+              "requires_independent_job_step_and_test_report_verification": True,
+          }
+          output = Path(os.environ["RUNNER_TEMP"]) / "actor-memory-ci-diagnostic.json"
+          output.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n",
+                            encoding="utf-8")
+          PY
+      - name: Upload source-local diagnostic metadata (not runtime certification)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: actor-memory-ci-diagnostic-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/actor-memory-ci-diagnostic.json
+          if-no-files-found: error
+          retention-days: 3
+
   host-arena:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -50,3 +106,59 @@ jobs:
           node-version: '22'
       - name: Execute real WebAssembly.Memory actor arena tests
         run: node --test tests/actor-arena.test.mjs
+
+      # This artifact is metadata only; never upload source, binaries or test logs.
+      - name: Record source-local checkout identity (diagnostic only)
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          sha = re.compile(r"^[a-f0-9]{40}$")
+          workspace = os.environ.get("GITHUB_WORKSPACE", "")
+          def rev(expression):
+              try:
+                  completed = subprocess.run(
+                      ["git", "-C", workspace, "rev-parse", "--verify", expression],
+                      text=True, capture_output=True, timeout=5, check=False)
+              except (OSError, subprocess.TimeoutExpired):
+                  return None
+              value = completed.stdout.strip()
+              return value if completed.returncode == 0 and sha.fullmatch(value) else None
+
+          evidence = {
+              "schema": "oreslang-integration-ci-diagnostic-v1",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "repository_id": os.environ["GITHUB_REPOSITORY_ID"],
+              "workflow": os.environ["GITHUB_WORKFLOW"],
+              "job": os.environ["GITHUB_JOB"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "event": os.environ["GITHUB_EVENT_NAME"],
+              "ref": os.environ["GITHUB_REF"],
+              "workflow_run_sha": os.environ["GITHUB_SHA"],
+              "checkout_commit": rev("HEAD"),
+              "checkout_tree": rev("HEAD^{tree}"),
+              "runner_name": os.environ.get("RUNNER_NAME", ""),
+              "verified_execution_claim": False,
+              "native_runtime_parity_certified": False,
+              "requires_independent_job_step_and_test_report_verification": True,
+          }
+          output = Path(os.environ["RUNNER_TEMP"]) / "actor-memory-ci-diagnostic.json"
+          output.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n",
+                            encoding="utf-8")
+          PY
+      - name: Upload source-local diagnostic metadata (not runtime certification)
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: actor-memory-ci-diagnostic-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/actor-memory-ci-diagnostic.json
+          if-no-files-found: error
+          retention-days: 3
