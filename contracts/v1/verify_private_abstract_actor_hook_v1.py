@@ -2,6 +2,8 @@
 """Validate the normative actor hook corpus; NEVER impersonate compiler execution."""
 import argparse
 import json
+import os
+import stat
 from pathlib import Path
 
 EXPECTED_BACKENDS = ("java", "llvm", "net", "wasm", "forge")
@@ -125,6 +127,43 @@ EXPECTED_CAPABILITIES = {
 class ContractError(ValueError):
     pass
 
+MAX_MANIFEST_BYTES = 128 * 1024
+
+def read_manifest_bounded(path):
+    """Read a regular manifest via a bounded descriptor; never block on a FIFO."""
+    flags = os.O_RDONLY
+    for name in ("O_NONBLOCK", "O_CLOEXEC", "O_NOFOLLOW", "O_BINARY"):
+        flags |= getattr(os, name, 0)
+    # Windows lacks O_NOFOLLOW. Reject obvious links there too, but do not
+    # claim race-free symlink rejection without an OS-level no-follow flag.
+    if not hasattr(os, "O_NOFOLLOW") and path.is_symlink():
+        raise ContractError("manifest symlinks are forbidden")
+    fd = os.open(path, flags)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            raise ContractError("manifest must be a regular file")
+        if before.st_size > MAX_MANIFEST_BYTES:
+            raise ContractError("manifest exceeds byte limit")
+        remaining = MAX_MANIFEST_BYTES + 1
+        parts = []
+        while remaining:
+            piece = os.read(fd, min(8192, remaining))
+            if not piece:
+                break
+            parts.append(piece)
+            remaining -= len(piece)
+        data = b"".join(parts)
+        after = os.fstat(fd)
+        identity = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns)
+        if identity(before) != identity(after) or len(data) != before.st_size:
+            raise ContractError("manifest changed while being read")
+        if len(data) > MAX_MANIFEST_BYTES:
+            raise ContractError("manifest exceeds byte limit")
+        return data
+    finally:
+        os.close(fd)
+
 def _unique_json_pairs(pairs):
     result = {}
     for key, value in pairs:
@@ -211,7 +250,7 @@ def main():
                         help="Fail closed: offline manifest validation is never compiler evidence")
     args = parser.parse_args()
     try:
-        result = validate_raw(args.manifest.read_bytes())
+        result = validate_raw(read_manifest_bounded(args.manifest))
     except (OSError, ValueError, TypeError) as exc:
         parser.exit(2, "PRIVATE_ABSTRACT_ACTOR_HOOK_INVALID: " + str(exc) + "\n")
     if args.require_compiler_evidence:
