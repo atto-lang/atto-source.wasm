@@ -100,7 +100,9 @@ export class ActorPipelinePolicy {
         if (n === 0) ready.push(edge.target);
       }
     }
-    if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
+    // Use the admitted snapshot count: caller-owned proxy lengths may change
+    // after admission; rereading them would reject valid DAGs or hide cycles.
+    if (visited !== stageCount) throw new TypeError("cyclic pipeline graph");
     this.#routes = new Map([...routes].map(([id, list])=>[id, Object.freeze(list)]));
     // Pre-seed all RR cursors at trusted graph construction, never on a turn.
     for (const source of this.#routes.keys()) this.#cursor.set(source, 0);
