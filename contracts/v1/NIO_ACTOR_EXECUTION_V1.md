@@ -90,3 +90,58 @@ A zero-step GitHub Actions failure proves neither pass nor fail. An exact-blob
 host test establishes only that slice; it is not full source-tree parity.
 Private cross-org source transfers require a reviewed protected-main approval
 for the specific private destination, independent of Actions minutes.
+
+## Canonical source API: actor-local physical turn maximum
+
+The following built-in enum has fixed values. A backend may recognize its
+canonical declaration without supporting unrestricted user-defined enums.
+No source package or user module may redefine its values.
+
+```oreslang
+define enum MaxActorThreads as
+    LOW int = 1     // default: one physically executing actor turn
+    MEDIUM int = 2
+    HIGH int = 3
+end
+```
+
+The language-owned enum is implicit when omitted from the file. The actor
+declaration annotation is **not** a runtime thread creation request:
+
+```oreslang
+@ActorMaxThreads(MaxActorThreads.LOW)
+define actor NormalActor as
+end
+```
+
+The following illustrates the **future opt-in** for a hungry actor; until
+the compiler and runtime provide independent per-turn state and proven
+mutable access control, every backend MUST reject it before executing
+guest code or emitting a runnable artifact:
+
+```oreslang
+@ActorMaxThreads(MaxActorThreads.HIGH)
+define actor HungryActor as
+end
+```
+
+- `LOW=1` is the default for every source actor (annotated or not).
+- `MEDIUM=2` and `HIGH=3` are hard upper limits on **simultaneously
+  physically executing DATA turns in a single actor**, not guarantees of
+  assigned/resident threads. No dedicated per-actor thread pool is implied.
+- Outstanding/suspended messages do not consume a physical turn.
+- `ActorGroup.maxParallelTurns` remains an independent aggregate bound.
+  Effective admissible turns must satisfy BOTH the actor-local and group
+  bounds, and the actual available shared execution carriers.
+- Unknown enum members, ordinal substitutions (e.g. `HIGH=4`), duplicate
+  annotations/enum declarations, non-actor targets, literal numeric annotation
+  arguments, or MEDIUM/HIGH without compiler-proven isolation MUST be rejected.
+- A source actor without `@ActorMaxThreads` is behaviorally identical to
+  `@ActorMaxThreads(MaxActorThreads.LOW)`; serial actor aliases remain serial.
+- The actor's protected `state { ... }` map remains the sole actor-instance
+  mutable state channel. `critical` writes require an exclusive state loan
+  across all concurrently executing turns. No mutable loan crosses await.
+- Java/GraalVM and LLVM accept and validate the enum/LOW annotation on their
+  staged branches; LLVM source actor syntax remains narrower than Java.
+  .NET/Forge/WASM explicitly deny all source actor tiers until they implement
+  real guest actor scheduling. Host-only 1..3 credit gates are insufficient.
