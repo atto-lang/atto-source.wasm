@@ -21,14 +21,66 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify exact source head and tree
+      - name: Capture immutable source and workflow provenance
         shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          umask 077
+          mkdir -p "$RUNNER_TEMP/serde-policy-evidence"
+          source_sha="$(git rev-parse HEAD)"
+          test "$source_sha" = "$EXPECTED_SOURCE_SHA"
           test -z "$(git status --porcelain)"
-          printf 'source=%s tree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
+          {
+            printf 'repository=%s\n' "$GITHUB_REPOSITORY"
+            printf 'source_commit=%s\n' "$source_sha"
+            printf 'source_tree=%s\n' "$(git rev-parse 'HEAD^{tree}')"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'run_id=%s\n' "$GITHUB_RUN_ID"
+            printf 'run_attempt=%s\n' "$GITHUB_RUN_ATTEMPT"
+            printf 'workflow_ref=%s\n' "$GITHUB_WORKFLOW_REF"
+            printf 'workflow_sha=%s\n' "$GITHUB_WORKFLOW_SHA"
+          } > "$RUNNER_TEMP/serde-policy-evidence/provenance.txt"
+          sha256sum contracts/v1/serde_boundary_v1.json \
+            scripts/verify_serde_contract.py scripts/test_serde_contract.py \
+            .github/workflows/serde-boundary-contract.yml \
+            > "$RUNNER_TEMP/serde-policy-evidence/source-sha256.txt"
+          for path in contracts/v1/serde_boundary_v1.json \
+                      scripts/verify_serde_contract.py scripts/test_serde_contract.py \
+                      .github/workflows/serde-boundary-contract.yml; do
+            printf '%s git_blob=%s\n' "$path" "$(git rev-parse "HEAD:$path")"
+          done > "$RUNNER_TEMP/serde-policy-evidence/git-blobs.txt"
+          cat "$RUNNER_TEMP/serde-policy-evidence/provenance.txt"
       - name: Verify byte-pinned DATA CONTROL contract
-        run: python3 scripts/verify_serde_contract.py
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 scripts/verify_serde_contract.py > "$RUNNER_TEMP/serde-contract.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/serde-contract.log"
+          printf 'contract_validator_exit=%s\n' "$code" >> "$RUNNER_TEMP/serde-policy-evidence/results.txt"
+          exit "$code"
       - name: Run exactly 42 security regressions without skips
-        run: python3 scripts/test_serde_contract.py
+        shell: bash
+        run: |
+          set -uo pipefail
+          python3 scripts/test_serde_contract.py > "$RUNNER_TEMP/serde-tests.log" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/serde-tests.log"
+          printf 'regression_suite_exit=%s\n' "$code" >> "$RUNNER_TEMP/serde-policy-evidence/results.txt"
+          if grep -Eq '^Ran 42 tests in [0-9.]+s' "$RUNNER_TEMP/serde-tests.log"; then
+            printf 'unittest_reported_cases=42\n' >> "$RUNNER_TEMP/serde-policy-evidence/results.txt"
+          else
+            printf 'unittest_reported_cases=unverified\n' >> "$RUNNER_TEMP/serde-policy-evidence/results.txt"
+            code=1
+          fi
+          exit "$code"
+      - name: Upload source-free policy evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: serde-policy-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/serde-policy-evidence/
+          if-no-files-found: warn
+          retention-days: 7
