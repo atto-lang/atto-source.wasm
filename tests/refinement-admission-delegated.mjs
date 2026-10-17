@@ -12,6 +12,12 @@ const unsupported={
   with:"type NonEmpty = string with length gt 0;\nfnc main(): int { return 42; }\n",
   where:"type NonBlank = string where it.trim().length > 0;\nfnc main(): int { return 42; }\n",
   newtype:"define newtype Username(string) with length gte 1;\nfnc main(): int { return 42; }\n",
+  "port-keyword":"type Port = int with value gte 1 and value lte 65535;\nfnc main(): int { return 42; }\n",
+  "port-symbol":"type Port = int with value >= 1 and value <= 65535;\nfnc main(): int { return 42; }\n",
+  "percentage-keyword":"type Percentage = int with value gte 0 and value lte 100;\nfnc main(): int { return 42; }\n",
+  "percentage-symbol":"type Percentage = int with value >= 0 and value <= 100;\nfnc main(): int { return 42; }\n",
+  "legacy-ge":"type Legacy = int with value ge 1;\nfnc main(): int { return 42; }\n",
+  "legacy-le":"type Legacy = int with value le 10;\nfnc main(): int { return 42; }\n",
   "invalid-with":"type T = string with length gt 0 or length eq 10;\nfnc main(): int { return 42; }\n"
 };
 const run=source=>{
@@ -32,5 +38,5 @@ try{
     if(result.stdout.trim())throw new Error(name+": rejection leaked partial LLVM IR");
     if(!result.stderr.trim())throw new Error(name+": rejection had no diagnostic");
   }
-  console.log("PASS delegated LLVM refinement admission: 5 negatives + scalar control; no Wasm runtime parity claimed");
+  console.log("PASS delegated LLVM refinement admission: 11 negatives + scalar control; no Wasm runtime parity claimed");
 }finally{rmSync(root,{recursive:true,force:true})}
