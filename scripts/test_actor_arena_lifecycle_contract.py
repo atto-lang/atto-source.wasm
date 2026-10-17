@@ -70,9 +70,9 @@ class ActorArenaLifecyclePolicyTest(unittest.TestCase):
     def test_foreign_carrier_denial_cannot_be_weakened(self):
         self.reject(lambda d: d["backend_support"]["java"].update(
             foreign_carrier_denial="unverified"))
-    def test_capability_fabrication_denial_cannot_be_weakened(self):
+    def test_guest_capability_fabrication_denial_cannot_be_weakened(self):
         self.reject(lambda d: d["backend_support"]["llvm"].update(
-            capability_fabrication_denial="unverified"))
+            guest_capability_fabrication_denial="unverified"))
     def test_nonrecycling_identity_cannot_be_weakened(self):
         self.reject(lambda d: d["backend_support"]["forge"].update(
             nonrecycling_identity="unverified"))
@@ -86,7 +86,7 @@ class ActorArenaLifecyclePolicyTest(unittest.TestCase):
                     .update(expect="same-state"))
     def test_raw_capability_coordinates_expectation_pinned(self):
         self.reject(lambda d: next(x for x in d["cases"]
-                                   if x["id"] == "raw-capability-coordinates-denied")
+                                   if x["id"] == "raw-guest-capability-coordinates-denied")
                     .update(expect="allow-fabrication"))
     def test_native_steps_must_be_nonzero(self):
         self.reject(lambda d: next(x for x in d["cases"]
