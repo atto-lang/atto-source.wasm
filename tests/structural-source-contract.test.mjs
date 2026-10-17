@@ -40,6 +40,7 @@ test("real LLVM compiler admits a scalar positive control before tuple negatives
   try {
     const source = join(work, "valid.ores");
     await writeFile(source, "pub fnc main(): int { return 42; }\n", {flag:"wx"});
+    const expected = await readFile(source);
     const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER, [source], {
       cwd:work, encoding:"utf8", timeout:15000, maxBuffer:1024*1024
     });
@@ -48,7 +49,6 @@ test("real LLVM compiler admits a scalar positive control before tuple negatives
     assert.equal(compile.status, 0, "real frontend must accept supported scalar source");
     assert.match(compile.stdout, /define i64 @__oreslang_guest_main\(/,
       "successful frontend must produce real compiler-generated LLVM IR");
-    const expected = await readFile(source);
     assert.deepEqual(await readdir(work), ["valid.ores"],
       "scalar control must not write untracked side artifacts");
     assert.deepEqual(await readFile(source), expected,
