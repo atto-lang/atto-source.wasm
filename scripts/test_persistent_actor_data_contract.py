@@ -3,7 +3,6 @@
 import copy
 import json
 import os
-import stat
 import unittest
 import tempfile
 from unittest.mock import patch
@@ -111,36 +110,113 @@ class PersistentActorPolicyTest(unittest.TestCase):
         self.assertEqual(read_bounded_contract(DATA)["version"], 1)
 
     def test_reject_symlinked_contract_fixture(self):
-        # Exercise the descriptor-based lstat admission instead of the old
-        # Path.is_symlink() preflight (which the hardened reader no longer uses).
-        original = DATA.lstat()
-        fake = os.stat_result((stat.S_IFLNK | 0o777,) + tuple(original)[1:])
-        with patch.object(Path, "lstat", return_value=fake):
+        # No OS-specific symlink creation privileges needed on Windows.
+        with patch.object(Path, "is_symlink", return_value=True):
             with self.assertRaisesRegex(ContractError, "regular file"):
                 read_bounded_contract(DATA)
+
+    def test_reject_empty_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            empty = Path(temp) / "empty.json"
+            empty.touch()
+            with self.assertRaisesRegex(ContractError, "empty"):
+                read_bounded_contract(empty)
+
+    def test_reject_hardlinked_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            alias = Path(temp) / "hardlink.json"
+            try:
+                os.link(path, alias)
+            except (OSError, NotImplementedError):
+                # Some Windows filesystems disallow creating a hardlink.
+                # Other platforms execute both negative assertions.
+                self.assertEqual(read_bounded_contract(path)["version"], 1)
+                return
+            for candidate in (path, alias):
+                with self.subTest(path=candidate):
+                    with self.assertRaisesRegex(ContractError, "unique regular file"):
+                        read_bounded_contract(candidate)
+
+    def test_reject_fifo_persistent_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "fifo.json"
+            if not hasattr(os, "mkfifo"):
+                # FIFO creation is not available on Windows.
+                self.assertTrue(os.name == "nt")
+                return
+            try:
+                os.mkfifo(path)
+            except (OSError, NotImplementedError):
+                self.assertTrue(os.name == "nt")
+                return
+            with self.assertRaisesRegex(ContractError, "unique regular file"):
+                read_bounded_contract(path)
+
+    def test_reject_path_swapped_after_lstat_before_open(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            replacement = Path(temp) / "replacement.json"
+            replacement.write_bytes(DATA.read_bytes())
+            native_open = os.open
+            def raced_open(candidate, flags, *args, **kwargs):
+                os.replace(replacement, path)
+                return native_open(candidate, flags, *args, **kwargs)
+            with patch("verify_persistent_actor_data_contract.os.open",
+                       side_effect=raced_open):
+                with self.assertRaisesRegex(ContractError, "changed before read"):
+                    read_bounded_contract(path)
+
+    def test_reject_contract_modified_while_reading(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            native_fstat = os.fstat
+            calls = 0
+            def raced_fstat(fd):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    path.write_bytes(b'{"version":0}')
+                return native_fstat(fd)
+            with patch("verify_persistent_actor_data_contract.os.fstat",
+                       side_effect=raced_fstat):
+                with self.assertRaisesRegex(ContractError, "changed during read"):
+                    read_bounded_contract(path)
+            self.assertEqual(calls, 2)
+
+    def test_reject_path_swapped_after_read_before_final_lstat(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "original.json"
+            path.write_bytes(DATA.read_bytes())
+            replacement = Path(temp) / "replacement.json"
+            replacement.write_bytes(DATA.read_bytes())
+            native_fstat = os.fstat
+            calls = 0
+            def raced_fstat(fd):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    os.replace(replacement, path)
+                return native_fstat(fd)
+            with patch("verify_persistent_actor_data_contract.os.fstat",
+                       side_effect=raced_fstat):
+                with self.assertRaisesRegex(ContractError, "path changed during read"):
+                    read_bounded_contract(path)
+            self.assertEqual(calls, 2)
 
     def test_reject_exponent_overflow_before_schema_interpretation(self):
         with self.assertRaisesRegex(ContractError, "non-finite"):
             validate_raw(b'{"version": 1e999}')
+
 
     def test_reject_directory_as_contract(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ContractError, "unique regular file"):
                 read_bounded_contract(Path(temp))
 
-    def test_reject_hardlinked_contract(self):
-        with tempfile.TemporaryDirectory() as temp:
-            data = Path(temp) / "valid.json"
-            data.write_bytes(DATA.read_bytes())
-            alias = Path(temp) / "hardlink.json"
-            try:
-                os.link(data, alias)
-            except (OSError, NotImplementedError):
-                # Some Windows runner volumes do not permit hardlinks;
-                # the cross-platform OS-independent directory case still runs.
-                return
-            with self.assertRaisesRegex(ContractError, "unique regular file"):
-                read_bounded_contract(alias)
 
     def test_secure_open_flags_missing_or_aliased_fail_closed(self):
         # Simulate platforms/shims with missing, zero or overlapping flag bits.
@@ -155,6 +231,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
                             with self.assertRaisesRegex(ContractError, "secure no-follow"):
                                 read_bounded_contract(DATA)
 
+
     def test_reject_oversized_contract_file(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "oversized.json"
@@ -165,7 +242,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 31
+    expected = 36
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
