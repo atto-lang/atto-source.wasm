@@ -163,6 +163,7 @@ test("arena ownership survives poisoned Uint8Array methods", () => {
   const turn = arena.beginTurn();
   const saved = new Map(["slice", "set", "fill"].map(name =>
     [name, Object.getOwnPropertyDescriptor(Uint8Array.prototype, name)]));
+  const savedMemoryBuffer = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, "buffer");
   try {
     const persistent = arena.allocPersistent(turn, 4);
     const scratch = arena.allocScratch(turn, 4);
@@ -179,6 +180,12 @@ test("arena ownership survives poisoned Uint8Array methods", () => {
     Object.defineProperty(Uint8Array.prototype, "fill", {
       configurable: true, writable: true, value() { return this; }
     });
+    // The memory.buffer getter can also be redefined. All arena operations
+    // must continue using the original, truly private WebAssembly.Memory.
+    const redirect = new ArrayBuffer(2 * 65536);
+    Object.defineProperty(WebAssembly.Memory.prototype, "buffer", {
+      configurable: true, get() { return redirect; }
+    });
     const independent = arena.read(turn, persistent);
     independent[0] = 99;
     assert.deepEqual([...arena.read(turn, persistent)], [1, 2, 3, 4],
@@ -186,6 +193,8 @@ test("arena ownership survives poisoned Uint8Array methods", () => {
     arena.write(turn, persistent, Uint8Array.of(9, 8, 7, 6));
     assert.deepEqual([...arena.read(turn, persistent)], [9, 8, 7, 6],
       "a poisoned set must not silently suppress actor writes");
+    assert.equal(new Uint8Array(redirect)[0], 0,
+      "a poisoned Memory.buffer getter must not redirect private actor bytes");
     arena.dropPersistent(turn, persistent);
     const recycled = arena.allocPersistent(turn, 4);
     assert.deepEqual([...arena.read(turn, recycled)], [0, 0, 0, 0],
@@ -202,5 +211,6 @@ test("arena ownership survives poisoned Uint8Array methods", () => {
       if (descriptor) Object.defineProperty(Uint8Array.prototype, name, descriptor);
       else delete Uint8Array.prototype[name];
     }
+    Object.defineProperty(WebAssembly.Memory.prototype, "buffer", savedMemoryBuffer);
   }
 });
