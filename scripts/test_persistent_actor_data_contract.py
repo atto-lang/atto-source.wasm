@@ -203,7 +203,10 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 return native_fstat(fd)
             with patch("verify_persistent_actor_data_contract.os.fstat",
                        side_effect=raced_fstat):
-                with self.assertRaisesRegex(ContractError, "path changed during read"):
+                # Replacing the last path link may change st_nlink on the
+                # still-open descriptor first. Either descriptor or final
+                # path metadata denial proves the race is rejected.
+                with self.assertRaisesRegex(ContractError, "changed during read"):
                     read_bounded_contract(path)
             self.assertEqual(calls, 2)
 
