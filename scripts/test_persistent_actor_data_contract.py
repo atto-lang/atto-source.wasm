@@ -255,6 +255,37 @@ class PersistentActorPolicyTest(unittest.TestCase):
                 read_bounded_contract(path)
 
 
+    def test_short_read_with_stable_file_metadata_fails_closed(self):
+        # Simulate short and empty reads without changing fstat or lstat.
+        # Reject the incomplete payload before JSON interpretation.
+        actual_fdopen = os.fdopen
+
+        class ShortStream:
+            def __init__(self, inner, trim):
+                self.inner = inner
+                self.trim = trim
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return self.inner.__exit__(*args)
+
+            def fileno(self):
+                return self.inner.fileno()
+
+            def read(self, limit):
+                data = self.inner.read(limit)
+                return data[:-self.trim] if self.trim < len(data) else b""
+
+        for trim in (1, 1000000):
+            with self.subTest(trim=trim):
+                def truncated_fdopen(fd, mode):
+                    return ShortStream(actual_fdopen(fd, mode), trim)
+                with patch.object(os, "fdopen", side_effect=truncated_fdopen):
+                    with self.assertRaisesRegex(ContractError, "short read"):
+                        read_bounded_contract(DATA)
+
     def test_reject_changed_open_descriptor_during_read(self):
         # Simulate a file changing after the initial descriptor identity
         # check. A normal start-of-read lstat alone must never certify it.
@@ -293,7 +324,7 @@ class PersistentActorPolicyTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    expected = 37
+    expected = 38
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(PersistentActorPolicyTest)
     if suite.countTestCases() != expected:
         raise SystemExit(f"FAIL persistent-data gate: expected {expected} tests, "
