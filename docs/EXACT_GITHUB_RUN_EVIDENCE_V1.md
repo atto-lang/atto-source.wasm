@@ -45,6 +45,7 @@ GH_TOKEN="$READ_ONLY_GITHUB_TOKEN" python3 scripts/verify_ci_run.py \
   --backend llvm --commit "$EXACT_RUN_HEAD_SHA" --tree "$EXACT_RUN_HEAD_TREE" \
   --run-id "$RUN_ID" --workflow-path ".github/workflows/ci.yml" \
   --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \
+  --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
   --require-job 'test' --require-step 'Run CTest'
 ```
 
@@ -108,7 +109,7 @@ checked out. Check workflow contents, source HEAD and tree separately.
 The verifier denies duplicate step names within a job, because two steps
 with the same display name cannot unambiguously satisfy a named proof step.
 All required jobs and steps must be explicit sequences; malformed caller
-inputs deny verification. These guards are checked by at least 49 independent
+inputs deny verification. These guards are checked by at least 54 independent
 source-free regression cases, three times in the CI workflow. The
 regressions are not native Oreslang compiler or runtime conformance tests.
 
@@ -120,6 +121,7 @@ python3 scripts/verify_ci_run.py --backend java \\
   --run-id "$GITHUB_RUN_ID" \\
   --workflow-path ".github/workflows/ci-run-evidence-contract.yml" \\
   --workflow-id "$INDEPENDENTLY_PINNED_NUMERIC_WORKFLOW_ID" \\
+  --workflow-blob-sha "$INDEPENDENTLY_PINNED_WORKFLOW_GIT_BLOB_SHA" \
   --require-job "exact-run-evidence-contract" \\
   --require-step "Run all five-backend source-free security regressions"
 ```
@@ -127,3 +129,13 @@ python3 scripts/verify_ci_run.py --backend java \\
 These checks do not authorize private-source cross-organization mirroring.
 Actual compiler source transfer remains blocked by independent protected-main
 policy approval and the open incident containment actions.
+
+## Workflow-content and job-HEAD pins
+
+`--workflow-blob-sha` is mandatory and comes from independently reviewed
+policy, **never from the candidate run**. It is compared to the GitHub Contents
+API blob at the exact run HEAD, with file type and path checked. Each job's
+`head_sha` must also match that same exact run HEAD. This still does not prove
+that GitHub executed the same YAML bytes when the event uses an alternate
+base ref; controllers must attest the executed workflow ref separately.
+These checks do not authorize private source export or certify native parity.
