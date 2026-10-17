@@ -176,6 +176,24 @@ test('mutable Array and Map iterators cannot remove graph stages or edges', () =
   assert.equal(cyclicDenied, true);
 });
 
+test('edge pair identity is collision-free for literal backslash-zero stage names', () => {
+  // Both IDs contain printable backslash and zero, never an actual NUL.
+  // Using a printable '\0' delimiter would collapse these two distinct pairs.
+  const a0b = String.raw`a\0b`, b0c = String.raw`b\0c`;
+  const localStages = [
+    {id:'a', type:'Reader', role:'readable', inbound:'', outbound:'E'},
+    {id:a0b, type:'Reader', role:'readable', inbound:'', outbound:'E'},
+    {id:b0c, type:'Writer', role:'writable', inbound:'E', outbound:''},
+    {id:'c', type:'Writer', role:'writable', inbound:'E', outbound:''}
+  ];
+  const p = new ActorPipelinePolicy(localStages, [
+    {source:'a', target:b0c, payload:'E'},
+    {source:a0b, target:'c', payload:'E'}
+  ]);
+  assert.equal(p.forward('a').target, b0c);
+  assert.equal(p.forward(a0b).target, 'c');
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
