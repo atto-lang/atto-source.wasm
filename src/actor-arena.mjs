@@ -4,6 +4,9 @@
 const PAGE = 65536;
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
+// Identity/admission checks must not trust mutable standard-library hooks.
+const safeInteger = Number.isSafeInteger;
+const setHas = Set.prototype.has;
 // Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
 // Own properties on a Uint8Array can shadow .buffer and .byteLength. Read
@@ -61,9 +64,9 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!Number.isSafeInteger(actorId) || actorId <= 0 ||
-        !Number.isSafeInteger(incarnation) || incarnation <= 0 ||
-        !kinds.has(kind)) throw new TypeError("invalid actor arena owner");
+    if (!safeInteger(actorId) || actorId <= 0 ||
+        !safeInteger(incarnation) || incarnation <= 0 ||
+        !setHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
@@ -106,7 +109,7 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!safeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid arena allocation length");
     }
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
