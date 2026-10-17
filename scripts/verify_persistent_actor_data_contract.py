@@ -135,12 +135,24 @@ def read_bounded_contract(path):
             raise ContractError("empty or oversized persistent contract")
         # Missing or aliased secure-open flags must not silently degrade to
         # following symlinks or blocking indefinitely on a raced FIFO.
-        nonblock = getattr(os, "O_NONBLOCK", None)
-        nofollow = getattr(os, "O_NOFOLLOW", None)
-        if (type(nonblock) is not int or type(nofollow) is not int
-                or nonblock <= 0 or nofollow <= 0 or nonblock & nofollow):
+        # These bits must have independent meanings. An aliased no-follow
+        # flag (including an alias to O_DIRECTORY or a write access mode)
+        # cannot provide the filesystem guarantee required for provenance.
+        required = ("O_DIRECTORY", "O_NONBLOCK", "O_NOFOLLOW", "O_ACCMODE")
+        masks = {name: getattr(os, name, None) for name in required}
+        if any(type(value) is not int or value <= 0 for value in masks.values()):
             raise ContractError("secure no-follow/nonblocking flags unavailable or aliased")
-        flags = os.O_RDONLY | nonblock | nofollow | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
+        optional = {name: getattr(os, name, 0)
+                    for name in ("O_CLOEXEC", "O_BINARY")}
+        if any(type(value) is not int or value < 0 for value in optional.values()):
+            raise ContractError("secure no-follow/nonblocking flags unavailable or aliased")
+        guards = [masks[name] for name in required]
+        guards.extend(value for value in optional.values() if value)
+        if any(left & right for i, left in enumerate(guards)
+               for right in guards[i + 1:]):
+            raise ContractError("secure no-follow/nonblocking flags unavailable or aliased")
+        flags = (os.O_RDONLY | masks["O_NONBLOCK"] | masks["O_NOFOLLOW"]
+                 | optional["O_BINARY"] | optional["O_CLOEXEC"])
         fd = os.open(path, flags)
         try:
             stream = os.fdopen(fd, "rb")
