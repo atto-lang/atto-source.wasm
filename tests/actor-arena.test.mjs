@@ -501,6 +501,56 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 });
 
 
+test("runtime arena pool reuse never depends on growable Array push/pop", () => {
+  const first = new ActorArena({actorId: 73, incarnation: 1});
+  const t1 = first.beginTurn();
+  const h1 = first.allocPersistent(t1, 8);
+  first.write(t1, h1, Uint8Array.of(1,2,3,4,5,6,7,8));
+  first.endTurn(t1);
+  const afterFirstLease = actorArenaPoolStats();
+
+  const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+  const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
+  let failure = null, afterRetire, afterReuse, second;
+  try {
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true,
+      value() { throw new Error("poisoned Array.push reached arena pool"); }
+    });
+    Object.defineProperty(Array.prototype, "pop", {
+      configurable: true, writable: true,
+      value() { throw new Error("poisoned Array.pop reached arena pool"); }
+    });
+    first.retire();
+    afterRetire = actorArenaPoolStats();
+    second = new ActorArena({actorId: 74, incarnation: 1});
+    afterReuse = actorArenaPoolStats();
+    const t2 = second.beginTurn();
+    const h2 = second.allocPersistent(t2, 8);
+    second.write(t2, h2, Uint8Array.of(8,7,6,5,4,3,2,1));
+    second.endTurn(t2);
+    second.retire();
+  } catch (error) {
+    failure = error;
+  } finally {
+    Object.defineProperty(Array.prototype, "push", push);
+    Object.defineProperty(Array.prototype, "pop", pop);
+    if (!first.retired) {
+      try { first.retire(); } catch {}
+    }
+    if (second && !second.retired) {
+      try { second.retire(); } catch {}
+    }
+  }
+
+  assert.equal(failure, null, failure?.stack ?? String(failure));
+  assert.equal(afterRetire.freeArenas, afterFirstLease.freeArenas + 1,
+    "retirement must synchronously publish one fixed-stack free lease");
+  assert.equal(afterReuse.committedPages, afterRetire.committedPages,
+    "reusing a retired lease must not grow WebAssembly.Memory");
+  assert.equal(afterReuse.freeArenas, afterRetire.freeArenas - 1);
+});
+
 test("persistent free-list coalescing ignores poisoned Array iterator", () => {
   const arena = new ActorArena({actorId: 72, incarnation: 1});
   const turn = arena.beginTurn();
