@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import textwrap
 import importlib.util
 from pathlib import Path
 import unittest
@@ -725,6 +731,52 @@ class WorkflowIsolationContract(unittest.TestCase):
                          if "python3" in line and "<<'PY'" in line]
         self.assertEqual(len(inline_python), 2)
         self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+
+
+    def test_report_pins_distinct_trigger_and_checkout_metadata(self):
+        workflow = self.workflow_text()
+        self.assertIn("RUN_TRIGGER_SHA: ${{ github.sha }}", workflow)
+        self.assertIn("RUN_TRIGGER_EVENT: ${{ github.event_name }}", workflow)
+        self.assertIn('"workflow_trigger_sha": os.environ["RUN_TRIGGER_SHA"]', workflow)
+        self.assertIn('"workflow_trigger_event": os.environ["RUN_TRIGGER_EVENT"]', workflow)
+        self.assertIn('os.environ["RUN_TRIGGER_SHA"] == os.environ["OBSERVED_HEAD"]', workflow)
+        self.assertIn('os.environ["SOURCE_OUTCOME"] == "success"', workflow)
+        self.assertIn('"verified_execution_claim": False', workflow)
+
+    def test_isolated_report_writer_exercises_source_vs_trigger_sha(self):
+        workflow = self.workflow_text()
+        section = workflow.split(
+            "      - name: Write minimal run evidence (not compiled guest parity)", 1
+        )[1].split("      - name: Upload minimal source-free CI evidence", 1)[0]
+        body = section.split("          python3 -I - <<\'PY\'\n", 1)[1].split(
+            "\n          PY\n", 1)[0]
+        script = textwrap.dedent(body)
+        for label, trigger, checkout, outcome, expected in (
+                ("PR synthetic-merge SHA differs", "a"*40, "b"*40, "success", False),
+                ("matching exact SHA", "b"*40, "b"*40, "success", True),
+                ("unverified checkout outcome", "b"*40, "b"*40, "failure", False)):
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as temp:
+                env = dict(os.environ)
+                env.update({
+                    "RUN_TRIGGER_SHA": trigger, "RUN_TRIGGER_EVENT": "pull_request",
+                    "OBSERVED_HEAD": checkout, "EXPECTED_HEAD": "b"*40,
+                    "OBSERVED_TREE": "c"*40, "SOURCE_OUTCOME": outcome,
+                    "REGRESSION_OUTCOME": "success", "REPOSITORY_ID": "1400792274",
+                    "GITHUB_REPOSITORY": "ores-truffle-oreslang/oreslang-source.java",
+                    "GITHUB_RUN_ID": "101", "GITHUB_RUN_ATTEMPT": "1",
+                    "RUNNER_TEMP": temp,
+                })
+                proc = subprocess.run([sys.executable, "-I", "-"], input=script,
+                                      text=True, env=env, capture_output=True,
+                                      timeout=10, check=False)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                with open(os.path.join(temp, "source-free-ci-evidence.json"),
+                          encoding="utf-8") as handle:
+                    report = json.load(handle)
+                self.assertEqual(report["workflow_trigger_sha"], trigger)
+                self.assertEqual(report["workflow_trigger_event"], "pull_request")
+                self.assertIs(report["trigger_sha_matches_reported_checkout"], expected)
+                self.assertIs(report["verified_execution_claim"], False)
 
 
 
