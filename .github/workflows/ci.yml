@@ -31,6 +31,8 @@ jobs:
         run: |
           python3 contracts/v1/verify_actor_pipeline_v1.py contracts/v1/actor-pipeline-routing-v1.json
           python3 contracts/v1/test_actor_pipeline_v1.py
+      - name: Self-test fail-closed Option-pattern evidence harness (synthetic only)
+        run: python3 -m unittest discover -s scripts -p test_option_pattern_contract.py -v
       - name: Verify shared Option-pattern inventory (LLVM compiler pending)
         run: python3 scripts/check_option_pattern_contract.py --backend wasm
       - name: Verify pinned Sendable Serializable DATA CONTROL contract
