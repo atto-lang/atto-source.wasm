@@ -336,3 +336,34 @@ test("allocator metadata stays private when Array prototype methods are poisoned
   arena.endTurn(turn);
   arena.retire();
 });
+
+test("actor admission and quotas ignore poisoned Number and Set methods", () => {
+  const originalInteger = Object.getOwnPropertyDescriptor(Number, "isSafeInteger");
+  const originalSetHas = Object.getOwnPropertyDescriptor(Set.prototype, "has");
+  const arena = new ActorArena({actorId: 41, incarnation: 1});
+  const turn = arena.beginTurn();
+  try {
+    Object.defineProperty(Number, "isSafeInteger", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    Object.defineProperty(Set.prototype, "has", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    assert.throws(() => new ActorArena({actorId: Number.NaN, incarnation: 1}),
+      /invalid actor/, "tampered Number.isSafeInteger must not admit NaN actor IDs");
+    assert.throws(() => new ActorArena({actorId: 1, incarnation: 1, kind: "forged"}),
+      /invalid actor/, "tampered Set.has must not admit unsupported actor kinds");
+    assert.throws(() => arena.allocPersistent(turn, Number.NaN),
+      /invalid arena/, "tampered integer check must not corrupt allocation frontier");
+    assert.throws(() => arena.allocPersistent(turn, Number.MAX_SAFE_INTEGER + 1),
+      /invalid arena/);
+    const genuine = arena.allocPersistent(turn, 4);
+    arena.write(turn, genuine, Uint8Array.of(4, 3, 2, 1));
+    assert.deepEqual([...arena.read(turn, genuine)], [4, 3, 2, 1]);
+  } finally {
+    Object.defineProperty(Number, "isSafeInteger", originalInteger);
+    Object.defineProperty(Set.prototype, "has", originalSetHas);
+  }
+  arena.endTurn(turn);
+  arena.retire();
+});
