@@ -113,7 +113,8 @@ def _api_get(path):
 
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
-           job_step_pairs=None, workflow_path=None, workflow_id=None):
+           job_step_pairs=None, workflow_path=None, workflow_id=None,
+           workflow_blob_sha=None):
     """Return evidence summary, or reject. `fetch` must query the real GitHub API.
 
     This is an independently verifiable *run execution* proof for its run HEAD.
@@ -129,6 +130,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or any(part in ("", ".", "..") for part in workflow_path.split("/"))):
         raise Denied("expected an exact trusted workflow path under .github/workflows")
     workflow_id = _int(workflow_id, "independently pinned workflow id")
+    workflow_blob_sha = _sha(workflow_blob_sha)
     if not isinstance(required_jobs, (list, tuple)) or not isinstance(required_steps, (list, tuple)):
         raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
@@ -169,6 +171,12 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     c = _object(fetch(prefix + "/git/commits/" + commit), "commit")
     if c.get("sha") != commit or _object(c.get("tree"), "Git commit tree").get("sha") != tree:
         raise Denied("source commit does not point to supplied exact tree")
+    # Bind a separately reviewed workflow blob to this exact source HEAD.
+    wf = _object(fetch(prefix + "/contents/" + workflow_path + "?ref=" + commit),
+                 "pinned workflow file")
+    if (wf.get("type") != "file" or wf.get("path") != workflow_path
+            or wf.get("sha") != workflow_blob_sha):
+        raise Denied("workflow blob differs from independently reviewed SHA")
     run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "workflow run")
     run_repo = _object(run.get("repository"), "run repository")
     head_repo = _object(run.get("head_repository"), "run head repository")
@@ -214,7 +222,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if job_id in seen_ids:
             raise Denied("duplicated workflow job id")
         seen_ids.add(job_id)
-        if (job.get("run_id") != run_id or
+        if (job.get("run_id") != run_id or job.get("head_sha") != commit or
                 type(job.get("run_attempt")) is not int or job["run_attempt"] != attempt
                 or job.get("status") != "completed" or job.get("conclusion") != "success"):
             raise Denied("workflow contains a failed, skipped, or unexecuted job")
@@ -279,7 +287,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
             "head_commit": commit,
-            "head_tree": tree, "verified_jobs": len(jobs),
+            "head_tree": tree, "workflow_blob_sha": workflow_blob_sha,
+            "verified_jobs": len(jobs),
             "successful_non_housekeeping_steps": count,
             "statement": "GITHUB_RUN_EXECUTION_VERIFIED_NOT_GUEST_PARITY_CERTIFIED"}
 
@@ -294,6 +303,8 @@ def main(argv=None):
                         help="Exact independently reviewed .github/workflows/*.yml path")
     parser.add_argument("--workflow-id", required=True, type=int,
                         help="Independently reviewed numeric GitHub workflow ID")
+    parser.add_argument("--workflow-blob-sha", required=True,
+                        help="Independently reviewed workflow YAML Git blob SHA at run HEAD")
     parser.add_argument("--require-job", action="append", default=[])
     parser.add_argument("--require-step", action="append", default=[])
     parser.add_argument("--require-job-step", action="append", default=[],
@@ -310,7 +321,8 @@ def main(argv=None):
         result = verify(_api_get, args.backend, args.commit, args.tree,
                         args.run_id, args.require_job, args.require_step,
                         job_step_pairs=pairs, workflow_path=args.workflow_path,
-                        workflow_id=args.workflow_id)
+                        workflow_id=args.workflow_id,
+                        workflow_blob_sha=args.workflow_blob_sha)
     except Denied as exc:
         print("CI_RUN_EVIDENCE_REJECTED: " + str(exc), file=sys.stderr)
         return 1
