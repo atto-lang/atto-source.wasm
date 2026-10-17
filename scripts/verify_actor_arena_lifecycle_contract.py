@@ -13,7 +13,7 @@ BACKENDS = ("java", "llvm", "net", "wasm", "forge")
 FIELDS = (
     "logical_termination", "authority_revocation", "byte_scrub",
     "physical_reclamation", "scratch_turn_revocation", "incarnation_fencing",
-    "foreign_carrier_denial", "capability_fabrication_denial", "nonrecycling_identity",
+    "foreign_carrier_denial", "guest_capability_fabrication_denial", "nonrecycling_identity",
     "guest_allocation_lowering", "ffi_borrow_io_quiescence",
     "exact_head_native_evidence",
 )
@@ -28,7 +28,7 @@ EXPECTED_CASES = {
     "scratch-dies-at-turn-end": "deny-stale",
     "stale-incarnation-denied": "deny-stale",
     "foreign-carrier-denied": "deny",
-    "raw-capability-coordinates-denied": "deny-fabrication",
+    "raw-guest-capability-coordinates-denied": "deny-fabrication",
     "malformed-owner-does-not-consume-identity": "no-consumption",
     "identity-never-wraps-or-recycles": "fail-closed",
     "identity-exhaustion-is-permanent": "fail-closed",
@@ -110,7 +110,7 @@ def validate(doc):
                 "backend lifecycle capability shape drift: " + backend)
         for field in ("logical_termination", "authority_revocation", "byte_scrub",
                       "scratch_turn_revocation", "incarnation_fencing",
-                      "foreign_carrier_denial", "capability_fabrication_denial",
+                      "foreign_carrier_denial", "guest_capability_fabrication_denial",
                       "nonrecycling_identity"):
             require(claims[field] == SOURCE,
                     "unreviewed lifecycle promotion/demotion: " + backend + "/" + field)
