@@ -234,7 +234,7 @@ class ComplexReferenceContract(unittest.TestCase):
 
     def test_unresolved_domains_remain_explicit_not_promoted(self):
         sections = " ".join(self.doc["pending_explicit_semantics"])
-        for name in ("signed-zero", "complex64", "Complex<Decimal>", "GPU",
+        for name in ("NaN payload", "complex64", "Complex<Decimal>", "GPU",
                      "matrix", "execution"):
             self.assertIn(name, sections)
 
