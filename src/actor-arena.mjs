@@ -158,7 +158,11 @@ export class ActorArena {
     arrayPush.call(this.#freePersistent, {...entry});
     arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    // Do not consult Array.prototype[Symbol.iterator]: external JS can mutate
+    // it, exposing or forging allocator free-list metadata during coalescing.
+    // Indexed access reads the private array without running userland hooks.
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
