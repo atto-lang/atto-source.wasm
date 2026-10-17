@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "classification": "SOURCE_FREE_FINITE_COMPLEX128_REFERENCE_ONLY_NOT_GUEST_PARITY",
-  "semantics": "IEEE binary64 inputs parsed from strings, exact rational complex arithmetic, independently rounded once per finite output component to binary64; signed-zero and exceptional-value policy pending",
+  "semantics": "IEEE binary64 inputs parsed from strings, exact rational complex arithmetic, independently rounded once per finite output component to binary64; signed-zero and exceptional arithmetic are specified separately by complex128-ieee-special-v1.json",
   "source_anchors": {
     "java_complex_reference": "ores-truffle-oreslang/oreslang-source.java#120",
     "java_precision_hardening": "ores-truffle-oreslang/oreslang-source.java#1033",
@@ -260,7 +260,7 @@
     }
   ],
   "pending_explicit_semantics": [
-    "IEEE NaN/Infinity/signed-zero complex arithmetic and division by zero",
+    "NaN payload preservation/canonicalization across serialization and transport",
     "complex64 intermediate rounding and GPU ABI parity",
     "Complex<Decimal> and Complex<BigFloat> admission/conversion",
     "complex comparisons and total ordering policy",
