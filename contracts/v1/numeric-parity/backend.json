@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "backend": "wasm",
-  "reference_fixture_git_blob_sha": "cb28b5678d380f02c5e4e43bd763da04bdb996fe",
+  "reference_fixture_git_blob_sha": "80436f21a95816e2d5e40274daba9b923b3bcec9",
   "capabilities": {
     "source_i64": "delegated_unverified",
     "checked_i64_overflow": "delegated_unverified",
