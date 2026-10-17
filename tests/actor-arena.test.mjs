@@ -487,6 +487,28 @@ test("external callback leases pin page reuse after logical retirement", () => {
   arena.retire();
 });
 
+test("Promise completion bridge pins actor pages until settlement", async () => {
+  const before = actorArenaPoolStats();
+  const arena = new ActorArena({actorId: 73, incarnation: 2, kind: "shared"});
+  const turn = arena.beginTurn();
+  let resolvePending;
+  const pending = new Promise(resolve => { resolvePending = resolve; });
+  const tracked = arena.trackExternalCompletion(turn, pending);
+  assert.equal(arena.outstandingExternalLeases, 1);
+  arena.endTurn(turn);
+  arena.retire();
+
+  assert.equal(arena.retired, true);
+  assert.equal(arena.physicallyReclaimed, false);
+  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas + 1);
+
+  resolvePending(23);
+  assert.equal(await tracked, 23);
+  assert.equal(arena.outstandingExternalLeases, 0);
+  assert.equal(arena.physicallyReclaimed, true);
+  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas);
+});
+
 test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
   const before = actorArenaPoolStats();
   const first = new ActorArena({actorId: 70, incarnation: 1, kind: "private"});
