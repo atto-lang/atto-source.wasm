@@ -70,9 +70,14 @@ explicitly says native/guest parity is **false**.
 ## Acceptance gates for genuine cross-backend support
 
 1. **Syntax/type:** parse and type-check `2i`, `1.0+2.0i`, complex
-   locals/parameters/returns and `Matrix<complex>`; verify explicit
-   real-to-complex promotion and reject lossy implicit exact Decimal
-   or BigInt conversions. Do not assume the proposed `Complex<T>`
+   locals/parameters/returns and `Matrix<complex>`. An `IMAG` token's
+   numeric payload is a binary64 literal exactly like `FLOAT`: integer
+   spelling does **not** turn `9007199254740993i` into an exact integer
+   promotion, so it rounds to the nearest binary64 value just as Java
+   `Double.parseDouble` does. Ordinary integer-value promotion to
+   complex remains lossless-only. Decimal digit separators are accepted
+   only between two digits for INT/FLOAT/IMAG. Reject lossy implicit exact
+   Decimal or BigInt conversions. Do not assume the proposed `Complex<T>`
    generic is available from the lowercase `complex` type.
 2. **Arithmetic:** execute all thirteen scalar vectors through the actual
    compiler/guest runtime, including wide-exponent divisions,
@@ -177,11 +182,16 @@ real/imaginary literals, exact-range integer promotion, unary negation,
 addition and subtraction. LLVM lowers them by value as `{ double, double }`.
 Complex parameters, locals, calls, multiplication/division, Wasm and Cortex-M
 remain fail-closed until their ABI/ownership/exact-rounding paths are added.
+Conjugation is admitted only for an intrinsically complex receiver, matching
+Java member semantics rather than contextual-promoting a real-only receiver.
 
 The branch also registers a positive object-verification test and a native C
-ABI harness that calls two compiler-generated complex functions and checks four
-raw binary64 component values. These tests are **committed but not source-CI
-certified**: the source organization still terminates jobs before runner step
+ABI harness that now covers nine compiler-generated complex functions and
+eighteen raw binary64 components at both `-O0` and `-O2`, including
+binary64 imaginary rounding, overflow, extreme underflow, signed underflow and
+minimum-subnormal literals. The target-ABI workflow also registers the full
+complex CTest subset on both x86-64 and ARM64 Clang runners. These tests are
+**committed but not source-CI certified**: the source organization still terminates jobs before runner step
 execution. Source-free Clang/GCC scanner checks and a synthetic LLVM aggregate
 ABI link passed independently, but they do not replace exact-head compiler
 execution.
