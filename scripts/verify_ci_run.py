@@ -228,7 +228,8 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if job_id in seen_ids:
             raise Denied("duplicated workflow job id")
         seen_ids.add(job_id)
-        if (job.get("run_id") != run_id or job.get("head_sha") != commit or
+        if (type(job.get("run_id")) is not int or job["run_id"] != run_id or
+                job.get("head_sha") != commit or
                 type(job.get("run_attempt")) is not int or job["run_attempt"] != attempt
                 or job.get("status") != "completed" or job.get("conclusion") != "success"):
             raise Denied("workflow contains a failed, skipped, or unexecuted job")
@@ -293,7 +294,9 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     # Detect a re-run or changed conclusion during multi-page evidence collection.
     # Never combine a successful run snapshot with jobs from another attempt.
     final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
-    if (final_run.get("id") != run_id or final_run.get("run_attempt") != attempt
+    if (type(final_run.get("id")) is not int or final_run["id"] != run_id
+            or type(final_run.get("run_attempt")) is not int
+            or final_run["run_attempt"] != attempt
             or final_run.get("head_sha") != commit
             or final_run.get("event") != expected_event
             or final_run.get("workflow_id") != workflow_id
