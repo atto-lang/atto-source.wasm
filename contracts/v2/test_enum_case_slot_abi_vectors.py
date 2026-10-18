@@ -5,23 +5,22 @@ It pins deterministic Java/C++ static slot bytes for future backend parity.
 """
 import json
 import pathlib
-import re
 import unittest
 
 FILE = pathlib.Path(__file__).with_name("enum_case_slot_abi_vectors.json")
 SCALARS = frozenset(("bool", "int", "string", "float"))
-BIDI = {0x061c, 0x2060, 0xfeff}
+JAVA_WHITESPACE = {0x1680, 0x2028, 0x2029, 0x205f, 0x3000}\nJAVA_WHITESPACE.update(range(0x2000, 0x2007))\nJAVA_WHITESPACE.update(range(0x2008, 0x200b))\nBIDI = {0x061c, 0x2060, 0xfeff}
 BIDI.update(range(0x200b, 0x2010))
 BIDI.update(range(0x202a, 0x202f))
 BIDI.update(range(0x2066, 0x206a))
 
 
 def valid_id(value):
-    if not isinstance(value, str) or not value or value.isspace():
+    if not isinstance(value, str) or not value or all(\n            ord(c) <= 0x20 or ord(c) in JAVA_WHITESPACE for c in value):
         raise ValueError("empty nominal identity")
     for c in value:
         cp = ord(c)
-        if cp in BIDI or cp < 0x20 or 0x7f <= cp <= 0x9f or c.isspace():
+        if cp in BIDI or cp in JAVA_WHITESPACE or cp <= 0x20 or 0x7f <= cp <= 0x9f:
             raise ValueError("control or invisible codepoint")
         if 0xd800 <= cp <= 0xdfff:
             raise ValueError("malformed surrogate")
@@ -96,6 +95,15 @@ class EnumCaseSlotABI(unittest.TestCase):
             with self.subTest(value=repr(value)):
                 with self.assertRaises(ValueError):
                     symbol(candidate)
+
+    def test_no_break_space_is_not_java_whitespace(self):
+        # Java Character.isWhitespace intentionally excludes NBSP, U+2007
+        # and U+202F; do not silently diverge via Python str.isspace().
+        for char in ("\u00a0", "\u2007", "\u202f"):
+            self.assertEqual("1_" + char.encode("utf-8").hex()
+                             if len(char.encode("utf-8")) == 1
+                             else str(len(char.encode("utf-8"))) + "_" + char.encode("utf-8").hex(),
+                             encode(char))
 
     def test_no_primitive_or_case_masquerading(self):
         golden = json.loads(FILE.read_text(encoding="utf-8"))["vectors"][0]
