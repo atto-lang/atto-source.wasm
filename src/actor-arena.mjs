@@ -280,7 +280,10 @@ export class ActorArena {
     // is mutable userland code and must never observe private free-list metadata.
     for (let i = 0; i < this.#freePersistent.length; ++i) {
       const segment = this.#freePersistent[i];
-      const prior = coalesced[coalesced.length - 1];
+      // When coalesced is empty, indexing [-1] would consult
+      // Array.prototype["-1"] and let hostile same-realm code influence private
+      // allocator metadata. Never perform a negative-index prototype lookup.
+      const prior = coalesced.length === 0 ? null : coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
     }
