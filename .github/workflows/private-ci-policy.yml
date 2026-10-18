@@ -23,6 +23,7 @@ jobs:
           paths=["/.github/CODEOWNERS","/.github/private-ci-approved-repositories.txt","/.github/private-ci-approved-source-snapshots.txt","/.github/private-ci-required-checks.json","/.github/workflows/private-ci-policy.yml"]
           rules=[x.strip() for x in Path(".github/CODEOWNERS").read_text().splitlines() if x.strip() and not x.lstrip().startswith("#")]
           if rules[-len(paths):] != [f"{p} {owner}" for p in paths]: raise SystemExit("private CI CODEOWNERS final block mismatch")
+          if (len(rules)<=len(paths) or rules[-len(paths)-1] != "/.github/workflows/ @ORESoftware"): raise SystemExit("missing workflow directory CODEOWNERS wildcard")
           def entries(p): return [x.strip() for x in Path(p).read_text().splitlines() if x.strip() and not x.lstrip().startswith("#")]
           repos=entries(".github/private-ci-approved-repositories.txt"); rr=re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]* [1-9][0-9]*$")
           if any(not rr.fullmatch(x) for x in repos): raise SystemExit("invalid destination policy")
