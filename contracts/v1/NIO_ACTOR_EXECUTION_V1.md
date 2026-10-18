@@ -125,8 +125,12 @@ Backends without proven RT admission must explicitly deny #hard.
   domain cannot borrow idle permits from another, and the legacy unconfigured
   runtime still uses independent per-domain maxima.
 - The global execution-carrier cap excludes dedicated kernel readiness
-  reactors and user-explicit fixed `OresScheduler(N)` threads. It does not
-  certify guest multi-turn actor execution or RT latency.
+  reactors, Java's bounded lazy lifecycle-observer host workers, and
+  user-explicit fixed `OresScheduler(N)` threads. Java exposes lifecycle
+  observer worker/backlog counts separately; those workers are zero at cold
+  start and currently bounded to four, but they are a documented topology gap
+  from a future truly VM-wide physical-worker budget. The execution-carrier
+  cap does not certify guest multi-turn actor execution or RT latency.
 - These branch changes require current-head JDK 25 Maven/JUnit, Native Image
   and real compiled guest TCP qualification before merge. Existing funded
   exact-blob evidence predates this addition.
@@ -144,6 +148,11 @@ Backends without proven RT admission must explicitly deny #hard.
 - Independently runnable CPU work lazily creates carriers under one VM-wide
   budget while preserving CONTROL progress capacity; ActorGroups, actors,
   mailboxes and suspended awaits never directly own OS threads.
+- Java lifecycle observers start at zero host workers, remain bounded to at
+  most four when terminal callbacks block, expose backlog explicitly, and
+  never execute on actor/CONTROL/selector carriers. Until those workers are
+  folded into the VM-wide physical budget, record them as a separate topology
+  resource rather than claiming the execution-carrier property covers them.
 - If a backend exposes a fixed user scheduler, constructing it with `N`
   explicitly creates exactly `N` user-owned carriers; creating ActorGroups or
   ordinary runtime schedulers never does so implicitly.
