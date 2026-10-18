@@ -46,3 +46,19 @@ test("type signatures must be structurally bounded before Wasm compilation",()=>
   assert.throws(()=>inspectWasmBytes(make(types)),/type budget|truncated|malformed|GC/);
  }
 });
+
+test("reference instructions in a code body are denied even with plain function types",()=>{
+ const bytes=Uint8Array.from([
+  ...header,1,5,1,0x60,0,1,0x7e,...funcs,...memory,...exports,
+  10,9,1,7,0,0xd0,0x6f,0x1a,0x42,42,11
+ ]);
+ assert.throws(()=>inspectWasmBytes(bytes),/GC\/reference opcode bytes/);
+ assert.throws(()=>admitCoreGuest(bytes),/GC\/reference opcode bytes/);
+});
+test("unknown GC opcode prefix cannot reach Wasm compilation",()=>{
+ const bytes=Uint8Array.from([
+  ...header,1,5,1,0x60,0,1,0x7e,...funcs,...memory,...exports,
+  10,7,1,5,0,0xfb,0,0x42,42,11
+ ]);
+ assert.throws(()=>inspectWasmBytes(bytes),/GC\/reference opcode bytes/);
+});
