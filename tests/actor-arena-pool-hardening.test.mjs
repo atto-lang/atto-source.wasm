@@ -599,6 +599,35 @@ try {
     () => \`isolated post-load poison process failed: \${child.error ?? ""}\n\${child.stderr}\`);
 });
 
+test("persistent free-list coalescing never consults Array.prototype negative indexes", () => {
+  const arena = new ActorArena({actorId: 77, incarnation: 1});
+  const turn = arena.beginTurn();
+  const first = arena.allocPersistent(turn, 4);
+  const second = arena.allocPersistent(turn, 4);
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, "-1");
+  let consulted = false;
+  try {
+    Object.defineProperty(Array.prototype, "-1", {
+      configurable: true,
+      get() {
+        consulted = true;
+        return {offset: 0, length: 65536};
+      }
+    });
+    arena.dropPersistent(turn, first);
+    arena.dropPersistent(turn, second);
+    assert.equal(consulted, false,
+      "private free-list coalescing must not invoke prototype getters");
+    const recycled = arena.allocPersistent(turn, 8);
+    assert.deepEqual([...arena.read(turn, recycled)], Array(8).fill(0));
+  } finally {
+    if (original) Object.defineProperty(Array.prototype, "-1", original);
+    else delete Array.prototype["-1"];
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
+
 test("persistent free-list coalescing ignores poisoned Array iterator", () => {
   const arena = new ActorArena({actorId: 72, incarnation: 1});
   const turn = arena.beginTurn();
