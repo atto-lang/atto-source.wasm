@@ -185,7 +185,7 @@ Diagnostic producers never wait for diagnostic consumers.
 | Backend | Status |
 | --- | --- |
 | Java/GraalVM | Active draft implements bounded mail/control, structured cancellation, single-flight execution, continuation fairness, typed send rejection, snapshots/stats, retained terminal state, ordered bounded terminal telemetry, watchdog isolation and two-phase finalization. Terminal ready/DONE/output/exit observers use a lazy bounded lifecycle-observer domain; actor capacity remains charged until that bundle retires, and runtime close fences in-flight finalization handoff before observer-domain shutdown. Source supervisor callbacks remain a release gate. |
-| LLVM | Native actor/group and RT/thread-accounting primitives exist; complete source supervision, retained terminal metadata and this full observability/fairness contract require parity work. |
+| LLVM | Native actor/group and RT/thread-accounting primitives exist. The host scheduler now retains immutable generation-bound terminal metadata for explicit STOP and VM/runtime retirement, including accepted/processed user-message accounting and domain-fenced lookup. Callback failure has no typed return channel yet, so FAILED classification, source supervision, terminal diagnostics/journaling and the full observability/fairness contract remain parity work. |
 | .NET | Contract target only; no source-runtime parity claim from this file. |
 | WASM | Contract target; fail closed where threads/native isolation are unavailable. |
 | Forge | Contract target; no source actor parity claim until executable fixtures pass. |
