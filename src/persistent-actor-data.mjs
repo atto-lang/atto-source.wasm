@@ -1,4 +1,5 @@
 const nativeFreeze = Object.freeze;
+const nativeObjectIs = Object.is;
 const numberIsFinite = Number.isFinite;
 const mathMax = Math.max;
 const arrayPush = Array.prototype.push;
@@ -50,7 +51,7 @@ function isMap(v) {
 function sameValue(a, b) {
   if (a === b) return true;
   if (isMap(a) || isMap(b)) return false;
-  return Object.is(a, b);
+  return nativeObjectIs(a, b);
 }
 function admitValue(v) {
   const t = typeof v;
