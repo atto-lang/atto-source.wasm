@@ -21,3 +21,11 @@ test("inherited, array-shaped and unknown SIMD authorities fail closed",()=>{
 test("plain data still produces preflight-only, not compiler parity claims",()=>{
  assert.deepEqual(admitSimd128(good),{mode:"simd128",status:"PRE_FLIGHT_ONLY"});
 });
+
+test("omitted engine probe is assignable and scalar mode does not require SIMD",()=>{
+ const result=admitSimd128({environment:"edge-wasi"});
+ assert.deepEqual(result,{mode:"scalar",status:"PRE_FLIGHT_ONLY"});
+});
+test("explicit nonboolean engine support cannot bypass checks",()=>{
+ assert.throws(()=>admitSimd128({environment:"edge-wasi",engineSupportsSimd128:"true"}),/boolean/);
+});
