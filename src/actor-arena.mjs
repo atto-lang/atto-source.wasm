@@ -2,54 +2,169 @@
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
 // Guest source arena lowering and shared-domain regions are separate gates.
 const PAGE = 65536;
+const ARENA_PAGES = 2;
+const MAX_POOL_PAGES = 4096; // 256 MiB retained capacity, recycled explicitly.
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
+// Identity/admission checks must not trust mutable standard-library hooks.
+const safeInteger = Number.isSafeInteger;
+const nativeFreeze = Object.freeze;
+const setHas = Set.prototype.has;
 // Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
 // Own properties on a Uint8Array can shadow .buffer and .byteLength. Read
 // the real typed-array internal slots instead of trusting spoofable properties.
-// Capture trusted intrinsics at module initialization. Guest/host libraries
-// may later mutate prototype methods; never call a replaceable method on a
-// live view of actor-owned WebAssembly.Memory.
+// Bind allocator/copy/zero primitives before user code can monkeypatch them.
+// Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
-const nativeFreeze = Object.freeze;
-const nativeIsSafeInteger = Number.isSafeInteger;
-const nativeSetHas = Set.prototype.has;
-const NativeTypeError = TypeError;
-const nativeArrayFindIndex = Array.prototype.findIndex;
-const nativeArrayPush = Array.prototype.push;
-const nativeArraySplice = Array.prototype.splice;
-const nativeArraySort = Array.prototype.sort;
-const NativeWasmMemory = WebAssembly.Memory;
+const NativeUint32Array = Uint32Array;
+const NativeMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
-const nativeWeakGet = WeakMap.prototype.get;
-const nativeWeakSet = WeakMap.prototype.set;
-const nativeWeakDelete = WeakMap.prototype.delete;
-const nativeUint8Set = Uint8Array.prototype.set;
-const nativeUint8Fill = Uint8Array.prototype.fill;
-const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(
-  WebAssembly.Memory.prototype, "buffer").get;
-const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+// WeakMap authority operations must bypass mutable userland prototypes.
+const weakMapGet = NativeWeakMap.prototype.get;
+const weakMapSet = NativeWeakMap.prototype.set;
+const weakMapDelete = NativeWeakMap.prototype.delete;
+// The free-list is also private authority metadata. Prototype-dispatched
+// Array methods can leak or corrupt the internal list through a user hook.
+const arrayFindIndex = Array.prototype.findIndex;
+const arraySplice = Array.prototype.splice;
+const arrayPush = Array.prototype.push;
+const arraySort = Array.prototype.sort;
+// The WebAssembly.Memory.prototype.buffer getter is configurable in Node.
+// Capture its native internal-slot accessor before unrelated user code can
+// redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
+const memoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "buffer").get;
+const memoryGrow = NativeMemory.prototype.grow;
+const arrayBufferByteLength =
+  Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get;
+const typedArrayPrototype = Object.getPrototypeOf(NativeUint8Array.prototype);
+const typedArraySet = typedArrayPrototype.set;
+const typedArrayFill = typedArrayPrototype.fill;
 const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get;
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
+// instanceof Uint8Array trusts mutable Symbol.hasInstance. An attacker could
+// admit an Int16Array of matching byteLength, then TypedArray#set would
+// coerce/copy elements rather than exact bytes into actor-private storage.
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   typedArrayPrototype, Symbol.toStringTag).get;
 const sharedByteLength = typeof SharedArrayBuffer === "function"
   ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
   : null;
+
+/*
+ * Runtime-owned backing pool.
+ *
+ * WebAssembly.Memory cannot shrink, so dropping a per-actor Memory object makes
+ * physical reclamation depend on the JavaScript host GC. Instead, actors lease
+ * two pages from one bounded runtime Memory. Retirement zeroes and returns the
+ * pages immediately for deterministic reuse. Committed pages may stay mapped
+ * by the Wasm engine, but no actor capacity depends on GC to become reusable.
+ */
+const poolMemory = new NativeMemory({initial: 0, maximum: MAX_POOL_PAGES});
+// Fixed-capacity free stack: page reuse itself must not depend on growing a
+// JavaScript Array or triggering host GC. Byte offsets fit in uint32 because
+// MAX_POOL_PAGES * PAGE is 256 MiB.
+const freeArenaBases = new NativeUint32Array(MAX_POOL_PAGES / ARENA_PAGES);
+// One state byte per fixed two-page lease: NEVER_USED=0, LEASED=1,
+// ZEROED_FREE=2. A stale or duplicate release cannot publish an already
+// leased range twice, even if pool accounting is otherwise balanced.
+const arenaPageState = new NativeUint8Array(MAX_POOL_PAGES / ARENA_PAGES);
+let freeArenaCount = 0;
+let leasedArenas = 0;
+
+function poolBytes() {
+  return new NativeUint8Array(memoryBuffer.call(poolMemory));
+}
+
+function leaseArenaBase() {
+  let base;
+  if (freeArenaCount !== 0) {
+    const candidate = freeArenaBases[freeArenaCount - 1];
+    const slot = candidate / (ARENA_PAGES * PAGE);
+    if (!safeInteger(slot) || slot >= arenaPageState.length ||
+        arenaPageState[slot] !== 2) {
+      throw new Error("actor arena pool free-list generation mismatch");
+    }
+    base = candidate;
+    --freeArenaCount;
+    freeArenaBases[freeArenaCount] = 0;
+  } else {
+    let oldPages;
+    try {
+      oldPages = memoryGrow.call(poolMemory, ARENA_PAGES);
+    } catch (error) {
+      throw new RangeError("actor arena runtime pool exhausted");
+    }
+    base = oldPages * PAGE;
+    const slot = oldPages / ARENA_PAGES;
+    if (!safeInteger(slot) || slot >= arenaPageState.length ||
+        arenaPageState[slot] !== 0) {
+      throw new Error("actor arena pool grow overlapped an issued lease");
+    }
+  }
+  const slot = base / (ARENA_PAGES * PAGE);
+  try {
+    // Belt-and-suspenders zero on admission as well as retirement.
+    typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
+  } catch (error) {
+    // A failed admission must not strand reusable capacity. Newly grown pages
+    // are safe to publish too: no actor has observed them yet.
+    if (freeArenaCount >= freeArenaBases.length) {
+      throw new Error("actor arena pool free-stack overflow during lease rollback");
+    }
+    freeArenaBases[freeArenaCount++] = base;
+    arenaPageState[slot] = 2;
+    throw error;
+  }
+  if (arenaPageState[slot] !== 0 && arenaPageState[slot] !== 2) {
+    throw new Error("actor arena pool attempted duplicate admission");
+  }
+  arenaPageState[slot] = 1;
+  ++leasedArenas;
+  return base;
+}
+
+function releaseArenaBase(base) {
+  if (!safeInteger(base) || base < 0 || base % (ARENA_PAGES * PAGE) !== 0) {
+    throw new Error("actor arena pool lease invariant violated");
+  }
+  const slot = base / (ARENA_PAGES * PAGE);
+  if (slot >= arenaPageState.length || arenaPageState[slot] !== 1)
+    throw new Error("actor arena pool stale/duplicate release");
+  if (leasedArenas <= 0) throw new Error("actor arena pool accounting underflow");
+  if (freeArenaCount >= freeArenaBases.length)
+    throw new Error("actor arena pool free-stack overflow");
+  // Only publish FREE after zeroization. If the host zero operation fails,
+  // the lease remains charged/owned and CONTROL can retry its retirement.
+  typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
+  freeArenaBases[freeArenaCount++] = base;
+  arenaPageState[slot] = 2;
+  --leasedArenas;
+}
+
+/** Host diagnostic only; exposes counts, never a backing buffer or offset. */
+export function actorArenaPoolStats() {
+  return nativeFreeze({
+    committedPages: arrayBufferByteLength.call(memoryBuffer.call(poolMemory)) / PAGE,
+    leasedArenas,
+    freeArenas: freeArenaCount
+  });
+}
 function isSharedBacking(buffer) {
   if (sharedByteLength === null) return false;
   try {
     sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
     return true;
   } catch (error) {
-    if (error instanceof NativeTypeError) return false;
-    throw error;
+    // SharedArrayBuffer.prototype.byteLength has exactly one expected failure
+    // here: a non-SAB receiver. Do not consult mutable TypeError instanceof
+    // hooks merely to classify ordinary ArrayBuffer input.
+    return false;
   }
 }
 
 export class ActorArena {
-  #memory;
+  #base;
   #actor;
   #incarnation;
   #turn = null;
@@ -63,14 +178,15 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!nativeIsSafeInteger(actorId) || actorId <= 0 ||
-        !nativeIsSafeInteger(incarnation) || incarnation <= 0 ||
-        !nativeSetHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
+    if (!safeInteger(actorId) || actorId <= 0 ||
+        !safeInteger(incarnation) || incarnation <= 0 ||
+        !setHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
-    // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
-    // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new NativeWasmMemory({initial: 2, maximum: 2});
+    // One persistent and one scratch page leased from the runtime-owned pool.
+    // Retirement returns both pages synchronously; no JS GC is required for
+    // arena capacity to become reusable by another actor.
+    this.#base = leaseArenaBase();
   }
 
   get actorId() { return this.#actor; }
@@ -78,8 +194,8 @@ export class ActorArena {
   get retired() { return this.#closed; }
 
   #bytes() {
-    if (this.#closed) throw new Error("actor arena retired");
-    return new NativeUint8Array(nativeMemoryBuffer.call(this.#memory));
+    if (this.#closed || this.#base === null) throw new Error("actor arena retired");
+    return poolBytes();
   }
 
   #requireTurn(token) {
@@ -99,7 +215,10 @@ export class ActorArena {
 
   endTurn(turn) {
     this.#requireTurn(turn);
-    nativeUint8Fill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
+    typedArrayFill.call(
+      this.#bytes(), 0,
+      this.#base + PAGE,
+      this.#base + PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
     this.#scratch = new NativeWeakMap();
@@ -108,7 +227,7 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!nativeIsSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!safeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid arena allocation length");
     }
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
@@ -117,30 +236,30 @@ export class ActorArena {
     let offset;
     if (scratch) {
       if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
-      offset = PAGE + this.#scratchTop;
+      offset = this.#base + PAGE + this.#scratchTop;
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
       // First-fit over bounded free segments. Removed persistent handles cannot
       // regain authority, even when their bytes are reused at the same offset.
-      const index = nativeArrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
+      const index = arrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
       if (index !== -1) {
         const segment = this.#freePersistent[index];
         offset = segment.offset;
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) nativeArraySplice.call(this.#freePersistent, index, 1);
+        if (segment.length === 0) arraySplice.call(this.#freePersistent, index, 1);
       } else {
         if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#persistentTop;
+        offset = this.#base + this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
     }
     const handle = nativeFreeze({});
     const slot = {offset, length};
-    nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
-    nativeUint8Fill.call(this.#bytes(), 0, offset, offset + length);
+    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
+    typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
 
@@ -149,59 +268,47 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = nativeWeakGet.call(this.#handles, handle);
+    const entry = weakMapGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    nativeUint8Fill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
-    nativeWeakDelete.call(this.#handles, handle);
+    typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
+    weakMapDelete.call(this.#handles, handle);
     --this.#persistentCount;
-    nativeArrayPush.call(this.#freePersistent, {...entry});
-    nativeArraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
+    arrayPush.call(this.#freePersistent, {...entry});
+    arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    // Never use Array.prototype[Symbol.iterator] on security-critical free
-    // segments. Untrusted guest JavaScript can replace that iterator and
-    // inject a forged offset overlapping live actor-owned memory.
-    for (let index = 0; index < this.#freePersistent.length; ++index) {
-      const segment = this.#freePersistent[index];
+    // Do not use Array iteration protocols here: Array.prototype[Symbol.iterator]
+    // is mutable userland code and must never observe private free-list metadata.
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else nativeArrayPush.call(coalesced, segment);
+      else arrayPush.call(coalesced, segment);
     }
     this.#freePersistent = coalesced;
   }
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
-    const entry = nativeWeakGet.call(this.#handles, handle) ??
-      nativeWeakGet.call(this.#scratch, handle);
+    const entry = weakMapGet.call(this.#handles, handle) ?? weakMapGet.call(this.#scratch, handle);
     if (!entry) throw new Error("foreign or stale arena handle");
     return entry;
   }
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    // Explicit intrinsic copy avoids mutable .slice and species hooks that
-    // could otherwise leak a live view of private Wasm linear memory.
+    const source = this.#bytes();
     const copy = new NativeUint8Array(length);
-    const window = new NativeUint8Array(nativeMemoryBuffer.call(this.#memory),
-      offset, length);
-    nativeUint8Set.call(copy, window);
-    return copy;
+    // TypedArray.prototype.subarray/slice invoke Symbol.species. A poisoned
+    // constructor can receive the private backing buffer as an argument.
+    // Indexed byte reads never invoke a constructor, getter or species hook.
+    for (let i = 0; i < length; ++i) copy[i] = source[offset + i];
+    return copy; // true owned copy, no private backing reference escapes
   }
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    // Trust the native typed-array internal slot, not mutable global
-    // Uint8Array / instanceof / Symbol.hasInstance. Cross-realm Uint8Array
-    // inputs remain valid; Int8Array, spoofed objects and detached views
-    // never gain write authority through a forged constructor identity.
-    let validBytes = false;
-    try {
-      validBytes = typedArrayTag.call(data) === "Uint8Array" &&
-        typedArrayByteLength.call(data) === length;
-    } catch (error) {
-      if (!(error instanceof NativeTypeError)) throw error;
-    }
-    if (!validBytes) {
+    if (typedArrayTag.call(data) !== "Uint8Array" ||
+        typedArrayByteLength.call(data) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
     // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
@@ -210,18 +317,22 @@ export class ActorArena {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
-    nativeUint8Set.call(this.#bytes(), data, offset);
+    typedArraySet.call(this.#bytes(), data, offset);
   }
 
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
-    nativeUint8Fill.call(this.#bytes(), 0);
+    const base = this.#base;
+    // releaseArenaBase scrubs before publishing the pages as reusable. If
+    // scrubbing/accounting throws, keep this arena live so CONTROL can retry.
+    releaseArenaBase(base);
     this.#closed = true;
-    this.#memory = null; // physical release is JS runtime-dependent
+    this.#base = null;
     this.#handles = new NativeWeakMap();
     this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
+    this.#persistentTop = this.#scratchTop = 0;
     this.#freePersistent = [];
   }
 }
