@@ -34,16 +34,19 @@ const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "b
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   typedArrayPrototype, Symbol.toStringTag).get;
-const sharedByteLength = typeof SharedArrayBuffer === "function"
-  ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
-  : null;
+// A genuine non-shared ArrayBuffer passes this native internal-slot check
+// across realms. SharedArrayBuffer, including cross-realm SAB, never does.
+// Checking the *absence* of a native ArrayBuffer slot is safer than relying
+// on globalThis.SharedArrayBuffer being defined when this module is imported:
+// a hostile host/guest realm can mask that constructor before module init.
+const nativeArrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype, "byteLength").get;
 function isSharedBacking(buffer) {
-  if (sharedByteLength === null) return false;
   try {
-    sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
-    return true;
+    nativeArrayBufferByteLength.call(buffer);
+    return false;
   } catch (error) {
-    if (error instanceof NativeTypeError) return false;
+    if (error instanceof NativeTypeError) return true;
     throw error;
   }
 }
