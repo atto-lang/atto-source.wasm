@@ -121,11 +121,13 @@ export class PersistentActorMap {
   static empty() { return new PersistentActorMap(TOKEN, null, 0); }
   get size() { return this.#count; }
   get(key) {
-    if (typeof key !== "string") return undefined;
+    if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY)
+      return undefined;
     return lookup(this.#root, key);
   }
   has(key) {
-    return typeof key === "string" && lookup(this.#root, key) !== undefined;
+    return typeof key === "string" && key.length > 0 && key.length <= MAX_KEY
+      && lookup(this.#root, key) !== undefined;
   }
   with(key, value) {
     if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY)
@@ -138,7 +140,7 @@ export class PersistentActorMap {
       : this;
   }
   without(key) {
-    if (typeof key !== "string" || key.length === 0)
+    if (typeof key !== "string" || key.length === 0 || key.length > MAX_KEY)
       throw new TypeError("invalid persistent actor key");
     const state = {removed: false};
     const root = remove(this.#root, key, state);
