@@ -6,6 +6,7 @@ A runtime or CI parity claim needs independently executed tests on its exact tre
 """
 import hashlib
 import json
+import os
 import stat
 from pathlib import Path
 
@@ -119,14 +120,48 @@ def verify_document(doc):
 
 
 def verify_file(path=CONTRACT):
+    """Open the exact regular source file with no-follow/no-block and prove stable identity.
+
+    The pinned SHA-256 is still mandatory; metadata checks additionally deny
+    symlink/FIFO swaps and short reads before interpreting the fixture.
+    """
     path = Path(path)
-    require(stat.S_ISREG(path.lstat().st_mode) and not path.is_symlink(),
-            'contract must be a regular file, not a symlink')
-    # Reject giant inputs before allocating a copy in memory. lstat above also
-    # makes a checked-out symlinked contract an explicit error.
-    require(path.stat().st_size <= MAX_CONTRACT_BYTES, 'oversized contract')
-    raw = path.read_bytes()
-    require(len(raw) <= MAX_CONTRACT_BYTES, 'oversized contract')
+    nofollow = getattr(os, 'O_NOFOLLOW', None)
+    nonblock = getattr(os, 'O_NONBLOCK', None)
+    binary = getattr(os, 'O_BINARY', 0)
+    if (type(nofollow) is not int or nofollow <= 0
+            or type(nonblock) is not int or nonblock <= 0
+            or nofollow & nonblock
+            or type(binary) is not int or binary < 0
+            or binary & (nofollow | nonblock)):
+        raise ContractError('safe non-following non-blocking file open unavailable')
+
+    keys = ('st_dev', 'st_ino', 'st_mode', 'st_size', 'st_nlink',
+            'st_mtime_ns', 'st_ctime_ns')
+    same = lambda x, y: all(getattr(x, key) == getattr(y, key) for key in keys)
+    try:
+        before = path.lstat()
+        require(stat.S_ISREG(before.st_mode) and before.st_nlink == 1,
+                'contract must be a unique regular file')
+        require(0 < before.st_size <= MAX_CONTRACT_BYTES, 'oversized or empty contract')
+        fd = os.open(path, os.O_RDONLY | nofollow | nonblock | binary)
+        try:
+            stream = os.fdopen(fd, 'rb')
+        except BaseException:
+            os.close(fd)
+            raise
+        with stream:
+            opened = os.fstat(stream.fileno())
+            require(stat.S_ISREG(opened.st_mode) and same(before, opened),
+                    'contract changed before read')
+            raw = stream.read(MAX_CONTRACT_BYTES + 1)
+            after = os.fstat(stream.fileno())
+            require(same(opened, after), 'contract changed during read')
+            require(len(raw) == after.st_size, 'contract short read')
+        require(same(after, path.lstat()), 'contract path changed during read')
+    except OSError as exc:
+        raise ContractError('contract unavailable or unsafe') from exc
+
     digest = hashlib.sha256(raw).hexdigest()
     require(digest == EXPECTED_SHA256, 'contract bytes drift; bump policy version deliberately')
     try:
@@ -135,7 +170,6 @@ def verify_file(path=CONTRACT):
         raise ContractError('invalid JSON / UTF-8') from exc
     verify_document(doc)
     return digest
-
 
 if __name__ == '__main__':
     try:
