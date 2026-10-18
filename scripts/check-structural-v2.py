@@ -45,9 +45,11 @@ def unique_pairs(pairs):
 
 def decode(raw):
     try:
-        return json.loads(raw, object_pairs_hook=unique_pairs,
+        document = json.loads(raw, object_pairs_hook=unique_pairs,
                           parse_constant=lambda v: (_ for _ in ()).throw(
                               Failure("nonfinite JSON: " + v)))
+        require(type(document) is dict, "manifest JSON must be an object")
+        return document
     except (ValueError, TypeError) as ex:
         raise Failure("malformed JSON: " + str(ex)) from ex
 
