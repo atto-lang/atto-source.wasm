@@ -135,6 +135,52 @@ Backends without proven RT admission must explicitly deny #hard.
   and real compiled guest TCP qualification before merge. Existing funded
   exact-blob evidence predates this addition.
 
+## Actor-system reliability and operability invariants
+
+These are cross-backend semantic requirements. A backend may explicitly reject
+an unsupported feature, but it must not silently weaken these guarantees.
+
+- **Bounded overload, never hidden growth.** User mailboxes, continuation
+  headroom, dispatcher ready queues, lifecycle-observer work and diagnostic
+  journals are bounded independently. Saturation returns a typed/reasoned
+  admission failure or increments an explicit drop counter; it never creates
+  one thread per actor/message/socket or silently expands an unbounded queue.
+- **CONTROL and failure progress are independent of user work.** A saturated
+  DATA domain cannot consume the final CONTROL progress permit or require a
+  parent actor mailbox turn merely to make child failure visible. Stop,
+  cancellation, panic and terminal parent bookkeeping must have bounded
+  progress paths under ordinary DATA saturation.
+- **Post-mortems survive telemetry loss.** Every actor incarnation retains one
+  immutable terminal state on its ActorRef/capability after authoritative
+  finalization. A bounded global terminal journal may drop records under
+  pressure, but drops are counted and cannot erase the per-ref post-mortem or
+  delay actor/parent finalization.
+- **Failure-time diagnostics cannot poison themselves.** A terminal journal
+  must not expose a producer-reserved-but-unpublished head slot that can hide
+  all later events if the producer dies. Drain order must be monotonic for
+  fully published records, sequence numbers must never wrap, and diagnostic
+  publication must never invoke user Throwable formatting synchronously.
+- **Callbacks are not lifecycle authority.** Arbitrary ready/DONE/output/exit
+  observers never run while actor lifecycle locks are held and never execute
+  on actor, CONTROL or selector carriers merely because another executor is
+  saturated. Parent structured-finalization progress and callback-free
+  termination barriers precede arbitrary observer callbacks.
+- **Operational snapshots are race-tolerant and non-mutating.** Implementations
+  should expose logical mailbox state separately from physical scheduler
+  pressure (started/active carriers, ready backlog, bounded capacity and
+  lifecycle-observer backlog). Sampling concurrently changing counters must not
+  itself throw merely because two fields were observed at different instants.
+- **Restart policy belongs to supervision, not failure loops.** OTP-like
+  supervisors must bound restart intensity over a time window and support
+  backoff/jitter or an equivalent policy. Generation/incarnation identity must
+  make stale messages, monitors, timers and remote replies unable to target a
+  replacement actor accidentally. Blind immediate infinite restart loops are
+  non-conforming.
+- **Finalization is idempotent and generation-fenced.** A stop/failure/cancel
+  race publishes at most one terminal state per actor incarnation, drains or
+  accounts for every admitted envelope/continuation, and cannot resurrect a
+  retired execution domain through a late Future/channel callback.
+
 ## Required differential fixtures
 
 - Throughput cold start: zero VM reactor threads, zero CONTROL/actor carriers
