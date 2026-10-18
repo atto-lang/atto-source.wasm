@@ -1,5 +1,7 @@
 # Private CI export authorization policy.
-# Keep these as the final non-comment CODEOWNERS rules.
+# Protect all workflow changes from unreviewed same-name GitHub Actions check spoofing.
+# Keep the directory wildcard directly before the final exact policy rules.
+/.github/workflows/ @ORESoftware
 /.github/CODEOWNERS @ORESoftware
 /.github/private-ci-approved-repositories.txt @ORESoftware
 /.github/private-ci-approved-source-snapshots.txt @ORESoftware
