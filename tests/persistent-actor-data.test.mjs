@@ -43,6 +43,7 @@ test("persistent actor map path copies and isolates private snapshots", () => {
 test("mutated Object.freeze and WeakSet prototypes do not forge map identity", () => {
   const map = PersistentActorMap.empty().with("x", 1);
   const oldFreeze = Object.getOwnPropertyDescriptor(Object, "freeze");
+  const oldSame = Object.getOwnPropertyDescriptor(Object, "is");
   const oldHas = Object.getOwnPropertyDescriptor(WeakSet.prototype, "has");
   const oldFinite = Object.getOwnPropertyDescriptor(Number, "isFinite");
   const oldMax = Object.getOwnPropertyDescriptor(Math, "max");
@@ -51,6 +52,9 @@ test("mutated Object.freeze and WeakSet prototypes do not forge map identity", (
   try {
     Object.defineProperty(Object, "freeze", {
       configurable: true, writable: true, value(v) { return v; }
+    });
+    Object.defineProperty(Object, "is", {
+      configurable: true, writable: true, value() { return true; }
     });
     Object.defineProperty(WeakSet.prototype, "has", {
       configurable: true, writable: true, value() { return true; }
@@ -71,11 +75,15 @@ test("mutated Object.freeze and WeakSet prototypes do not forge map identity", (
     assert.throws(() => map.with("forged", {}), /immutable scalar/);
     const next = map.with("y", 2);
     assert.equal(Object.isFrozen(next), true);
+    const actuallyUpdated = map.with("x", 2);
+    assert.equal(actuallyUpdated.get("x"), 2, "hostile Object.is cannot forge a no-op");
+    assert.equal(map.get("x"), 1, "original persistent version stays intact");
     const privateCopy = next.snapshotForActor("private");
     assert.equal(privateCopy.get("y"), 2);
     assert.throws(() => map.with("nan", NaN), /immutable scalar/);
   } finally {
     Object.defineProperty(Object, "freeze", oldFreeze);
+    Object.defineProperty(Object, "is", oldSame);
     Object.defineProperty(WeakSet.prototype, "has", oldHas);
     Object.defineProperty(Number, "isFinite", oldFinite);
     Object.defineProperty(Math, "max", oldMax);
