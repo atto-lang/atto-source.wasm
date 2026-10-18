@@ -15,7 +15,7 @@ const VALUES = ["14","20","27","76","-5","9223372036854775806",
 
 function verify(bytes) {
   assert.ok(Buffer.isBuffer(bytes) && bytes.length>0 && bytes.length<=8192);
-  const header=Buffer.from("blob "+bytes.length+"\\0","ascii");
+  const header=Buffer.from("blob "+bytes.length+"\0","ascii");
   assert.equal(createHash("sha1").update(header).update(bytes).digest("hex"),BLOB,
     "fixture must match reviewed Git blob");
   assert.equal(createHash("sha256").update(bytes).digest("hex"),SHA256,
