@@ -71,6 +71,16 @@ Publish without the actor lifecycle lock:
 No Future callback, output waiter, collector hook, group callback, or user
 formatting routine may execute while the actor lifecycle lock is owned.
 
+Arbitrary terminal observers must also be isolated from actor, CONTROL and
+selector carriers. A bounded runtime may use a dedicated lazy observer domain,
+but it must not fall back to executing a child observer inline on an unrelated
+parent actor when an actor dispatcher is saturated. Observer capacity is
+bounded: a blocked observer may retain lifecycle capacity/backpressure, but it
+must not create unbounded threads, resurrect a terminal actor, or delay the
+authoritative parent-tree transition that precedes observer publication.
+Shutdown must fence every in-flight authoritative finalization handoff before
+retiring the observer domain.
+
 A cleanup/observer subsystem failure is counted and cannot leave an actor
 permanently half-finalized. Host-fatal errors are deferred until best-effort
 terminal state publication.
@@ -170,7 +180,7 @@ Diagnostic producers never wait for diagnostic consumers.
 
 | Backend | Status |
 | --- | --- |
-| Java/GraalVM | Active draft implements bounded mail/control, structured cancellation, single-flight execution, continuation fairness, typed send rejection, snapshots/stats, retained terminal state, ordered bounded terminal telemetry, watchdog isolation and two-phase finalization. Source supervisor callbacks remain a release gate. |
+| Java/GraalVM | Active draft implements bounded mail/control, structured cancellation, single-flight execution, continuation fairness, typed send rejection, snapshots/stats, retained terminal state, ordered bounded terminal telemetry, watchdog isolation and two-phase finalization. Terminal ready/DONE/output/exit observers use a lazy bounded lifecycle-observer domain; actor capacity remains charged until that bundle retires, and runtime close fences in-flight finalization handoff before observer-domain shutdown. Source supervisor callbacks remain a release gate. |
 | LLVM | Native actor/group and RT/thread-accounting primitives exist; complete source supervision, retained terminal metadata and this full observability/fairness contract require parity work. |
 | .NET | Contract target only; no source-runtime parity claim from this file. |
 | WASM | Contract target; fail closed where threads/native isolation are unavailable. |
