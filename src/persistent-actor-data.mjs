@@ -13,6 +13,7 @@ const maps = new NativeWeakSet();
 const TOKEN = nativeFreeze({});
 const MAX_KEY = 4096;
 const MAX_CLONE_DEPTH = 256;
+const MAX_CLONE_NODES = 100000;
 
 function h(n) { return n === null ? 0 : n.height; }
 function makeNode(key, value, left, right) {
@@ -150,9 +151,9 @@ export class PersistentActorMap {
     if (kind === "shared") return this;
     if (kind !== "private" && kind !== "untrusted")
       throw new TypeError("unknown actor isolation kind");
-    return this.#clone(0, new NativeWeakMap());
+    return this.#clone(0, new NativeWeakMap(), {nodes: 0});
   }
-  #clone(depth, memo) {
+  #clone(depth, memo, budget) {
     if (depth > MAX_CLONE_DEPTH)
       throw new RangeError("persistent actor clone depth");
     const prior = weakMapGet.call(memo, this);
@@ -163,8 +164,10 @@ export class PersistentActorMap {
     while (n !== null || stack.length !== 0) {
       while (n !== null) { arrayPush.call(stack, n); n = n.left; }
       n = arrayPop.call(stack);
+      if (++budget.nodes > MAX_CLONE_NODES)
+        throw new RangeError("persistent actor clone node budget");
       let value = n.value;
-      if (isMap(value)) value = value.#clone(depth + 1, memo);
+      if (isMap(value)) value = value.#clone(depth + 1, memo, budget);
       copy = copy.with(n.key, value);
       n = n.right;
     }

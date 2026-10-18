@@ -24,6 +24,14 @@ test("persistent actor map path copies and isolates private snapshots", () => {
   assert.notStrictEqual(isolated, parent);
   assert.notStrictEqual(isolated.get("nested"), nested);
   assert.equal(isolated.get("nested").get("v"), 12n);
+  const sharedChild = PersistentActorMap.empty().with("leaf", 7);
+  const dag = PersistentActorMap.empty()
+    .with("left", sharedChild).with("right", sharedChild);
+  const dagCopy = dag.snapshotForActor("private");
+  assert.notStrictEqual(dagCopy.get("left"), sharedChild);
+  assert.strictEqual(dagCopy.get("left"), dagCopy.get("right"),
+    "isolated clone should preserve internal DAG sharing");
+
   const untrusted = parent.snapshotForActor("untrusted");
   assert.notStrictEqual(untrusted, parent);
 
