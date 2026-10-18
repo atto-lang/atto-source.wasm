@@ -9,7 +9,9 @@ test("wasm tuple-v2 source boundary rejects semantic parameter forms",()=>{
   "fnc take(tuple (int,int,string?) value):int{return 1;}",
   "fnc take((int,int,string?) value):int{return 1;}",
   "fnc take(structural (int,int,string?) value):int{return 1;}",
-  "routine take(tuple (int,int) value):int{return 1;}"
+  "routine take(tuple (int,int) value):int{return 1;}",
+  "fnc take<T>(tuple (int,int) value):int{return 1;}",
+  "fnc take<T,U>((int,int) value):int{return 1;}"
  ]){
   assert.throws(()=>rejectUnsupportedTupleV2Source(bytes(source)),
     /wasm structural tuple v2/);

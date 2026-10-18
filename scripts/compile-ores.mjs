@@ -65,8 +65,19 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
  for(let i=0;i<tokens.length;i++){
   if(!(tokens[i].id&&(tokens[i].text==="fnc"||tokens[i].text==="routine")))continue;
   if(!(tokens[i+1]?.id))continue; // declaration name
-  if(tokens[i+2]?.text!=="(")continue;
-  const first=tokens[i+3];
+  let cursor=i+2;
+  if(tokens[cursor]?.text==="<"){
+   let depth=0;
+   for(;cursor<tokens.length;cursor++){
+    if(tokens[cursor].text==="<")depth++;
+    else if(tokens[cursor].text===">"){
+     if(--depth===0){cursor++;break}
+    }
+   }
+   if(depth!==0)continue; // malformed generics remain the compiler's diagnostic.
+  }
+  if(tokens[cursor]?.text!=="(")continue;
+  const first=tokens[cursor+1];
   if(!first||first.text===")")continue;
   if(first.text==="("){
    throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
@@ -74,7 +85,7 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
   if(first.id&&first.text==="structural"){
    throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+first.offset);
   }
-  if(first.id&&first.text==="tuple"&&tokens[i+4]?.text==="("){
+  if(first.id&&first.text==="tuple"&&tokens[cursor+2]?.text==="("){
    throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
   }
  }
