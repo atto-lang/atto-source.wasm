@@ -9,7 +9,8 @@ const SIMDruntimeProbe=Uint8Array.from([
   ...Array(16).fill(0),  // 16 data bytes
   0x1a,0x0b              // drop, end
 ]);
-export const isSimd128EngineSupported=()=>WebAssembly.validate(SIMDruntimeProbe);
+export const isSimd128EngineSupported=()=>typeof WebAssembly!=="undefined" &&
+ typeof WebAssembly.validate==="function" && WebAssembly.validate(SIMDruntimeProbe);
 
 /**
  * Reject unsupported SIMD requests BEFORE compilation; do not silently
@@ -19,7 +20,10 @@ export const isSimd128EngineSupported=()=>WebAssembly.validate(SIMDruntimeProbe)
  */
 export function admitSimd128({mode="scalar",environment,
   profileAllowsSimd128=false,compilerHasVectorLowering=false,
-  engineSupportsSimd128=isSimd128EngineSupported()}={}) {
+  engineSupportsSimd128}={}) {
+  // A scalar build must work even if the runtime has no WebAssembly API.
+  if(engineSupportsSimd128===undefined)
+    engineSupportsSimd128=mode==="simd128" && isSimd128EngineSupported();
   if(!["scalar","simd128"].includes(mode))throw new Error("unknown SIMD mode");
   if(!["browser","edge-js","edge-wasi"].includes(environment))
     throw new Error("unsupported Wasm environment");
