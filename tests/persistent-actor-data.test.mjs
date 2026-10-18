@@ -83,3 +83,15 @@ test("mutated Object.freeze and WeakSet prototypes do not forge map identity", (
     Object.defineProperty(Array.prototype, "pop", oldPop);
   }
 });
+
+test("persistent actor key bounds apply to every lookup and removal operation",()=>{
+ const map=PersistentActorMap.empty().with("valid",7);
+ for(const key of ["", "x".repeat(4097)]){
+  assert.equal(map.get(key),undefined);
+  assert.equal(map.has(key),false);
+  assert.throws(()=>map.without(key),/invalid persistent actor key/);
+  assert.throws(()=>map.with(key,1),/invalid persistent actor key/);
+ }
+ assert.equal(map.get("valid"),7);
+ assert.equal(map.without("valid").size,0);
+});
