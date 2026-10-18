@@ -56,8 +56,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -I -m py_compile scripts/verify_actor_arena_lifecycle_contract.py scripts/test_actor_arena_lifecycle_contract.py
-          python3 -I - <<'PY'
+          python3 -I -X pycache_prefix="$RUNNER_TEMP/pycache" -m py_compile scripts/verify_actor_arena_lifecycle_contract.py scripts/test_actor_arena_lifecycle_contract.py
+          python3 -I -X pycache_prefix="$RUNNER_TEMP/pycache" - <<'PY'
           import importlib.util
           import json
           import os
@@ -149,9 +149,9 @@ jobs:
               raise SystemExit("checked-out PR HEAD workflow file drift")
           import subprocess as process
           if process.check_output(
-                  ["git", "status", "--porcelain", "--", *blobs, workflow_path],
+                  ["git", "status", "--porcelain=v1", "--untracked-files=all"],
                   text=True).strip():
-              raise SystemExit("lifecycle proof input worktree became dirty")
+              raise SystemExit("lifecycle proof worktree became dirty")
           report = {
             "schema": "oreslang.actor_arena_lifecycle_source_head_v1",
             "classification": "POLICY_ONLY_NOT_NATIVE_OR_GUEST_CERTIFICATION",
