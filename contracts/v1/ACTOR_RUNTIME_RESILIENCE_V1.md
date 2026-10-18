@@ -189,3 +189,10 @@ Diagnostic producers never wait for diagnostic consumers.
 | .NET | Contract target only; no source-runtime parity claim from this file. |
 | WASM | Contract target; fail closed where threads/native isolation are unavailable. |
 | Forge | Contract target; no source actor parity claim until executable fixtures pass. |
+
+## Exact-tree qualification extension
+
+Stress fixtures must include at least 512 distinct actor incarnations
+stopping concurrently, with retained terminal records, post-callback
+capacity reclamation, and a runtime-close/observer-drain race. These
+requirements are not satisfied by source-free concurrency models alone.
