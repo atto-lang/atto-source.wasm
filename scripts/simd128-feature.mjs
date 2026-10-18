@@ -44,7 +44,7 @@ export function admitSimd128(options={}) {
   }catch{
     throw new TypeError("SIMD options must contain only known own data fields");
   }
-  const {mode="scalar",environment,profileAllowsSimd128=false,
+  let {mode="scalar",environment,profileAllowsSimd128=false,
     compilerHasVectorLowering=false,engineSupportsSimd128}=snapshot;
   // A scalar build must work even if the runtime has no WebAssembly API.
   if(engineSupportsSimd128===undefined)
