@@ -21,6 +21,34 @@ jobs:
           from pathlib import Path
 
           owner="@ORESoftware"
+
+          def read_regular(path, max_bytes=64 * 1024):
+              target=Path(path)
+              if not target.is_file() or target.is_symlink():
+                  raise SystemExit("private CI policy input must be a regular non-symlink file: " + path)
+              raw=target.read_bytes()
+              if (not raw or len(raw)>max_bytes or raw.startswith(b"\xef\xbb\xbf")
+                      or b"\x00" in raw):
+                  raise SystemExit("private CI policy input bytes invalid: " + path)
+              try:
+                  return raw.decode("utf-8")
+              except UnicodeError as exc:
+                  raise SystemExit("private CI policy input must be UTF-8: " + path) from exc
+
+          def no_duplicate_keys(pairs):
+              out={}
+              for key,value in pairs:
+                  if key in out:
+                      raise SystemExit("duplicate JSON key in private CI policy")
+                  out[key]=value
+              return out
+
+          def read_json(path):
+              try:
+                  return json.loads(read_regular(path), object_pairs_hook=no_duplicate_keys)
+              except (ValueError, RecursionError) as exc:
+                  raise SystemExit("invalid private CI JSON: " + path) from exc
+
           paths=[
               "/.github/CODEOWNERS",
               "/.github/private-ci-approved-repositories.txt",
@@ -29,7 +57,10 @@ jobs:
               "/.github/private-ci-required-checks.json",
               "/.github/workflows/private-ci-policy.yml",
           ]
-          rules=[x.strip() for x in Path(".github/CODEOWNERS").read_text().splitlines()
+          for protected_path in paths:
+              read_regular("." + protected_path)
+          codeowner_lines=read_regular(".github/CODEOWNERS").splitlines()
+          rules=[x.strip() for x in codeowner_lines
                  if x.strip() and not x.lstrip().startswith("#")]
           if rules[-len(paths):] != [f"{p} {owner}" for p in paths]:
               raise SystemExit("private CI CODEOWNERS final block mismatch")
@@ -37,8 +68,14 @@ jobs:
               raise SystemExit("missing workflow directory CODEOWNERS wildcard")
 
           def entries(path):
-              return [x.strip() for x in Path(path).read_text().splitlines()
-                      if x.strip() and not x.lstrip().startswith("#")]
+              active=[]
+              for line in read_regular(path).splitlines():
+                  if not line or line.startswith("#"):
+                      continue
+                  if line != line.strip():
+                      raise SystemExit("approval entry has surrounding whitespace: " + path)
+                  active.append(line)
+              return active
 
           repos=entries(".github/private-ci-approved-repositories.txt")
           rr=re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]* [1-9][0-9]{0,19}$")
@@ -56,7 +93,7 @@ jobs:
           if len(snaps)!=len(set(snaps)):
               raise SystemExit("duplicate snapshot policy")
 
-          reviewer=json.loads(Path(".github/private-ci-independent-reviewer.json").read_text())
+          reviewer=read_json(".github/private-ci-independent-reviewer.json")
           expected_keys={"schema","enabled","minimumPermission","disallowedReviewerIds","reviewer"}
           if (set(reviewer)!=expected_keys or type(reviewer.get("schema")) is not int
                   or reviewer["schema"]!=2 or type(reviewer.get("enabled")) is not bool
@@ -85,8 +122,9 @@ jobs:
               if repos and repos[0].split()[1] != snaps[0].split()[2]:
                   raise SystemExit("destination and snapshot repository IDs differ")
 
-          data=json.loads(Path(".github/private-ci-required-checks.json").read_text())
-          if set(data)!={"schema","checks"} or data["schema"]!=1 or not isinstance(data["checks"],list) or len(data["checks"])!=1:
+          data=read_json(".github/private-ci-required-checks.json")
+          if (set(data)!={"schema","checks"} or type(data.get("schema")) is not int
+                  or data["schema"]!=1 or not isinstance(data["checks"],list) or len(data["checks"])!=1):
               raise SystemExit("invalid required-check schema")
           one=data["checks"][0]
           if (not isinstance(one,dict) or set(one)!={"context","appId"}
