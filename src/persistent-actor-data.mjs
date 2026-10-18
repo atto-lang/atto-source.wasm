@@ -1,4 +1,8 @@
 const nativeFreeze = Object.freeze;
+const numberIsFinite = Number.isFinite;
+const mathMax = Math.max;
+const arrayPush = Array.prototype.push;
+const arrayPop = Array.prototype.pop;
 const NativeWeakSet = WeakSet;
 const NativeWeakMap = WeakMap;
 const weakSetAdd = NativeWeakSet.prototype.add;
@@ -12,7 +16,7 @@ const MAX_CLONE_DEPTH = 256;
 
 function h(n) { return n === null ? 0 : n.height; }
 function makeNode(key, value, left, right) {
-  return nativeFreeze({key, value, left, right, height: 1 + Math.max(h(left), h(right))});
+  return nativeFreeze({key, value, left, right, height: 1 + mathMax(h(left), h(right))});
 }
 function rotateLeft(n) {
   const p = n.right;
@@ -50,7 +54,7 @@ function sameValue(a, b) {
 function admitValue(v) {
   const t = typeof v;
   if (t === "string" || t === "boolean" || t === "bigint") return;
-  if (t === "number" && Number.isFinite(v)) return;
+  if (t === "number" && numberIsFinite(v)) return;
   if (isMap(v)) return;
   throw new TypeError("persistent actor value must be immutable scalar or PersistentActorMap");
 }
@@ -157,8 +161,8 @@ export class PersistentActorMap {
     const stack = [];
     let n = this.#root;
     while (n !== null || stack.length !== 0) {
-      while (n !== null) { stack.push(n); n = n.left; }
-      n = stack.pop();
+      while (n !== null) { arrayPush.call(stack, n); n = n.left; }
+      n = arrayPop.call(stack);
       let value = n.value;
       if (isMap(value)) value = value.#clone(depth + 1, memo);
       copy = copy.with(n.key, value);

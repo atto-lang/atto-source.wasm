@@ -36,6 +36,10 @@ test("mutated Object.freeze and WeakSet prototypes do not forge map identity", (
   const map = PersistentActorMap.empty().with("x", 1);
   const oldFreeze = Object.getOwnPropertyDescriptor(Object, "freeze");
   const oldHas = Object.getOwnPropertyDescriptor(WeakSet.prototype, "has");
+  const oldFinite = Object.getOwnPropertyDescriptor(Number, "isFinite");
+  const oldMax = Object.getOwnPropertyDescriptor(Math, "max");
+  const oldPush = Object.getOwnPropertyDescriptor(Array.prototype, "push");
+  const oldPop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
   try {
     Object.defineProperty(Object, "freeze", {
       configurable: true, writable: true, value(v) { return v; }
@@ -43,12 +47,31 @@ test("mutated Object.freeze and WeakSet prototypes do not forge map identity", (
     Object.defineProperty(WeakSet.prototype, "has", {
       configurable: true, writable: true, value() { return true; }
     });
+    Object.defineProperty(Number, "isFinite", {
+      configurable: true, writable: true, value() { return true; }
+    });
+    Object.defineProperty(Math, "max", {
+      configurable: true, writable: true, value() { return -999; }
+    });
+    Object.defineProperty(Array.prototype, "push", {
+      configurable: true, writable: true, value() { throw new Error("poisoned push"); }
+    });
+    Object.defineProperty(Array.prototype, "pop", {
+      configurable: true, writable: true, value() { throw new Error("poisoned pop"); }
+    });
     assert.equal(map.get("x"), 1);
     assert.throws(() => map.with("forged", {}), /immutable scalar/);
     const next = map.with("y", 2);
     assert.equal(Object.isFrozen(next), true);
+    const privateCopy = next.snapshotForActor("private");
+    assert.equal(privateCopy.get("y"), 2);
+    assert.throws(() => map.with("nan", NaN), /immutable scalar/);
   } finally {
     Object.defineProperty(Object, "freeze", oldFreeze);
     Object.defineProperty(WeakSet.prototype, "has", oldHas);
+    Object.defineProperty(Number, "isFinite", oldFinite);
+    Object.defineProperty(Math, "max", oldMax);
+    Object.defineProperty(Array.prototype, "push", oldPush);
+    Object.defineProperty(Array.prototype, "pop", oldPop);
   }
 });
