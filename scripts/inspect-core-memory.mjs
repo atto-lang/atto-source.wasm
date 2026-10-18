@@ -42,6 +42,18 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
   // Reject GC struct/array, recursive type groups, subtyping and managed
   // reference types *before* compiling the module. This is a deliberately
   // narrow numeric function type reader, not a full Wasm opcode validator.
+  // The scalar profile does not yet have a full instruction decoder.
+  // Conservatively deny GC and reference opcodes anywhere in a code section,
+  // including if their byte values could be numeric immediates. This can
+  // reject some valid scalar programs but cannot silently admit an unparsed
+  // Wasm-GC instruction. Full verified opcode decoding remains required.
+  if(id===10){
+   for(let pos=at;pos<end;pos++){
+    const b=bytes[pos];
+    if(b===0xfb||(b>=0xd0&&b<=0xd6))
+     fail("unverified GC/reference opcode bytes forbidden in scalar profile");
+   }
+  }
   if(id===1){
    const count=u32(end);
    if(count>1024)fail("type declaration budget exceeded");
