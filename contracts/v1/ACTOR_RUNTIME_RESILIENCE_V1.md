@@ -174,7 +174,11 @@ Diagnostic producers never wait for diagnostic consumers.
 15. stale-generation refs cannot address a replacement incarnation;
 16. shutdown/cancellation races cannot fabricate message processing;
 17. no terminal observer callback executes under the lifecycle lock;
-18. host-fatal injection still leaves best-effort terminal/fence state before rethrow.
+18. host-fatal injection still leaves best-effort terminal/fence state before rethrow;
+19. blocked terminal observers retain only bounded lifecycle capacity and cannot
+    create unbounded host workers or admit replacement actors past maxActors;
+20. runtime shutdown cannot retire the lifecycle-observer domain while a
+    removed/in-flight actor finalization can still publish its observer bundle.
 
 ## Backend status - 2026-10-17
 
