@@ -6,7 +6,8 @@
     "max_parameters": 64,
     "max_candidates": 128,
     "max_enum_cases": 1024,
-    "max_registered_enums": 4096
+    "max_registered_enums": 4096,
+    "max_identity_utf8_bytes": 512
   },
   "vectors": [
     {
