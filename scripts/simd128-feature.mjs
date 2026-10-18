@@ -18,9 +18,34 @@ export const isSimd128EngineSupported=()=>typeof WebAssembly!=="undefined" &&
  * code must also audit actual emitted Wasm SIMD opcodes, IR provenance,
  * memory/import/ABI restrictions and exact source functionality.
  */
-export function admitSimd128({mode="scalar",environment,
-  profileAllowsSimd128=false,compilerHasVectorLowering=false,
-  engineSupportsSimd128}={}) {
+export function admitSimd128(options={}) {
+  // Capability admission is trusted data, not an object protocol. Inherited
+  // flags, getters and unknown properties must never grant SIMD authority.
+  if(options===null||typeof options!=="object"||Array.isArray(options))
+    throw new TypeError("SIMD options must be a plain data object");
+  const allowed=new Set(["mode","environment","profileAllowsSimd128",
+    "compilerHasVectorLowering","engineSupportsSimd128"]);
+  // Snapshot descriptors once. Do not re-read caller properties after
+  // verifying they are data properties: proxies or mutation can race reads.
+  const snapshot=Object.create(null);
+  let prototype;
+  try { prototype=Object.getPrototypeOf(options); }
+  catch { throw new TypeError("SIMD options must be a plain data object"); }
+  if(prototype!==Object.prototype&&prototype!==null)
+    throw new TypeError("SIMD options must be a plain data object");
+  try {
+    for(const key of Reflect.ownKeys(options)){
+      const descriptor=Object.getOwnPropertyDescriptor(options,key);
+      if(typeof key!=="string"||!allowed.has(key)||!descriptor||
+        !Object.hasOwn(descriptor,"value"))
+        throw new TypeError("SIMD options must contain only known own data fields");
+      snapshot[key]=descriptor.value;
+    }
+  }catch{
+    throw new TypeError("SIMD options must contain only known own data fields");
+  }
+  let {mode="scalar",environment,profileAllowsSimd128=false,
+    compilerHasVectorLowering=false,engineSupportsSimd128}=snapshot;
   // A scalar build must work even if the runtime has no WebAssembly API.
   if(engineSupportsSimd128===undefined)
     engineSupportsSimd128=mode==="simd128" && isSimd128EngineSupported();
