@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import {createHash} from 'node:crypto';
 import {mkdtemp, readFile, lstat, stat, rm} from 'node:fs/promises';
-import {join, isAbsolute} from 'node:path';
+import {join, isAbsolute, resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {tmpdir} from 'node:os';
 import {compileOresToWasm} from './compile-ores.mjs';
 
@@ -51,7 +52,7 @@ export async function compileStaticFacts({compiler,source,clang,compilerSha256})
   } finally {await rm(temp,{recursive:true,force:true});}
 }
 
-if (process.argv[1] && import.meta.url === new URL('file://'+process.argv[1]).href) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   try {
     const opts=Object.create(null);
     for (const arg of process.argv.slice(2)) {
