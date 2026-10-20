@@ -1,0 +1,93 @@
+name: Source-free runner allocation canary (not compiler parity)
+on:
+  push:
+    branches:
+      - integration/serde-routing-actor-arena-20261016
+    paths:
+      - .github/workflows/source-free-runner-allocation-canary.yml
+
+permissions: {}
+
+jobs:
+  runner-allocation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Record actual allocated runner context without checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          expected_ids = {
+              "ores-truffle-oreslang/oreslang-source.java": 1400792274,
+              "ores-truffle-oreslang/oreslang-source.llvm": 1410897874,
+              "ores-truffle-oreslang/oreslang-source.net": 1419704375,
+              "ores-truffle-oreslang/oreslang-source.wasm": 1419858954,
+              "ores-truffle-oreslang/oreslang-source.forge": 1419703674,
+          }
+          env = os.environ
+          repo = env["GITHUB_REPOSITORY"]
+          if repo not in expected_ids:
+              raise SystemExit("RUNNER_CANARY_DENIED: unexpected repository")
+          if env.get("GITHUB_REPOSITORY_ID") != str(expected_ids[repo]):
+              raise SystemExit("RUNNER_CANARY_DENIED: wrong numeric repository ID")
+          if env.get("GITHUB_EVENT_NAME") != "push":
+              raise SystemExit("RUNNER_CANARY_DENIED: event is not push")
+          if env.get("GITHUB_REF") != "refs/heads/integration/serde-routing-actor-arena-20261016":
+              raise SystemExit("RUNNER_CANARY_DENIED: unexpected ref")
+          workflow_ref = (
+              repo + "/.github/workflows/source-free-runner-allocation-canary.yml"
+              + "@refs/heads/integration/serde-routing-actor-arena-20261016"
+          )
+          if env.get("GITHUB_WORKFLOW_REF") != workflow_ref:
+              raise SystemExit("RUNNER_CANARY_DENIED: workflow ref mismatch")
+          if not re.fullmatch(r"[0-9a-f]{40}", env.get("GITHUB_SHA", "")):
+              raise SystemExit("RUNNER_CANARY_DENIED: malformed HEAD")
+          for key in ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"):
+              value = env.get(key, "")
+              if not value.isascii() or not value.isdecimal() or int(value) < 1:
+                  raise SystemExit("RUNNER_CANARY_DENIED: invalid run identity")
+          for key in ("RUNNER_NAME", "RUNNER_OS", "RUNNER_ARCH"):
+              value = env.get(key, "")
+              if not value or any(ord(ch) < 32 for ch in value):
+                  raise SystemExit("RUNNER_CANARY_DENIED: empty/unsafe runner identity")
+
+          report = {
+              "schema": "oreslang.source-free-runner-allocation.v1",
+              "classification": "SOURCE_FREE_INFRASTRUCTURE_ONLY_NOT_COMPILER_PARITY",
+              "repository": repo,
+              "repository_id": expected_ids[repo],
+              "run_id": int(env["GITHUB_RUN_ID"]),
+              "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
+              "event": env["GITHUB_EVENT_NAME"],
+              "commit_context_only": env["GITHUB_SHA"],
+              "workflow_ref": workflow_ref,
+              "runner_name": env["RUNNER_NAME"],
+              "runner_os": env["RUNNER_OS"],
+              "runner_arch": env["RUNNER_ARCH"],
+              "checkout_performed": False,
+              "source_tree_authenticated": False,
+              "compiler_executed": False,
+              "guest_executed": False,
+              "backend_parity_certified": False,
+              "self_reported_not_independently_attested": True,
+          }
+          target = Path(env["RUNNER_TEMP"]) / "source-free-runner-canary.json"
+          target.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n",
+                            encoding="utf-8")
+          print("SOURCE_FREE_RUNNER_CANARY_STEP_EXECUTED=YES")
+          print("SOURCE_FREE_CANARY_NATIVE_GUEST_CERTIFIED=NO")
+          PY
+      - name: Upload three-day runner allocation metadata only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: runner-allocation-source-free-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-free-runner-canary.json
+          if-no-files-found: error
+          retention-days: 3
