@@ -178,7 +178,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,["--tree-shake","--target=wasm32",stagedSource]);
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -218,7 +218,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
-  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",
+  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
