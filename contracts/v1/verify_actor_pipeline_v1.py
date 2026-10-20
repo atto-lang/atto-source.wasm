@@ -77,6 +77,49 @@ def load_contract(source: pathlib.Path) -> dict:
 def main() -> int:
     source = pathlib.Path(sys.argv[1])
     data = load_contract(source)
+    # This fixed v1 policy corpus is an authority boundary, not an
+    # extensible user-defined description of routing capabilities. Deny
+    # unrecognized fields and forged guest-lowering/control claims.
+    def exact_fields(obj, expected, location):
+        if type(obj) is not dict or set(obj) != set(expected):
+            raise AssertionError("unexpected routing v1 fields at " + location)
+
+    exact_fields(data, ("schema", "scope", "graph", "operations",
+                        "rejected", "notes"), "root")
+    exact_fields(data["graph"], ("stages", "connections"), "graph")
+    exact_fields(data["operations"],
+                 ("forward", "forward_all", "forward_round_robin",
+                  "forward_to", "invalid_target", "by_key"), "operations")
+    exact_fields(data["operations"]["forward"], ("error",), "forward")
+    exact_fields(data["operations"]["forward_to"],
+                 ("target", "expected"), "forward_to")
+    exact_fields(data["operations"]["invalid_target"],
+                 ("target", "error"), "invalid_target")
+    for stage in data["graph"]["stages"]:
+        exact_fields(stage, ("id", "actor_type", "role",
+                             "inbound", "outbound"), "stage")
+    for edge in data["graph"]["connections"]:
+        exact_fields(edge, ("source", "target", "payload"), "edge")
+    for record in data["operations"]["by_key"]:
+        exact_fields(record, ("key", "fnv1a64_hex", "target"), "by_key")
+
+    if data["scope"] != "host-selector-only; source actor lowering is a separate release gate":
+        raise AssertionError("guest actor routing authority is not admitted")
+    if data["rejected"] != [
+            "duplicate-instance-id", "duplicate-edge", "unknown-target",
+            "self-edge", "payload-mismatch", "cyclic-graph", "invalid-utf8",
+            "overlong-component", "post-retirement-route"]:
+        raise AssertionError("routing v1 denial policy changed")
+    if data["notes"] != [
+            "sender identity authenticated by runtime before real mailbox admission",
+            "fan-out is nontransactional",
+            "receipt only indicates admission",
+            "RR attempt consumes turn even when mailbox rejects",
+            "no shared mutable actor heap alias",
+            "no borrowed actor state crossing suspension"]:
+        raise AssertionError("routing v1 actor authority policy changed")
+    if data["operations"]["invalid_target"]["error"] != "not connected":
+        raise AssertionError("disconnected target error policy changed")
     if data["schema"] != "oreslang.actor-pipeline-routing.v1":
         raise AssertionError("wrong routing fixture schema")
     if data["operations"]["forward_all"] != ["worker-a", "worker-b", "worker-c"]:

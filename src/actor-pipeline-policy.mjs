@@ -41,8 +41,10 @@ function utf8(value, limit, optional = false, allowNul = false) {
 }
 export function actorRouteHash64(key) {
   let hash = 0xcbf29ce484222325n;
-  for (const b of utf8(key, 4096, true, true))
-    hash = ((hash ^ NativeBigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  const bytes = utf8(key, 4096, true, true);
+  // Do not consult the mutable Uint8Array iterator for routing authority.
+  for (let i = 0; i < bytes.length; ++i)
+    hash = ((hash ^ NativeBigInt(bytes[i])) * 0x100000001b3n) & 0xffffffffffffffffn;
   return hash;
 }
 export class ActorPipelinePolicy {

@@ -209,3 +209,19 @@ test('changing caller length cannot conceal an unreachable directed cycle', () =
   assert.throws(() => new ActorPipelinePolicy(tampered, cyclicEdges), /cyclic/);
   assert.equal(reads, 1, 'only the admitted source count may be consulted');
 });
+
+
+test('route hashing ignores poisoned typed-array iterator', () => {
+  const expected = actorRouteHash64('beta');
+  const saved = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, writable: true, value: function* () { yield 0; }
+    });
+    assert.equal(actorRouteHash64('beta'), expected);
+    assert.equal(policy().forwardByKey('producer-1', 'beta').target, 'worker-c');
+  } finally {
+    if (saved) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, saved);
+    else delete Uint8Array.prototype[Symbol.iterator];
+  }
+});
