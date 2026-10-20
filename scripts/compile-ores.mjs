@@ -16,6 +16,80 @@ import {publishAtomicRelease} from "./atomic-release.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+
+function tupleV2Tokens(sourceBytes){
+ const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const tokens=[];
+ const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
+ for(let i=0;i<text.length;){
+  const c=text[i];
+  if(/\s/.test(c)){i++;continue}
+  if(c==="/"&&text[i+1]==="/"){
+   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+  }
+  if(c==="/"&&text[i+1]==="*"){
+   const start=i;i+=2;let depth=1;
+   while(i<text.length&&depth){
+    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
+    else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
+    else i++;
+   }
+   if(depth)throw Error("unterminated block comment at byte "+start);
+   continue;
+  }
+  if(c==="\""||c==="'"){
+   const quote=c;i++;let escaped=false;
+   while(i<text.length){
+    const q=text[i++];
+    if(escaped){escaped=false;continue}
+    if(q==="\\"){escaped=true;continue}
+    if(q===quote)break;
+   }
+   continue;
+  }
+  if(idStart(c)){
+   const start=i++;while(i<text.length&&idPart(text[i]))i++;
+   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
+  }
+  tokens.push({text:c,offset:i,id:false});i++;
+ }
+ return tokens;
+}
+
+/**
+ * Wasm source bridge capability gate. This backend has no tuple-value ABI,
+ * optional-tail representation, or readonly structural tuple view yet.
+ */
+export function rejectUnsupportedTupleV2Source(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!(tokens[i].id&&(tokens[i].text==="fnc"||tokens[i].text==="routine")))continue;
+  if(!(tokens[i+1]?.id))continue; // declaration name
+  let cursor=i+2;
+  if(tokens[cursor]?.text==="<"){
+   let depth=0;
+   for(;cursor<tokens.length;cursor++){
+    if(tokens[cursor].text==="<")depth++;
+    else if(tokens[cursor].text===">"){
+     if(--depth===0){cursor++;break}
+    }
+   }
+   if(depth!==0)continue; // malformed generics remain the compiler's diagnostic.
+  }
+  if(tokens[cursor]?.text!=="(")continue;
+  const first=tokens[cursor+1];
+  if(!first||first.text===")")continue;
+  if(first.text==="("){
+   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  }
+  if(first.id&&first.text==="structural"){
+   throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+first.offset);
+  }
+  if(first.id&&first.text==="tuple"&&tokens[cursor+2]?.text==="("){
+   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  }
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -158,6 +232,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Fail before compiler execution or artifact staging if this Wasm backend
+ // does not own the requested aggregate ABI yet.
+ rejectUnsupportedTupleV2Source(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
