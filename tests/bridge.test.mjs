@@ -19,6 +19,7 @@ test("real Clang wasm32 bridge accepts verified IR and records hashes (stub comp
   assert.equal(r.compilerSha256,pin);
   assert.equal(r.importCount,0);
   assert.equal(r.kind,"llvm-ores-to-wasm32-core-experimental");
+  assert.equal(r.treeShaking,"llvm-direct-calls-v1");
   const wasm=await readFile(output);
   assert.equal(WebAssembly.validate(wasm),true);
   assert.equal((new WebAssembly.Instance(new WebAssembly.Module(wasm))).exports.main(),42n);
