@@ -10,7 +10,7 @@ test('source bytes admitted only for conservative literal-main Wasm subset',()=>
   assert.throws(()=>admitLiteralSource(Buffer.from('pub fnc main():int{while true {}return 42;}')),/unsupported/);
   assert.throws(()=>admitLiteralSource(Buffer.concat([fixture,Buffer.from('fnc backdoor():int{return 7;}')])),/unsupported/);
   assert.throws(()=>admitLiteralSource(Buffer.concat([Buffer.from([0xef,0xbb,0xbf]),fixture])),/BOM/);
-  assert.throws(()=>admitLiteralSource(Buffer.from([0xff,0xfe])),/UTF-8/);
+  assert.throws(()=>admitLiteralSource(Buffer.from([0xff,0xfe])),/utf-8/i);
   assert.throws(()=>admitLiteralSource(Buffer.alloc(1_048_577,32)),/oversized/);
 });
 test('live Wasm facts require explicit absolute trusted compiler/source paths',async()=>{
