@@ -6,7 +6,19 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {compileOresToWasm, readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 
-const cases = JSON.parse(await readFile(new URL('./value-boundary-rejections.json', import.meta.url)));
+const legacyCases = JSON.parse(await readFile(new URL('./value-boundary-rejections.json', import.meta.url)));
+const sharedCases = JSON.parse(await readFile(
+  new URL('../contracts/v1/cpu-gpu-nb-unsupported-v1.json', import.meta.url)));
+const sharedKeys = Object.keys(sharedCases);
+assert.equal(sharedKeys.length, 10, 'the shared ten-case source contract must remain complete');
+assert.equal(new Set(sharedKeys).size, 10, 'no duplicate CPU/GPU/nb case IDs');
+for (const [name, source] of Object.entries(sharedCases)) {
+  assert.match(source, /^pub fnc main\(\):int\{return (?:nb )?(?:cpu|gpu)\s*\{/,
+    name + ': exact-source region fixture required');
+}
+assert.equal(Object.keys(legacyCases).filter(k => Object.hasOwn(sharedCases, k)).length, 0,
+  'shared fixtures must not be overwritten by older local corpus');
+const cases = {...legacyCases, ...sharedCases};
 test('real source value boundaries reject before publishing a Wasm artifact', {
   // A baseline unit suite can omit the optional installed native compiler;
   // a real-parity CI job must opt in and cannot silently skip when missing.
@@ -39,7 +51,7 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     assert.equal(new WebAssembly.Instance(new WebAssembly.Module(good)).exports.main(), 42n);
     const provenance = await readFile(output + '.provenance.json');
     const originalEntries = (await readdir(dir)).sort();
-    assert.equal(Object.keys(cases).length, 15);
+    assert.equal(Object.keys(cases).length, 30);
     for (const [name, program] of Object.entries(cases)) {
       await writeFile(source, program);
       // Exercise both failure with no previous output and preservation of a
