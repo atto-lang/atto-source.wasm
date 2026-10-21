@@ -17,6 +17,80 @@ import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-sourc
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+
+function tupleV2Tokens(sourceBytes){
+ const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const tokens=[];
+ const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
+ for(let i=0;i<text.length;){
+  const c=text[i];
+  if(/\s/.test(c)){i++;continue}
+  if(c==="/"&&text[i+1]==="/"){
+   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+  }
+  if(c==="/"&&text[i+1]==="*"){
+   const start=i;i+=2;let depth=1;
+   while(i<text.length&&depth){
+    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
+    else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
+    else i++;
+   }
+   if(depth)throw Error("unterminated block comment at byte "+start);
+   continue;
+  }
+  if(c==="\""||c==="'"){
+   const quote=c;i++;let escaped=false;
+   while(i<text.length){
+    const q=text[i++];
+    if(escaped){escaped=false;continue}
+    if(q==="\\"){escaped=true;continue}
+    if(q===quote)break;
+   }
+   continue;
+  }
+  if(idStart(c)){
+   const start=i++;while(i<text.length&&idPart(text[i]))i++;
+   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
+  }
+  tokens.push({text:c,offset:i,id:false});i++;
+ }
+ return tokens;
+}
+
+/**
+ * Wasm source bridge capability gate. This backend has no tuple-value ABI,
+ * optional-tail representation, or readonly structural tuple view yet.
+ */
+export function rejectUnsupportedTupleV2Source(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!(tokens[i].id&&(tokens[i].text==="fnc"||tokens[i].text==="routine")))continue;
+  if(!(tokens[i+1]?.id))continue; // declaration name
+  let cursor=i+2;
+  if(tokens[cursor]?.text==="<"){
+   let depth=0;
+   for(;cursor<tokens.length;cursor++){
+    if(tokens[cursor].text==="<")depth++;
+    else if(tokens[cursor].text===">"){
+     if(--depth===0){cursor++;break}
+    }
+   }
+   if(depth!==0)continue; // malformed generics remain the compiler's diagnostic.
+  }
+  if(tokens[cursor]?.text!=="(")continue;
+  const first=tokens[cursor+1];
+  if(!first||first.text===")")continue;
+  if(first.text==="("){
+   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  }
+  if(first.id&&first.text==="structural"){
+   throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+first.offset);
+  }
+  if(first.id&&first.text==="tuple"&&tokens[cursor+2]?.text==="("){
+   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  }
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -159,10 +233,12 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
- // The scalar Wasm bridge must reject source-level actor concurrency before
- // invoking even a pinned native compiler. The token-aware check ignores
- // comments/strings, so ordinary scalar source remains unchanged.
+ // Source actors/physical actor threading are not implemented by this
+ // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
+ // Fail before compiler execution or artifact staging if this Wasm backend
+ // does not own the requested aggregate ABI yet.
+ rejectUnsupportedTupleV2Source(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
@@ -183,7 +259,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -208,7 +284,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    "-o",provisional,"-"],{input:ir});
  const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
   "linked Wasm exceeds 16 MiB artifact budget")).bytes;
- if(!WebAssembly.validate(wasm))throw Error("linker emitted invalid core Wasm");
+ // Validate strict no-managed-guest policy before engine compilation.
+ // inspectWasmBytes also enforces a single bounded linear memory.
+ const memory=inspectWasmBytes(wasm,{maxModuleBytes:MAX_WASM_BYTES,maxMemoryPages:2});
  rejectStartSection(wasm);
  const module=new WebAssembly.Module(wasm);
  const imports=WebAssembly.Module.imports(module);
@@ -219,11 +297,10 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  assertCoreI64Entry(wasm,exportName);
  // The artifact manifest advertises an exact 2-page memory maximum. Check
  // the binary rather than relying on Clang flags or its version string.
- const memory=inspectWasmBytes(wasm,{maxModuleBytes:MAX_WASM_BYTES,maxMemoryPages:2});
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
-  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",
+  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,

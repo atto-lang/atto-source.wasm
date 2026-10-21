@@ -39,6 +39,8 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     .update(fixtureBytes).digest("hex");
   assert.equal(fixtureHash,"bbc319c19ecd007109d33592e210091eb267e5a2",
     "numeric guest fixture SHA differs from reviewed source corpus");
+  assert.equal(createHash("sha256").update(fixtureBytes).digest("hex"),"39bddbe558ad1c336271f91e6403c4555f2f16a7ed33a3355ee897721b6ab02a",
+    "numeric guest fixture SHA-256 differs from reviewed bytes");
   const corpus = JSON.parse(fixtureBytes.toString("utf8"));
   assert.equal(corpus.schema_version,"1.0.0");
   assert.equal(corpus.status,"reference-only-not-compiled-execution");
