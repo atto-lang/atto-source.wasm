@@ -8,6 +8,7 @@ builder="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-build"
 runner="$repo_dir/aot-host/run/target/debug/oreslang-aot-run"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
+rustc --edition=2021 -D warnings aot-host/tests/aot_fixture.rs -o "$tmp/aot-fixture"
 # The default debug binary must fail closed, even for a genuine AOT artifact.
 # Build the deliberately insecure test-only feature after that assertion below.
 for spec in '42:42' 'zero:0' 'negative:-5'; do
@@ -39,14 +40,7 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
    echo "incorrect digest admitted" >&2; exit 1
  fi
  cp "$tmp/$name.cwasm" "$tmp/$name-corrupt.cwasm"
- python3 - "$tmp/$name-corrupt.cwasm" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-data = bytearray(path.read_bytes())
-data[len(data)//2] ^= 1
-path.write_bytes(data)
-PY
+ "$tmp/aot-fixture" corrupt "$tmp/$name-corrupt.cwasm"
  if "$runner" "$tmp/$name-corrupt.cwasm" "$pin" > /dev/null 2>&1; then
    echo "tampered native artifact admitted" >&2; exit 1
  fi
@@ -80,7 +74,7 @@ if [[ "$build_status" -eq 0 || "$build_status" -eq 124 ||
 fi
 # These binaries are valid Wasm but violate the strict zero-capability
 # precompiler profile. Generic parser rejection would be insufficient proof.
-python3 aot-host/tests/make-negative-wasm.py "$tmp"
+"$tmp/aot-fixture" make-negative "$tmp"
 node --input-type=module - "$tmp" <<'JS'
 import {readFileSync} from 'node:fs';
 for (const name of ['valid','start','table','extra-memory','import','element']) {
