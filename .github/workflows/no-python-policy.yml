@@ -1,0 +1,30 @@
+name: Prohibit Python
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  prohibit-python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+          components: rustfmt, clippy
+      - name: Rust format check
+        run: cargo fmt --manifest-path tools/no-python-check/Cargo.toml -- --check
+      - name: Rust clippy check
+        run: cargo clippy --manifest-path tools/no-python-check/Cargo.toml --all-targets -- -D warnings
+      - name: Rust policy tests
+        run: cargo test --manifest-path tools/no-python-check/Cargo.toml
+      - name: Reject Python files and execution
+        run: cargo run --manifest-path tools/no-python-check/Cargo.toml -- .
