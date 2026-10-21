@@ -76,6 +76,11 @@ class MixedLayoutGeometry {
   get rows(){return this.#rows;} get layout(){return this.#layout;}
   get fields(){return this.#fields;} get segments(){return this.#segments;}
   get byteLength(){return this.#allocationBytes;} get payloadBytes(){return this.#totalBytes;}
+  typeOf(name){
+    if(typeof name!=="string" || !this.#byName.has(name))
+      throw new RangeError("unknown mixed field");
+    return this.#fields[this.#byName.get(name)].type;
+  }
   address(row,field){
     if(!Number.isSafeInteger(row)||row<0||row>=this.#rows||typeof field!=="string"||!this.#byName.has(field))throw new RangeError("mixed row/field out of bounds");
     const at=this.#byName.get(field),loc=this.#locators[at],seg=this.#segments[loc.segment];
