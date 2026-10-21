@@ -216,6 +216,26 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
+    // Source ownership syntax is pointerless. These cases must be rejected by
+    // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
+    for (const [name, body] of [
+      ["address-of", "pub fnc main(): int { val x = 1; return &x; }\n"],
+      ["address-of-mut", "pub fnc main(): int { let mut int x = 1; return &mut x; }\n"],
+      ["unary-deref", "pub fnc main(): int { val x = 1; return *x; }\n"],
+      ["legacy-borrow-order", "pub fnc main(): int { let mut int x = 1; return rt borrow mut x; }\n"],
+      ["pointer-type", "pub fnc main(): Pointer<int> { return value; }\n"],
+      ["rt-ref", "pub fnc main(): int { val x = 1; return rt ref x; }\n"],
+      ["rt-deref", "pub fnc main(): int { return rt deref value; }\n"],
+      ["rt-unref", "pub fnc main(): int { return rt unref value; }\n"]
+    ]) {
+      const source = join(work, "deny-pointer-syntax-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(frontendResult);
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
