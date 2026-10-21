@@ -33,11 +33,13 @@ for (const [name, source] of Object.entries(taskV2Cases)) {
 const borrowTaskCases = Object.freeze({
   'task-borrow-shared': 'pub fnc main():int{return task { return rt borrow owner; };}',
   'task-borrow-mut': 'pub fnc main():int{return task { return rt borrow mut owner; };}',
-  'task-borrow-nested': 'pub fnc main():int{return task { return task { return rt borrow owner; }; };}'
+  'task-borrow-nested': 'pub fnc main():int{return task { return task { return rt borrow owner; }; };}',
+  'task-borrow-comment': 'pub fnc main():int{return task /* comment */ { return rt borrow owner; };}',
+  'task-borrow-statement': 'pub fnc main():int{return task { rt borrow owner; return 1; };}'
 });
-assert.equal(Object.keys(borrowTaskCases).length, 3);
+assert.equal(Object.keys(borrowTaskCases).length, 5);
 for (const source of Object.values(borrowTaskCases))
-  assert.match(source, /task\s*\{.*rt borrow/, 'must exercise a captured borrow inside Task');
+  assert.match(source, /task[\s\S]*\{[\s\S]*rt borrow/, 'must exercise a captured borrow inside Task');
 
 const cases = {...legacyCases, ...sharedCases, ...taskV2Cases, ...borrowTaskCases};
 test('real source value boundaries reject before publishing a Wasm artifact', {
@@ -72,7 +74,7 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     assert.equal(new WebAssembly.Instance(new WebAssembly.Module(good)).exports.main(), 42n);
     const provenance = await readFile(output + '.provenance.json');
     const originalEntries = (await readdir(dir)).sort();
-    assert.equal(Object.keys(cases).length, 43);
+    assert.equal(Object.keys(cases).length, 45);
     for (const [name, program] of Object.entries(cases)) {
       await writeFile(source, program);
       // Exercise both failure with no previous output and preservation of a
