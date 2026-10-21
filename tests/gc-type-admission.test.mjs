@@ -1,4 +1,4 @@
-+import test from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {admitCoreGuest} from "../src/guest-admission.mjs";
