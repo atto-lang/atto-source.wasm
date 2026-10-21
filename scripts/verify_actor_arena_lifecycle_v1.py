@@ -12,6 +12,20 @@ STAGES = {
     "wasm": "candidate-host-only-page-pool",
     "forge": "candidate-host-only-native-arena",
 }
+PIN_MODELS = {
+    "java": "persistent-region-loan-prototype",
+    "llvm": "native-loan-accounting-prototype",
+    "net": "external-lifetime-lease-prototype",
+    "wasm": "external-lifetime-lease-prototype",
+    "forge": "external-lifetime-lease-prototype",
+}
+SHARED_DOMAIN = {
+    "java": "unsupported",
+    "llvm": "host-prototype-unverified",
+    "net": "unsupported",
+    "wasm": "unsupported",
+    "forge": "unsupported",
+}
 INVARIANTS = (
     "actor-private-by-default",
     "actorref-never-grants-arena-access",
@@ -19,9 +33,15 @@ INVARIANTS = (
     "scratch-invalid-after-every-turn-exit",
     "stale-generation-and-wrong-incarnation-rejected",
     "no-guest-raw-pointer-or-memorysegment-exposure",
-    "retirement-is-monotonic-and-idempotent",
-    "physical-reclaim-waits-for-live-borrows-and-turns",
+    "logical-retirement-revokes-new-authority-before-quiescence",
+    "external-lifetime-pins-grant-no-memory-access",
+    "continuation-borrow-ffi-io-owners-must-register-lifetime-pins",
+    "physical-reclaim-waits-for-live-turns-borrows-and-external-pins",
+    "late-callbacks-cannot-resurrect-retired-authority",
+    "external-pin-release-is-idempotent",
+    "shared-domain-reclaim-waits-for-members-and-leases",
     "reused-capacity-is-zeroized-before-admission",
+    "retirement-is-monotonic-and-idempotent",
     "unsupported-shared-domain-or-general-lowering-fails-closed",
 )
 
@@ -56,7 +76,7 @@ def validate(doc):
     if doc["contract"] != "oreslang-shared-actor-arenas-v1" or doc["version"] != 1:
         raise ContractError("contract identity/version mismatch")
     if doc["scope"] != (
-        "source-free lifecycle/capability declarations; not guest runtime, compiler, AOT, or zero-GC certification"
+        "source-free lifecycle/capability declarations; not guest runtime, compiler, AOT, callback-wiring, or zero-GC certification"
     ):
         raise ContractError("scope must not promote runtime certification")
     if doc["required_invariants"] != list(INVARIANTS):
@@ -66,6 +86,7 @@ def validate(doc):
         raise ContractError("all five backends require explicit support declarations")
     required = {
         "candidate_stage", "general_guest_value_lowering", "shared_domain_arena",
+        "lifetime_pin_model", "continuation_ffi_io_wiring",
         "zero_host_gc_certified", "native_aot_certified", "exact_head_ci_certified",
     }
     for backend in BACKENDS:
@@ -76,8 +97,12 @@ def validate(doc):
             raise ContractError("candidate stage promotion/drift: " + backend)
         if row["general_guest_value_lowering"] != "unsupported":
             raise ContractError("general guest lowering promoted without proof: " + backend)
-        if row["shared_domain_arena"] != "unsupported":
-            raise ContractError("shared domain arena promoted without proof: " + backend)
+        if row["shared_domain_arena"] != SHARED_DOMAIN[backend]:
+            raise ContractError("shared domain declaration drift: " + backend)
+        if row["lifetime_pin_model"] != PIN_MODELS[backend]:
+            raise ContractError("lifetime pin model drift: " + backend)
+        if row["continuation_ffi_io_wiring"] != "unverified":
+            raise ContractError("callback wiring promoted without proof: " + backend)
         for flag in ("zero_host_gc_certified", "native_aot_certified", "exact_head_ci_certified"):
             if row[flag] is not False:
                 raise ContractError("unverified certification promoted: " + backend + "/" + flag)
@@ -92,4 +117,7 @@ if __name__ == "__main__":
     except (OSError, ContractError) as exc:
         print("ACTOR_ARENA_LIFECYCLE_V1_DENIED: " + str(exc), file=sys.stderr)
         raise SystemExit(1)
-    print("ACTOR_ARENA_LIFECYCLE_V1_PASS: backends=5 invariants=10 (source-free policy only)")
+    print(
+        "ACTOR_ARENA_LIFECYCLE_V1_PASS: "
+        f"backends={len(BACKENDS)} invariants={len(INVARIANTS)} (source-free policy only)"
+    )
