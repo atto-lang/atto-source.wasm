@@ -4,17 +4,19 @@ on:
     branches: [main]
     paths:
       - 'contracts/v2/**'
+      - 'tools/contract_gate.rs'
       - '.github/workflows/enum-case-contract-v2.yml'
   pull_request:
     paths:
       - 'contracts/v2/**'
+      - 'tools/contract_gate.rs'
       - '.github/workflows/enum-case-contract-v2.yml'
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   static-oracle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -27,7 +29,13 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test -z "$(git status --porcelain)"
-      - name: Verify source-free overlap model and EOS2 golden bytes
+      - name: Compile Rust enum ABI oracle
+        shell: bash
         run: |
-          python3 -B -m unittest discover -s contracts/v2 -p 'test_enum_case_*.py' -v
-          python3 -B -O -m unittest discover -s contracts/v2 -p 'test_enum_case_*.py' -v
+          set -euo pipefail
+          rustc --edition=2021 -D warnings --test tools/contract_gate.rs -o /tmp/contract-gate-tests
+          /tmp/contract-gate-tests enum_overlap_exhaustive
+          /tmp/contract-gate-tests enum_nominal_boundaries
+          rustc --edition=2021 -D warnings tools/contract_gate.rs -o /tmp/contract-gate
+      - name: Verify source-free overlap model and EOS2 golden bytes
+        run: /tmp/contract-gate enum-v2 .
