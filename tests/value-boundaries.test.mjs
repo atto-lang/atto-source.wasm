@@ -31,12 +31,12 @@ for (const [name, source] of Object.entries(taskV2Cases)) {
 // These are not proof of borrow-capable Wasm Tasks: they assert that a pinned
 // native compiler rejects unlowered captures before any guest artifact exists.
 const borrowTaskCases = Object.freeze({
-  'task-borrow-shared': 'pub fnc main():int{return task { return rt borrow owner; };}',
-  'task-borrow-mut': 'pub fnc main():int{return task { return rt mut borrow owner; };}',
-  'task-borrow-nested': 'pub fnc main():int{return task { return task { return rt borrow owner; }; };}',
-  'task-borrow-comment': 'pub fnc main():int{return task /* comment */ { return rt borrow owner; };}',
-  'task-borrow-statement': 'pub fnc main():int{return task { rt borrow owner; return 1; };}',
-  'task-borrow-classic-for-init': 'pub fnc main():int{return task { for (val loop = rt borrow owner; false; ) {} return 0; };}'
+  'task-borrow-shared': 'pub fnc main(int owner):int{return task { return rt borrow owner; };}',
+  'task-borrow-mut': 'pub fnc main(int owner):int{return task { return rt mut borrow owner; };}',
+  'task-borrow-nested': 'pub fnc main(int owner):int{return task { return task { return rt borrow owner; }; };}',
+  'task-borrow-comment': 'pub fnc main(int owner):int{return task /* comment */ { return rt borrow owner; };}',
+  'task-borrow-statement': 'pub fnc main(int owner):int{return task { rt borrow owner; return 1; };}',
+  'task-borrow-classic-for-init': 'pub fnc main(int owner):int{return task { for (val loop = rt borrow owner; false; ) {} return 0; };}'
 });
 assert.equal(Object.keys(borrowTaskCases).length, 6);
 for (const source of Object.values(borrowTaskCases))
