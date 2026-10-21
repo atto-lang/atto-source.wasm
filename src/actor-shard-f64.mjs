@@ -6,6 +6,8 @@ const nativeSafeInteger = Number.isSafeInteger;
 const nativeFinite = Number.isFinite;
 const nativeIsArray = Array.isArray;
 const nativeOwnDescriptor = Object.getOwnPropertyDescriptor;
+const nativeHasOwn = Object.hasOwn;
+const nativeTrunc = Math.trunc;
 const NativeArrayBuffer = ArrayBuffer;
 const NativeUint8Array = Uint8Array;
 const NativeUint32Array = Uint32Array;
@@ -41,7 +43,7 @@ function snapshotGroups(groupWidths, fields) {
   let total = 0;
   for (let i = 0; i < groupWidths.length; ++i) {
     const descriptor = nativeOwnDescriptor(groupWidths, String(i));
-    if (!descriptor || !Object.hasOwn(descriptor, "value") ||
+    if (!descriptor || !nativeHasOwn(descriptor, "value") ||
         !nativeSafeInteger(descriptor.value) || descriptor.value <= 0) {
       throw new TypeError("SoAoS group widths must be own positive integers");
     }
@@ -57,6 +59,13 @@ export class ActorShardF64 {
   #arena;
   #storage;
   #released = false;
+  #rows;
+  #fields;
+  #layout;
+  #lanes;
+  #physicalRows;
+  #byteLength;
+  #groupCount;
   #groupBase = null;
   #fieldOffset = null;
   #groupWidth = null;
@@ -100,13 +109,13 @@ export class ActorShardF64 {
       throw new TypeError("SoAoS group metadata is invalid for this layout");
     }
 
-    this.rows = rows;
-    this.fields = fields;
-    this.layout = layout;
-    this.lanes = lanes;
-    this.physicalRows = physicalRows;
-    this.byteLength = physicalRows * fields * SCALAR_BYTES;
-    this.groupCount = groups?.length ?? 0;
+    this.#rows = rows;
+    this.#fields = fields;
+    this.#layout = layout;
+    this.#lanes = lanes;
+    this.#physicalRows = physicalRows;
+    this.#byteLength = physicalRows * fields * SCALAR_BYTES;
+    this.#groupCount = groups?.length ?? 0;
 
     if (groups) {
       this.#groupBase = new NativeUint32Array(fields);
@@ -127,8 +136,16 @@ export class ActorShardF64 {
     }
 
     this.#arena = arena;
-    this.#storage = arenaAllocPersistent.call(arena, turn, this.byteLength);
+    this.#storage = arenaAllocPersistent.call(arena, turn, this.#byteLength);
   }
+
+  get rows() { return this.#rows; }
+  get fields() { return this.#fields; }
+  get layout() { return this.#layout; }
+  get lanes() { return this.#lanes; }
+  get physicalRows() { return this.#physicalRows; }
+  get byteLength() { return this.#byteLength; }
+  get groupCount() { return this.#groupCount; }
 
   #live() {
     if (this.#released) throw new Error("actor shard released");
@@ -136,22 +153,22 @@ export class ActorShardF64 {
 
   getPhysicalByteOffset(row, field) {
     this.#live();
-    if (!nativeSafeInteger(row) || row < 0 || row >= this.rows ||
-        !nativeSafeInteger(field) || field < 0 || field >= this.fields) {
+    if (!nativeSafeInteger(row) || row < 0 || row >= this.#rows ||
+        !nativeSafeInteger(field) || field < 0 || field >= this.#fields) {
       throw new RangeError("actor shard row/field out of bounds");
     }
 
     let scalar;
-    switch (this.layout) {
+    switch (this.#layout) {
       case "aos":
-        scalar = row * this.fields + field;
+        scalar = row * this.#fields + field;
         break;
       case "soa":
-        scalar = field * this.rows + row;
+        scalar = field * this.#rows + row;
         break;
       case "aosoa":
-        scalar = (((Math.trunc(row / this.lanes) * this.fields + field) *
-          this.lanes) + (row % this.lanes));
+        scalar = (((nativeTrunc(row / this.#lanes) * this.#fields + field) *
+          this.#lanes) + (row % this.#lanes));
         break;
       case "soaos":
         scalar = this.#groupBase[field] +
@@ -179,13 +196,13 @@ export class ActorShardF64 {
   integrate(turn, positionField, velocityField, dt) {
     this.#live();
     if (!nativeSafeInteger(positionField) || !nativeSafeInteger(velocityField) ||
-        positionField < 0 || positionField >= this.fields ||
-        velocityField < 0 || velocityField >= this.fields ||
+        positionField < 0 || positionField >= this.#fields ||
+        velocityField < 0 || velocityField >= this.#fields ||
         positionField === velocityField) {
       throw new RangeError("integrate requires two distinct valid fields");
     }
     if (!nativeFinite(dt)) throw new RangeError("integrate dt must be finite");
-    for (let row = 0; row < this.rows; ++row) {
+    for (let row = 0; row < this.#rows; ++row) {
       const position = this.read(turn, row, positionField);
       const velocity = this.read(turn, row, velocityField);
       this.write(turn, row, positionField, position + velocity * dt);
