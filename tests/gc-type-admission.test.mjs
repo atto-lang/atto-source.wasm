@@ -58,7 +58,7 @@ test("reference instructions in a code body are denied even with plain function 
 test("unknown GC opcode prefix cannot reach Wasm compilation",()=>{
  const bytes=Uint8Array.from([
   ...header,1,5,1,0x60,0,1,0x7e,...funcs,...memory,...exports,
-  10,7,1,5,0,0xfb,0,0x42,42,11
+  10,8,1,6,0,0xfb,0,0x42,42,11
  ]);
  assert.throws(()=>inspectWasmBytes(bytes),/reference instruction forbidden|Wasm-GC opcode forbidden/);
 });
