@@ -580,9 +580,6 @@ fn verify_reactive(root: &Path) -> Result<(), String> {
     verify_reactive_doc(&doc)
 }
 
-#[cfg(not(test))]
-
-
 fn object_mut(value: &mut Json) -> Result<&mut Vec<(String, Json)>, String> {
     match value {
         Json::Object(v) => Ok(v),
