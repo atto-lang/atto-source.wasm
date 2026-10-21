@@ -1,0 +1,59 @@
+{
+  "backend_support": {
+    "forge": {
+      "candidate_stage": "candidate-host-only-native-arena",
+      "exact_head_ci_certified": false,
+      "general_guest_value_lowering": "unsupported",
+      "native_aot_certified": false,
+      "shared_domain_arena": "unsupported",
+      "zero_host_gc_certified": false
+    },
+    "java": {
+      "candidate_stage": "candidate-host-runtime-ffm",
+      "exact_head_ci_certified": false,
+      "general_guest_value_lowering": "unsupported",
+      "native_aot_certified": false,
+      "shared_domain_arena": "unsupported",
+      "zero_host_gc_certified": false
+    },
+    "llvm": {
+      "candidate_stage": "candidate-compiled-i64-substrate",
+      "exact_head_ci_certified": false,
+      "general_guest_value_lowering": "unsupported",
+      "native_aot_certified": false,
+      "shared_domain_arena": "unsupported",
+      "zero_host_gc_certified": false
+    },
+    "net": {
+      "candidate_stage": "candidate-host-only-unmanaged",
+      "exact_head_ci_certified": false,
+      "general_guest_value_lowering": "unsupported",
+      "native_aot_certified": false,
+      "shared_domain_arena": "unsupported",
+      "zero_host_gc_certified": false
+    },
+    "wasm": {
+      "candidate_stage": "candidate-host-only-page-pool",
+      "exact_head_ci_certified": false,
+      "general_guest_value_lowering": "unsupported",
+      "native_aot_certified": false,
+      "shared_domain_arena": "unsupported",
+      "zero_host_gc_certified": false
+    }
+  },
+  "contract": "oreslang-shared-actor-arenas-v1",
+  "required_invariants": [
+    "actor-private-by-default",
+    "actorref-never-grants-arena-access",
+    "persistent-outlives-turn-not-retirement",
+    "scratch-invalid-after-every-turn-exit",
+    "stale-generation-and-wrong-incarnation-rejected",
+    "no-guest-raw-pointer-or-memorysegment-exposure",
+    "retirement-is-monotonic-and-idempotent",
+    "physical-reclaim-waits-for-live-borrows-and-turns",
+    "reused-capacity-is-zeroized-before-admission",
+    "unsupported-shared-domain-or-general-lowering-fails-closed"
+  ],
+  "scope": "source-free lifecycle/capability declarations; not guest runtime, compiler, AOT, or zero-GC certification",
+  "version": 1
+}
