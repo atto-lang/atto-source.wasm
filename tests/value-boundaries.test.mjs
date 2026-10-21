@@ -32,7 +32,7 @@ for (const [name, source] of Object.entries(taskV2Cases)) {
 // native compiler rejects unlowered captures before any guest artifact exists.
 const borrowTaskCases = Object.freeze({
   'task-borrow-shared': 'pub fnc main():int{return task { return rt borrow owner; };}',
-  'task-borrow-mut': 'pub fnc main():int{return task { return rt borrow mut owner; };}',
+  'task-borrow-mut': 'pub fnc main():int{return task { return rt mut borrow owner; };}',
   'task-borrow-nested': 'pub fnc main():int{return task { return task { return rt borrow owner; }; };}',
   'task-borrow-comment': 'pub fnc main():int{return task /* comment */ { return rt borrow owner; };}',
   'task-borrow-statement': 'pub fnc main():int{return task { rt borrow owner; return 1; };}',
