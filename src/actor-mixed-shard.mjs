@@ -67,8 +67,8 @@ export class ActorMixedShard {
   integrate(turn,positionField,velocityField,dt){
     this.#live();
     if(positionField===velocityField||!Number.isFinite(dt)||
-      !this.fields.some(f=>f.name===positionField&&f.type==="f64")||
-      !this.fields.some(f=>f.name===velocityField&&f.type==="f64"))
+      this.#geometry.typeOf(positionField)!=="f64"||
+      this.#geometry.typeOf(velocityField)!=="f64")
       throw new RangeError("integrate requires distinct f64 fields and finite dt");
     for(let r=0;r<this.rows;r++){
       this.write(turn,r,positionField,this.read(turn,r,positionField)+
