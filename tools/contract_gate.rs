@@ -1,10 +1,7 @@
-use std::{
-    collections::BTreeSet,
-    env,
-    fs,
-    path::{Path, PathBuf},
-    process,
-};
+use std::{collections::BTreeSet, fs, path::Path};
+
+#[cfg(not(test))]
+use std::{env, path::PathBuf, process};
 
 #[derive(Clone, Debug, PartialEq)]
 enum Json {
@@ -583,6 +580,7 @@ fn verify_reactive(root: &Path) -> Result<(), String> {
     verify_reactive_doc(&doc)
 }
 
+#[cfg(not(test))]
 fn usage() -> ! {
     eprintln!("usage: contract_gate <integration|serde|reactive> [repository-root]");
     process::exit(2);
