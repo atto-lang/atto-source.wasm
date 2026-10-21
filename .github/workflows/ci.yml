@@ -48,6 +48,12 @@ jobs:
       - name: Install wasm32 toolchain
         run: sudo apt-get update && sudo apt-get install -y clang lld
       - name: Adversarial shared scalar runner self-tests
-        run: python3 contracts/scalar/v1/selftest.py
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 -D warnings --test contracts/scalar/v1/run.rs -o /tmp/scalar-run-tests
+          /tmp/scalar-run-tests
+          rustc --edition=2021 -D warnings contracts/scalar/v1/run.rs -o /tmp/scalar-run
+          /tmp/scalar-run --self-test --repository-root .
       - name: Test guest admission and compiler bridge
         run: npm test
