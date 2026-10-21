@@ -596,7 +596,7 @@ fn positive_i32(value: &Json) -> Result<u32, String> {
     let Json::Number(raw) = value else {
         return Err("invalid i32 enum tag".into());
     };
-    if raw.contains(['.', 'e', 'E']) {
+    if raw.chars().any(|ch| matches!(ch, '.' | 'e' | 'E')) {
         return Err("invalid i32 enum tag".into());
     }
     let parsed: i64 = raw.parse().map_err(|_| "invalid i32 enum tag".to_string())?;
