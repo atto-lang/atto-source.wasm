@@ -3,6 +3,7 @@
  * loader policy. This is *not* a general Wasm parser or execution sandbox.
  */
 import {snapshotGuestBytes} from "../src/snapshot-guest-bytes.mjs";
+import {assertNoManagedWasm} from "./no-managed-wasm.mjs";
 
 export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32}={}){
  if(!Number.isSafeInteger(maxModuleBytes)||maxModuleBytes<8||maxModuleBytes>16*1024*1024)throw new TypeError("invalid maximum module size");
@@ -14,6 +15,8 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
  const fail=message=>{throw new Error("Wasm admission denied: "+message)};
  if(bytes.length<8||bytes[0]!==0||bytes[1]!==97||bytes[2]!==115||bytes[3]!==109||
     bytes[4]!==1||bytes[5]!==0||bytes[6]!==0||bytes[7]!==0)fail("invalid core module header");
+ // Decode opcodes and immediates; scalar LEB bytes are not instructions.
+ assertNoManagedWasm(bytes);
  let at=8;
  const u32=end=>{
   let value=0;
@@ -39,21 +42,6 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
   if(id===4)fail("table section is not yet admitted");
   if(id===9)fail("element sections are forbidden in the scalar profile");
   if(id===13)fail("exception tag sections are forbidden in the scalar profile");
-  // Reject GC struct/array, recursive type groups, subtyping and managed
-  // reference types *before* compiling the module. This is a deliberately
-  // narrow numeric function type reader, not a full Wasm opcode validator.
-  // The scalar profile does not yet have a full instruction decoder.
-  // Conservatively deny GC and reference opcodes anywhere in a code section,
-  // including if their byte values could be numeric immediates. This can
-  // reject some valid scalar programs but cannot silently admit an unparsed
-  // Wasm-GC instruction. Full verified opcode decoding remains required.
-  if(id===10){
-   for(let pos=at;pos<end;pos++){
-    const b=bytes[pos];
-    if(b===0xfb||(b>=0xd0&&b<=0xd6))
-     fail("unverified GC/reference opcode bytes forbidden in scalar profile");
-   }
-  }
   if(id===1){
    const count=u32(end);
    if(count>1024)fail("type declaration budget exceeded");

@@ -280,7 +280,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    "-o",provisional,"-"],{input:ir});
  const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
   "linked Wasm exceeds 16 MiB artifact budget")).bytes;
- if(!WebAssembly.validate(wasm))throw Error("linker emitted invalid core Wasm");
+ // Validate strict no-managed-guest policy before engine compilation.
+ // inspectWasmBytes also enforces a single bounded linear memory.
+ const memory=inspectWasmBytes(wasm,{maxModuleBytes:MAX_WASM_BYTES,maxMemoryPages:2});
  rejectStartSection(wasm);
  const module=new WebAssembly.Module(wasm);
  const imports=WebAssembly.Module.imports(module);
@@ -291,7 +293,6 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  assertCoreI64Entry(wasm,exportName);
  // The artifact manifest advertises an exact 2-page memory maximum. Check
  // the binary rather than relying on Clang flags or its version string.
- const memory=inspectWasmBytes(wasm,{maxModuleBytes:MAX_WASM_BYTES,maxMemoryPages:2});
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
