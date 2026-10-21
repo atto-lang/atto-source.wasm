@@ -15,8 +15,6 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
  const fail=message=>{throw new Error("Wasm admission denied: "+message)};
  if(bytes.length<8||bytes[0]!==0||bytes[1]!==97||bytes[2]!==115||bytes[3]!==109||
     bytes[4]!==1||bytes[5]!==0||bytes[6]!==0||bytes[7]!==0)fail("invalid core module header");
- // Decode opcodes and immediates; scalar LEB bytes are not instructions.
- assertNoManagedWasm(bytes);
  let at=8;
  const u32=end=>{
   let value=0;
@@ -47,7 +45,7 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
    if(count>1024)fail("type declaration budget exceeded");
    for(let i=0;i<count;i++){
     if(at>=end||bytes[at++]!==0x60)
-     fail("GC/subtype or non-function type forbidden in scalar profile");
+     fail("GC/subtype/array/struct type forbidden: only scalar functions");
     for(let group=0;group<2;group++){
      const n=u32(end);
      if(n>1024)fail("function signature exceeds type budget");
@@ -55,7 +53,7 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
       if(at>=end)fail("truncated function signature");
       const type=bytes[at++];
       if(type!==0x7f&&type!==0x7e&&type!==0x7d&&type!==0x7c)
-       fail("GC/reference/vector value type forbidden in scalar profile");
+       fail("managed reference, vector or GC value type forbidden");
      }
     }
    }
@@ -76,6 +74,9 @@ export function inspectWasmBytes(input,{maxModuleBytes=1048576,maxMemoryPages=32
   }
   at=end;
  }
+ // Parse instruction immediates after stable section/type-policy diagnostics,
+ // before engine compilation; scalar LEB bytes are never opcodes.
+ assertNoManagedWasm(bytes);
  if(!WebAssembly.validate(bytes))fail("invalid WebAssembly module");
  return {bytes,memoryCount,hasMemoryMaximum,memoryInitial,memoryMaximum};
 }

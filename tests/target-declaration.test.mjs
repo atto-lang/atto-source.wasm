@@ -48,8 +48,10 @@ test("unmanifested compiler bridge also requests wasm32 target and executes real
     // compiler verification. The resulting Wasm is linked by real Clang.
     const compilerScript=[
       "#!/bin/sh",
-      'test "$1" = "--target=wasm32" || exit 33',
-      'test -f "$2" || exit 34',
+      'test "$1" = "--tree-shake" || exit 31',
+      'test "$2" = "--tree-shake-root=main" || exit 32',
+      'test "$3" = "--target=wasm32" || exit 33',
+      'test -f "$4" || exit 34',
       "printf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'",
       ""
     ].join("\n");
