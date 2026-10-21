@@ -37,7 +37,7 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
           test "$(git hash-object contracts/v1/SHARED_ACTOR_ARENAS_V1.md)" = "c696c696ff8641e4b12bb7d4aa9cbf70e3002578"
           test "$(git hash-object contracts/v1/actor_arena_lifecycle_v1.json)" = "b0c2f086de90ccf9ee9c36edb6c83732c451e411"
-          test "$(git hash-object tools/contract_gate.rs)" = "f3e2e7a1049586a1b381cef09d670097e5e1ee01"
+          test "$(git hash-object tools/contract_gate.rs)" = "64b79d867999a54f2321766c51e90936ceaab484"
           test "$(git hash-object tools/actor_arena_receipt.rs)" = "1740366462cd22730f977dfb8726bf8a19e3d985"
       - name: Compile Rust lifecycle verifier and receipt emitter
         shell: bash
