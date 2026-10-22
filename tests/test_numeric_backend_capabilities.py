@@ -50,6 +50,8 @@ class NumericParityAdmissionTest(unittest.TestCase):
         self.assertEqual(d["reference_fixture_git_blob_sha"], SHA)
         self.assertEqual(d["source_i64_fixture_git_blob_sha"],
                          "bbc319c19ecd007109d33592e210091eb267e5a2")
+        self.assertEqual(d["source_i64_overflow_fixture_git_blob_sha"],
+                         "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a")
         self.assertEqual(set(d["capabilities"]), FEATURES)
         self.assertEqual(set(d["evidence"]), FEATURES)
         for name, status in d["capabilities"].items():

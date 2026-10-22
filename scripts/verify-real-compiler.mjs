@@ -1,6 +1,6 @@
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {mkdtemp, readFile, rm, writeFile, stat} from "node:fs/promises";
+import {mkdtemp, readFile, rm, writeFile, stat, lstat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, isAbsolute, join} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -20,6 +20,12 @@ export function assertNativeFrontendRejection(frontend) {
       !/^oreslang-llvmc:\s+\S.+/m.test(frontend.stderr || "")) {
     throw Error("native LLVM frontend rejection must be a diagnosed error (exit 1, no IR)");
   }
+  return true;
+}
+export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
 export async function verifyRealCompiler({
@@ -87,6 +93,9 @@ export async function verifyRealCompiler({
     // mistakes that a constant-42 smoke test cannot expose.
     const scalarMatrix = [
       {name:"return-arithmetic",expected:28n},
+      // Git blob a8165323a8aa40e7cec613fdb7e645c41a901965:
+      // byte-identical with the shared five-backend Wave 2 source fixture.
+      {name:"arithmetic-76",expected:76n},
       {name:"negative-result",expected:-5n},
       {name:"zero-result",expected:0n},
       {name:"class-scalar-constructor",expected:40n},
@@ -118,6 +127,119 @@ export async function verifyRealCompiler({
         throw Error("scalar fixture "+name+" returned incorrect result or capabilities");
       scalarResults.push(Object.freeze({name,value:observed.value.toString(),
         wasmSha256:built.wasmSha256,sourceSha256:built.sourceSha256}));
+    }
+
+    // Run precisely the same byte-identical signed-i64 scalar fixture sources
+    // used by the independent .NET and Forge bootstrap parity gates.
+    // The negative corpus is backend-specific: LLVM may implement constructs
+    // (e.g. structural match) that the bootstrap compilers must reject.
+    const sharedRoot = fileURLToPath(new URL("../contracts/scalar/v1/", import.meta.url));
+    const manifestBytes = await readFile(join(sharedRoot, "cases.json"));
+    const sharedCorpus = JSON.parse(manifestBytes.toString("utf8"));
+    if (sharedCorpus.schema_version !== "1.0.0" ||
+        !Array.isArray(sharedCorpus.cases) || sharedCorpus.cases.length !== 11)
+      throw Error("shared scalar corpus version or inventory drift");
+    const sharedHash = createHash("sha256").update(manifestBytes);
+    const sharedScalarResults = [];
+    const seenIds = new Set();
+    for (const testCase of sharedCorpus.cases) {
+      if (!/^[a-z][a-z0-9.-]{1,79}$/.test(testCase.id) ||
+          seenIds.has(testCase.id) ||
+          !/^fixtures\/[a-z0-9-]+\.ores$/.test(testCase.file))
+        throw Error("unsafe or duplicate shared scalar case identity");
+      seenIds.add(testCase.id);
+      const source = join(sharedRoot, testCase.file);
+      const sourceStat = await lstat(source);
+      if (!sourceStat.isFile() || sourceStat.isSymbolicLink() ||
+          sourceStat.size < 1 || sourceStat.size > 1048576)
+        throw Error("unsafe or oversized shared scalar fixture");
+      const sourceBytes = (await readBoundedRegularFile(
+        source, 1048576, "shared scalar fixture is not a bounded regular file"
+      )).bytes;
+      sharedHash.update(Buffer.from(testCase.file, "ascii"));
+      sharedHash.update(Buffer.from([0]));
+      sharedHash.update(sourceBytes);
+      if (testCase.kind === "reject") continue; // bootstrap admission only
+      if (testCase.kind !== "accept" || !/^-?(?:0|[1-9][0-9]*)$/.test(testCase.value))
+        throw Error("invalid shared scalar expected result");
+      const expected = BigInt(testCase.value);
+      if (expected < -(1n << 63n) || expected >= (1n << 63n))
+        throw Error("shared scalar expected value overflows i64");
+      // The compiler must never race the original checkout fixture after
+      // its content hash has been admitted. Compile a private, pinned copy.
+      const stagedSource = join(work, "shared-" + testCase.id + ".ores");
+      await writeFile(stagedSource, sourceBytes, {flag:"wx",mode:0o400});
+      const out = join(work, "shared-" + testCase.id + ".wasm");
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:stagedSource, output:out,
+        environment:"browser", publication:"atomic"
+      });
+      const verified = await readAtomicRelease(out);
+      if (built.sourceSha256 !== sha256(sourceBytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(verified.wasm) ||
+          verified.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("shared scalar source/artifact provenance mismatch");
+      const observed = await runIsolatedCoreGuest(verified.wasm, {
+        expectedSha256:built.wasmSha256, timeoutMs:5000
+      });
+      if (observed.value !== expected ||
+          observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("shared scalar guest value or zero-import admission mismatch");
+      sharedScalarResults.push(Object.freeze({
+        name:testCase.id, expected:testCase.value, value:observed.value.toString(),
+        sourceSha256:built.sourceSha256, wasmSha256:built.wasmSha256
+      }));
+    }
+    if (sharedScalarResults.length !== 6)
+      throw Error("shared scalar suite must execute exactly six guest programs");
+    const sharedScalarSuiteSha256 = sharedHash.digest("hex");
+    // The shared corpus is an immutable, exact-byte contract across backends.
+    // Merely returning the computed hash in a report is insufficient: a
+    // modified fixture could otherwise pass as established parity evidence.
+    const expectedScalarSuiteSha256 =
+      "5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3";
+    if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
+      throw Error("shared scalar corpus digest differs from pinned parity contract");
+
+    // +/ import graph linking is not implemented for the wasm32 compiler
+    // target. A scalar guest or bridge must never silently discard imports.
+    // This is an executable fail-closed guard, not a parity success claim.
+    for (const [name, imported] of [
+      ["project-root", "+/src/lib/helper"],
+      ["retired-root", "@/src/lib/helper"],
+      ["package", "pkg:math/src/helper"],
+      ["relative", "./helper"]
+    ]) {
+      const source = join(work, "deny-import-" + name + ".ores");
+      await writeFile(source,
+        'import fnc helper from "' + imported +
+        '";\npub fnc main(): int { return helper(); }\n', {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(frontendResult);
+    }
+
+    // Source ownership syntax is pointerless. These cases must be rejected by
+    // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
+    for (const [name, body] of [
+      ["address-of", "pub fnc main(): int { val x = 1; return &x; }\n"],
+      ["address-of-mut", "pub fnc main(): int { let mut int x = 1; return &mut x; }\n"],
+      ["unary-deref", "pub fnc main(): int { val x = 1; return *x; }\n"],
+      ["legacy-borrow-order", "pub fnc main(): int { let mut int x = 1; return rt borrow mut x; }\n"],
+      ["pointer-type", "pub fnc main(): Pointer<int> { return value; }\n"],
+      ["rt-ref", "pub fnc main(): int { val x = 1; return rt ref x; }\n"],
+      ["rt-deref", "pub fnc main(): int { return rt deref value; }\n"],
+      ["rt-unref", "pub fnc main(): int { return rt unref value; }\n"]
+    ]) {
+      const source = join(work, "deny-pointer-syntax-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(frontendResult);
     }
 
     const negativeSource = join(work, "bad.ores");
@@ -187,13 +309,51 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    const tupleV2Cases = [
+      {
+        name:"tuple-explicit",
+        source:"fnc take(tuple (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-shorthand",
+        source:"fnc take((int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-structural",
+        source:"fnc take(structural (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native structural positional tuple requires verified readonly-width and nonescape lowering"
+      },
+      {
+        name:"tuple-return",
+        source:"fnc take(): tuple (int,int) { return 1; }\n",
+        diagnostic:"native positional tuple return requires verified tuple ABI lowering"
+      }
+    ];
+    for (const tupleCase of tupleV2Cases) {
+      const tupleSource = join(work, tupleCase.name + ".ores");
+      await writeFile(tupleSource, tupleCase.source, {flag:"wx"});
+      const tupleFrontend = spawnSync(
+        pinnedCompiler, ["--target=wasm32", tupleSource],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertTupleV2FrontendRejection(tupleFrontend, tupleCase.diagnostic);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024,
+        "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during tuple-v2 rejection test");
+    }
+
     return Object.freeze({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
-      scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true,
-      unsupportedPipelineRejected:true
+      scalarFixtures:Object.freeze(scalarResults),
+      sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
+      negativeSourceRejected:true,
+      unsupportedPipelineRejected:true,
+      tupleV2Rejected:true
     });
   } catch (error) {
     primaryError = error;

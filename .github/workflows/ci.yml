@@ -35,8 +35,10 @@ jobs:
         run: python3 -m unittest discover -s scripts -p test_option_pattern_contract.py -v
       - name: Verify shared Option-pattern inventory (LLVM compiler pending)
         run: python3 scripts/check_option_pattern_contract.py --backend wasm
-      - name: Verify pinned Sendable Serializable DATA CONTROL contract
-        run: python3 scripts/verify_serde_contract.py
+      - name: Test pinned Sendable Serializable static contract (Rust)
+        run: cargo test --manifest-path tools/serde-contract-gate/Cargo.toml
+      - name: Verify pinned Sendable Serializable DATA CONTROL contract (Rust)
+        run: cargo run --manifest-path tools/serde-contract-gate/Cargo.toml -- --root .
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
@@ -44,5 +46,7 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_numeric_*.py' -v
       - name: Install wasm32 toolchain
         run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Adversarial shared scalar runner self-tests
+        run: python3 contracts/scalar/v1/selftest.py
       - name: Test guest admission and compiler bridge
         run: npm test

@@ -1,0 +1,27 @@
+name: Integration declaration integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-declarations-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  declaration-integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Test Rust repository policy tooling
+        run: cargo test --manifest-path tools/repo-policy/Cargo.toml --all-targets
+      - name: Verify declaration-only manifest (not a runtime parity claim)
+        run: cargo run --quiet --manifest-path tools/repo-policy/Cargo.toml --bin verify-integration-manifest -- --repository-root .

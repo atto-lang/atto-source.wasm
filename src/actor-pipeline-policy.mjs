@@ -82,6 +82,8 @@ export class ActorPipelinePolicy {
     }
     if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
     this.#routes = new Map([...routes].map(([id, list])=>[id, Object.freeze(list)]));
+    // Pre-seed all RR cursors at trusted graph construction, never on a turn.
+    for (const source of this.#routes.keys()) this.#cursor.set(source, 0);
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
@@ -96,7 +98,7 @@ export class ActorPipelinePolicy {
   }
   forwardAll(source) { return this.#connected(source); }
   forwardRoundRobin(source) {
-    const routes = this.#connected(source), cursor = this.#cursor.get(source) ?? 0;
+    const routes = this.#connected(source), cursor = this.#cursor.get(source);
     this.#cursor.set(source, (cursor + 1) % routes.length);
     return routes[cursor];
   }

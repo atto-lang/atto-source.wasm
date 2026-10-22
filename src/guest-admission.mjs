@@ -12,8 +12,28 @@ export function compileAdmittedCoreGuest(input, {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
-  maxMemoryPages = 2
+  maxMemoryPages = 2,
+  ioMode = "nio-only",
+  guestNetworkIo = false,
+  nioReactors = 0,
+  actorPhysicalTurns = 0,
+  hardRealtime = false
 } = {}) {
+  // This core-wasm.i64-v1 implementation has no guest network host imports,
+  // actor scheduler, or safe native reactor bridge. Fail explicitly before
+  // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
+  // Keeping unsupported features at zero is semantic parity, not a fallback
+  // to blocking host I/O or a pretend concurrent actor.
+  if (ioMode !== "nio-only")
+    throw new TypeError("WASM runtime refuses legacy/blocking host I/O");
+  if (guestNetworkIo !== false)
+    throw new TypeError("WASM guest NIO is not implemented; host network I/O denied");
+  if (nioReactors !== 0)
+    throw new TypeError("WASM reactor threads are unsupported in core-wasm.i64-v1");
+  if (actorPhysicalTurns !== 0)
+    throw new TypeError("WASM physical source actor execution is unsupported");
+  if (hardRealtime !== false)
+    throw new TypeError("WASM hard-real-time scheduling is unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
