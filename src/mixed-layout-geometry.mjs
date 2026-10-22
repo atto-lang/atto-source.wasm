@@ -13,6 +13,7 @@ const arrayIncludes = Array.prototype.includes;
 const isArray = Array.isArray;
 const safeInteger = Number.isSafeInteger;
 const hasOwn = Object.hasOwn;
+const nativeTrunc = Math.trunc;
 const TYPES = Object.freeze({u32:Object.freeze({bytes:4,alignment:4}),f64:Object.freeze({bytes:8,alignment:8}),bool:Object.freeze({bytes:1,alignment:1}),ref32:Object.freeze({bytes:4,alignment:4})});
 const align = (v,a)=>(v+a-1n)/a*a;
 class MixedLayoutGeometry {
@@ -83,7 +84,12 @@ class MixedLayoutGeometry {
     if(physical>BigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
     this.#fields=Object.freeze(declarations);this.#byName=map;
     this.#segments=Object.freeze(arrayMap.call(segments,seg=>Object.freeze({bytes:Number(seg.bytes),alignment:Number(seg.alignment),stride:Number(seg.stride),base:Number(seg.base)})));
-    this.#locators=Object.freeze(arrayMap.call(locators,Object.freeze));
+    // Quota checks above prove all published offsets fit within 256 MiB.
+    // Store scalar Number coordinates once rather than boxing BigInt arithmetic
+    // for every ECS component load/store in the hot loop.
+    this.#locators=Object.freeze(arrayMap.call(locators,loc=>Object.freeze({
+      segment:loc.segment,offset:Number(loc.offset),stride:Number(loc.stride)
+    })));
     this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=Number(physical);this.#totalBytes=Number(total);
   }
   get rows(){return this.#rows;} get layout(){return this.#layout;}
@@ -102,8 +108,9 @@ class MixedLayoutGeometry {
       throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
     const byteOffset=this.#layout==="aosoa" ?
-      Number(BigInt(Math.floor(row/this.#tileWidth))*BigInt(seg.stride)+loc.offset+BigInt(row%this.#tileWidth)*loc.stride):
-      Number(BigInt(row)*loc.stride+loc.offset);
+      nativeTrunc(row/this.#tileWidth)*seg.stride+loc.offset+
+        (row%this.#tileWidth)*loc.stride:
+      row*loc.stride+loc.offset;
     const width=this.#fields[at].bytes;
     if(byteOffset<0||byteOffset+width>seg.bytes)
       throw new RangeError("mixed cell outside segment");
