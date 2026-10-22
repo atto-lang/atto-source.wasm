@@ -4,6 +4,32 @@ All five private repos track the same immutable fixture blob
 `cb28b5678d380f02c5e4e43bd763da04bdb996fe`, first staged on Java
 PR #1033 and LLVM PR #427. Copy it without changing a byte.
 
+## Shared signed-i64 overflow rejection contract
+
+The exact four-case fixture
+`source-i64-overflow-cases.json` has reviewed Git blob
+`2ce0b0ff5c52e54a788280fd64d67fa8dc32614a` in **all five**
+backends. Each backend manifest pins this immutable blob; the common
+`test_numeric_source_i64_cases.py` verifies the source bytes, IDs, policy,
+and independent integer-oracle rejection of every expression. This Python
+gate validates reference data only, never guest compilation.
+
+Executable source-level negative gates are **separate**:
+Java/GraalVM `NumericPortableI64GuestTest`; LLVM
+`native_numeric_portable_i64_source.py`; .NET typed IR plus emitted CIL in
+`verification/Ores.Net.Tests/Program.cs`; Forge parser/verified IR/interpreter
+with `verification/generate_numeric_overflow_cases.py` and
+`verification/tests.cpp`; and Wasm's pinned external LLVM compiler plus
+isolated runtime in `tests/numeric-source-parity.test.mjs`.
+All reject or signal overflow; none may return a normal wrapped signed-i64
+value. A test skip, stale compiler, unassigned runner, or source-free LLVM
+control is **not** proof of compiled parity.
+
+Java/LLVM full-source Actions currently fail before jobs can execute; the
+other backends have no demonstrated exact-source green run for these new
+checks. Preserve their existing unverified/unsupported capability statuses
+until independently validated executable CI and code-owner review pass.
+
 ## Shared real-source i64 corpus
 
 `source-i64-cases.json` has Git blob
