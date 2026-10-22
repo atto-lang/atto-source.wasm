@@ -1,5 +1,8 @@
 // Private mixed-width layout geometry. A scalar ref32 is an encoded word only,
  // not a dereference capability. No WebAssembly or JS guest compilation claimed.
+const NativeArray = Array;
+const NativeNumber = Number;
+const NativeBigInt = BigInt;
 const NativeMap = Map;
 const NativeSet = Set;
 const mapHas = Map.prototype.has;
@@ -10,10 +13,13 @@ const setAdd = Set.prototype.add;
 const arrayMap = Array.prototype.map;
 const arrayForEach = Array.prototype.forEach;
 const arrayIncludes = Array.prototype.includes;
+const arrayPush = Array.prototype.push;
+const ownDescriptor = Object.getOwnPropertyDescriptor;
+const nativeFreeze = Object.freeze;
+const nativeFloor = Math.floor;
 const isArray = Array.isArray;
 const safeInteger = Number.isSafeInteger;
 const hasOwn = Object.hasOwn;
-const nativeTrunc = Math.trunc;
 const TYPES = Object.freeze({u32:Object.freeze({bytes:4,alignment:4}),f64:Object.freeze({bytes:8,alignment:8}),bool:Object.freeze({bytes:1,alignment:1}),ref32:Object.freeze({bytes:4,alignment:4})});
 const align = (v,a)=>(v+a-1n)/a*a;
 class MixedLayoutGeometry {
@@ -28,69 +34,90 @@ class MixedLayoutGeometry {
     } else if (tileWidth!==undefined) throw new TypeError("tileWidth belongs only to AoSoA");
     if (layout!=="soaos" && groups!==undefined) throw new TypeError("groups belong only to SoAoS");
     const declarations=[]; const map=new NativeMap();
-    for(const field of fields) {
-      if (!field||typeof field.name!=="string"||!/^[$A-Za-z_][$\w]*$/.test(field.name)||
-          mapHas.call(map,field.name)||typeof field.type!=="string"||!hasOwn(TYPES,field.type)) {
+    for(let i=0;i<fields.length;i++){
+      const slot=ownDescriptor(fields,String(i));
+      if(!slot || !hasOwn(slot,"value") || !slot.value)
+        throw new TypeError("mixed field array must contain own data entries");
+      const field=slot.value;
+      const nameSlot=ownDescriptor(field,"name");
+      const typeSlot=ownDescriptor(field,"type");
+      if(!nameSlot || !typeSlot || !hasOwn(nameSlot,"value") || !hasOwn(typeSlot,"value"))
+        throw new TypeError("mixed field name/type must be own data values");
+      const name=nameSlot.value,type=typeSlot.value;
+      if(typeof name!=="string" || !/^[$A-Za-z_][$\w]*$/.test(name) ||
+         mapHas.call(map,name) || typeof type!=="string" || !hasOwn(TYPES,type))
         throw new TypeError("invalid or repeated mixed field");
-      }
-      const desc=Object.freeze({name:field.name,type:field.type,bytes:TYPES[field.type].bytes,alignment:TYPES[field.type].alignment});
-      mapSet.call(map,desc.name,declarations.length);declarations.push(desc);
+      const desc=nativeFreeze({name,type,bytes:TYPES[type].bytes,alignment:TYPES[type].alignment});
+      mapSet.call(map,name,declarations.length);
+      arrayPush.call(declarations,desc);
     }
-    const locators=new Array(declarations.length),segments=[];
+    const locators=new NativeArray(declarations.length),segments=[];
     const shape=(members)=>{
       let cursor=0n,maxAlign=1n; const offsets=[];
-      for(const index of members){const field=declarations[index];const a=BigInt(field.alignment);
-        cursor=align(cursor,a);offsets.push(cursor);cursor+=BigInt(field.bytes);if(a>maxAlign)maxAlign=a;
+      for(let k=0;k<members.length;k++){
+        const field=declarations[members[k]],a=NativeBigInt(field.alignment);
+        cursor=align(cursor,a);arrayPush.call(offsets,cursor);
+        cursor+=NativeBigInt(field.bytes);if(a>maxAlign)maxAlign=a;
       }
       return {stride:align(cursor,maxAlign),alignment:maxAlign,offsets};
     };
-    const count=BigInt(rows),idx=arrayMap.call(declarations,(_,i)=>i);
+    const count=NativeBigInt(rows),idx=arrayMap.call(declarations,(_,i)=>i);
     if(layout==="aos"){
-      const sh=shape(idx);segments.push({bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
+      const sh=shape(idx);arrayPush.call(segments,{bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
       arrayForEach.call(idx,(i)=>locators[i]={segment:0,offset:sh.offsets[i],stride:sh.stride});
     } else if(layout==="soa"){
       arrayForEach.call(idx,(i)=>{const f=declarations[i]; const seg=segments.length;
-        segments.push({bytes:BigInt(f.bytes)*count,alignment:BigInt(f.alignment),stride:BigInt(f.bytes)});
-        locators[i]={segment:seg,offset:0n,stride:BigInt(f.bytes)};
+        arrayPush.call(segments,{bytes:NativeBigInt(f.bytes)*count,alignment:NativeBigInt(f.alignment),stride:NativeBigInt(f.bytes)});
+        locators[i]={segment:seg,offset:0n,stride:NativeBigInt(f.bytes)};
       });
     } else if(layout==="aosoa"){
-      const tile=BigInt(tileWidth);let cursor=0n,maxAlign=1n;
-      arrayForEach.call(idx,i=>{const f=declarations[i],a=BigInt(f.alignment);
-        cursor=align(cursor,a);locators[i]={segment:0,offset:cursor,stride:BigInt(f.bytes)};
-        cursor+=BigInt(f.bytes)*tile;if(a>maxAlign)maxAlign=a;
+      const tile=NativeBigInt(tileWidth);let cursor=0n,maxAlign=1n;
+      arrayForEach.call(idx,i=>{const f=declarations[i],a=NativeBigInt(f.alignment);
+        cursor=align(cursor,a);locators[i]={segment:0,offset:cursor,stride:NativeBigInt(f.bytes)};
+        cursor+=NativeBigInt(f.bytes)*tile;if(a>maxAlign)maxAlign=a;
       });
       const stride=align(cursor,maxAlign);
-      segments.push({bytes:stride*((count+tile-1n)/tile),alignment:maxAlign,stride});
+      arrayPush.call(segments,{bytes:stride*((count+tile-1n)/tile),alignment:maxAlign,stride});
     } else {
       if(!isArray(groups)||groups.length===0||groups.length>fields.length) throw new TypeError("SoAoS requires explicit groups");
       const used=new NativeSet();
-      for(const group of groups) {
-        if(!isArray(group)||group.length===0) throw new TypeError("SoAoS empty group");
+      for(let gi=0;gi<groups.length;gi++) {
+        const groupEntry=ownDescriptor(groups,String(gi));
+        if(!groupEntry || !hasOwn(groupEntry,"value") || !isArray(groupEntry.value))
+          throw new TypeError("SoAoS requires own data group entries");
+        const group=groupEntry.value;
+        if(group.length===0)throw new TypeError("SoAoS empty group");
         const members=[];
-        for(const name of group){if(typeof name!=="string"||!mapHas.call(map,name)||setHas.call(used,name))throw new TypeError("SoAoS groups must partition fields");
-          setAdd.call(used,name); members.push(mapGet.call(map,name));
+        for(let j=0;j<group.length;j++){
+          const nameEntry=ownDescriptor(group,String(j));
+          if(!nameEntry || !hasOwn(nameEntry,"value"))
+            throw new TypeError("SoAoS field names must be own data entries");
+          const name=nameEntry.value;
+          if(typeof name!=="string"||!mapHas.call(map,name)||setHas.call(used,name))
+            throw new TypeError("SoAoS groups must partition fields");
+          setAdd.call(used,name);
+          arrayPush.call(members,mapGet.call(map,name));
         }
         const sh=shape(members),seg=segments.length;
-        segments.push({bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
-        members.forEach((index,i)=>locators[index]={segment:seg,offset:sh.offsets[i],stride:sh.stride});
+        arrayPush.call(segments,{bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
+        arrayForEach.call(members,(index,i)=>locators[index]={segment:seg,offset:sh.offsets[i],stride:sh.stride});
       }
       if(used.size!==fields.length)throw new TypeError("SoAoS groups must partition fields");
     }
     let physical=0n,total=0n;
-    for(const seg of segments) {
+    for(let si=0;si<segments.length;si++) {
+      const seg=segments[si];
       physical=align(physical,seg.alignment);
       seg.base=physical;physical+=seg.bytes;total+=seg.bytes;
     }
-    if(physical>BigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
-    this.#fields=Object.freeze(declarations);this.#byName=map;
-    this.#segments=Object.freeze(arrayMap.call(segments,seg=>Object.freeze({bytes:Number(seg.bytes),alignment:Number(seg.alignment),stride:Number(seg.stride),base:Number(seg.base)})));
-    // Quota checks above prove all published offsets fit within 256 MiB.
-    // Store scalar Number coordinates once rather than boxing BigInt arithmetic
-    // for every ECS component load/store in the hot loop.
-    this.#locators=Object.freeze(arrayMap.call(locators,loc=>Object.freeze({
-      segment:loc.segment,offset:Number(loc.offset),stride:Number(loc.stride)
+    if(physical>NativeBigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
+    this.#fields=nativeFreeze(declarations);this.#byName=map;
+    this.#segments=nativeFreeze(arrayMap.call(segments,seg=>nativeFreeze({bytes:NativeNumber(seg.bytes),alignment:NativeNumber(seg.alignment),stride:NativeNumber(seg.stride),base:NativeNumber(seg.base)})));
+    // Quota admission above proves numeric coordinates fit in 256 MiB.
+    this.#locators=nativeFreeze(arrayMap.call(locators,loc=>nativeFreeze({
+      segment:loc.segment,offset:NativeNumber(loc.offset),stride:NativeNumber(loc.stride)
     })));
-    this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=Number(physical);this.#totalBytes=Number(total);
+    this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=NativeNumber(physical);this.#totalBytes=NativeNumber(total);
   }
   get rows(){return this.#rows;} get layout(){return this.#layout;}
   get fields(){return this.#fields;} get segments(){return this.#segments;}
@@ -100,30 +127,25 @@ class MixedLayoutGeometry {
       throw new RangeError("unknown mixed field");
     return this.#fields[mapGet.call(this.#byName,name)].type;
   }
-  // Scalar fast path: no frozen address record and no per-element guest
-  // allocation. Range checks remain mandatory even for internal kernels.
+  // Checked primitive offset: avoids frozen records/BigInt on ECS hot path.
   offsetAt(row,field){
     if(!safeInteger(row)||row<0||row>=this.#rows||
-       typeof field!=="string"||!mapHas.call(this.#byName,field))
+        typeof field!=="string"||!mapHas.call(this.#byName,field))
       throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
-    const byteOffset=this.#layout==="aosoa" ?
-      nativeTrunc(row/this.#tileWidth)*seg.stride+loc.offset+
-        (row%this.#tileWidth)*loc.stride:
-      row*loc.stride+loc.offset;
-    const width=this.#fields[at].bytes;
-    if(byteOffset<0||byteOffset+width>seg.bytes)
+    const byteOffset=this.#layout==="aosoa"
+      ? nativeFloor(row/this.#tileWidth)*seg.stride+loc.offset+
+        (row%this.#tileWidth)*loc.stride
+      : row*loc.stride+loc.offset;
+    if(byteOffset<0||byteOffset+this.#fields[at].bytes>seg.bytes)
       throw new RangeError("mixed cell outside segment");
     return seg.base+byteOffset;
   }
-  // Introspection is a cold path and retains frozen, complete descriptors.
   address(row,field){
     const absoluteByteOffset=this.offsetAt(row,field);
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
-    return Object.freeze({
-      segment:loc.segment,byteOffset:absoluteByteOffset-seg.base,
-      absoluteByteOffset,type:this.#fields[at].type
-    });
+    return nativeFreeze({segment:loc.segment,byteOffset:absoluteByteOffset-seg.base,
+      absoluteByteOffset,type:this.#fields[at].type});
   }
 }
 export {MixedLayoutGeometry};

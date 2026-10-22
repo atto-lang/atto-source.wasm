@@ -3,6 +3,8 @@ import {MixedLayoutGeometry} from "./mixed-layout-geometry.mjs";
 
 // One actor-owned allocation inside WebAssembly.Memory (not a source-compiled
 // guest actor or an unforgeable guest reference). No live buffer view escapes.
+const nativeInteger = Number.isInteger;
+const nativeFinite = Number.isFinite;
 const alloc=ActorArena.prototype.allocPersistent;
 const drop=ActorArena.prototype.dropPersistent;
 const readBytes=ActorArena.prototype.readRangeInto;
@@ -40,8 +42,6 @@ export class ActorMixedShard {
     const offset=this.#geometry.offsetAt(row,field);
     const type=this.#geometry.typeOf(field);
     const cell=type==="f64"?this.#staging:type==="bool"?this.#one:this.#four;
-    // Cached 1/4/8-byte views remove per-component TypedArray.subarray
-    // allocations while keeping a single private scratch buffer.
     readBytes.call(this.#arena,turn,this.#handle,offset,cell);
     switch(type){
       case "u32":case "ref32":return readU32.call(this.#view,0,true);
@@ -57,7 +57,7 @@ export class ActorMixedShard {
     let cell;
     switch(type){
       case "u32":case "ref32":
-        if(!Number.isInteger(value)||value<0||value>0xffffffff)
+        if(!nativeInteger(value)||value<0||value>0xffffffff)
           throw new RangeError("u32/ref32 must be an unsigned 32-bit word");
         writeU32.call(this.#view,0,value,true);cell=this.#four;break;
       case "f64":
@@ -72,7 +72,7 @@ export class ActorMixedShard {
   }
   integrate(turn,positionField,velocityField,dt){
     this.#live();
-    if(positionField===velocityField||!Number.isFinite(dt)||
+    if(positionField===velocityField||!nativeFinite(dt)||
       this.#geometry.typeOf(positionField)!=="f64"||
       this.#geometry.typeOf(velocityField)!=="f64")
       throw new RangeError("integrate requires distinct f64 fields and finite dt");
