@@ -43,7 +43,11 @@ export class ActorMixedShard {
     switch(addr.type){
       case "u32":case "ref32":return readU32.call(this.#view,0,true);
       case "f64":return readF64.call(this.#view,0,true);
-      case "bool":return readU8.call(this.#view,0)!==0;
+      case "bool": {
+        const encoded=readU8.call(this.#view,0);
+        if (encoded > 1) throw new RangeError("noncanonical bool byte in actor storage");
+        return encoded === 1;
+      }
       default:throw new Error("unsupported mixed scalar");
     }
   }
