@@ -1,6 +1,8 @@
 // Host-only experimental actor-owned region. NOT attached to a guest module.
-// Every SHARED actor retains a private arena; ActorRef never grants heap access.
-// Guest source arena lowering and shared-domain regions are separate gates.
+// Every SHARED/PRIVATE/UNTRUSTED actor owns a distinct WebAssembly.Memory.
+// The runtime reuses fully scrubbed MEMORY INSTANCES after actor retirement,
+// never regions within another actor's linear memory.
+// ActorRef grants no heap access. Guest source lowering remains separate.
 const PAGE = 65536;
 const ARENA_PAGES = 2;
 const MAX_POOL_PAGES = 4096; // 256 MiB retained capacity, recycled explicitly.
@@ -17,7 +19,6 @@ const setHas = Set.prototype.has;
 // Bind allocator/copy/zero primitives before user code can monkeypatch them.
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
-const NativeUint32Array = Uint32Array;
 const NativeMemory = WebAssembly.Memory;
 const NativeWeakMap = WeakMap;
 // WeakMap authority operations must bypass mutable userland prototypes.
@@ -34,7 +35,6 @@ const arraySort = Array.prototype.sort;
 // Capture its native internal-slot accessor before unrelated user code can
 // redirect arena reads and scrubs to an attacker-chosen ArrayBuffer.
 const memoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "buffer").get;
-const memoryGrow = NativeMemory.prototype.grow;
 const arrayBufferByteLength =
   Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get;
 const typedArrayPrototype = Object.getPrototypeOf(NativeUint8Array.prototype);
@@ -52,75 +52,80 @@ const sharedByteLength = typeof SharedArrayBuffer === "function"
   : null;
 
 /*
- * Runtime-owned backing pool.
+ * Per-actor linear-memory pool. A leased actor has an entire, independently
+ * addressable WebAssembly.Memory (2 pages: persistent and scratch).
  *
- * WebAssembly.Memory cannot shrink, so dropping a per-actor Memory object makes
- * physical reclamation depend on the JavaScript host GC. Instead, actors lease
- * two pages from one bounded runtime Memory. Retirement zeroes and returns the
- * pages immediately for deterministic reuse. Committed pages may stay mapped
- * by the Wasm engine, but no actor capacity depends on GC to become reusable.
+ * Earlier versions sliced a process-wide WebAssembly.Memory by base offsets.
+ * Such slices are NOT a security boundary when raw Wasm memory instructions
+ * can address the complete module memory. This implementation pools WHOLE
+ * MEMORY INSTANCES rather than sharing a linear address space.
+ *
+ * No memory instance, ArrayBuffer, typed-array view or byte offset is returned
+ * through the public ActorArena API. Trusted host code may reuse an instance
+ * only after all guest/carrier/continuation access has quiesced, the actor has
+ * completed its turn, and its bytes have been fully scrubbed.
+ *
+ * Fixed capacity avoids allocation on the free-stack path and does not depend
+ * on JavaScript GC for capacity reuse. It DOES NOT guarantee OS page decommit
+ * or make a Worker an OS sandbox.
  */
-const poolMemory = new NativeMemory({initial: 0, maximum: MAX_POOL_PAGES});
-// Fixed-capacity free stack: page reuse itself must not depend on growing a
-// JavaScript Array or triggering host GC. Byte offsets fit in uint32 because
-// MAX_POOL_PAGES * PAGE is 256 MiB.
-const freeArenaBases = new NativeUint32Array(MAX_POOL_PAGES / ARENA_PAGES);
+const MAX_ARENAS = MAX_POOL_PAGES / ARENA_PAGES;
+const freeArenaMemories = new Array(MAX_ARENAS); // fixed-size private stack
 let freeArenaCount = 0;
 let leasedArenas = 0;
+let allocatedArenas = 0;
 
-function poolBytes() {
-  return new NativeUint8Array(memoryBuffer.call(poolMemory));
+function memoryBytes(memory) {
+  // Captured intrinsic getter requires a genuine WebAssembly.Memory.
+  return new NativeUint8Array(memoryBuffer.call(memory));
 }
 
-function leaseArenaBase() {
-  let base;
-  let reused = false;
-  if (freeArenaCount !== 0) {
-    base = freeArenaBases[--freeArenaCount];
-    freeArenaBases[freeArenaCount] = 0;
-    reused = true;
+function leaseArenaMemory() {
+  let memory;
+  if (freeArenaCount > 0) {
+    memory = freeArenaMemories[--freeArenaCount];
+    freeArenaMemories[freeArenaCount] = undefined; // sever stale pool alias
+    if (memory === undefined) throw new Error("actor memory pool corruption");
   } else {
-    let oldPages;
-    try {
-      oldPages = memoryGrow.call(poolMemory, ARENA_PAGES);
-    } catch (error) {
+    if (allocatedArenas >= MAX_ARENAS)
       throw new RangeError("actor arena runtime pool exhausted");
-    }
-    base = oldPages * PAGE;
+    // Fresh linear address space; no actor can address another instance.
+    // Fixed maximum also forbids memory.grow on a leased actor.
+    memory = new NativeMemory({initial: ARENA_PAGES, maximum: ARENA_PAGES});
+    ++allocatedArenas;
   }
   try {
-    // Belt-and-suspenders zero on admission as well as retirement.
-    typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
+    typedArrayFill.call(memoryBytes(memory), 0, 0, ARENA_PAGES * PAGE);
   } catch (error) {
-    // A failed admission must not strand reusable capacity. Newly grown pages
-    // are safe to publish too: no actor has observed them yet.
-    if (freeArenaCount >= freeArenaBases.length) {
-      throw new Error("actor arena pool free-stack overflow during lease rollback");
-    }
-    freeArenaBases[freeArenaCount++] = base;
+    // A failed scrub must not strand capacity. This is safe only because
+    // memory has not been published to any new actor or guest.
+    if (freeArenaCount >= MAX_ARENAS)
+      throw new Error("actor memory pool rollback overflow");
+    freeArenaMemories[freeArenaCount++] = memory;
     throw error;
   }
   ++leasedArenas;
-  return base;
+  return memory;
 }
 
-function releaseArenaBase(base) {
-  if (!safeInteger(base) || base < 0 || base % (ARENA_PAGES * PAGE) !== 0) {
-    throw new Error("actor arena pool lease invariant violated");
-  }
-  if (leasedArenas <= 0) throw new Error("actor arena pool accounting underflow");
-  typedArrayFill.call(poolBytes(), 0, base, base + ARENA_PAGES * PAGE);
-  if (freeArenaCount >= freeArenaBases.length) {
-    throw new Error("actor arena pool free-stack overflow");
-  }
-  freeArenaBases[freeArenaCount++] = base;
+function releaseArenaMemory(memory) {
+  if (memory === null || memory === undefined)
+    throw new Error("actor memory release requires an owned instance");
+  if (leasedArenas <= 0)
+    throw new Error("actor memory pool accounting underflow");
+  if (freeArenaCount >= MAX_ARENAS)
+    throw new Error("actor memory pool free-stack overflow");
+  // Physical state is cleared BEFORE another actor can acquire this instance.
+  // If zeroing fails, the caller retains ownership and can retry retirement.
+  typedArrayFill.call(memoryBytes(memory), 0, 0, ARENA_PAGES * PAGE);
+  freeArenaMemories[freeArenaCount++] = memory;
   --leasedArenas;
 }
 
-/** Host diagnostic only; exposes counts, never a backing buffer or offset. */
+/** Host diagnostic only; exposes counters, never memory or backing views. */
 export function actorArenaPoolStats() {
   return nativeFreeze({
-    committedPages: arrayBufferByteLength.call(memoryBuffer.call(poolMemory)) / PAGE,
+    committedPages: allocatedArenas * ARENA_PAGES,
     leasedArenas,
     freeArenas: freeArenaCount
   });
@@ -139,7 +144,7 @@ function isSharedBacking(buffer) {
 }
 
 export class ActorArena {
-  #base;
+  #memory;
   #actor;
   #incarnation;
   #turn = null;
@@ -158,10 +163,9 @@ export class ActorArena {
         !setHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
-    // One persistent and one scratch page leased from the runtime-owned pool.
-    // Retirement returns both pages synchronously; no JS GC is required for
-    // arena capacity to become reusable by another actor.
-    this.#base = leaseArenaBase();
+    // An actor leases a WHOLE, independent linear-memory instance.
+    // Retirement returns the scrubbed instance for future actor reuse.
+    this.#memory = leaseArenaMemory();
   }
 
   get actorId() { return this.#actor; }
@@ -169,8 +173,8 @@ export class ActorArena {
   get retired() { return this.#closed; }
 
   #bytes() {
-    if (this.#closed || this.#base === null) throw new Error("actor arena retired");
-    return poolBytes();
+    if (this.#closed || this.#memory === null) throw new Error("actor arena retired");
+    return memoryBytes(this.#memory);
   }
 
   #requireTurn(token) {
@@ -192,8 +196,8 @@ export class ActorArena {
     this.#requireTurn(turn);
     typedArrayFill.call(
       this.#bytes(), 0,
-      this.#base + PAGE,
-      this.#base + PAGE + this.#scratchTop);
+      PAGE,
+      PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
     this.#scratch = new NativeWeakMap();
@@ -211,7 +215,7 @@ export class ActorArena {
     let offset;
     if (scratch) {
       if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
-      offset = this.#base + PAGE + this.#scratchTop;
+      offset = PAGE + this.#scratchTop;
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
@@ -226,7 +230,7 @@ export class ActorArena {
         if (segment.length === 0) arraySplice.call(this.#freePersistent, index, 1);
       } else {
         if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#base + this.#persistentTop;
+        offset = this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
@@ -298,12 +302,11 @@ export class ActorArena {
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
-    const base = this.#base;
-    // releaseArenaBase scrubs before publishing the pages as reusable. If
-    // scrubbing/accounting throws, keep this arena live so CONTROL can retry.
-    releaseArenaBase(base);
+    // Only after an inactive actor has quiesced may its memory instance be
+    // scrubbed and reissued. Failed retirement preserves ownership to retry.
+    releaseArenaMemory(this.#memory);
     this.#closed = true;
-    this.#base = null;
+    this.#memory = null;
     this.#handles = new NativeWeakMap();
     this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
