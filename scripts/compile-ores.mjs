@@ -13,6 +13,7 @@ import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
+import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -246,6 +247,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Source actors/physical actor threading are not implemented by this
+ // scalar Wasm bridge. Reject before invoking the pinned native compiler.
+ rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
