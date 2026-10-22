@@ -94,15 +94,29 @@ class MixedLayoutGeometry {
       throw new RangeError("unknown mixed field");
     return this.#fields[mapGet.call(this.#byName,name)].type;
   }
-  address(row,field){
-    if(!safeInteger(row)||row<0||row>=this.#rows||typeof field!=="string"||!mapHas.call(this.#byName,field))throw new RangeError("mixed row/field out of bounds");
+  // Scalar fast path: no frozen address record and no per-element guest
+  // allocation. Range checks remain mandatory even for internal kernels.
+  offsetAt(row,field){
+    if(!safeInteger(row)||row<0||row>=this.#rows||
+       typeof field!=="string"||!mapHas.call(this.#byName,field))
+      throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
     const byteOffset=this.#layout==="aosoa" ?
       Number(BigInt(Math.floor(row/this.#tileWidth))*BigInt(seg.stride)+loc.offset+BigInt(row%this.#tileWidth)*loc.stride):
       Number(BigInt(row)*loc.stride+loc.offset);
     const width=this.#fields[at].bytes;
-    if(byteOffset<0||byteOffset+width>seg.bytes)throw new RangeError("mixed cell outside segment");
-    return Object.freeze({segment:loc.segment,byteOffset,absoluteByteOffset:seg.base+byteOffset,type:this.#fields[at].type});
+    if(byteOffset<0||byteOffset+width>seg.bytes)
+      throw new RangeError("mixed cell outside segment");
+    return seg.base+byteOffset;
+  }
+  // Introspection is a cold path and retains frozen, complete descriptors.
+  address(row,field){
+    const absoluteByteOffset=this.offsetAt(row,field);
+    const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
+    return Object.freeze({
+      segment:loc.segment,byteOffset:absoluteByteOffset-seg.base,
+      absoluteByteOffset,type:this.#fields[at].type
+    });
   }
 }
 export {MixedLayoutGeometry};
