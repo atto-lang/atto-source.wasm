@@ -507,7 +507,7 @@ test("retirement returns zeroed pages to the runtime pool without JS GC", () => 
 
 test("runtime pool remains usable when Array push/pop are poisoned before module load", () => {
   const moduleUrl = new URL("../src/actor-arena.mjs", import.meta.url).href;
-  const source = String.raw\`
+  const source = String.raw`
 const moduleUrl = process.argv[1];
 const push = Object.getOwnPropertyDescriptor(Array.prototype, "push");
 const pop = Object.getOwnPropertyDescriptor(Array.prototype, "pop");
@@ -535,17 +535,17 @@ try {
   Object.defineProperty(Array.prototype, "push", push);
   Object.defineProperty(Array.prototype, "pop", pop);
 }
-\`;
+`;
   const child = spawnSync(process.execPath,
     ["--input-type=module", "--eval", source, moduleUrl],
     {encoding: "utf8", timeout: 10000});
   assert.equal(child.status, 0,
-    () => \`isolated preload-poison process failed: \${child.error ?? ""}\n\${child.stderr}\`);
+    () => `isolated preload-poison process failed: ${child.error ?? ""}\n${child.stderr}`);
 });
 
 test("runtime arena pool reuse never depends on growable Array push/pop", () => {
   const moduleUrl = new URL("../src/actor-arena.mjs", import.meta.url).href;
-  const source = String.raw\`
+  const source = String.raw`
 const moduleUrl = process.argv[1];
 const mod = await import(moduleUrl);
 const first = new mod.ActorArena({actorId: 73, incarnation: 1});
@@ -591,12 +591,41 @@ try {
     try { second.retire(); } catch {}
   }
 }
-\`;
+`;
   const child = spawnSync(process.execPath,
     ["--input-type=module", "--eval", source, moduleUrl],
     {encoding: "utf8", timeout: 10000});
   assert.equal(child.status, 0,
-    () => \`isolated post-load poison process failed: \${child.error ?? ""}\n\${child.stderr}\`);
+    () => `isolated post-load poison process failed: ${child.error ?? ""}\n${child.stderr}`);
+});
+
+test("persistent free-list coalescing never consults Array.prototype negative indexes", () => {
+  const arena = new ActorArena({actorId: 77, incarnation: 1});
+  const turn = arena.beginTurn();
+  const first = arena.allocPersistent(turn, 4);
+  const second = arena.allocPersistent(turn, 4);
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, "-1");
+  let consulted = false;
+  try {
+    Object.defineProperty(Array.prototype, "-1", {
+      configurable: true,
+      get() {
+        consulted = true;
+        return {offset: 0, length: 65536};
+      }
+    });
+    arena.dropPersistent(turn, first);
+    arena.dropPersistent(turn, second);
+    assert.equal(consulted, false,
+      "private free-list coalescing must not invoke prototype getters");
+    const recycled = arena.allocPersistent(turn, 8);
+    assert.deepEqual([...arena.read(turn, recycled)], Array(8).fill(0));
+  } finally {
+    if (original) Object.defineProperty(Array.prototype, "-1", original);
+    else delete Array.prototype["-1"];
+    arena.endTurn(turn);
+    arena.retire();
+  }
 });
 
 test("persistent free-list coalescing ignores poisoned Array iterator", () => {
