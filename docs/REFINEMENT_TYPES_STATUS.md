@@ -12,7 +12,7 @@ Even after LLVM parsing exists, Wasm still needs its own runtime-boundary eviden
 
 ## Zorde opaque proof refusal (delegated to native LLVM)
 
-The delegated real-compiler harness also checks six Zorde `Valid<T,SchemaId>`
+The delegated real-compiler harness also checks seven Zorde `Valid<T,SchemaId>`
 negative inputs, including qualified, nested, bare and constructed references.
 Unlike a generic unsupported-language assertion, **each proof case requires
 the exact dedicated LLVM proof-security diagnostic** and rejects partial IR,
