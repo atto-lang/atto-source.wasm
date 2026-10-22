@@ -6,6 +6,31 @@ use std::{collections::BTreeSet, env, fs, path::{Path, PathBuf}};
 const EXPECTED_SHA256: &str = "0057fa040cd23857ee14b232472c5056a74e11c9528b8b06dbe348023d97106d";
 const RELATIVE_PATH: &str = "contracts/v1/serde_boundary_v1.json";
 
+fn exact_string_set(value: &Value, expected: &[&str]) -> bool {
+    let Some(array) = value.as_array() else { return false };
+    let Some(names) = array.iter().map(Value::as_str).collect::<Option<Vec<_>>>() else {
+        return false;
+    };
+    names.len() == expected.len()
+        && names.into_iter().collect::<BTreeSet<_>>()
+            == expected.iter().copied().collect::<BTreeSet<_>>()
+}
+
+const REQUIRED_INVARIANTS: [&str; 12] = [
+    "sendable_is_not_serializable",
+    "serializable_is_not_sendable",
+    "shared_safe_is_not_sendable",
+    "codec_objects_are_not_data",
+    "source_imports_and_generics_are_resolved_before_admission",
+    "incoming_bytes_never_select_type_or_codec",
+    "schema_hash_is_not_an_authentication_mac",
+    "receiver_pins_schema_before_first_send",
+    "failed_admission_does_not_consume_sender_ownership",
+    "partial_mailbox_admission_is_forbidden",
+    "capabilities_cannot_be_nested_in_data",
+    "unsupported_shapes_fail_closed",
+];
+
 fn check_semantics(doc: &Value) -> Result<(), &'static str> {
     if doc["contract"].as_str() != Some("oreslang.sendable-serializable.v1") {
         return Err("unsupported serde contract revision");
@@ -35,8 +60,29 @@ fn check_semantics(doc: &Value) -> Result<(), &'static str> {
         return Err("unknown, duplicate, or missing network format");
     }
     let invariants = doc["invariants"].as_object().ok_or("missing invariants")?;
-    if invariants.is_empty() || invariants.values().any(|v| v.as_bool() != Some(true)) {
-        return Err("all sealed ownership / codec / authority invariants required");
+    if invariants.len() != REQUIRED_INVARIANTS.len()
+        || REQUIRED_INVARIANTS.iter().any(|name| invariants.get(*name) != Some(&Value::Bool(true)))
+    {
+        return Err("all twelve named ownership / codec / authority invariants required");
+    }
+    if !exact_string_set(&boundaries["actor_data"]["requirements"], &[
+        "compiler_sealed_sendable", "resolved_nominal_type",
+        "receiver_pinned_codec_if_wire", "owned_snapshot_or_exclusive_move",
+        "quota_before_admission", "atomic_move_commit",
+    ]) || !exact_string_set(&boundaries["actor_data"]["forbid"], &[
+        "borrow", "raw_pointer", "mutable_alias", "actor_ref", "actor_group_permit",
+        "supervisor_control", "network_codec_object", "host_handle", "unproven_option_result",
+    ]) || !exact_string_set(&boundaries["network_data"]["requirements"], &[
+        "serializable_for_exact_format", "pinned_schema_and_version",
+        "bounded_encode_decode", "independent_io_permission", "owned_snapshot",
+    ]) || !exact_string_set(&boundaries["supervisor_control"]["requirements"], &[
+        "runtime_minted_authority", "target_and_incarnation_scoped",
+        "separate_control_lane", "revocation_or_replay_check",
+    ]) || !exact_string_set(&boundaries["supervisor_control"]["forbid"], &[
+        "actor_data_envelope", "network_data_codec", "userland_serializable",
+        "userland_sendable_authorization",
+    ]) {
+        return Err("missing, duplicate, or downgraded exact admission policy");
     }
     let profile = &doc["wire_profile"];
     if profile["messagepack_wire_major"].as_u64() != Some(2) {
@@ -57,6 +103,19 @@ fn check_semantics(doc: &Value) -> Result<(), &'static str> {
         ) {
             return Err("prohibited payload must reject");
         }
+    }
+    if !exact_string_set(&profile["portable_scalar_subset"], &[
+        "bool", "signed_i64", "finite_f64", "valid_utf8",
+    ]) || !exact_string_set(&profile["typed_collections"], &[
+        "tuple", "fixed_array", "fixed_list", "array", "list",
+    ]) || !exact_string_set(&profile["unsupported_without_verified_runtime_codec"], &[
+        "option", "result", "record", "enum", "class", "unsigned_integer",
+        "bigint", "decimal", "complex", "capability",
+    ]) || !exact_string_set(&profile["invalid_bytes_reject"], &[
+        "invalid_utf8", "noncanonical_numbers", "oversized_lengths",
+        "wrong_shape", "schema_mismatch", "wire_downgrade",
+    ]) {
+        return Err("unsupported wire capabilities or weakened decode rejection");
     }
     let verification = &doc["verification"];
     if verification["requires_executable_code_to_claim_implemented"].as_bool() != Some(true)
@@ -140,6 +199,31 @@ mod tests {
         assert!(check_semantics(&doc).is_err());
         doc["status"] = json!("normative_security_invariants_not_feature_support");
         doc["boundaries"]["supervisor_control"]["unimplemented_policy"] = json!("fallback_to_actor_data");
+        assert!(check_semantics(&doc).is_err());
+    }
+
+    #[test]
+    fn rejects_deleted_invariants_and_missing_forbidden_capabilities() {
+        let mut doc: Value = serde_json::from_slice(
+            include_bytes!("../../../contracts/v1/serde_boundary_v1.json")
+        ).unwrap();
+        doc["invariants"].as_object_mut().unwrap().remove(
+            "failed_admission_does_not_consume_sender_ownership"
+        );
+        assert!(check_semantics(&doc).is_err());
+        let mut doc: Value = serde_json::from_slice(
+            include_bytes!("../../../contracts/v1/serde_boundary_v1.json")
+        ).unwrap();
+        doc["boundaries"]["actor_data"]["forbid"].as_array_mut().unwrap().retain(
+            |v| v.as_str() != Some("actor_group_permit")
+        );
+        assert!(check_semantics(&doc).is_err());
+        let mut doc: Value = serde_json::from_slice(
+            include_bytes!("../../../contracts/v1/serde_boundary_v1.json")
+        ).unwrap();
+        doc["wire_profile"]["invalid_bytes_reject"].as_array_mut().unwrap().retain(
+            |v| v.as_str() != Some("wire_downgrade")
+        );
         assert!(check_semantics(&doc).is_err());
     }
 
