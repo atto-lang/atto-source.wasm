@@ -74,6 +74,23 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     const good = await readFile(output);
     assert.equal(new WebAssembly.Instance(new WebAssembly.Module(good)).exports.main(), 42n);
     const provenance = await readFile(output + '.provenance.json');
+    // Second independent canonical Java/LLVM scalar program; a guest which
+    // merely returns 42 cannot satisfy parenthesized precedence parity.
+    const precedenceSource = await readFile(
+      new URL('../contracts/v1/semantics/fixtures/precedence.ores', import.meta.url));
+    const blobHeader = Buffer.from(`blob ${precedenceSource.length}\0`);
+    assert.equal(createHash('sha1').update(blobHeader).update(precedenceSource).digest('hex'),
+      '2d09e697ad4eeac4ee263c3656b92998c67f0bfc',
+      'shared precedence source differs from canonical Java/LLVM Git blob');
+    await writeFile(source, precedenceSource);
+    const precedenceOutput = join(dir, 'precedence.wasm');
+    await compileOresToWasm({compiler, compilerSha256, source, output: precedenceOutput});
+    const precedenceModule = await readFile(precedenceOutput);
+    assert.equal(new WebAssembly.Instance(new WebAssembly.Module(precedenceModule)).exports.main(), 40n,
+      'actual Wasm guest must compute (2 + 3) * 8 = 40');
+    assert.deepEqual(await readFile(output), good, 'precedence compile replaced earlier add artifact');
+    assert.deepEqual(await readFile(output + '.provenance.json'), provenance,
+      'precedence compile replaced add provenance');
     const originalEntries = (await readdir(dir)).sort();
     assert.equal(Object.keys(cases).length, 46);
     for (const [name, program] of Object.entries(cases)) {
