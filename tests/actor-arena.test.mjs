@@ -487,6 +487,52 @@ test("external callback leases pin fixed-pool reuse after logical retirement", (
   arena.retire();
 });
 
+test("tracked external callbacks hold and deterministically release actor lifetime", () => {
+  const arena = new ActorArena({actorId: 77, incarnation: 1, kind: "shared"});
+  const turn = arena.beginTurn();
+  const tracked = arena.trackExternalCallback(turn, value => value + 1);
+  assert.equal(arena.outstandingExternalLeases, 1);
+  arena.endTurn(turn);
+  arena.retire();
+  assert.equal(arena.physicallyReclaimed, false,
+    "registered callback must pin fixed-pool pages after logical retirement");
+
+  assert.equal(tracked.fire(40), 41);
+  assert.equal(arena.outstandingExternalLeases, 0);
+  assert.equal(arena.physicallyReclaimed, true);
+  assert.throws(() => tracked.fire(41), /already fired or closed/);
+  tracked.close(); // idempotent lease cleanup retry after successful fire
+});
+
+test("throwing and abandoned tracked callbacks still release actor lifetime", () => {
+  const throwing = new ActorArena({actorId: 78, incarnation: 1});
+  const throwingTurn = throwing.beginTurn();
+  const trackedThrow = throwing.trackExternalCallback(throwingTurn, () => {
+    throw new Error("synthetic callback failure");
+  });
+  throwing.endTurn(throwingTurn);
+  throwing.retire();
+  assert.throws(() => trackedThrow.fire(), /synthetic callback failure/);
+  assert.equal(throwing.outstandingExternalLeases, 0);
+  assert.equal(throwing.physicallyReclaimed, true);
+  assert.throws(() => trackedThrow.fire(), /already fired or closed/);
+
+  const abandoned = new ActorArena({actorId: 79, incarnation: 1});
+  const abandonedTurn = abandoned.beginTurn();
+  const trackedAbandoned = abandoned.trackExternalCallback(
+    abandonedTurn, () => { throw new Error("must not run"); });
+  abandoned.endTurn(abandonedTurn);
+  abandoned.retire();
+  assert.equal(abandoned.outstandingExternalLeases, 1);
+  assert.equal(abandoned.physicallyReclaimed, false);
+
+  trackedAbandoned.close();
+  trackedAbandoned.close();
+  assert.equal(abandoned.outstandingExternalLeases, 0);
+  assert.equal(abandoned.physicallyReclaimed, true);
+  assert.throws(() => trackedAbandoned.fire(), /already fired or closed/);
+});
+
 test("retirement returns zeroed pages to the runtime pool without JS GC", () => {
   const before = actorArenaPoolStats();
   const first = new ActorArena({actorId: 70, incarnation: 1, kind: "private"});
@@ -640,6 +686,36 @@ test("persistent free-list coalescing ignores poisoned Array iterator", () => {
     assert.deepEqual([...arena.read(turn, recycled)], Array(8).fill(0));
   } finally {
     Object.defineProperty(Array.prototype, Symbol.iterator, original);
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});
+
+
+test("persistent churn never revives stale aliases or leaks recycled capacity", () => {
+  const arena = new ActorArena({actorId: 88701, incarnation: 1, kind: "private"});
+  const turn = arena.beginTurn();
+  try {
+    for (let round = 0; round < 512; ++round) {
+      const left = arena.allocPersistent(turn, 8);
+      const middle = arena.allocPersistent(turn, 16);
+      const right = arena.allocPersistent(turn, 8);
+      arena.write(turn, left, Uint8Array.of(1, 2, 3, 4, 5, 6, 7, 8));
+      arena.dropPersistent(turn, middle);
+      const recycled = arena.allocPersistent(turn, 16);
+      assert.deepEqual([...arena.read(turn, recycled)], Array(16).fill(0),
+        "freed middle extent leaked old bytes");
+      assert.throws(() => arena.read(turn, middle), /foreign|stale/,
+        "same-offset allocation resurrected old authority");
+      arena.dropPersistent(turn, left);
+      arena.dropPersistent(turn, recycled);
+      arena.dropPersistent(turn, right);
+      const coalesced = arena.allocPersistent(turn, 32);
+      assert.deepEqual([...arena.read(turn, coalesced)], Array(32).fill(0));
+      arena.dropPersistent(turn, coalesced);
+      assert.throws(() => arena.read(turn, left), /foreign|stale/);
+    }
+  } finally {
     arena.endTurn(turn);
     arena.retire();
   }

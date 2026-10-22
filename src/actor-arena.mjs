@@ -10,6 +10,7 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
 const safeInteger = Number.isSafeInteger;
 const nativeFreeze = Object.freeze;
+const reflectApply = Reflect.apply;
 const setHas = Set.prototype.has;
 // Use the intrinsic brand check, not instanceof: a cross-realm SAB can back
 // a local Uint8Array while failing instanceof SharedArrayBuffer.
@@ -213,32 +214,50 @@ export class ActorArena {
       throw new RangeError("actor arena handle quota exhausted");
     }
     let offset;
+    let freeIndex = -1;
     if (scratch) {
       if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
       offset = this.#base + PAGE + this.#scratchTop;
+    } else {
+      // Choose capacity without mutating the allocator. A failed JS handle
+      // allocation / WeakMap publication may not consume free-list capacity.
+      freeIndex = arrayFindIndex.call(this.#freePersistent,
+        segment => segment.length >= length);
+      if (freeIndex !== -1) {
+        offset = this.#freePersistent[freeIndex].offset;
+      } else {
+        if (length > PAGE - this.#persistentTop)
+          throw new RangeError("actor arena quota exhausted");
+        offset = this.#base + this.#persistentTop;
+      }
+    }
+
+    const handle = nativeFreeze({});
+    const slot = {offset, length};
+    // Every potentially allocating operation happens before allocator
+    // accounting commits. These bytes are not live in another actor.
+    typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
+    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
+    if (scratch) {
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
-      // First-fit over bounded free segments. Removed persistent handles cannot
-      // regain authority, even when their bytes are reused at the same offset.
-      const index = arrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
-      if (index !== -1) {
-        const segment = this.#freePersistent[index];
-        offset = segment.offset;
+      if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) arraySplice.call(this.#freePersistent, index, 1);
+        if (segment.length === 0) {
+          // Compact an already-dense private list in place. Array.splice
+          // creates an auxiliary result array and could throw after commit.
+          for (let i = freeIndex; i + 1 < this.#freePersistent.length; ++i)
+            this.#freePersistent[i] = this.#freePersistent[i + 1];
+          --this.#freePersistent.length;
+        }
       } else {
-        if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#base + this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
     }
-    const handle = nativeFreeze({});
-    const slot = {offset, length};
-    weakMapSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
-    typedArrayFill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
 
@@ -253,14 +272,52 @@ export class ActorArena {
     if (this.#externalLeases >= MAX_EXTERNAL_LEASES) {
       throw new RangeError("actor arena external lease quota exhausted");
     }
-    ++this.#externalLeases;
     let live = true;
     const arena = this;
-    return nativeFreeze({
+    const lease = nativeFreeze({
       close() {
         if (!live) return;
         arena.#releaseExternalLease();
         live = false;
+      }
+    });
+    // Object creation/freezing must succeed before publishing the pin count.
+    ++this.#externalLeases;
+    return lease;
+  }
+
+  // Register an external continuation/FFI/I/O callback while the actor
+  // turn is admitted. The returned object carries lifetime authority only.
+  // JavaScript has no deterministic finalizer contract, so an abandoned
+  // callback MUST be explicitly close()d; fire() closes in a finally block.
+  trackExternalCallback(turn, callback) {
+    if (typeof callback !== "function") {
+      throw new TypeError("external callback must be callable");
+    }
+    const lease = this.acquireExternalLease(turn);
+    let fired = false;
+    let disabled = false;
+    return nativeFreeze({
+      fire(...args) {
+        if (disabled || fired) {
+          throw new Error("actor external completion already fired or closed");
+        }
+        fired = true;
+        try {
+          return reflectApply(callback, undefined, args);
+        } finally {
+          // Logical callback ownership is terminal even if physical reclaim
+          // fails. close() remains callable to retry the lease release.
+          disabled = true;
+          lease.close();
+        }
+      },
+      close() {
+        // Cancellation/abandonment revokes callback execution immediately.
+        // Always retry the underlying close: its own live bit is cleared only
+        // after release/reclaim succeeds.
+        disabled = true;
+        lease.close();
       }
     });
   }
@@ -282,20 +339,27 @@ export class ActorArena {
     this.#requireTurn(turn);
     const entry = weakMapGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
-    weakMapDelete.call(this.#handles, handle);
-    --this.#persistentCount;
-    arrayPush.call(this.#freePersistent, {...entry});
-    arraySort.call(this.#freePersistent, (a, b) => a.offset - b.offset);
-    const coalesced = [];
-    // Do not use Array iteration protocols here: Array.prototype[Symbol.iterator]
-    // is mutable userland code and must never observe private free-list metadata.
+    // Build and coalesce replacement free-list metadata BEFORE consuming the
+    // live handle. An allocation/sort failure must not retire a slot while
+    // leaving its capacity permanently missing from the free list.
+    const prepared = [];
     for (let i = 0; i < this.#freePersistent.length; ++i) {
       const segment = this.#freePersistent[i];
+      arrayPush.call(prepared, {offset: segment.offset, length: segment.length});
+    }
+    arrayPush.call(prepared, {offset: entry.offset, length: entry.length});
+    arraySort.call(prepared, (a, b) => a.offset - b.offset);
+    const coalesced = [];
+    // Use intrinsic array operations and never leak authority via iterators.
+    for (let i = 0; i < prepared.length; ++i) {
+      const segment = prepared[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else arrayPush.call(coalesced, segment);
     }
+    typedArrayFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
+    weakMapDelete.call(this.#handles, handle);
+    --this.#persistentCount;
     this.#freePersistent = coalesced;
   }
 
