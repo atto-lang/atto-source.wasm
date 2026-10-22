@@ -81,6 +81,36 @@ test("numeric mixed-width ECS kernel operates on wasm arena bytes",()=>{
   assert.throws(()=>store.integrate(t,"id","vel",0.25),/distinct f64/);
   store.release(t);a.endTurn(t);a.retire();
 });
+test("malicious schema accessors fail closed before actor native memory allocation",()=>{
+  const a=new ActorArena({actorId:9450,incarnation:1,kind:"shared"});
+  const turn=a.beginTurn();
+  const hostile={type:"u32"};
+  Object.defineProperty(hostile,"name",{get(){
+    throw new Error("untrusted field accessor must not execute");
+  }});
+  assert.throws(()=>new ActorMixedShard(a,turn,{
+    fields:[hostile],rows:1,layout:"aos"
+  }),/own data/);
+  const group=[["id"]];
+  Object.defineProperty(group,0,{configurable:true,get(){
+    throw new Error("untrusted group accessor must not execute");
+  }});
+  assert.throws(()=>new ActorMixedShard(a,turn,{
+    fields:[{name:"id",type:"u32"}],rows:1,layout:"soaos",groups:group
+  }),/own data/);
+  const sparse=[];
+  sparse.length=1;
+  assert.throws(()=>new ActorMixedShard(a,turn,{
+    fields:sparse,rows:1,layout:"aos"
+  }),/own data/);
+  const good=new ActorMixedShard(a,turn,{
+    fields:[{name:"id",type:"u32"}],rows:2,layout:"soa"
+  });
+  good.write(turn,0,"id",42);
+  assert.equal(good.read(turn,0,"id"),42);
+  good.release(turn);a.endTurn(turn);a.retire();
+});
+
 test("invalid and oversized layouts reject before arena allocation",()=>{
   const a=new ActorArena({actorId:9400,incarnation:1,kind:"shared"});
   const t=a.beginTurn();
