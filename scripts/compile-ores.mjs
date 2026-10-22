@@ -90,6 +90,20 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
   }
  }
 }
+/**
+ * Structural match-arm patterns need typed metadata and readonly loan
+ * lowering; a scalar-only Wasm guest may never materialize them by accident.
+ * Reuses the bounded UTF-8 lexer so strings/comments are never evidence.
+ */
+export function rejectUnsupportedStructuralPatternSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i+1<tokens.length;i++){
+  if(tokens[i].id && tokens[i].text==="on" &&
+     tokens[i+1].id && tokens[i+1].text==="structural"){
+   throw Error("wasm structural pattern lowering unsupported at byte "+tokens[i+1].offset);
+  }
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -235,6 +249,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
+ rejectUnsupportedStructuralPatternSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
