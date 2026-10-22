@@ -62,3 +62,51 @@ The parent also validates the complete worker-reported admission envelope
 budget and zero capabilities) before returning a successful result. These
 checks prevent accidental success from inconsistent internal metadata but
 do not turn the Node Worker API into an OS-level security boundary.
+
+## Host actor arena: one memory address space per actor
+
+The experimental actor arena MUST NOT implement actor isolation by giving
+different actors slices of a single `WebAssembly.Memory`: a raw `i32.load`
+inside any guest with access to that memory can address other actors' slices.
+
+The arena uses a **distinct non-shared `WebAssembly.Memory` instance for
+each simultaneously live SHARED/PRIVATE/UNTRUSTED actor**, initially fixed to
+two 64-KiB pages (persistent and scratch). Every actor sees logical offsets
+relative to its own instance, not offsets within a process-global pool. A
+fixed-capacity runtime pool retains **entire** memory instances. After a
+retiring actor finishes its turn and bytes are scrubbed, its instance may be
+reissued to another actor without host GC or `Memory.grow`. Pooling is only
+of capacity, never concurrent address spaces. Fixed 2-page configurations
+cannot grow; a future variable-size allocator needs size-classed instances,
+explicit bounds and budget controls, and retirement pin checks. No resident
+physical page decommit is promised.
+
+The current `ActorArena` is **host-only**: it does not supply its memory
+object as a guest import, and it exposes no raw `Memory`, `ArrayBuffer`,
+underlying view, or reusable address base. Guest invocation remains the
+existing separate zero-import scalar profile with its own linear memory.
+Before hooking the arena up to real Oreslang actors, integration MUST:
+
+1. Bind exactly one guest module instance to its own independently isolated
+   linear memory (internal defined/exported memory or a verified single-actor
+   imported memory; do not accidentally give a module a shared pool memory).
+2. Join and drain all actor tasks, continuations, FFI pins, live module
+   instances, and aliased views before returning a memory instance to the
+   runtime pool. A merely dropped host handle or completed mailbox turn is
+   insufficient once guest instances exist.
+3. Issue unforgeable owner/incarnation and allocation-lifetime evidence.
+   A raw `u32` compressed offset is not a cross-actor capability.
+4. Reject cross-actor memory imports and prevent naked offsets in mailbox or
+   serialized payloads. Authenticated `ActorRef<T>` and copied/moved messages
+   are distinct authorities.
+5. Prove that an untrusted guest has no access to the JavaScript host-side
+   pool or any sibling memory; a Worker provides scheduling separation, not
+   OS-process isolation.
+
+A focused regression instruments actor Memory creation and instantiates real
+Wasm `i32.load8_u` code against each independently created instance. It
+demonstrates that equal local addresses resolve to different actors' values.
+The privileged test instrumentation is **not** an API exposed to guests;
+its synthetic guest instances must be discarded before testing retirement
+and memory reuse. The test does not establish end-to-end Oreslang source
+compiler lowering or guest instance quiescence.
