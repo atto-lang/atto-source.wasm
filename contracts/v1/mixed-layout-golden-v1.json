@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "scope": "runtime-host-mixed-layout-only",
+  "fields": [
+    {
+      "name": "id",
+      "type": "u32"
+    },
+    {
+      "name": "x",
+      "type": "f64"
+    },
+    {
+      "name": "flag",
+      "type": "bool"
+    },
+    {
+      "name": "next",
+      "type": "ref32"
+    }
+  ],
+  "rejectRows": [
+    0,
+    -1
+  ],
+  "layouts": [
+    {
+      "layout": "aos",
+      "rows": 3,
+      "payloadBytes": 72,
+      "byteLength": 72,
+      "offsets": [
+        [
+          0,
+          "id",
+          0
+        ],
+        [
+          0,
+          "x",
+          8
+        ],
+        [
+          0,
+          "flag",
+          16
+        ],
+        [
+          0,
+          "next",
+          20
+        ],
+        [
+          2,
+          "id",
+          48
+        ],
+        [
+          2,
+          "x",
+          56
+        ],
+        [
+          2,
+          "flag",
+          64
+        ],
+        [
+          2,
+          "next",
+          68
+        ]
+      ]
+    },
+    {
+      "layout": "soa",
+      "rows": 3,
+      "payloadBytes": 51,
+      "byteLength": 56,
+      "offsets": [
+        [
+          0,
+          "id",
+          0
+        ],
+        [
+          0,
+          "x",
+          16
+        ],
+        [
+          0,
+          "flag",
+          40
+        ],
+        [
+          0,
+          "next",
+          44
+        ],
+        [
+          2,
+          "id",
+          8
+        ],
+        [
+          2,
+          "x",
+          32
+        ],
+        [
+          2,
+          "flag",
+          42
+        ],
+        [
+          2,
+          "next",
+          52
+        ]
+      ]
+    },
+    {
+      "layout": "aosoa",
+      "rows": 5,
+      "tileWidth": 4,
+      "payloadBytes": 144,
+      "byteLength": 144,
+      "offsets": [
+        [
+          0,
+          "id",
+          0
+        ],
+        [
+          0,
+          "x",
+          16
+        ],
+        [
+          0,
+          "flag",
+          48
+        ],
+        [
+          0,
+          "next",
+          52
+        ],
+        [
+          3,
+          "id",
+          12
+        ],
+        [
+          3,
+          "x",
+          40
+        ],
+        [
+          3,
+          "flag",
+          51
+        ],
+        [
+          3,
+          "next",
+          64
+        ],
+        [
+          4,
+          "id",
+          72
+        ],
+        [
+          4,
+          "x",
+          88
+        ],
+        [
+          4,
+          "flag",
+          120
+        ],
+        [
+          4,
+          "next",
+          124
+        ]
+      ]
+    },
+    {
+      "layout": "soaos",
+      "rows": 3,
+      "groups": [
+        [
+          "id",
+          "flag"
+        ],
+        [
+          "x",
+          "next"
+        ]
+      ],
+      "payloadBytes": 72,
+      "byteLength": 72,
+      "offsets": [
+        [
+          0,
+          "id",
+          0
+        ],
+        [
+          0,
+          "x",
+          24
+        ],
+        [
+          0,
+          "flag",
+          4
+        ],
+        [
+          0,
+          "next",
+          32
+        ],
+        [
+          2,
+          "id",
+          16
+        ],
+        [
+          2,
+          "x",
+          56
+        ],
+        [
+          2,
+          "flag",
+          20
+        ],
+        [
+          2,
+          "next",
+          64
+        ]
+      ]
+    }
+  ]
+}
