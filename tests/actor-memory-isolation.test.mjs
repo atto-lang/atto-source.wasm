@@ -53,9 +53,9 @@ test("shared, private and untrusted actors lease independent Wasm memories", asy
 
   assert.equal(WebAssembly.validate(wasmByteReader), true);
   const reader = new WebAssembly.Module(wasmByteReader);
-  const readerA = new WebAssembly.Instance(reader, {env: {memory: created[0]}});
-  const readerB = new WebAssembly.Instance(reader, {env: {memory: created[1]}});
-  const readerC = new WebAssembly.Instance(reader, {env: {memory: created[2]}});
+  let readerA = new WebAssembly.Instance(reader, {env: {memory: created[0]}});
+  let readerB = new WebAssembly.Instance(reader, {env: {memory: created[1]}});
+  let readerC = new WebAssembly.Instance(reader, {env: {memory: created[2]}});
   assert.equal(readerA.exports.read(0), 11);
   assert.equal(readerB.exports.read(0), 22);
   assert.equal(readerC.exports.read(0), 33);
@@ -69,6 +69,13 @@ test("shared, private and untrusted actors lease independent Wasm memories", asy
   a.endTurn(ta);
   b.endTurn(tb);
   c.endTurn(tc);
+  // The production arena is HOST ONLY: this test alone injected memory into
+  // a Wasm module through a privileged constructor spy. A future real guest
+  // integration must join/terminate every guest before an arena can retire.
+  // Do not test or authorize using an old guest instance after pool reuse.
+  readerA = null;
+  readerB = null;
+  readerC = null;
   a.retire();
   assert.equal(new Uint8Array(created[0].buffer)[0], 0,
     "retirement must scrub before the memory can be reassigned");
@@ -78,11 +85,11 @@ test("shared, private and untrusted actors lease independent Wasm memories", asy
   const hr = reuse.allocPersistent(tr, 8);
   assert.equal(reuse.read(tr, hr)[0], 0);
   reuse.write(tr, hr, Uint8Array.of(44, 1, 1, 1, 1, 1, 1, 1));
-  assert.equal(readerA.exports.read(0), 44,
-    "privileged test view demonstrates the reused physical Memory");
-  // The other live actor memory objects are independent.
-  assert.equal(readerB.exports.read(0), 22);
-  assert.equal(readerC.exports.read(0), 33);
+  // Only trusted test instrumentation retains these original Memory objects.
+  // Never hand raw Memory/ArrayBuffer authority to a real guest across reuse.
+  assert.equal(new Uint8Array(created[0].buffer)[0], 44);
+  assert.equal(new Uint8Array(created[1].buffer)[0], 22);
+  assert.equal(new Uint8Array(created[2].buffer)[0], 33);
   assert.throws(() => a.beginTurn(), /retired/);
   assert.throws(() => reuse.read(tr, ha), /foreign or stale/);
   reuse.endTurn(tr);
