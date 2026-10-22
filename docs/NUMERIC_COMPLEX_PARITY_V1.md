@@ -25,7 +25,7 @@ This contract is an implementation target, not a declaration of runtime feature 
 ## Reference corpus and limitations
 
 `contracts/v1/numeric-complex/complex128-finite-reference-v1.json`
-holds thirteen cases for add/subtract/multiply/divide/conjugate and one
+holds sixteen cases for add/subtract/multiply/divide/conjugate and one
 complex row-major matrix multiplication. Operands are short decimal text
 first parsed as **IEEE binary64**. The source-free Python oracle then
 uses **exact rational arithmetic on those decoded binary64 values** and
@@ -79,7 +79,7 @@ explicitly says native/guest parity is **false**.
    only between two digits for INT/FLOAT/IMAG. Reject lossy implicit exact
    Decimal or BigInt conversions. Do not assume the proposed `Complex<T>`
    generic is available from the lowercase `complex` type.
-2. **Arithmetic:** execute all thirteen scalar vectors through the actual
+2. **Arithmetic:** execute all sixteen scalar vectors through the actual
    compiler/guest runtime, including wide-exponent divisions,
    subnormal imaginary components, signed cross terms and conjugation.
    For finite complex128 multiplication and division, the v1 target is the
@@ -205,7 +205,7 @@ execution.
 
 ## Frozen finite-reference input and issue identity admission
 
-The finite-complex128 oracle now pins all **13** scalar vector identities
+The finite-complex128 oracle now pins all **16** scalar vector identities
 to their exact operation and binary64 input decimal strings, and pins
 the `1×2 @ 2×1` complex matrix input planes. It also checks exact
 source-issue anchors for Java #120, #1033, and division issue #1042.
@@ -231,3 +231,23 @@ uploaded short-lived [artifact #12110614229](https://github.com/cliptown/cliptow
 Its checks were not copied from the private Oreslang source tree;
 **the actual source finite/IEEE oracle files and Oreslang native guest
 compilers have not been tested successfully by that host**.
+
+
+## Wasm complex128 scalar memory/wire foundation (2026-10-17)
+
+The Wasm host layer now has a bounded 16-byte scalar codec matching
+the proposed cross-backend `complex128-wire-v1` layout: real binary64 raw
+bits first, imaginary binary64 raw bits second, both little-endian. Finite
+values, infinities, subnormals and signed zero are preserved; all NaN forms
+canonicalize to positive quiet NaN `0x7ff8000000000000`, and the decoder
+rejects noncanonical NaN wire encodings.
+
+This does **not** claim Wasm complex arithmetic or actor DATA transport.
+`serde_boundary_v1.json` deliberately continues to list `complex` under
+`unsupported_without_verified_runtime_codec` until this scalar codec is
+integrated with a receiver-pinned schema, bounded MessagePack-v2 envelope and
+actual guest/compiler lowering. The current Wasm execution profile still
+requires a zero-import `() -> i64` entry. Complex multi-value ABI, source
+syntax, arithmetic, Matrix and actor serialization remain fail-closed.
+
+The integration retains both historical small-component case identities and the newer finite division cases; the finite reference corpus has 17 scalar cases. These host reference checks do not certify guest complex execution.
