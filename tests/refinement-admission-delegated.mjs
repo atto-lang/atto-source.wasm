@@ -27,6 +27,7 @@ const proofUnsupported={
   "proof-basic":"type Proof = Valid<int, UserSchema>;\nfnc main(): int { return 42; }\n",
   "proof-qualified":"type Proof = Zorde.Valid<int, UserSchema>;\nfnc main(): int { return 42; }\n",
   "proof-stdlib":"type Proof = std.zorde.Valid<int, UserSchema>;\nfnc main(): int { return 42; }\n",
+  "proof-attacker-namespace":"type Proof = adversarial.Valid<int, UserSchema>;\nfnc main(): int { return 42; }\n",
   "proof-nested":"type Proof = Option<Valid<int, UserSchema>>;\nfnc main(): int { return 42; }\n",
   "proof-bare":"type Proof = Valid;\nfnc main(): int { return 42; }\n",
   "proof-construction":"fnc main(): int { new Valid<int, UserSchema>(1); return 42; }\n"
