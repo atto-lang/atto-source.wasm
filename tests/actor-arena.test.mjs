@@ -3,6 +3,27 @@ import assert from "node:assert/strict";
 import {runInNewContext} from "node:vm";
 import {ActorArena} from "../src/actor-arena.mjs";
 
+test("rejected allocations cannot reserve unreachable persistent or scratch capacity", () => {
+  const arena = new ActorArena({actorId: 733, incarnation: 1});
+  const turn = arena.beginTurn();
+  const held = arena.allocPersistent(turn, 8);
+  arena.write(turn, held, Uint8Array.from([1, 2, 3, 4, 5, 6, 7, 8]));
+  arena.dropPersistent(turn, held);
+  // Failed size checks must not consume the reusable first-fit segment.
+  assert.throws(() => arena.allocPersistent(turn, 65537), /invalid arena/);
+  assert.throws(() => arena.allocScratch(turn, 0), /invalid arena/);
+  const reused = arena.allocPersistent(turn, 8);
+  assert.deepEqual([...arena.read(turn, reused)], Array(8).fill(0));
+  arena.write(turn, reused, Uint8Array.from([9, 8, 7, 6, 5, 4, 3, 2]));
+  const scratch = arena.allocScratch(turn, 65536);
+  assert.throws(() => arena.allocScratch(turn, 1), /quota exhausted/);
+  assert.equal(arena.read(turn, scratch).length, 65536);
+  assert.deepEqual([...arena.read(turn, reused)], [9, 8, 7, 6, 5, 4, 3, 2],
+    "denied scratch allocation cannot disturb persistent memory");
+  arena.endTurn(turn);
+  arena.retire();
+});
+
 test("shared actors get private arenas, not transferable heap handles", () => {
   const a = new ActorArena({actorId: 1, incarnation: 1, kind: "shared"});
   const b = new ActorArena({actorId: 2, incarnation: 1, kind: "shared"});
