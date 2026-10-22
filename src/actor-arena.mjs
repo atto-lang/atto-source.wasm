@@ -34,16 +34,19 @@ const typedArrayBuffer = Object.getOwnPropertyDescriptor(typedArrayPrototype, "b
 const typedArrayByteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get;
 const typedArrayTag = Object.getOwnPropertyDescriptor(
   typedArrayPrototype, Symbol.toStringTag).get;
-const sharedByteLength = typeof SharedArrayBuffer === "function"
-  ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype, "byteLength").get
-  : null;
+// A genuine non-shared ArrayBuffer passes this native internal-slot check
+// across realms. SharedArrayBuffer, including cross-realm SAB, never does.
+// Checking the *absence* of a native ArrayBuffer slot is safer than relying
+// on globalThis.SharedArrayBuffer being defined when this module is imported:
+// a hostile host/guest realm can mask that constructor before module init.
+const nativeArrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype, "byteLength").get;
 function isSharedBacking(buffer) {
-  if (sharedByteLength === null) return false;
   try {
-    sharedByteLength.call(buffer); // Native internal-slot check, including cross-realm SAB.
-    return true;
+    nativeArrayBufferByteLength.call(buffer);
+    return false;
   } catch (error) {
-    if (error instanceof NativeTypeError) return false;
+    if (error instanceof NativeTypeError) return true;
     throw error;
   }
 }
@@ -115,32 +118,51 @@ export class ActorArena {
       throw new RangeError("actor arena handle quota exhausted");
     }
     let offset;
+    let freeIndex = -1;
     if (scratch) {
-      if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
+      if (length > PAGE - this.#scratchTop)
+        throw new RangeError("actor arena quota exhausted");
       offset = PAGE + this.#scratchTop;
+    } else {
+      // PLAN an allocation without claiming bytes or consuming the
+      // free-list entry. A failed host handle allocation must leave all
+      // arena capacity reachable to a later authorized actor turn.
+      freeIndex = nativeArrayFindIndex.call(
+        this.#freePersistent, segment => segment.length >= length);
+      if (freeIndex !== -1) {
+        offset = this.#freePersistent[freeIndex].offset;
+      } else {
+        if (length > PAGE - this.#persistentTop)
+          throw new RangeError("actor arena quota exhausted");
+        offset = this.#persistentTop;
+      }
+    }
+
+    // No quota or free-list mutation before construction/registration of
+    // the opaque token. These steps may allocate and raise an exception.
+    const handle = nativeFreeze({});
+    const slot = {offset, length};
+    const bytes = this.#bytes();
+    nativeUint8Fill.call(bytes, 0, offset, offset + length);
+    nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
+
+    // COMMIT: only trusted native operations remain after publication;
+    // neither token metadata nor host-global prototype hooks are consulted.
+    if (scratch) {
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
-      // First-fit over bounded free segments. Removed persistent handles cannot
-      // regain authority, even when their bytes are reused at the same offset.
-      const index = nativeArrayFindIndex.call(this.#freePersistent, segment => segment.length >= length);
-      if (index !== -1) {
-        const segment = this.#freePersistent[index];
-        offset = segment.offset;
+      if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) nativeArraySplice.call(this.#freePersistent, index, 1);
+        if (segment.length === 0)
+          nativeArraySplice.call(this.#freePersistent, freeIndex, 1);
       } else {
-        if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
     }
-    const handle = nativeFreeze({});
-    const slot = {offset, length};
-    nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
-    nativeUint8Fill.call(this.#bytes(), 0, offset, offset + length);
     return handle;
   }
 

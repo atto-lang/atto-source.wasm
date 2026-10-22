@@ -235,7 +235,7 @@ compilers have not been tested successfully by that host**.
 
 ## Wasm complex128 scalar memory/wire foundation (2026-10-17)
 
-The Wasm host layer now has an allocation-free 16-byte scalar codec matching
+The Wasm host layer now has a bounded 16-byte scalar codec matching
 the proposed cross-backend `complex128-wire-v1` layout: real binary64 raw
 bits first, imaginary binary64 raw bits second, both little-endian. Finite
 values, infinities, subnormals and signed zero are preserved; all NaN forms
@@ -249,3 +249,5 @@ integrated with a receiver-pinned schema, bounded MessagePack-v2 envelope and
 actual guest/compiler lowering. The current Wasm execution profile still
 requires a zero-import `() -> i64` entry. Complex multi-value ABI, source
 syntax, arithmetic, Matrix and actor serialization remain fail-closed.
+
+The integration retains both historical small-component case identities and the newer finite division cases; the finite reference corpus has 17 scalar cases. These host reference checks do not certify guest complex execution.

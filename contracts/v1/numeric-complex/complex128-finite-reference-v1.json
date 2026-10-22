@@ -192,6 +192,50 @@
       ]
     },
     {
+      "id": "divide-subnormal-normalization-preserves-small-component",
+      "op": "divide",
+      "a": [
+        "1e300",
+        "1e-20"
+      ],
+      "b": [
+        "0",
+        "1"
+      ],
+      "expected_bits": [
+        "3bc79ca10c924223",
+        "fe37e43c8800759c"
+      ]
+    },
+    {
+      "id": "multiply-negative-signs",
+      "op": "multiply",
+      "a": [
+        "-2",
+        "3"
+      ],
+      "b": [
+        "4",
+        "-5"
+      ],
+      "expected_bits": [
+        "401c000000000000",
+        "4036000000000000"
+      ]
+    },
+    {
+      "id": "conjugate",
+      "op": "conjugate",
+      "a": [
+        "3",
+        "4"
+      ],
+      "expected_bits": [
+        "4008000000000000",
+        "c010000000000000"
+      ]
+    },
+    {
       "id": "divide-nonzero-near-cancellation",
       "op": "divide",
       "a": [
@@ -237,34 +281,6 @@
       "expected_bits": [
         "0000000000000000",
         "0000000000000000"
-      ]
-    },
-    {
-      "id": "multiply-negative-signs",
-      "op": "multiply",
-      "a": [
-        "-2",
-        "3"
-      ],
-      "b": [
-        "4",
-        "-5"
-      ],
-      "expected_bits": [
-        "401c000000000000",
-        "4036000000000000"
-      ]
-    },
-    {
-      "id": "conjugate",
-      "op": "conjugate",
-      "a": [
-        "3",
-        "4"
-      ],
-      "expected_bits": [
-        "4008000000000000",
-        "c010000000000000"
       ]
     }
   ],
