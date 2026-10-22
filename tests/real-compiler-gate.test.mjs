@@ -44,6 +44,24 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
   }
 });
 
+test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
+  const {assertTupleV2FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native positional tuple parameter requires verified readonly-slot and optional-tail lowering";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected + " at byte 9"
+  };
+  assert.equal(assertTupleV2FrontendRejection(diagnosed, expected), true);
+  assert.throws(() => assertTupleV2FrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token at byte 9"
+  }, expected), /required compiler-owned gate/);
+  assert.throws(() => assertTupleV2FrontendRejection({
+    ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
+  }, expected), /diagnosed error/);
+});
+
 test("real frontend diagnostics require whitespace, not a literal backslash-s", async () => {
   const {assertNativeFrontendRejection} = await import("../scripts/verify-real-compiler.mjs");
   assert.equal(assertNativeFrontendRejection({

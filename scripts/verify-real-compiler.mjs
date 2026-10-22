@@ -22,6 +22,12 @@ export function assertNativeFrontendRejection(frontend) {
   }
   return true;
 }
+export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -187,13 +193,48 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    const tupleV2Cases = [
+      {
+        name:"tuple-explicit",
+        source:"fnc take(tuple (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-shorthand",
+        source:"fnc take((int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-structural",
+        source:"fnc take(structural (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native structural positional tuple requires verified readonly-width and nonescape lowering"
+      },
+      {
+        name:"tuple-return",
+        source:"fnc take(): tuple (int,int) { return 1; }\n",
+        diagnostic:"native positional tuple return requires verified tuple ABI lowering"
+      }
+    ];
+    for (const tupleCase of tupleV2Cases) {
+      const tupleSource = join(work, tupleCase.name + ".ores");
+      await writeFile(tupleSource, tupleCase.source, {flag:"wx"});
+      const tupleFrontend = spawnSync(
+        pinnedCompiler, ["--target=wasm32", tupleSource],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertTupleV2FrontendRejection(tupleFrontend, tupleCase.diagnostic);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024,
+        "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during tuple-v2 rejection test");
+    }
+
     return Object.freeze({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults), negativeSourceRejected:true,
-      unsupportedPipelineRejected:true
+      unsupportedPipelineRejected:true, tupleV2Rejected:true
     });
   } catch (error) {
     primaryError = error;
