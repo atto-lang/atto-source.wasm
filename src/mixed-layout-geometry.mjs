@@ -1,5 +1,8 @@
 // Private mixed-width layout geometry. A scalar ref32 is an encoded word only,
  // not a dereference capability. No WebAssembly or JS guest compilation claimed.
+const NativeArray = Array;
+const NativeNumber = Number;
+const NativeBigInt = BigInt;
 const NativeMap = Map;
 const NativeSet = Set;
 const mapHas = Map.prototype.has;
@@ -48,30 +51,30 @@ class MixedLayoutGeometry {
       mapSet.call(map,name,declarations.length);
       arrayPush.call(declarations,desc);
     }
-    const locators=new Array(declarations.length),segments=[];
+    const locators=new NativeArray(declarations.length),segments=[];
     const shape=(members)=>{
       let cursor=0n,maxAlign=1n; const offsets=[];
       for(let k=0;k<members.length;k++){
-        const field=declarations[members[k]],a=BigInt(field.alignment);
+        const field=declarations[members[k]],a=NativeBigInt(field.alignment);
         cursor=align(cursor,a);arrayPush.call(offsets,cursor);
-        cursor+=BigInt(field.bytes);if(a>maxAlign)maxAlign=a;
+        cursor+=NativeBigInt(field.bytes);if(a>maxAlign)maxAlign=a;
       }
       return {stride:align(cursor,maxAlign),alignment:maxAlign,offsets};
     };
-    const count=BigInt(rows),idx=arrayMap.call(declarations,(_,i)=>i);
+    const count=NativeBigInt(rows),idx=arrayMap.call(declarations,(_,i)=>i);
     if(layout==="aos"){
       const sh=shape(idx);arrayPush.call(segments,{bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
       arrayForEach.call(idx,(i)=>locators[i]={segment:0,offset:sh.offsets[i],stride:sh.stride});
     } else if(layout==="soa"){
       arrayForEach.call(idx,(i)=>{const f=declarations[i]; const seg=segments.length;
-        arrayPush.call(segments,{bytes:BigInt(f.bytes)*count,alignment:BigInt(f.alignment),stride:BigInt(f.bytes)});
-        locators[i]={segment:seg,offset:0n,stride:BigInt(f.bytes)};
+        arrayPush.call(segments,{bytes:NativeBigInt(f.bytes)*count,alignment:NativeBigInt(f.alignment),stride:NativeBigInt(f.bytes)});
+        locators[i]={segment:seg,offset:0n,stride:NativeBigInt(f.bytes)};
       });
     } else if(layout==="aosoa"){
-      const tile=BigInt(tileWidth);let cursor=0n,maxAlign=1n;
-      arrayForEach.call(idx,i=>{const f=declarations[i],a=BigInt(f.alignment);
-        cursor=align(cursor,a);locators[i]={segment:0,offset:cursor,stride:BigInt(f.bytes)};
-        cursor+=BigInt(f.bytes)*tile;if(a>maxAlign)maxAlign=a;
+      const tile=NativeBigInt(tileWidth);let cursor=0n,maxAlign=1n;
+      arrayForEach.call(idx,i=>{const f=declarations[i],a=NativeBigInt(f.alignment);
+        cursor=align(cursor,a);locators[i]={segment:0,offset:cursor,stride:NativeBigInt(f.bytes)};
+        cursor+=NativeBigInt(f.bytes)*tile;if(a>maxAlign)maxAlign=a;
       });
       const stride=align(cursor,maxAlign);
       arrayPush.call(segments,{bytes:stride*((count+tile-1n)/tile),alignment:maxAlign,stride});
@@ -102,15 +105,16 @@ class MixedLayoutGeometry {
       if(used.size!==fields.length)throw new TypeError("SoAoS groups must partition fields");
     }
     let physical=0n,total=0n;
-    for(const seg of segments) {
+    for(let si=0;si<segments.length;si++) {
+      const seg=segments[si];
       physical=align(physical,seg.alignment);
       seg.base=physical;physical+=seg.bytes;total+=seg.bytes;
     }
-    if(physical>BigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
+    if(physical>NativeBigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
     this.#fields=nativeFreeze(declarations);this.#byName=map;
-    this.#segments=nativeFreeze(arrayMap.call(segments,seg=>nativeFreeze({bytes:Number(seg.bytes),alignment:Number(seg.alignment),stride:Number(seg.stride),base:Number(seg.base)})));
+    this.#segments=nativeFreeze(arrayMap.call(segments,seg=>nativeFreeze({bytes:NativeNumber(seg.bytes),alignment:NativeNumber(seg.alignment),stride:NativeNumber(seg.stride),base:NativeNumber(seg.base)})));
     this.#locators=nativeFreeze(arrayMap.call(locators,nativeFreeze));
-    this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=Number(physical);this.#totalBytes=Number(total);
+    this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=NativeNumber(physical);this.#totalBytes=NativeNumber(total);
   }
   get rows(){return this.#rows;} get layout(){return this.#layout;}
   get fields(){return this.#fields;} get segments(){return this.#segments;}
@@ -124,8 +128,8 @@ class MixedLayoutGeometry {
     if(!safeInteger(row)||row<0||row>=this.#rows||typeof field!=="string"||!mapHas.call(this.#byName,field))throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
     const byteOffset=this.#layout==="aosoa" ?
-      Number(BigInt(nativeFloor(row/this.#tileWidth))*BigInt(seg.stride)+loc.offset+BigInt(row%this.#tileWidth)*loc.stride):
-      Number(BigInt(row)*loc.stride+loc.offset);
+      NativeNumber(NativeBigInt(nativeFloor(row/this.#tileWidth))*NativeBigInt(seg.stride)+loc.offset+NativeBigInt(row%this.#tileWidth)*loc.stride):
+      NativeNumber(NativeBigInt(row)*loc.stride+loc.offset);
     const width=this.#fields[at].bytes;
     if(byteOffset<0||byteOffset+width>seg.bytes)throw new RangeError("mixed cell outside segment");
     return nativeFreeze({segment:loc.segment,byteOffset,absoluteByteOffset:seg.base+byteOffset,type:this.#fields[at].type});
