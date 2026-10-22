@@ -8,12 +8,9 @@ on:
       - scripts/verify_actor_arena_lifecycle_contract.py
       - scripts/test_actor_arena_lifecycle_contract.py
       - .github/workflows/actor-arena-lifecycle-contract.yml
+  # Check lifecycle policy on every PR, including runtime-only edits.
+  # Narrow paths previously allowed actor/runtime changes to skip this gate.
   pull_request:
-    paths:
-      - contracts/v1/actor_arena_lifecycle_v1.json
-      - scripts/verify_actor_arena_lifecycle_contract.py
-      - scripts/test_actor_arena_lifecycle_contract.py
-      - .github/workflows/actor-arena-lifecycle-contract.yml
 permissions:
   contents: read
 jobs:
@@ -21,15 +18,31 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: Checkout exact source head
+      - name: Checkout exact event source HEAD (not PR merge ref)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Pin exact shared lifecycle blobs
+      - name: Pin exact shared lifecycle blobs and source identity
         shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_REPOSITORY_ID: ${{ github.repository_id }}
+          PR_HEAD_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id }}
+          EXPECTED_EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          # A fork PR cannot claim that its Git commit was executed as the source repo.
+          if [[ "$EXPECTED_EVENT" == "pull_request" ]]; then
+            [[ "$PR_HEAD_REPOSITORY_ID" =~ ^[0-9]+$ ]]
+            test "$PR_HEAD_REPOSITORY_ID" = "$BASE_REPOSITORY_ID"
+          else
+            test "$EXPECTED_EVENT" = "push"
+          fi
+          [[ "$EXPECTED_SOURCE_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SOURCE_HEAD"
+          test -n "$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain --untracked-files=all)"
           test "$(git hash-object contracts/v1/actor_arena_lifecycle_v1.json)" = "b921f18d8be719957f2301ffd1881c23ecb85ea8"
           test "$(git ls-tree HEAD -- contracts/v1/actor_arena_lifecycle_v1.json | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:b921f18d8be719957f2301ffd1881c23ecb85ea8"
           test -f contracts/v1/actor_arena_lifecycle_v1.json && test ! -L contracts/v1/actor_arena_lifecycle_v1.json
@@ -39,13 +52,15 @@ jobs:
           test "$(git hash-object scripts/test_actor_arena_lifecycle_contract.py)" = "ee71af725c59707002520bffeda2dce4457e46d6"
           test "$(git ls-tree HEAD -- scripts/test_actor_arena_lifecycle_contract.py | awk '{print $1 ":" $2 ":" $3}')" = "100644:blob:ee71af725c59707002520bffeda2dce4457e46d6"
           test -f scripts/test_actor_arena_lifecycle_contract.py && test ! -L scripts/test_actor_arena_lifecycle_contract.py
-      - name: Execute lifecycle contract and 29 adversarial tests
+      - name: Execute lifecycle contract and 29 adversarial tests x3
         shell: bash
         run: |
           set -euo pipefail
-          python3 -I -m py_compile scripts/verify_actor_arena_lifecycle_contract.py scripts/test_actor_arena_lifecycle_contract.py
-          python3 -I - <<'PY'
+          python3 -I -X pycache_prefix="$RUNNER_TEMP/pycache" -m py_compile scripts/verify_actor_arena_lifecycle_contract.py scripts/test_actor_arena_lifecycle_contract.py
+          python3 -I -X pycache_prefix="$RUNNER_TEMP/pycache" - <<'PY'
           import importlib.util
+          import json
+          import os
           import sys
           import unittest
           from pathlib import Path
@@ -67,50 +82,115 @@ jobs:
           tests = importlib.util.module_from_spec(tspec)
           tspec.loader.exec_module(tests)
 
-          suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.ActorArenaLifecyclePolicyTest)
-          if suite.countTestCases() != 29:
-              raise SystemExit("lifecycle test count differs from exactly 29")
-          result = unittest.TextTestRunner(verbosity=2).run(suite)
-          if (result.testsRun != 29 or not result.wasSuccessful() or result.skipped
-                  or result.expectedFailures or result.unexpectedSuccesses):
-              raise SystemExit("lifecycle policy tests failed or incomplete")
+          round_counts = []
+          for round_id in (1, 2, 3):
+              suite = unittest.defaultTestLoader.loadTestsFromTestCase(tests.ActorArenaLifecyclePolicyTest)
+              if suite.countTestCases() != 29:
+                  raise SystemExit("lifecycle test count differs from exactly 29")
+              result = unittest.TextTestRunner(verbosity=2).run(suite)
+              if (result.testsRun != 29 or not result.wasSuccessful() or result.skipped
+                      or result.expectedFailures or result.unexpectedSuccesses):
+                  raise SystemExit("lifecycle policy tests failed or incomplete")
+              round_counts.append(result.testsRun)
+              print(f"ACTOR_ARENA_LIFECYCLE_SOURCE_HEAD_ROUND_{round_id}_PASS=29", flush=True)
+          if round_counts != [29, 29, 29]:
+              raise SystemExit("lifecycle regression rounds incomplete")
+          Path(os.environ["RUNNER_TEMP"], "actor-arena-lifecycle-round-counts.json").write_text(
+              json.dumps({"round_counts": round_counts, "executed_total": sum(round_counts)},
+                         sort_keys=True) + "\n", encoding="utf-8")
           PY
       - name: Emit non-certifying exact-head receipt
         shell: bash
+        env:
+          EXPECTED_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_REPOSITORY_ID: ${{ github.repository_id }}
+          SOURCE_REPOSITORY_ID: ${{ github.event.pull_request.head.repo.id || github.repository_id }}
         run: |
           set -euo pipefail
-          mkdir -p lifecycle-evidence
           python3 -I - <<'PY'
-          import json, os, subprocess
+          import json, os, re, subprocess
           from pathlib import Path
           def git(*args):
               return subprocess.check_output(["git", *args], text=True).strip()
+          if os.environ["SOURCE_REPOSITORY_ID"] != os.environ["BASE_REPOSITORY_ID"]:
+              raise SystemExit("untrusted cross-repository lifecycle receipt")
+          round_path = Path(os.environ["RUNNER_TEMP"], "actor-arena-lifecycle-round-counts.json")
+          counts = json.loads(round_path.read_text(encoding="utf-8"))
+          if counts != {"round_counts": [29, 29, 29], "executed_total": 87}:
+              raise SystemExit("lifecycle evidence count mismatch")
+          if git("rev-parse", "HEAD") != os.environ["EXPECTED_SOURCE_HEAD"]:
+              raise SystemExit("checked-out source head changed after policy tests")
+          blobs = {
+              "contracts/v1/actor_arena_lifecycle_v1.json": "b921f18d8be719957f2301ffd1881c23ecb85ea8",
+              "scripts/verify_actor_arena_lifecycle_contract.py": "26bca4b2e8511b4db204338b94fa400173bcea1a",
+              "scripts/test_actor_arena_lifecycle_contract.py": "ee71af725c59707002520bffeda2dce4457e46d6"
+          }
+          for path, sha in blobs.items():
+              expected_tree = f"100644 blob {sha}\t{path}"
+              if (git("hash-object", path) != sha
+                      or git("ls-tree", "HEAD", "--", path) != expected_tree
+                      or not Path(path).is_file() or Path(path).is_symlink()):
+                  raise SystemExit("lifecycle source-free blob/mode/symlink drift after tests")
+          workflow_path = ".github/workflows/actor-arena-lifecycle-contract.yml"
+          workflow_sha = git("rev-parse", f"HEAD:{workflow_path}")
+          # GitHub may execute the PR merge-ref workflow while checking out
+          # the PR source HEAD. Record both identities; never conflate them.
+          definition_sha = os.environ.get("GITHUB_WORKFLOW_SHA", "")
+          definition_ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
+          if (not re.fullmatch(r"[0-9a-f]{40}", definition_sha)
+                  or not definition_ref.startswith(
+                      os.environ["GITHUB_REPOSITORY"] + "/" + workflow_path + "@refs/")):
+              raise SystemExit("GitHub workflow definition identity unavailable")
+          if (git("hash-object", workflow_path) != workflow_sha
+                  or git("ls-tree", "HEAD", "--", workflow_path)
+                       != f"100644 blob {workflow_sha}\t{workflow_path}"
+                  or not Path(workflow_path).is_file()
+                  or Path(workflow_path).is_symlink()):
+              raise SystemExit("checked-out PR HEAD workflow file drift")
+          import subprocess as process
+          if process.check_output(
+                  ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+                  text=True).strip():
+              raise SystemExit("lifecycle proof worktree became dirty")
           report = {
             "schema": "oreslang.actor_arena_lifecycle_source_head_v1",
             "classification": "POLICY_ONLY_NOT_NATIVE_OR_GUEST_CERTIFICATION",
             "repository": os.environ["GITHUB_REPOSITORY"],
+            "repository_id": int(os.environ["BASE_REPOSITORY_ID"]),
+            "source_repository_id": int(os.environ["SOURCE_REPOSITORY_ID"]),
             "head_sha": git("rev-parse", "HEAD"),
             "head_tree": git("rev-parse", "HEAD^{tree}"),
+            "trigger_sha": os.environ["GITHUB_SHA"],
+            "trigger_event": os.environ["GITHUB_EVENT_NAME"],
             "run_id": int(os.environ["GITHUB_RUN_ID"]),
             "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "workflow_path": workflow_path,
+            "source_head_workflow_blob_sha": workflow_sha,
+            "github_execution_workflow_ref": definition_ref,
+            "github_execution_workflow_commit_sha": definition_sha,
+            "github_workflow_equivalence_certified": False,
             "source_free_blobs": {
               "contracts/v1/actor_arena_lifecycle_v1.json": "b921f18d8be719957f2301ffd1881c23ecb85ea8",
               "scripts/verify_actor_arena_lifecycle_contract.py": "26bca4b2e8511b4db204338b94fa400173bcea1a",
               "scripts/test_actor_arena_lifecycle_contract.py": "ee71af725c59707002520bffeda2dce4457e46d6"
             },
-            "policy_tests_executed": 29,
+            "round_counts": counts["round_counts"],
+            "policy_tests_executed": counts["executed_total"],
+            "source_free_only": True,
+            "native_backend_certified": False,
+            "private_source_export_authorized": False,
             "native_runtime_certified": False,
             "guest_runtime_certified": False,
             "physical_reclamation_certified": False
           }
-          Path("lifecycle-evidence/actor-arena-lifecycle-source-head.json").write_text(
+          Path(os.environ["RUNNER_TEMP"], "actor-arena-lifecycle-source-head.json").write_text(
               json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
           PY
       - name: Upload lifecycle policy evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: actor-arena-lifecycle-source-head
-          path: lifecycle-evidence/actor-arena-lifecycle-source-head.json
+          path: ${{ runner.temp }}/actor-arena-lifecycle-source-head.json
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
