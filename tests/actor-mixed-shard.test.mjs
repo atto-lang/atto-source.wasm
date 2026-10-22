@@ -1,4 +1,5 @@
 import test from "node:test";
+import {MixedLayoutGeometry} from "../src/mixed-layout-geometry.mjs";
 import assert from "node:assert/strict";
 import {ActorArena} from "../src/actor-arena.mjs";
 import {ActorMixedShard} from "../src/actor-mixed-shard.mjs";
@@ -96,4 +97,30 @@ test("invalid and oversized layouts reject before arena allocation",()=>{
   stillWorks.write(t,0,"id",42);
   assert.equal(stillWorks.read(t,0,"id"),42);
   stillWorks.release(t);a.endTurn(t);a.retire();
+});
+
+test("arena mixed shard hot loop never creates diagnostic address records",()=>{
+  const original=MixedLayoutGeometry.prototype.address;
+  const arena=new ActorArena({actorId:9501,incarnation:1,kind:"shared"});
+  const turn=arena.beginTurn();
+  const fields=[{name:"p",type:"f64"},{name:"v",type:"f64"}];
+  const shard=new ActorMixedShard(arena,turn,{fields,rows:9,layout:"aosoa",tileWidth:4});
+  for(let i=0;i<9;i++){
+    shard.write(turn,i,"p",i);
+    shard.write(turn,i,"v",i+0.5);
+  }
+  try{
+    MixedLayoutGeometry.prototype.address=()=>{
+      throw new Error("per-cell frozen address allocation");
+    };
+    shard.integrate(turn,"p","v",0.25);
+    for(let i=0;i<9;i++)
+      assert.equal(shard.read(turn,i,"p"),i+(i+0.5)*0.25);
+    assert.throws(()=>shard.read(turn,9,"p"),/bounds/);
+  }finally{
+    MixedLayoutGeometry.prototype.address=original;
+    shard.release(turn);
+    arena.endTurn(turn);
+    arena.retire();
+  }
 });
