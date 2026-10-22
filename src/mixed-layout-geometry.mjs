@@ -10,6 +10,10 @@ const setAdd = Set.prototype.add;
 const arrayMap = Array.prototype.map;
 const arrayForEach = Array.prototype.forEach;
 const arrayIncludes = Array.prototype.includes;
+const arrayPush = Array.prototype.push;
+const ownDescriptor = Object.getOwnPropertyDescriptor;
+const nativeFreeze = Object.freeze;
+const nativeFloor = Math.floor;
 const isArray = Array.isArray;
 const safeInteger = Number.isSafeInteger;
 const hasOwn = Object.hasOwn;
@@ -27,29 +31,40 @@ class MixedLayoutGeometry {
     } else if (tileWidth!==undefined) throw new TypeError("tileWidth belongs only to AoSoA");
     if (layout!=="soaos" && groups!==undefined) throw new TypeError("groups belong only to SoAoS");
     const declarations=[]; const map=new NativeMap();
-    for(const field of fields) {
-      if (!field||typeof field.name!=="string"||!/^[$A-Za-z_][$\w]*$/.test(field.name)||
-          mapHas.call(map,field.name)||typeof field.type!=="string"||!hasOwn(TYPES,field.type)) {
+    for(let i=0;i<fields.length;i++){
+      const slot=ownDescriptor(fields,String(i));
+      if(!slot || !hasOwn(slot,"value") || !slot.value)
+        throw new TypeError("mixed field array must contain own data entries");
+      const field=slot.value;
+      const nameSlot=ownDescriptor(field,"name");
+      const typeSlot=ownDescriptor(field,"type");
+      if(!nameSlot || !typeSlot || !hasOwn(nameSlot,"value") || !hasOwn(typeSlot,"value"))
+        throw new TypeError("mixed field name/type must be own data values");
+      const name=nameSlot.value,type=typeSlot.value;
+      if(typeof name!=="string" || !/^[$A-Za-z_][$\w]*$/.test(name) ||
+         mapHas.call(map,name) || typeof type!=="string" || !hasOwn(TYPES,type))
         throw new TypeError("invalid or repeated mixed field");
-      }
-      const desc=Object.freeze({name:field.name,type:field.type,bytes:TYPES[field.type].bytes,alignment:TYPES[field.type].alignment});
-      mapSet.call(map,desc.name,declarations.length);declarations.push(desc);
+      const desc=nativeFreeze({name,type,bytes:TYPES[type].bytes,alignment:TYPES[type].alignment});
+      mapSet.call(map,name,declarations.length);
+      arrayPush.call(declarations,desc);
     }
     const locators=new Array(declarations.length),segments=[];
     const shape=(members)=>{
       let cursor=0n,maxAlign=1n; const offsets=[];
-      for(const index of members){const field=declarations[index];const a=BigInt(field.alignment);
-        cursor=align(cursor,a);offsets.push(cursor);cursor+=BigInt(field.bytes);if(a>maxAlign)maxAlign=a;
+      for(let k=0;k<members.length;k++){
+        const field=declarations[members[k]],a=BigInt(field.alignment);
+        cursor=align(cursor,a);arrayPush.call(offsets,cursor);
+        cursor+=BigInt(field.bytes);if(a>maxAlign)maxAlign=a;
       }
       return {stride:align(cursor,maxAlign),alignment:maxAlign,offsets};
     };
     const count=BigInt(rows),idx=arrayMap.call(declarations,(_,i)=>i);
     if(layout==="aos"){
-      const sh=shape(idx);segments.push({bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
+      const sh=shape(idx);arrayPush.call(segments,{bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
       arrayForEach.call(idx,(i)=>locators[i]={segment:0,offset:sh.offsets[i],stride:sh.stride});
     } else if(layout==="soa"){
       arrayForEach.call(idx,(i)=>{const f=declarations[i]; const seg=segments.length;
-        segments.push({bytes:BigInt(f.bytes)*count,alignment:BigInt(f.alignment),stride:BigInt(f.bytes)});
+        arrayPush.call(segments,{bytes:BigInt(f.bytes)*count,alignment:BigInt(f.alignment),stride:BigInt(f.bytes)});
         locators[i]={segment:seg,offset:0n,stride:BigInt(f.bytes)};
       });
     } else if(layout==="aosoa"){
@@ -59,19 +74,30 @@ class MixedLayoutGeometry {
         cursor+=BigInt(f.bytes)*tile;if(a>maxAlign)maxAlign=a;
       });
       const stride=align(cursor,maxAlign);
-      segments.push({bytes:stride*((count+tile-1n)/tile),alignment:maxAlign,stride});
+      arrayPush.call(segments,{bytes:stride*((count+tile-1n)/tile),alignment:maxAlign,stride});
     } else {
       if(!isArray(groups)||groups.length===0||groups.length>fields.length) throw new TypeError("SoAoS requires explicit groups");
       const used=new NativeSet();
-      for(const group of groups) {
-        if(!isArray(group)||group.length===0) throw new TypeError("SoAoS empty group");
+      for(let gi=0;gi<groups.length;gi++) {
+        const groupEntry=ownDescriptor(groups,String(gi));
+        if(!groupEntry || !hasOwn(groupEntry,"value") || !isArray(groupEntry.value))
+          throw new TypeError("SoAoS requires own data group entries");
+        const group=groupEntry.value;
+        if(group.length===0)throw new TypeError("SoAoS empty group");
         const members=[];
-        for(const name of group){if(typeof name!=="string"||!mapHas.call(map,name)||setHas.call(used,name))throw new TypeError("SoAoS groups must partition fields");
-          setAdd.call(used,name); members.push(mapGet.call(map,name));
+        for(let j=0;j<group.length;j++){
+          const nameEntry=ownDescriptor(group,String(j));
+          if(!nameEntry || !hasOwn(nameEntry,"value"))
+            throw new TypeError("SoAoS field names must be own data entries");
+          const name=nameEntry.value;
+          if(typeof name!=="string"||!mapHas.call(map,name)||setHas.call(used,name))
+            throw new TypeError("SoAoS groups must partition fields");
+          setAdd.call(used,name);
+          arrayPush.call(members,mapGet.call(map,name));
         }
         const sh=shape(members),seg=segments.length;
-        segments.push({bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
-        members.forEach((index,i)=>locators[index]={segment:seg,offset:sh.offsets[i],stride:sh.stride});
+        arrayPush.call(segments,{bytes:sh.stride*count,alignment:sh.alignment,stride:sh.stride});
+        arrayForEach.call(members,(index,i)=>locators[index]={segment:seg,offset:sh.offsets[i],stride:sh.stride});
       }
       if(used.size!==fields.length)throw new TypeError("SoAoS groups must partition fields");
     }
@@ -81,9 +107,9 @@ class MixedLayoutGeometry {
       seg.base=physical;physical+=seg.bytes;total+=seg.bytes;
     }
     if(physical>BigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
-    this.#fields=Object.freeze(declarations);this.#byName=map;
-    this.#segments=Object.freeze(arrayMap.call(segments,seg=>Object.freeze({bytes:Number(seg.bytes),alignment:Number(seg.alignment),stride:Number(seg.stride),base:Number(seg.base)})));
-    this.#locators=Object.freeze(arrayMap.call(locators,Object.freeze));
+    this.#fields=nativeFreeze(declarations);this.#byName=map;
+    this.#segments=nativeFreeze(arrayMap.call(segments,seg=>nativeFreeze({bytes:Number(seg.bytes),alignment:Number(seg.alignment),stride:Number(seg.stride),base:Number(seg.base)})));
+    this.#locators=nativeFreeze(arrayMap.call(locators,nativeFreeze));
     this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=Number(physical);this.#totalBytes=Number(total);
   }
   get rows(){return this.#rows;} get layout(){return this.#layout;}
@@ -98,11 +124,11 @@ class MixedLayoutGeometry {
     if(!safeInteger(row)||row<0||row>=this.#rows||typeof field!=="string"||!mapHas.call(this.#byName,field))throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
     const byteOffset=this.#layout==="aosoa" ?
-      Number(BigInt(Math.floor(row/this.#tileWidth))*BigInt(seg.stride)+loc.offset+BigInt(row%this.#tileWidth)*loc.stride):
+      Number(BigInt(nativeFloor(row/this.#tileWidth))*BigInt(seg.stride)+loc.offset+BigInt(row%this.#tileWidth)*loc.stride):
       Number(BigInt(row)*loc.stride+loc.offset);
     const width=this.#fields[at].bytes;
     if(byteOffset<0||byteOffset+width>seg.bytes)throw new RangeError("mixed cell outside segment");
-    return Object.freeze({segment:loc.segment,byteOffset,absoluteByteOffset:seg.base+byteOffset,type:this.#fields[at].type});
+    return nativeFreeze({segment:loc.segment,byteOffset,absoluteByteOffset:seg.base+byteOffset,type:this.#fields[at].type});
   }
 }
 export {MixedLayoutGeometry};
