@@ -323,6 +323,51 @@ export class ActorArena {
     typedArraySet.call(this.#bytes(), data, offset);
   }
 
+  #checkedRelativeOffset(entry, relativeOffset, length) {
+    if (!safeInteger(relativeOffset) || relativeOffset < 0 ||
+        !safeInteger(length) || length <= 0 ||
+        relativeOffset > entry.length || length > entry.length - relativeOffset) {
+      throw new RangeError("actor arena relative access outside allocation");
+    }
+    return entry.offset + relativeOffset;
+  }
+
+  /**
+   * Copy a subrange into caller-owned bytes without exposing a live view of
+   * WebAssembly.Memory. SharedArrayBuffer destinations are rejected so an
+   * unrelated Worker cannot observe actor-private bytes during the copy.
+   */
+  readRangeInto(turn, handle, relativeOffset, destination) {
+    const entry = this.#slot(turn, handle);
+    if (typedArrayTag.call(destination) !== "Uint8Array") {
+      throw new TypeError("arena range read requires Uint8Array destination");
+    }
+    const length = typedArrayByteLength.call(destination);
+    if (isSharedBacking(typedArrayBuffer.call(destination))) {
+      throw new TypeError("arena range read rejects shared backing memory");
+    }
+    const absolute = this.#checkedRelativeOffset(entry, relativeOffset, length);
+    const source = this.#bytes();
+    for (let i = 0; i < length; ++i) destination[i] = source[absolute + i];
+  }
+
+  /**
+   * Copy exact bytes into a checked subrange. Input must be a genuine,
+   * non-shared Uint8Array; no live arena view escapes.
+   */
+  writeRange(turn, handle, relativeOffset, data) {
+    const entry = this.#slot(turn, handle);
+    if (typedArrayTag.call(data) !== "Uint8Array") {
+      throw new TypeError("arena range write requires Uint8Array");
+    }
+    const length = typedArrayByteLength.call(data);
+    if (isSharedBacking(typedArrayBuffer.call(data))) {
+      throw new TypeError("arena range write rejects shared backing memory");
+    }
+    const absolute = this.#checkedRelativeOffset(entry, relativeOffset, length);
+    typedArraySet.call(this.#bytes(), data, absolute);
+  }
+
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
