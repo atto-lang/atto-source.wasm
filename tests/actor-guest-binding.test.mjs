@@ -112,9 +112,12 @@ test("guest admission rejects callbacks, memory exports, start or extra memories
   a.retire();
 });
 
-test("constructor and export introspection cannot be hijacked after module load", () => {
-  const memoryClass = WebAssembly.Instance;
+test("constructor and guest exports cannot be hijacked by mutable intrinsics", () => {
+  const instanceClass = WebAssembly.Instance;
   const imports = WebAssembly.Module.imports;
+  const exportsGetter =
+    Object.getOwnPropertyDescriptor(WebAssembly.Instance.prototype, "exports");
+  const arraySome = Object.getOwnPropertyDescriptor(Array.prototype, "some");
   let hijacks = 0;
   try {
     WebAssembly.Instance = function Spy() { ++hijacks; throw Error("hijacked ctor"); };
@@ -122,14 +125,23 @@ test("constructor and export introspection cannot be hijacked after module load"
       ++hijacks;
       throw Error("hijacked imports");
     };
+    Object.defineProperty(instanceClass.prototype, "exports", {
+      configurable: true, get() { ++hijacks; throw Error("hijacked exports"); }
+    });
+    Object.defineProperty(Array.prototype, "some", {
+      configurable: true, writable: true,
+      value() { ++hijacks; throw Error("hijacked Array.some"); }
+    });
     const a = makeActor(814, 41);
     assert.equal(a.arena.invokeGuest(a.turn, a.guest, "read", 0), 41);
     a.arena.endTurn(a.turn);
     a.arena.detachGuest(a.guest);
     a.arena.retire();
   } finally {
-    WebAssembly.Instance = memoryClass;
+    WebAssembly.Instance = instanceClass;
     WebAssembly.Module.imports = imports;
+    Object.defineProperty(instanceClass.prototype, "exports", exportsGetter);
+    Object.defineProperty(Array.prototype, "some", arraySome);
   }
   assert.equal(hijacks, 0);
 });
