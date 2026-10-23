@@ -156,6 +156,7 @@ export class ActorArena {
   // associated operation has fully quiesced.
   #lifetimePins = new NativeWeakMap();
   #lifetimePinCount = 0;
+  #retirementRequested = false;
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -177,6 +178,7 @@ export class ActorArena {
   get actorId() { return this.#actor; }
   get incarnation() { return this.#incarnation; }
   get retired() { return this.#closed; }
+  get retirementRequested() { return this.#retirementRequested; }
 
   #bytes() {
     if (this.#closed || this.#memory === null) throw new Error("actor arena retired");
@@ -192,6 +194,8 @@ export class ActorArena {
 
   beginTurn() {
     this.#bytes();
+    if (this.#retirementRequested)
+      throw new Error("actor retirement requested; no new turns");
     if (this.#turn !== null) throw new Error("actor already admitted");
     const turn = nativeFreeze({});
     this.#turn = turn;
@@ -257,6 +261,8 @@ export class ActorArena {
   // instance has completely stopped. A pin survives mailbox turn changes.
   pinLifetime(turn) {
     this.#requireTurn(turn);
+    if (this.#retirementRequested)
+      throw new Error("actor retirement requested; no new lifetime pins");
     if (this.#lifetimePinCount >= MAX_HANDLES)
       throw new RangeError("actor lifetime pin quota exhausted");
     const pin = nativeFreeze({});
@@ -329,6 +335,13 @@ export class ActorArena {
     typedArraySet.call(this.#bytes(), data, offset);
   }
 
+  // CONTROL may close admission while the last turn is still running.
+  // Its completion and outstanding lifetime releases must remain possible.
+  requestRetirement() {
+    this.#bytes();
+    this.#retirementRequested = true;
+  }
+
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
@@ -336,6 +349,7 @@ export class ActorArena {
       throw new Error("outstanding actor lifetime pins block retirement");
     // Only after an inactive actor has quiesced may its memory instance be
     // scrubbed and reissued. Failed retirement preserves ownership to retry.
+    this.#retirementRequested = true;
     releaseArenaMemory(this.#memory);
     this.#closed = true;
     this.#memory = null;
