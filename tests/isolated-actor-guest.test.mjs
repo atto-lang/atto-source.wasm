@@ -146,3 +146,23 @@ test("cancellation wins after a valid worker reply but before physical exit", as
     Worker.prototype.terminate = nativeTerminate;
   }
 });
+
+test("bounded worker admission rejects the fifth guest and restores quota only after exits", async () => {
+  const active = [];
+  for (let i = 0; i < 4; ++i) {
+    active.push(runIsolatedActorGuest(spin, {
+      expectedSha256: sha(spin), actorId: 930 + i,
+      incarnation: 1, exportName: "read", timeoutMs: 500
+    }));
+  }
+  assert.equal(isolatedActorWorkerStats().active, 4);
+  await assert.rejects(runIsolatedActorGuest(spin, {
+    expectedSha256: sha(spin), actorId: 934,
+    incarnation: 1, exportName: "read", timeoutMs: 500
+  }), /worker quota exceeded/);
+  assert.equal(isolatedActorWorkerStats().active, 4);
+  for (const operation of active)
+    await assert.rejects(operation, /deadline exceeded/);
+  assert.equal(isolatedActorWorkerStats().active, 0,
+    "all four worker exit receipts must retire before quota is reusable");
+});
