@@ -185,6 +185,31 @@ FFI, or source-level guest actor capabilities are introduced, CONTROL MUST
 prove every external instance and pin quiesced, or disable memory pooling
 for guest-bound heaps. Process/Worker isolation remains a separate gate.
 
+### Guest-exposed memory quarantine (October 2026)
+
+**A detached WebAssembly.Instance cannot be proven unreachable by JavaScript.**
+Even if the trusted host removes an opaque guest-binding handle, V8/host
+callbacks might still retain a native instance or a view of its imported
+linear memory. Scrubbing on retire does NOT revoke these native aliases.
+
+The arena therefore permanently **quarantines** any Memory which has ever
+been passed to native `WebAssembly.Instance`, including if instantiation
+fails. Such a Memory is scrubbed once on retirement but is NEVER returned to
+the free-instance stack. `actorArenaPoolStats().quarantinedArenas` tracks
+these exhausted instance slots; the fixed allocation budget remains charged
+against 2048 slots even if the JS engine eventually garbage-collects the
+memory. This is deliberately fail-closed: repeated trusted direct guest
+bindings can exhaust capacity and require runtime restart or a future
+verified guest isolation/termination strategy. `committedPages` is a
+**conservative historical capacity charge**, not a measurement of physical
+resident pages once quarantine begins.
+
+Isolated worker guests never receive the host ActorArena's memory. They
+receive a copied state snapshot and allocate an independently owned memory
+inside the disposable worker. Therefore worker-only host arenas remain
+eligible for normal scrubbed whole-instance recycling **after a physical
+worker-exit receipt and release of all actor lifetime pins**.
+
 ### Guest-execution authority and physical termination (October 2026)
 
 Direct synchronous `attachGuest(turn, wasmBytes, executionPermit)` requires
