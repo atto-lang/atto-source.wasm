@@ -58,8 +58,11 @@ export function compileActorMemoryGuest(input) {
     throw new Error("actor guest requires exactly one env.memory import");
   }
   const exports = moduleExports.call(NativeModule, module);
-  if (!exports.length || exports.some(e => e.kind !== "function")) {
-    throw new Error("actor guest may export only functions, never memory");
+  if (!exports.length)
+    throw new Error("actor guest requires a function export");
+  for (let i = 0; i < exports.length; ++i) {
+    if (exports[i].kind !== "function")
+      throw new Error("actor guest may export only functions, never memory");
   }
   // Native Wasm instantiation additionally rejects incompatible memory types
   // (shared, memory64, too many required pages, etc.).
