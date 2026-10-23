@@ -81,11 +81,24 @@ cannot grow; a future variable-size allocator needs size-classed instances,
 explicit bounds and budget controls, and retirement pin checks. No resident
 physical page decommit is promised.
 
-The current `ActorArena` is **host-only**: it does not supply its memory
-object as a guest import, and it exposes no raw `Memory`, `ArrayBuffer`,
-underlying view, or reusable address base. Guest invocation remains the
-existing separate zero-import scalar profile with its own linear memory.
-Before hooking the arena up to real Oreslang actors, integration MUST:
+The current `ActorArena` now supports a **restricted synchronous Wasm
+guest binding** through `attachGuest(turn, wasmBytes)`,
+`invokeGuest(turn, binding, exportName, ...scalarArgs)`, and
+`detachGuest(binding)`. The guest module imports exactly
+`env.memory` from that actor's independent heap; it cannot import any
+host callbacks, export the memory, define another memory, or declare
+start/table/element/tag sections. The host neither exports the
+`WebAssembly.Instance` nor exposes the `Memory`, `ArrayBuffer`, or a
+reusable address base. Every binding holds an arena-lifetime pin; detaching
+after all *synchronous* calls end releases the pin, including after CONTROL
+closes admission. Late calls or stale/foreign bindings fail closed.
+
+This narrowly verified, synchronous Node/Wasm bridge is NOT yet
+source-level Oreslang `define actor` execution, an async guest runtime or
+a browser/Wasmtime ABI. The older, zero-import scalar profile remains
+separate and unchanged.
+
+Before connecting real Oreslang actor scheduling or continuations, integration MUST:
 
 1. Bind exactly one guest module instance to its own independently isolated
    linear memory (internal defined/exported memory or a verified single-actor
@@ -141,3 +154,23 @@ simultaneous distinct actor memories, cross-domain/stale access denial,
 permit forgery/double-release/foreign release/turn transfer. The replay
 regressions exercise a host-only boundary and do not constitute a full
 Oreslang compiler/guest-lifecycle proof.
+
+### Current-main restricted guest tests
+
+`tests/actor-guest-binding.test.mjs` runs actual `WebAssembly.Instance`
+programs with real `i32.load8_u` against different live actor heaps. The
+test verifies equal guest offsets read different per-actor values, revoked
+bindings cannot execute after detach, a bound guest blocks memory recycling,
+and zeroized memory is safe for subsequent actor admission after release.
+The admission policy uses a one-time private byte snapshot before compilation,
+permits only an `env.memory` import, forbids memory exports/start sections,
+and captures native constructors/export accessors to resist mutable JavaScript
+prototype hooks.
+
+A malicious caller retaining a native guest instance or its `Memory` can
+still access a recycled heap. The bridge's security argument **depends**
+on never returning either native capability and on admitting no host function
+imports or asynchronous guest continuations. The moment async callbacks,
+FFI, or source-level guest actor capabilities are introduced, CONTROL MUST
+prove every external instance and pin quiesced, or disable memory pooling
+for guest-bound heaps. Process/Worker isolation remains a separate gate.
