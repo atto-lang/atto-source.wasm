@@ -5,12 +5,12 @@ import {consumeTrustedActorGuestPermit} from "./actor-guest-authority.mjs";
 // Actor-owned memory with a restricted synchronous Wasm guest bridge.
 // Not yet a source-level Oreslang actor scheduler, await or FFI bridge.
 // Every SHARED/PRIVATE/UNTRUSTED actor owns a distinct WebAssembly.Memory.
-// The runtime reuses fully scrubbed MEMORY INSTANCES after actor retirement,
-// never regions within another actor's linear memory.
+// Host-only memories are reused after retirement; guest-exposed instances
+// are permanently quarantined, never assigned to successor actors.
 // ActorRef grants no heap access. Guest source lowering remains separate.
 const PAGE = 65536;
 const ARENA_PAGES = 2;
-const MAX_POOL_PAGES = 4096; // 256 MiB retained capacity, recycled explicitly.
+const MAX_POOL_PAGES = 4096; // 256 MiB conservatively charged capacity.
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 // Identity/admission checks must not trust mutable standard-library hooks.
@@ -66,12 +66,14 @@ const sharedByteLength = typeof SharedArrayBuffer === "function"
  * Earlier versions sliced a process-wide WebAssembly.Memory by base offsets.
  * Such slices are NOT a security boundary when raw Wasm memory instructions
  * can address the complete module memory. This implementation pools WHOLE
- * MEMORY INSTANCES rather than sharing a linear address space.
+ * MEMORY INSTANCES rather than sharing a linear address space, except that
+ * guest-exposed instances are quarantined forever because native guest
+ * aliases cannot be forcibly revoked.
  *
  * No memory instance, ArrayBuffer, typed-array view or byte offset is returned
  * through the public ActorArena API. Trusted host code may reuse an instance
- * only after all guest/carrier/continuation access has quiesced, the actor has
- * completed its turn, and its bytes have been fully scrubbed.
+ * ONLY if it was never imported into a guest; actor turns and borrowed
+ * continuations must have ended, and the bytes must be scrubbed.
  *
  * Fixed capacity avoids allocation on the free-stack path and does not depend
  * on JavaScript GC for capacity reuse. It DOES NOT guarantee OS page decommit
@@ -199,7 +201,8 @@ export class ActorArena {
     this.#incarnation = incarnation;
     this.#kind = kind;
     // An actor leases a WHOLE, independent linear-memory instance.
-    // Retirement returns the scrubbed instance for future actor reuse.
+    // Retirement recycles a scrubbed host-only instance; guest-bound memory
+    // permanently consumes its bounded allocation slot instead.
     this.#memory = leaseArenaMemory();
   }
 
