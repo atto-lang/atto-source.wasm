@@ -82,6 +82,10 @@ const freeArenaMemories = new Array(MAX_ARENAS); // fixed-size private stack
 let freeArenaCount = 0;
 let leasedArenas = 0;
 let allocatedArenas = 0;
+// A guest-exposed Memory may be retained by native Wasm instances/views even
+// after host detach; never give that physical instance to another actor.
+// Quarantine consumes a permanent bounded instance slot until runtime restart.
+let quarantinedArenas = 0;
 
 function memoryBytes(memory) {
   // Captured intrinsic getter requires a genuine WebAssembly.Memory.
@@ -116,17 +120,22 @@ function leaseArenaMemory() {
   return memory;
 }
 
-function releaseArenaMemory(memory) {
+function releaseArenaMemory(memory, guestExposed = false) {
   if (memory === null || memory === undefined)
     throw new Error("actor memory release requires an owned instance");
   if (leasedArenas <= 0)
     throw new Error("actor memory pool accounting underflow");
-  if (freeArenaCount >= MAX_ARENAS)
+  if (!guestExposed && freeArenaCount >= MAX_ARENAS)
     throw new Error("actor memory pool free-stack overflow");
-  // Physical state is cleared BEFORE another actor can acquire this instance.
-  // If zeroing fails, the caller retains ownership and can retry retirement.
+  // Zero physical state for defense-in-depth even when quarantining.
+  // Guest-exposed linear memories are NEVER reassigned. Retaining old guest
+  // instance references makes reusing them fundamentally unsafe in JS/Wasm.
+  // Keep allocatedArenas charged against the hard 2048-instance budget:
+  // returning a quarantined instance to available quota would silently rely
+  // on non-deterministic GC reclaiming its native backing allocation.
   typedArrayFill.call(memoryBytes(memory), 0, 0, ARENA_PAGES * PAGE);
-  freeArenaMemories[freeArenaCount++] = memory;
+  if (guestExposed) ++quarantinedArenas;
+  else freeArenaMemories[freeArenaCount++] = memory;
   --leasedArenas;
 }
 
@@ -135,7 +144,8 @@ export function actorArenaPoolStats() {
   return nativeFreeze({
     committedPages: allocatedArenas * ARENA_PAGES,
     leasedArenas,
-    freeArenas: freeArenaCount
+    freeArenas: freeArenaCount,
+    quarantinedArenas
   });
 }
 function isSharedBacking(buffer) {
@@ -165,6 +175,7 @@ export class ActorArena {
   // associated operation has fully quiesced.
   #lifetimePins = new NativeWeakMap();
   #guestBindings = new NativeWeakMap();
+  #guestExposed = false;
   #lifetimePinCount = 0;
   #retirementRequested = false;
   #persistentTop = 0;
@@ -341,6 +352,9 @@ export class ActorArena {
     const module = compileActorMemoryGuest(guestBytes, {expectedSha256});
     const pin = this.pinLifetime(turn);
     try {
+      // Taint BEFORE instantiation. Even a failed/native-trapping instance
+      // must never cause accidental reissue of its imported memory.
+      this.#guestExposed = true;
       const instance = new NativeWasmInstance(module, {env: {memory: this.#memory}});
       const handle = nativeFreeze({});
       weakMapSet.call(this.#guestBindings, handle, {instance, pin});
@@ -462,7 +476,7 @@ export class ActorArena {
     // Only after an inactive actor has quiesced may its memory instance be
     // scrubbed and reissued. Failed retirement preserves ownership to retry.
     this.#retirementRequested = true;
-    releaseArenaMemory(this.#memory);
+    releaseArenaMemory(this.#memory, this.#guestExposed);
     this.#closed = true;
     this.#memory = null;
     this.#handles = new NativeWeakMap();
