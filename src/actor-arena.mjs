@@ -265,8 +265,8 @@ export class ActorArena {
     return pin;
   }
 
-  unpinLifetime(turn, pin) {
-    this.#requireTurn(turn);
+  unpinLifetime(pin) {
+    this.#bytes();
     if (!weakMapGet.call(this.#lifetimePins, pin))
       throw new Error("foreign, stale or already released actor lifetime pin");
     if (this.#lifetimePinCount <= 0)
