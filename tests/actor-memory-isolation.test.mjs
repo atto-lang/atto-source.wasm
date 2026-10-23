@@ -117,3 +117,101 @@ test("the host arena never gives untrusted callers Memory or ArrayBuffer authori
   arena.endTurn(turn);
   arena.retire();
 });
+
+test("lifetime pins fence retirement across turns, transfers and stale replays", async () => {
+  const {ActorArena, actorArenaPoolStats} =
+    await import("../src/actor-arena.mjs?lifetime-pin-fencing");
+  const owner = new ActorArena({actorId: 310, incarnation: 8});
+  const foreign = new ActorArena({actorId: 310, incarnation: 8});
+  const ta = owner.beginTurn();
+  const tb = foreign.beginTurn();
+  const first = owner.pinLifetime(ta);
+  const second = owner.pinLifetime(ta);
+  assert.throws(() => foreign.unpinLifetime(tb, first), /foreign, stale/);
+  assert.throws(() => owner.unpinLifetime(tb, first), /turn authority/);
+  assert.throws(() => owner.unpinLifetime(ta, Object.freeze({})), /foreign, stale/);
+  owner.endTurn(ta);
+  assert.throws(() => owner.retire(), /outstanding actor lifetime pins/);
+  const before = actorArenaPoolStats();
+  const next = owner.beginTurn();
+  owner.unpinLifetime(next, first);
+  assert.throws(() => owner.unpinLifetime(next, first), /foreign, stale/);
+  owner.endTurn(next);
+  assert.throws(() => owner.retire(), /outstanding actor lifetime pins/);
+  const finalTurn = owner.beginTurn();
+  owner.unpinLifetime(finalTurn, second);
+  owner.endTurn(finalTurn);
+  owner.retire();
+  assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas - 1);
+  assert.throws(() => owner.beginTurn(), /retired/);
+  const replacement = new ActorArena({actorId: 310, incarnation: 9});
+  const tr = replacement.beginTurn();
+  assert.throws(() => replacement.unpinLifetime(tr, first), /foreign, stale/);
+  assert.throws(() => replacement.unpinLifetime(tr, second), /foreign, stale/);
+  replacement.endTurn(tr);
+  replacement.retire();
+  foreign.endTurn(tb);
+  foreign.retire();
+});
+
+test("concurrent actors never alias and pooled instances are reused only after retirement", async () => {
+  const OriginalMemory = WebAssembly.Memory;
+  let totalCreated = 0;
+  function CountMemory(options) {
+    ++totalCreated;
+    return new OriginalMemory(options);
+  }
+  CountMemory.prototype = OriginalMemory.prototype;
+  WebAssembly.Memory = CountMemory;
+  let mod;
+  try {
+    mod = await import("../src/actor-arena.mjs?churn-isolation");
+  } finally {
+    WebAssembly.Memory = OriginalMemory;
+  }
+
+  const count = 96;
+  const active = [];
+  for (let i = 0; i < count; ++i) {
+    const actor = new mod.ActorArena({
+      actorId: i + 401, incarnation: 1,
+      kind: i % 3 === 0 ? "shared" : i % 3 === 1 ? "private" : "untrusted"
+    });
+    const turn = actor.beginTurn();
+    const handle = actor.allocPersistent(turn, 8);
+    actor.write(turn, handle, Uint8Array.of((i % 255) + 1, 2, 3, 4, 5, 6, 7, 8));
+    active.push({actor, turn, handle, value: (i % 255) + 1});
+  }
+  assert.equal(totalCreated, count,
+    "no simultaneous actors can share the same independent Memory");
+  for (const x of active)
+    assert.equal(x.actor.read(x.turn, x.handle)[0], x.value);
+  for (let i = 0; i < active.length; i += 2) {
+    active[i].actor.endTurn(active[i].turn);
+    active[i].actor.retire();
+  }
+  assert.equal(mod.actorArenaPoolStats().freeArenas, count / 2);
+  // Exhaust reclaimed capacity but keep the other half of actors LIVE.
+  const replacements = [];
+  for (let i = 0; i < count / 2; ++i) {
+    const actor = new mod.ActorArena({actorId: i + 501, incarnation: 2});
+    const turn = actor.beginTurn();
+    const handle = actor.allocPersistent(turn, 8);
+    assert.equal(actor.read(turn, handle)[0], 0, "retired heap must be scrubbed");
+    actor.write(turn, handle, Uint8Array.of(99, 1, 1, 1, 1, 1, 1, 1));
+    replacements.push({actor, turn});
+  }
+  assert.equal(totalCreated, count, "retired instance pool must supply replacements");
+  for (let i = 1; i < active.length; i += 2)
+    assert.equal(active[i].actor.read(active[i].turn, active[i].handle)[0],
+      active[i].value, "live neighbor heap was affected by memory reissue");
+  for (const x of replacements) {
+    x.actor.endTurn(x.turn);
+    x.actor.retire();
+  }
+  for (let i = 1; i < active.length; i += 2) {
+    active[i].actor.endTurn(active[i].turn);
+    active[i].actor.retire();
+  }
+  assert.equal(mod.actorArenaPoolStats().leasedArenas, 0);
+});
