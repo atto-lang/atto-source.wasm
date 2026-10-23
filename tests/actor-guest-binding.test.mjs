@@ -194,3 +194,54 @@ test("direct guest trust requires an exact one-shot arena-bound CONTROL permit",
   assert.throws(() => a.retire(), /outstanding actor lifetime pins/);
   a.detachGuest(binding); a.retire(); b.retire();
 });
+
+test("direct guest memory is quarantined after detach, never returned to actor pool", () => {
+  const before = actorArenaPoolStats();
+  const a = new ActorArena({actorId: 817, incarnation: 1, kind: "shared"});
+  const turn = a.beginTurn();
+  const h = a.allocPersistent(turn, 4);
+  a.write(turn, h, Uint8Array.of(77, 1, 2, 3));
+  const binding = trustedAttach(a, turn, reader);
+  assert.equal(a.invokeGuest(turn, binding, "read", 0), 77);
+  a.endTurn(turn);
+  a.requestRetirement();
+  assert.throws(() => a.retire(), /outstanding actor lifetime pins/);
+  a.detachGuest(binding);
+  a.retire();
+  const after = actorArenaPoolStats();
+  assert.equal(after.quarantinedArenas, before.quarantinedArenas + 1);
+  assert.equal(after.freeArenas, before.freeArenas,
+    "native guest-exposed heap must never enter the ordinary free pool");
+  assert.equal(after.leasedArenas, before.leasedArenas);
+  const replacement = new ActorArena({actorId: 817, incarnation: 2});
+  const tr = replacement.beginTurn();
+  const hr = replacement.allocPersistent(tr, 4);
+  assert.deepEqual([...replacement.read(tr, hr)], [0, 0, 0, 0]);
+  assert.throws(() => replacement.invokeGuest(tr, binding, "read", 0),
+    /foreign or detached/);
+  replacement.endTurn(tr);
+  replacement.retire();
+});
+
+test("failed native guest instantiation also permanently taints the arena", () => {
+  const before = actorArenaPoolStats();
+  const actor = new ActorArena({actorId: 818, incarnation: 1});
+  const turn = actor.beginTurn();
+  const needsThreePages = Uint8Array.from(reader);
+  // Import declaration requests 3..3 pages, host actor heap is 2..2.
+  // Failed WebAssembly.Instance creation must never leave a reusable heap.
+  const importMemoryMin = 26;
+  const importMemoryMax = 27;
+  assert.equal(needsThreePages[importMemoryMin], 2);
+  assert.equal(needsThreePages[importMemoryMax], 2);
+  needsThreePages[importMemoryMin] = 3;
+  needsThreePages[importMemoryMax] = 3;
+  assert.equal(WebAssembly.validate(needsThreePages), true);
+  assert.throws(() => trustedAttach(actor, turn, needsThreePages),
+    /memory|import|LinkError|larger/i);
+  actor.endTurn(turn);
+  actor.retire();
+  const after = actorArenaPoolStats();
+  assert.equal(after.quarantinedArenas, before.quarantinedArenas + 1);
+  assert.equal(after.freeArenas, before.freeArenas);
+});
