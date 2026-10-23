@@ -134,7 +134,7 @@ compiler lowering or guest instance quiescence.
 ### Retirement admission and lifetime pins
 
 The host arena exposes an **opaque actor-lifetime barrier**, not a guest
-memory capability: `pinLifetime(turn)` and `unpinLifetime(turn, pin)`.
+memory capability: `pinLifetime(turn)` and `unpinLifetime(pin)`.
 The lifetime barrier persists across mailbox turns, is bound to a specific
 arena instance, rejects foreign/forged/stale/replayed permits, and has a
 4096-per-actor admission bound. `requestRetirement()` closes admission to
@@ -150,10 +150,13 @@ guest instance that might retain actor bytes. A memory token alone does not
 prove external quiescence. The runtime must only release it **after** the
 external operation has completed or the guest instance/worker is definitively
 terminated; cancellation requests and merely clearing a JavaScript variable
-are NOT sufficient. The host-only implementation currently has no actual
-guest-memory binding, so full lifecycle integration and forced-termination
-proofs are separate prerequisites before exposing actor Memory to compiled
-guest code. The pin API intentionally never returns the underlying memory.
+are NOT sufficient. The host arena now has a restricted synchronous trusted guest binding and a
+separate disposable-worker guest executor. The async worker executor **never
+imports the host arena's live Memory**: the host passes a copied initial byte
+snapshot into a fresh worker-owned Memory. A worker exit receipt precedes any
+host lifetime-pin release. Full source actor compilation and general native
+continuation/FFI quiescence remain separate release prerequisites. The pin
+API intentionally never returns the underlying memory.
 
 Adversarial native-Wasm tests cover real `i32.load8_u` reads, three
 simultaneous distinct actor memories, cross-domain/stale access denial,
@@ -181,3 +184,63 @@ imports or asynchronous guest continuations. The moment async callbacks,
 FFI, or source-level guest actor capabilities are introduced, CONTROL MUST
 prove every external instance and pin quiesced, or disable memory pooling
 for guest-bound heaps. Process/Worker isolation remains a separate gate.
+
+### Guest-execution authority and physical termination (October 2026)
+
+Direct synchronous `attachGuest(turn, wasmBytes, executionPermit)` requires
+a CONTROL-issued, one-shot, exact-arena-identity capability bound to the
+SHA-256 of the Wasm artifact. The admission checker hashes the **same private
+byte snapshot** from which it compiles the native module, and rejects
+mismatches, foreign tokens and replays. Actor kind (`shared`, `private`,
+`untrusted`) is an ownership/layout classification, never proof of
+compiler provenance or execution trust. `untrusted` actors cannot run
+synchronous Wasm on the host carrier.
+
+`issueTrustedActorGuestPermit` belongs strictly to trusted CONTROL code.
+JavaScript ESM modules **do not protect against arbitrary hostile JS running
+in the same realm**: such JS could import the issuer and also block the
+event loop directly. The runtime must keep untrusted executable JS outside
+the trusted control process/realm. A forged actor kind alone is not an
+admission token, but the issuer is not an independent security root.
+
+For untrusted actors, `ActorArena.invokeIsolatedGuest(turn, bytes,
+exportName, persistentHandle, opts)` copies the selected actor heap bytes
+into a **fresh** worker's own 2-page linear memory. The restricted worker
+has no host function/WASI imports, checks an externally supplied artifact
+SHA-256 and actor incarnation, and returns only a scalar value and a
+receipt. Workers are never reused for a successor actor; the host arena
+memory is never passed into a worker. The runner limits worker admission
+to four concurrent executions per module instance; enforced timeouts
+and abort signals request termination.
+
+A timeout/cancellation is not evidence of memory quiescence. The runner
+does **not** settle its Promise or release its quota until the worker's
+actual `exit` event. The host actor retains a private lifetime pin until
+that Promise settles. If the worker cannot be proven terminated, fail
+closed: the Promise, worker quota, and actor lifetime pin remain held.
+Only after the exit receipt may CONTROL retire or recycle the host heap.
+Node Workers are not an OS sandbox; native-engine vulnerabilities, code
+signing, shared process resource exhaustion and strict real-time budgets
+are still outside this proof.
+
+`tests/isolated-actor-guest.test.mjs` covers concurrent untrusted workers
+with different heap data, a real native Wasm infinite loop, deadline
+termination, abort, an invalid hash, stale incarnation, and retirement
+pinning. The bounded explicit-state model in
+`tests/actor-quiescence-model.test.mjs` explores two total worker starts
+and checks that reuse never coincides with live workers/pins. A matching
+TLA+ model is in `formal/WasmActorRetirement.tla`, configured by
+`formal/WasmActorRetirement.cfg`. That specification is ready for TLC,
+but **has not been mechanically checked by TLC** and is not an
+implementation-level proof.
+
+### Private CI export restriction
+
+`.github/private-ci-approved-repositories.txt` and
+`.github/private-ci-approved-source-snapshots.txt` currently contain **no
+active approvals**; the independent-reviewer policy is disabled. The
+source repository's own security policy therefore forbids exporting any
+additional private source to a test carrier until independent protected-main
+approval and a matching destination/snapshot allowlist exist. Earlier
+external test runs are historical execution evidence, **not authorization**
+for new exports. Use in-repository CI or local owned copies instead.
