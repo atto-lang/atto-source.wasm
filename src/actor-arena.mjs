@@ -150,6 +150,12 @@ export class ActorArena {
   #turn = null;
   #handles = new NativeWeakMap();
   #scratch = new NativeWeakMap();
+  // Distinct, opaque actor-lifetime pins are held by the trusted scheduler
+  // for continuations/FFI operations that can outlive a mailbox turn.
+  // A pin does NOT grant memory access and MUST be released only after its
+  // associated operation has fully quiesced.
+  #lifetimePins = new NativeWeakMap();
+  #lifetimePinCount = 0;
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -245,6 +251,30 @@ export class ActorArena {
   allocPersistent(turn, length) { return this.#alloc(turn, length, false); }
   allocScratch(turn, length) { return this.#alloc(turn, length, true); }
 
+  // These are *lifetime barriers*, never direct memory/guest capabilities.
+  // The control plane must hold a pin for every external user of persistent
+  // actor state and retain the pin until its task, callback, FFI or guest
+  // instance has completely stopped. A pin survives mailbox turn changes.
+  pinLifetime(turn) {
+    this.#requireTurn(turn);
+    if (this.#lifetimePinCount >= MAX_HANDLES)
+      throw new RangeError("actor lifetime pin quota exhausted");
+    const pin = nativeFreeze({});
+    weakMapSet.call(this.#lifetimePins, pin, true);
+    ++this.#lifetimePinCount;
+    return pin;
+  }
+
+  unpinLifetime(turn, pin) {
+    this.#requireTurn(turn);
+    if (!weakMapGet.call(this.#lifetimePins, pin))
+      throw new Error("foreign, stale or already released actor lifetime pin");
+    if (this.#lifetimePinCount <= 0)
+      throw new Error("actor lifetime pin accounting underflow");
+    weakMapDelete.call(this.#lifetimePins, pin);
+    --this.#lifetimePinCount;
+  }
+
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
     const entry = weakMapGet.call(this.#handles, handle);
@@ -302,6 +332,8 @@ export class ActorArena {
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
+    if (this.#lifetimePinCount !== 0)
+      throw new Error("outstanding actor lifetime pins block retirement");
     // Only after an inactive actor has quiesced may its memory instance be
     // scrubbed and reissued. Failed retirement preserves ownership to retry.
     releaseArenaMemory(this.#memory);
@@ -309,6 +341,8 @@ export class ActorArena {
     this.#memory = null;
     this.#handles = new NativeWeakMap();
     this.#scratch = new NativeWeakMap();
+    this.#lifetimePins = new NativeWeakMap();
+    this.#lifetimePinCount = 0;
     this.#persistentCount = this.#scratchCount = 0;
     this.#persistentTop = this.#scratchTop = 0;
     this.#freePersistent = [];
