@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 // Explicit-state exploration of the abstract single-actor CONTROL protocol.
-// This exhaustively covers <=2 outstanding guest workers, turn admission,
+// This exhaustively covers <=2 total guest starts, turn admission,
 // stop, cancellation requests, exit receipts, memory retirement, and reuse.
 // It is a bounded safety model, NOT a refinement proof of Node/V8 internals.
 test("actor lifetime state machine forbids memory reuse before worker exit", () => {
   const initial = {
     phase: "RUNNING", turn: true, active: 0, pins: 0,
-    exited: 0, cancelRequested: false
+    spawned: 0, cancelRequested: false
   };
   const queue = [initial], seen = new Set();
   const paths = new Set();
@@ -32,8 +32,8 @@ test("actor lifetime state machine forbids memory reuse before worker exit", () 
       next("begin-turn", {turn: true});
     if (s.turn)
       next("end-turn", {turn: false});
-    if (s.phase === "RUNNING" && s.turn && s.active < 2)
-      next("spawn-worker", {active: s.active + 1, pins: s.pins + 1});
+    if (s.phase === "RUNNING" && s.turn && s.active < 2 && s.spawned < 2)
+      next("spawn-worker", {active: s.active + 1, pins: s.pins + 1, spawned: s.spawned + 1});
     if (s.phase === "RUNNING")
       next("stop-admission", {phase: "STOP"});
     if (s.active > 0 && !s.cancelRequested)
@@ -42,7 +42,7 @@ test("actor lifetime state machine forbids memory reuse before worker exit", () 
     // both the running worker and its matching lifetime pin.
     if (s.active > 0)
       next("worker-exit-receipt", {
-        active: s.active - 1, pins: s.pins - 1, exited: s.exited + 1
+        active: s.active - 1, pins: s.pins - 1
       });
     if (s.phase === "STOP" && !s.turn && s.pins === 0 && s.active === 0)
       next("retire", {phase: "RETIRED"});
