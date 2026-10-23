@@ -117,9 +117,12 @@ The host arena exposes an **opaque actor-lifetime barrier**, not a guest
 memory capability: `pinLifetime(turn)` and `unpinLifetime(turn, pin)`.
 The lifetime barrier persists across mailbox turns, is bound to a specific
 arena instance, rejects foreign/forged/stale/replayed permits, and has a
-4096-per-actor admission bound. `retire()` fails closed while a turn or
-any lifetime pin remains active. It does not return bytes to the reusable
-pool until both conditions are satisfied.
+4096-per-actor admission bound. `requestRetirement()` closes admission to
+new turns and new pins, while allowing an existing turn to finish. Existing
+permits are released using `unpinLifetime(pin)` WITHOUT entering a new
+actor turn, including during shutdown. `retire()` fails closed while a turn
+or lifetime pin remains active. Only after both conditions are satisfied
+may the actor memory instance return to the reusable pool.
 
 The trusted CONTROL/scheduler must hold these barriers for every persistent
 continuation, in-flight message payload accessor, remote/FFI handle and
