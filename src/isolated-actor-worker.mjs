@@ -14,7 +14,7 @@ try {
   const digest = createHash("sha256").update(bytes).digest("hex");
   if (digest !== workerData.expectedSha256)
     throw new Error("isolated actor source identity mismatch");
-  const module = compileActorMemoryGuest(bytes);
+  const module = compileActorMemoryGuest(bytes, {expectedSha256: workerData.expectedSha256});
   const memory = new WebAssembly.Memory({initial: 2, maximum: 2});
   const data = workerData.initialData;
   if (!(data instanceof Uint8Array) || data.byteLength > 65536)
