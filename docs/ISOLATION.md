@@ -241,7 +241,11 @@ and abort signals request termination.
 A timeout/cancellation is not evidence of memory quiescence. The runner
 does **not** settle its Promise or release its quota until the worker's
 actual `exit` event. The host actor retains a private lifetime pin until
-that Promise settles. If the worker cannot be proven terminated, fail
+that Promise settles. A valid scalar reply does not override a timeout,
+cancellation or fatal worker error occurring before the physical exit
+receipt. The exit listener is installed before message/error handlers,
+so construction and shutdown errors cannot silently bypass the terminal
+receipt path. If the worker cannot be proven terminated, fail
 closed: the Promise, worker quota, and actor lifetime pin remain held.
 Only after the exit receipt may CONTROL retire or recycle the host heap.
 Node Workers are not an OS sandbox; native-engine vulnerabilities, code
