@@ -153,6 +153,7 @@ export class ActorArena {
   #memory;
   #actor;
   #incarnation;
+  #kind;
   #turn = null;
   #handles = new NativeWeakMap();
   #scratch = new NativeWeakMap();
@@ -177,6 +178,7 @@ export class ActorArena {
         !setHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
+    this.#kind = kind;
     // An actor leases a WHOLE, independent linear-memory instance.
     // Retirement returns the scrubbed instance for future actor reuse.
     this.#memory = leaseArenaMemory();
@@ -295,6 +297,12 @@ export class ActorArena {
   // host function imports, tables and module-defined secondary memories.
   attachGuest(turn, guestBytes) {
     this.#requireTurn(turn);
+    // This ABI executes synchronous Wasm in the host JS worker with no
+    // instruction fuel or preemption. An untrusted infinite loop could stall
+    // the entire carrier, so untrusted guests MUST use an isolated worker
+    // with a forced-termination deadline instead of this direct binding.
+    if (this.#kind === "untrusted")
+      throw new Error("untrusted guest requires isolated worker execution");
     if (this.#retirementRequested)
       throw new Error("actor retirement requested; no new guest bindings");
     const module = compileActorMemoryGuest(guestBytes);
