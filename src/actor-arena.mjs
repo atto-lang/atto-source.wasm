@@ -1,5 +1,6 @@
 import {compileActorMemoryGuest} from "./actor-guest-policy.mjs";
 import {runIsolatedActorGuest} from "./isolated-actor-runner.mjs";
+import {consumeTrustedActorGuestPermit} from "./actor-guest-authority.mjs";
 
 // Actor-owned memory with a restricted synchronous Wasm guest bridge.
 // Not yet a source-level Oreslang actor scheduler, await or FFI bridge.
@@ -322,7 +323,7 @@ export class ActorArena {
   // an actor-lifetime pin until the trusted host explicitly detaches it.
   // This profile is synchronous only: it intentionally rejects async/await,
   // host function imports, tables and module-defined secondary memories.
-  attachGuest(turn, guestBytes) {
+  attachGuest(turn, guestBytes, executionPermit) {
     this.#requireTurn(turn);
     // This ABI executes synchronous Wasm in the host JS worker with no
     // instruction fuel or preemption. An untrusted infinite loop could stall
@@ -332,7 +333,12 @@ export class ActorArena {
       throw new Error("untrusted guest requires isolated worker execution");
     if (this.#retirementRequested)
       throw new Error("actor retirement requested; no new guest bindings");
-    const module = compileActorMemoryGuest(guestBytes);
+    // Actor kind is an ownership/layout label, NEVER an execution-trust
+    // grant. CONTROL must issue an opaque one-shot permit for this exact
+    // arena instance and pinned artifact. Consume before parsing, so a
+    // rejected artifact or repeated attachment cannot reuse authority.
+    const expectedSha256 = consumeTrustedActorGuestPermit(this, executionPermit);
+    const module = compileActorMemoryGuest(guestBytes, {expectedSha256});
     const pin = this.pinLifetime(turn);
     try {
       const instance = new NativeWasmInstance(module, {env: {memory: this.#memory}});
