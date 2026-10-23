@@ -1,4 +1,7 @@
-// Host-only experimental actor-owned region. NOT attached to a guest module.
+import {compileActorMemoryGuest} from "./actor-guest-policy.mjs";
+
+// Actor-owned memory with a restricted synchronous Wasm guest bridge.
+// Not yet a source-level Oreslang actor scheduler, await or FFI bridge.
 // Every SHARED/PRIVATE/UNTRUSTED actor owns a distinct WebAssembly.Memory.
 // The runtime reuses fully scrubbed MEMORY INSTANCES after actor retirement,
 // never regions within another actor's linear memory.
@@ -20,6 +23,7 @@ const setHas = Set.prototype.has;
 // Never dispatch a mutable Uint8Array prototype method on private region bytes.
 const NativeUint8Array = Uint8Array;
 const NativeMemory = WebAssembly.Memory;
+const NativeWasmInstance = WebAssembly.Instance;
 const NativeWeakMap = WeakMap;
 // WeakMap authority operations must bypass mutable userland prototypes.
 const weakMapGet = NativeWeakMap.prototype.get;
@@ -155,6 +159,7 @@ export class ActorArena {
   // A pin does NOT grant memory access and MUST be released only after its
   // associated operation has fully quiesced.
   #lifetimePins = new NativeWeakMap();
+  #guestBindings = new NativeWeakMap();
   #lifetimePinCount = 0;
   #retirementRequested = false;
   #persistentTop = 0;
@@ -281,6 +286,63 @@ export class ActorArena {
     --this.#lifetimePinCount;
   }
 
+  // A guest binding has no exported memory, host callbacks or references to
+  // its WebAssembly.Instance available to the guest/caller. Each binding holds
+  // an actor-lifetime pin until the trusted host explicitly detaches it.
+  // This profile is synchronous only: it intentionally rejects async/await,
+  // host function imports, tables and module-defined secondary memories.
+  attachGuest(turn, guestBytes) {
+    this.#requireTurn(turn);
+    if (this.#retirementRequested)
+      throw new Error("actor retirement requested; no new guest bindings");
+    const module = compileActorMemoryGuest(guestBytes);
+    const pin = this.pinLifetime(turn);
+    try {
+      const instance = new NativeWasmInstance(module, {env: {memory: this.#memory}});
+      const handle = nativeFreeze({});
+      weakMapSet.call(this.#guestBindings, handle, {instance, pin});
+      return handle;
+    } catch (error) {
+      this.unpinLifetime(pin);
+      throw error;
+    }
+  }
+
+  invokeGuest(turn, handle, exportName, ...args) {
+    this.#requireTurn(turn);
+    const guest = weakMapGet.call(this.#guestBindings, handle);
+    if (!guest) throw new Error("foreign or detached actor guest binding");
+    if (typeof exportName !== "string" ||
+        !/^[A-Za-z_][A-Za-z_0-9]*$/.test(exportName)) {
+      throw new TypeError("invalid actor guest function name");
+    }
+    if (args.some(x => (typeof x !== "bigint") &&
+        (typeof x !== "number" || !Number.isFinite(x)))) {
+      throw new TypeError("actor guest arguments must be scalar numbers");
+    }
+    const fn = guest.instance.exports[exportName];
+    if (typeof fn !== "function")
+      throw new Error("actor guest function is not exported");
+    const result = fn(...args);
+    if (result !== undefined && typeof result !== "number" &&
+        typeof result !== "bigint") {
+      throw new Error("actor guest may return only scalar numeric values");
+    }
+    return result;
+  }
+
+  // A detached binding is permanently stale. Removing it releases the
+  // lifetime pin without admitting another turn, even during shutdown.
+  // The narrow profile has no async or guest callbacks, so execute/detach
+  // cannot overlap on a single JS worker. No instance/export is handed out.
+  detachGuest(handle) {
+    this.#bytes();
+    const guest = weakMapGet.call(this.#guestBindings, handle);
+    if (!guest) throw new Error("foreign or already detached actor guest binding");
+    this.unpinLifetime(guest.pin);
+    weakMapDelete.call(this.#guestBindings, handle);
+  }
+
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
     const entry = weakMapGet.call(this.#handles, handle);
@@ -356,6 +418,7 @@ export class ActorArena {
     this.#handles = new NativeWeakMap();
     this.#scratch = new NativeWeakMap();
     this.#lifetimePins = new NativeWeakMap();
+    this.#guestBindings = new NativeWeakMap();
     this.#lifetimePinCount = 0;
     this.#persistentCount = this.#scratchCount = 0;
     this.#persistentTop = this.#scratchTop = 0;
