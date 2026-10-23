@@ -111,3 +111,38 @@ test("missing pins, shared input and forged provenance fail before worker admiss
   }
   assert.equal(isolatedActorWorkerStats().active, 0);
 });
+
+test("cancellation wins after a valid worker reply but before physical exit", async () => {
+  const {Worker} = await import("node:worker_threads");
+  const nativeTerminate = Worker.prototype.terminate;
+  const signal = new AbortController();
+  let intercepted = false;
+  // Deliberately defer physical termination to create the reply/exit race.
+  // This patch is confined to this test process; it is not a production
+  // dependency injection mechanism or a guest capability.
+  Worker.prototype.terminate = function delayTermination() {
+    intercepted = true;
+    signal.abort(); // synchronous re-entry: reply has been accepted, no exit yet
+    assert.equal(isolatedActorWorkerStats().active, 1,
+      "worker quota cannot release on a reply or cancellation request");
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        Promise.resolve(nativeTerminate.call(this)).then(resolve, reject);
+      }, 80);
+    });
+  };
+  try {
+    const pending = runIsolatedActorGuest(reader, {
+      expectedSha256: sha(reader),
+      actorId: 921, incarnation: 1, exportName: "read",
+      initialData: Uint8Array.of(57), timeoutMs: 4000,
+      signal: signal.signal
+    });
+    await assert.rejects(pending, /isolated actor cancelled/,
+      "a reply never overrides cancellation before the worker exits");
+    assert.equal(intercepted, true, "termination was requested after worker reply");
+    assert.equal(isolatedActorWorkerStats().active, 0);
+  } finally {
+    Worker.prototype.terminate = nativeTerminate;
+  }
+});
