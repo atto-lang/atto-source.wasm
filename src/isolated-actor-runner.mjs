@@ -84,6 +84,21 @@ export async function runIsolatedActorGuest(input, {
           },
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
+        worker.once("exit", code => {
+          exited = true;
+          clearTimeout(timer);
+          if (signal) {
+            try { signal.removeEventListener("abort", onAbort); } catch {}
+          }
+          // On unexpected natural exit, or on failed termination with no
+          // authenticated message, fail closed. No guest memory survives exit.
+          if (!decided)
+            reject(new Error("isolated actor exited without result: " + code));
+          else if (decisionError)
+            reject(decisionError);
+          else
+            resolve(decisionValue);
+        });
         worker.once("message", message => {
           if (!message || message.ok !== true) {
             decide(new Error("isolated actor rejected: " +
@@ -107,23 +122,14 @@ export async function runIsolatedActorGuest(input, {
           if (decided && !exited) decisionError = failure;
           else decide(failure);
         });
-        worker.once("exit", code => {
-          exited = true;
-          clearTimeout(timer);
-          if (signal) {
-            try { signal.removeEventListener("abort", onAbort); } catch {}
-          }
-          // On unexpected natural exit, or on failed termination with no
-          // authenticated message, fail closed. No guest memory survives exit.
-          if (!decided)
-            reject(new Error("isolated actor exited without result: " + code));
-          else if (decisionError)
-            reject(decisionError);
-          else
-            resolve(decisionValue);
-        });
-        timer = setTimeout(() =>
-          decide(new Error("isolated actor execution deadline exceeded")), timeoutMs);
+        timer = setTimeout(() => {
+          if (exited) return;
+          const deadlineError = new Error("isolated actor execution deadline exceeded");
+          // Worker reply is not completion. If shutdown remains pending past
+          // the deadline, invalidate even a previously accepted scalar result.
+          if (decided) decisionError = deadlineError;
+          else decide(deadlineError);
+        }, timeoutMs);
         if (signal) {
           signal.addEventListener("abort", onAbort, {once: true});
           if (signal.aborted) onAbort();
