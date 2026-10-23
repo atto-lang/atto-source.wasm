@@ -93,6 +93,13 @@ reusable address base. Every binding holds an arena-lifetime pin; detaching
 after all *synchronous* calls end releases the pin, including after CONTROL
 closes admission. Late calls or stale/foreign bindings fail closed.
 
+Because the direct guest invocation has no instruction-fuel meter or
+preemption, `attachGuest` **rejects UNTRUSTED actor kinds**. Untrusted
+actors still have independent host-owned memory, but must execute actual
+Wasm code only in a separately isolated worker/runtime with an enforced
+termination deadline. Trusted synchronous guest execution itself is not a
+hard-real-time or arbitrary-loop-safe primitive.
+
 This narrowly verified, synchronous Node/Wasm bridge is NOT yet
 source-level Oreslang `define actor` execution, an async guest runtime or
 a browser/Wasmtime ABI. The older, zero-import scalar profile remains
