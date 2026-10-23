@@ -230,8 +230,8 @@ test("failed native guest instantiation also permanently taints the arena", () =
   const needsThreePages = Uint8Array.from(reader);
   // Import declaration requests 3..3 pages, host actor heap is 2..2.
   // Failed WebAssembly.Instance creation must never leave a reusable heap.
-  const importMemoryMin = 26;
-  const importMemoryMax = 27;
+  const importMemoryMin = 32;
+  const importMemoryMax = 33;
   assert.equal(needsThreePages[importMemoryMin], 2);
   assert.equal(needsThreePages[importMemoryMax], 2);
   needsThreePages[importMemoryMin] = 3;
