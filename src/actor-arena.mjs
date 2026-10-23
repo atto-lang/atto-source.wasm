@@ -24,6 +24,8 @@ const setHas = Set.prototype.has;
 const NativeUint8Array = Uint8Array;
 const NativeMemory = WebAssembly.Memory;
 const NativeWasmInstance = WebAssembly.Instance;
+const wasmInstanceExports =
+  Object.getOwnPropertyDescriptor(NativeWasmInstance.prototype, "exports").get;
 const NativeWeakMap = WeakMap;
 // WeakMap authority operations must bypass mutable userland prototypes.
 const weakMapGet = NativeWeakMap.prototype.get;
@@ -316,11 +318,18 @@ export class ActorArena {
         !/^[A-Za-z_][A-Za-z_0-9]*$/.test(exportName)) {
       throw new TypeError("invalid actor guest function name");
     }
-    if (args.some(x => (typeof x !== "bigint") &&
-        (typeof x !== "number" || !Number.isFinite(x)))) {
-      throw new TypeError("actor guest arguments must be scalar numbers");
+    // Do not dispatch mutable Array.prototype.some/iterator on authority
+    // input; a poisoned same-realm helper could bypass guest admission.
+    for (let i = 0; i < args.length; ++i) {
+      const x = args[i];
+      if (typeof x !== "bigint" &&
+          (typeof x !== "number" || !Number.isFinite(x))) {
+        throw new TypeError("actor guest arguments must be scalar numbers");
+      }
     }
-    const fn = guest.instance.exports[exportName];
+    // The native exports getter itself is mutable on Instance.prototype.
+    // Capture it at module initialization rather than trusting a hook.
+    const fn = wasmInstanceExports.call(guest.instance)[exportName];
     if (typeof fn !== "function")
       throw new Error("actor guest function is not exported");
     const result = fn(...args);
