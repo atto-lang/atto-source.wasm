@@ -161,8 +161,10 @@ test("bounded worker admission rejects the fifth guest and restores quota only a
     incarnation: 1, exportName: "read", timeoutMs: 500
   }), /worker quota exceeded/);
   assert.equal(isolatedActorWorkerStats().active, 4);
-  for (const operation of active)
-    await assert.rejects(operation, /deadline exceeded/);
+  // Attach all rejection observers together; individual worker deadlines
+  // can fire on the same event-loop tick and must not go unobserved.
+  await Promise.all(active.map(operation =>
+    assert.rejects(operation, /deadline exceeded/)));
   assert.equal(isolatedActorWorkerStats().active, 0,
     "all four worker exit receipts must retire before quota is reusable");
 });
