@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {ActorArena} from "../src/actor-arena.mjs";
+import {ActorArena, actorArenaPoolStats} from "../src/actor-arena.mjs";
 import {
   runIsolatedActorGuest, isolatedActorWorkerStats
 } from "../src/isolated-actor-runner.mjs";
@@ -25,6 +25,7 @@ const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 
 test("two untrusted actors execute Wasm on separate disposable worker heaps", async () => {
   assert.equal(WebAssembly.validate(reader), true);
+  const poolBefore = actorArenaPoolStats();
   const a = new ActorArena({actorId: 910, incarnation: 7, kind: "untrusted"});
   const b = new ActorArena({actorId: 911, incarnation: 2, kind: "untrusted"});
   const ta = a.beginTurn(), tb = b.beginTurn();
@@ -47,6 +48,11 @@ test("two untrusted actors execute Wasm on separate disposable worker heaps", as
   assert.equal(rb.terminated, true);
   assert.equal(isolatedActorWorkerStats().active, 0);
   a.retire(); b.retire();
+  const poolAfter = actorArenaPoolStats();
+  assert.equal(poolAfter.quarantinedArenas, poolBefore.quarantinedArenas,
+    "worker-only Wasm may never touch or taint the host actor's linear memory");
+  assert.equal(poolAfter.freeArenas, poolBefore.freeArenas + 2,
+    "the copied worker heap may not disable ordinary host arena recycling");
   const newcomer = new ActorArena({actorId: 910, incarnation: 8, kind: "untrusted"});
   const tc = newcomer.beginTurn();
   const hc = newcomer.allocPersistent(tc, 4);
