@@ -145,3 +145,15 @@ test("constructor and guest exports cannot be hijacked by mutable intrinsics", (
   }
   assert.equal(hijacks, 0);
 });
+
+test("untrusted actor heaps exist but direct guest execution requires an isolated worker", () => {
+  const a = new ActorArena({actorId: 815, incarnation: 1, kind: "untrusted"});
+  const turn = a.beginTurn();
+  const slot = a.allocPersistent(turn, 8);
+  a.write(turn, slot, Uint8Array.of(55, 2, 3, 4, 5, 6, 7, 8));
+  assert.equal(a.read(turn, slot)[0], 55);
+  assert.throws(() => a.attachGuest(turn, reader), /untrusted guest requires isolated worker/);
+  assert.equal(actorArenaPoolStats().leasedArenas >= 1, true);
+  a.endTurn(turn);
+  a.retire();
+});
