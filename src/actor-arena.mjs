@@ -141,7 +141,13 @@ function releaseArenaMemory(memory, guestExposed = false) {
 
 /** Host diagnostic only; exposes counters, never memory or backing views. */
 export function actorArenaPoolStats() {
+  // Every allocated memory slot must be in exactly one state. In particular,
+  // quarantined memory remains charged even when its JS wrapper is collected.
+  if (leasedArenas < 0 || freeArenaCount < 0 || quarantinedArenas < 0 ||
+      allocatedArenas !== leasedArenas + freeArenaCount + quarantinedArenas)
+    throw new Error("actor memory pool accounting invariant violated");
   return nativeFreeze({
+    // Conservative charged capacity, not a physical-residency measurement.
     committedPages: allocatedArenas * ARENA_PAGES,
     leasedArenas,
     freeArenas: freeArenaCount,
