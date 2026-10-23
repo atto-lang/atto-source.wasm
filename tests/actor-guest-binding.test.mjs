@@ -245,3 +245,45 @@ test("failed native guest instantiation also permanently taints the arena", () =
   assert.equal(after.quarantinedArenas, before.quarantinedArenas + 1);
   assert.equal(after.freeArenas, before.freeArenas);
 });
+
+test("retained native Wasm instance cannot observe successor actor heap", async () => {
+  const NativeInstance = WebAssembly.Instance;
+  const captured = [];
+  function RecordingInstance(module, imports) {
+    const instance = new NativeInstance(module, imports);
+    captured.push(instance);
+    return instance;
+  }
+  RecordingInstance.prototype = NativeInstance.prototype;
+  let mod;
+  WebAssembly.Instance = RecordingInstance;
+  try {
+    // Only trusted test instrumentation sees the actual native Instance.
+    // Real guest API returns only an opaque handle, never an Instance.
+    mod = await import("../src/actor-arena.mjs?quarantine-native-alias-regression");
+  } finally {
+    WebAssembly.Instance = NativeInstance;
+  }
+  const previous = new mod.ActorArena({actorId: 819, incarnation: 1});
+  const tp = previous.beginTurn();
+  const hp = previous.allocPersistent(tp, 4);
+  previous.write(tp, hp, Uint8Array.of(31, 0, 0, 0));
+  const oldBinding = previous.attachGuest(tp, reader,
+    issueTrustedActorGuestPermit(previous,
+      createHash("sha256").update(reader).digest("hex")));
+  assert.equal(captured.length, 1);
+  assert.equal(captured[0].exports.read(0), 31);
+  previous.endTurn(tp);
+  previous.detachGuest(oldBinding);
+  previous.retire();
+  assert.equal(mod.actorArenaPoolStats().quarantinedArenas, 1);
+  const successor = new mod.ActorArena({actorId: 819, incarnation: 2});
+  const tn = successor.beginTurn();
+  const hn = successor.allocPersistent(tn, 4);
+  successor.write(tn, hn, Uint8Array.of(99, 0, 0, 0));
+  assert.equal(successor.read(tn, hn)[0], 99);
+  assert.equal(captured[0].exports.read(0), 0,
+    "old native guest still lives but must never see successor's data");
+  successor.endTurn(tn);
+  successor.retire();
+});
