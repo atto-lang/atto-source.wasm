@@ -127,27 +127,26 @@ test("lifetime pins fence retirement across turns, transfers and stale replays",
   const tb = foreign.beginTurn();
   const first = owner.pinLifetime(ta);
   const second = owner.pinLifetime(ta);
-  assert.throws(() => foreign.unpinLifetime(tb, first), /foreign, stale/);
-  assert.throws(() => owner.unpinLifetime(tb, first), /turn authority/);
-  assert.throws(() => owner.unpinLifetime(ta, Object.freeze({})), /foreign, stale/);
+  assert.throws(() => foreign.unpinLifetime(first), /foreign, stale/);
+  assert.throws(() => owner.unpinLifetime(Object.freeze({})), /foreign, stale/);
+  assert.throws(() => owner.unpinLifetime(Object.freeze({})), /foreign, stale/);
   owner.endTurn(ta);
   assert.throws(() => owner.retire(), /outstanding actor lifetime pins/);
   const before = actorArenaPoolStats();
-  const next = owner.beginTurn();
-  owner.unpinLifetime(next, first);
-  assert.throws(() => owner.unpinLifetime(next, first), /foreign, stale/);
-  owner.endTurn(next);
+  owner.requestRetirement();
+  assert.equal(owner.retirementRequested, true);
+  assert.throws(() => owner.beginTurn(), /retirement requested/);
+  owner.unpinLifetime(first); // late CONTROL completion, no actor turn
+  assert.throws(() => owner.unpinLifetime(first), /foreign, stale/);
   assert.throws(() => owner.retire(), /outstanding actor lifetime pins/);
-  const finalTurn = owner.beginTurn();
-  owner.unpinLifetime(finalTurn, second);
-  owner.endTurn(finalTurn);
+  owner.unpinLifetime(second); // second late completion
   owner.retire();
   assert.equal(actorArenaPoolStats().leasedArenas, before.leasedArenas - 1);
   assert.throws(() => owner.beginTurn(), /retired/);
   const replacement = new ActorArena({actorId: 310, incarnation: 9});
   const tr = replacement.beginTurn();
-  assert.throws(() => replacement.unpinLifetime(tr, first), /foreign, stale/);
-  assert.throws(() => replacement.unpinLifetime(tr, second), /foreign, stale/);
+  assert.throws(() => replacement.unpinLifetime(first), /foreign, stale/);
+  assert.throws(() => replacement.unpinLifetime(second), /foreign, stale/);
   replacement.endTurn(tr);
   replacement.retire();
   foreign.endTurn(tb);
@@ -214,4 +213,32 @@ test("concurrent actors never alias and pooled instances are reused only after r
     active[i].actor.retire();
   }
   assert.equal(mod.actorArenaPoolStats().leasedArenas, 0);
+});
+
+test("shutdown fences admissions before active turn ends but permits late release", async () => {
+  const {ActorArena, actorArenaPoolStats} =
+    await import("../src/actor-arena.mjs?shutdown-admission-lifetime");
+  const actor = new ActorArena({actorId: 601, incarnation: 42});
+  const turn = actor.beginTurn();
+  const pin = actor.pinLifetime(turn);
+  const data = actor.allocPersistent(turn, 8);
+  actor.write(turn, data, Uint8Array.of(51, 1, 2, 3, 4, 5, 6, 7));
+  const budget = actorArenaPoolStats();
+  actor.requestRetirement();
+  actor.requestRetirement(); // idempotent request
+  assert.equal(actor.retirementRequested, true);
+  assert.throws(() => actor.beginTurn(), /retirement requested/);
+  assert.throws(() => actor.pinLifetime(turn), /retirement requested/);
+  assert.equal(actor.read(turn, data)[0], 51, "in-progress turn may finish");
+  assert.throws(() => actor.retire(), /active actor turn/);
+  actor.endTurn(turn);
+  assert.throws(() => actor.retire(), /outstanding actor lifetime pins/);
+  assert.equal(actorArenaPoolStats().leasedArenas, budget.leasedArenas,
+    "memory may not be reused before pin completion");
+  actor.unpinLifetime(pin);
+  assert.throws(() => actor.unpinLifetime(pin), /foreign, stale/);
+  actor.retire();
+  assert.equal(actorArenaPoolStats().leasedArenas, budget.leasedArenas - 1);
+  assert.throws(() => actor.unpinLifetime(pin), /retired/);
+  assert.throws(() => actor.requestRetirement(), /retired/);
 });
