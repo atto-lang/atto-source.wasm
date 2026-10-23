@@ -58,7 +58,14 @@ export async function runIsolatedActorGuest(input, {
       let worker, timer, decided = false;
       let decisionError = null, decisionValue;
       let exited = false;
-      const onAbort = () => decide(new Error("isolated actor cancelled"));
+      const onAbort = () => {
+        if (exited) return;
+        const cancellationError = new Error("isolated actor cancelled");
+        // Cancellation before the Worker EXIT receipt invalidates an
+        // already-reported result. Reply alone is not physical quiescence.
+        if (decided) decisionError = cancellationError;
+        else decide(cancellationError);
+      };
       const decide = (error, value) => {
         if (decided || exited) return;
         decided = true;
