@@ -8,7 +8,8 @@ import assert from "node:assert/strict";
 test("actor lifetime state machine forbids memory reuse before worker exit", () => {
   const initial = {
     phase: "RUNNING", turn: true, active: 0, pins: 0,
-    spawned: 0, cancelRequested: false
+    spawned: 0, cancelRequested: false, guestBindings: 0,
+    guestExposed: false
   };
   const queue = [initial], seen = new Set();
   const paths = new Set();
@@ -17,12 +18,23 @@ test("actor lifetime state machine forbids memory reuse before worker exit", () 
     const s = queue.shift();
     if (seen.has(key(s))) continue;
     seen.add(key(s));
-    assert.equal(s.pins, s.active, "one pin per physically live worker");
+    assert.equal(s.pins, s.active + s.guestBindings,
+      "worker and guest-instance pins must both block retirement");
     assert.ok(s.active >= 0 && s.active <= 2);
-    if (s.phase === "RETIRED" || s.phase === "REUSED") {
+    if (s.phase === "RETIRED" || s.phase === "REUSED" ||
+        s.phase === "QUARANTINED") {
       assert.equal(s.turn, false, "no active turn may survive retirement");
       assert.equal(s.active, 0, "no live guest may survive retirement");
       assert.equal(s.pins, 0, "no borrowed memory may survive retirement");
+      assert.equal(s.guestBindings, 0, "guest bindings must be detached");
+    }
+    if (s.phase === "REUSED") {
+      assert.equal(s.guestExposed, false,
+        "a guest-exposed native memory can never be reassigned");
+    }
+    if (s.phase === "QUARANTINED") {
+      assert.equal(s.guestExposed, true,
+        "quarantine must be reserved for native guest-exposed memory");
     }
     const next = (label, patch) => {
       paths.add(label);
@@ -34,6 +46,15 @@ test("actor lifetime state machine forbids memory reuse before worker exit", () 
       next("end-turn", {turn: false});
     if (s.phase === "RUNNING" && s.turn && s.active < 2 && s.spawned < 2)
       next("spawn-worker", {active: s.active + 1, pins: s.pins + 1, spawned: s.spawned + 1});
+    if (s.phase === "RUNNING" && s.turn &&
+        s.guestBindings === 0)
+      next("attach-direct-guest", {
+        guestBindings: 1, guestExposed: true, pins: s.pins + 1
+      });
+    if (s.guestBindings > 0)
+      next("detach-direct-guest", {
+        guestBindings: 0, pins: s.pins - 1
+      });
     if (s.phase === "RUNNING")
       next("stop-admission", {phase: "STOP"});
     if (s.active > 0 && !s.cancelRequested)
@@ -46,12 +67,15 @@ test("actor lifetime state machine forbids memory reuse before worker exit", () 
       });
     if (s.phase === "STOP" && !s.turn && s.pins === 0 && s.active === 0)
       next("retire", {phase: "RETIRED"});
-    if (s.phase === "RETIRED")
+    if (s.phase === "RETIRED" && !s.guestExposed)
       next("reuse", {phase: "REUSED"});
+    if (s.phase === "RETIRED" && s.guestExposed)
+      next("quarantine", {phase: "QUARANTINED"});
   }
   assert.ok(seen.size >= 20, "model exploration was not vacuous");
   for (const label of ["spawn-worker", "request-cancel", "worker-exit-receipt",
-    "stop-admission", "retire", "reuse"]) {
+    "stop-admission", "retire", "reuse", "attach-direct-guest",
+    "detach-direct-guest", "quarantine"]) {
     assert.ok(paths.has(label), "missing lifecycle transition: " + label);
   }
 });
