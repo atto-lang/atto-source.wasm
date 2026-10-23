@@ -1,4 +1,5 @@
 import {compileActorMemoryGuest} from "./actor-guest-policy.mjs";
+import {runIsolatedActorGuest} from "./isolated-actor-runner.mjs";
 
 // Actor-owned memory with a restricted synchronous Wasm guest bridge.
 // Not yet a source-level Oreslang actor scheduler, await or FFI bridge.
@@ -288,6 +289,32 @@ export class ActorArena {
       throw new Error("actor lifetime pin accounting underflow");
     weakMapDelete.call(this.#lifetimePins, pin);
     --this.#lifetimePinCount;
+  }
+
+  // Any actor kind may invoke the disposable worker ABI, but never shares
+  // its live host-side arena WebAssembly.Memory with the worker. Copying a
+  // persistent handle's bytes into worker-owned memory preserves isolation.
+  // The pin remains held through timeout/cancellation until Worker "exit".
+  async invokeIsolatedGuest(turn, guestBytes, exportName, persistentHandle, {
+    expectedSha256, args = [0], timeoutMs = 2000, signal
+  } = {}) {
+    this.#requireTurn(turn);
+    if (this.#retirementRequested)
+      throw new Error("actor retirement requested; no new guest work");
+    const initialData = persistentHandle === undefined
+      ? new NativeUint8Array(0) : this.read(turn, persistentHandle);
+    const pin = this.pinLifetime(turn);
+    try {
+      return await runIsolatedActorGuest(guestBytes, {
+        actorId: this.#actor, incarnation: this.#incarnation,
+        expectedSha256, exportName, args, timeoutMs, signal, initialData
+      });
+    } finally {
+      // This finally runs only after a physical Worker exit receipt.
+      // If termination cannot be proven, the runner intentionally does
+      // not settle, so this lifetime pin cannot be released.
+      this.unpinLifetime(pin);
+    }
   }
 
   // A guest binding has no exported memory, host callbacks or references to
