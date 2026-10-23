@@ -1,4 +1,5 @@
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {createHash} from "node:crypto";
 
 // The current bridge admits ONLY synchronous Wasm modules whose sole import
 // is the current actor's private, fixed-size linear memory. It neither grants
@@ -44,10 +45,17 @@ function verifyStructure(bytes) {
   }
 }
 
-export function compileActorMemoryGuest(input) {
+export function compileActorMemoryGuest(input, {expectedSha256} = {}) {
   // Snapshot once before parsing and compiling. Shared, aliased mutable bytes
   // must never be trusted to remain stable across validation and execution.
   const bytes = snapshotGuestBytes(input, MAX_MODULE_BYTES);
+  if (expectedSha256 !== undefined) {
+    if (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256))
+      throw new TypeError("invalid actor guest source pin");
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== expectedSha256)
+      throw new Error("actor guest source identity mismatch");
+  }
   verifyStructure(bytes);
   const module = new NativeModule(bytes);
   const imports = moduleImports.call(NativeModule, module);
