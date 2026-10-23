@@ -110,3 +110,31 @@ The privileged test instrumentation is **not** an API exposed to guests;
 its synthetic guest instances must be discarded before testing retirement
 and memory reuse. The test does not establish end-to-end Oreslang source
 compiler lowering or guest instance quiescence.
+
+### Retirement admission and lifetime pins
+
+The host arena exposes an **opaque actor-lifetime barrier**, not a guest
+memory capability: `pinLifetime(turn)` and `unpinLifetime(turn, pin)`.
+The lifetime barrier persists across mailbox turns, is bound to a specific
+arena instance, rejects foreign/forged/stale/replayed permits, and has a
+4096-per-actor admission bound. `retire()` fails closed while a turn or
+any lifetime pin remains active. It does not return bytes to the reusable
+pool until both conditions are satisfied.
+
+The trusted CONTROL/scheduler must hold these barriers for every persistent
+continuation, in-flight message payload accessor, remote/FFI handle and
+guest instance that might retain actor bytes. A memory token alone does not
+prove external quiescence. The runtime must only release it **after** the
+external operation has completed or the guest instance/worker is definitively
+terminated; cancellation requests and merely clearing a JavaScript variable
+are NOT sufficient. The host-only implementation currently has no actual
+guest-memory binding, so full lifecycle integration and forced-termination
+proofs are separate prerequisites before exposing actor Memory to compiled
+guest code. The pin API intentionally never returns the underlying memory.
+
+Adversarial native-Wasm tests cover real `i32.load8_u` reads, three
+simultaneous distinct actor memories, cross-domain/stale access denial,
+96 concurrent actors with interleaved retirement/reissue, and lifetime
+permit forgery/double-release/foreign release/turn transfer. The replay
+regressions exercise a host-only boundary and do not constitute a full
+Oreslang compiler/guest-lifecycle proof.
