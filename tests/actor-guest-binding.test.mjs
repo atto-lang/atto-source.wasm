@@ -96,10 +96,10 @@ test("guest admission rejects callbacks, memory exports, start or extra memories
   const exportPos = memoryExport.indexOf(7, 20);
   assert.ok(exportPos >= 0);
   // export section: 7,8,1,4,'r','e','a','d',kind=0,index=0
-  memoryExport[exportPos + 7] = 2;
+  memoryExport[exportPos + 8] = 2;
   assert.throws(() => a.attachGuest(turn, memoryExport), /export only functions|only functions/);
   const badImport = Uint8Array.from(reader);
-  badImport[23] = 97; // change "env" to "ena"
+  badImport[20] = 97; // change "env" to "ena"
   assert.throws(() => a.attachGuest(turn, badImport),
     /exactly one env.memory import/);
   if (typeof SharedArrayBuffer === "function") {
