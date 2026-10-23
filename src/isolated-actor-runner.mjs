@@ -100,12 +100,19 @@ export async function runIsolatedActorGuest(input, {
             decide(null, {value: message.value, actorId, incarnation, terminated: true});
           }
         });
-        worker.once("error", error =>
-          decide(new Error("isolated actor worker error: " + error.message)));
+        worker.once("error", error => {
+          const failure = new Error("isolated actor worker error: " + error.message);
+          // An engine/worker failure after its reply but before physical exit
+          // invalidates that reply; do not accidentally report success.
+          if (decided && !exited) decisionError = failure;
+          else decide(failure);
+        });
         worker.once("exit", code => {
           exited = true;
           clearTimeout(timer);
-          if (signal) signal.removeEventListener("abort", onAbort);
+          if (signal) {
+            try { signal.removeEventListener("abort", onAbort); } catch {}
+          }
           // On unexpected natural exit, or on failed termination with no
           // authenticated message, fail closed. No guest memory survives exit.
           if (!decided)
@@ -123,7 +130,9 @@ export async function runIsolatedActorGuest(input, {
         }
       } catch (error) {
         clearTimeout(timer);
-        if (signal) signal.removeEventListener("abort", onAbort);
+        if (signal) {
+          try { signal.removeEventListener("abort", onAbort); } catch {}
+        }
         if (!worker) reject(error);
         else decide(error);
       }
