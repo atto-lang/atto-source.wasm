@@ -1,0 +1,16 @@
+// Restricted native arrow/::/end methods are executable, not merely parsed.
+define class X as
+  pub mtd zero(self) -> void ::
+  end
+  pub mtd answer(self) -> int ::
+    return 42;
+  end
+  pub mtd echo(self,int n) -> int ::
+    return n;
+  end
+end
+pub fnc main():int {
+  let X x=new X();
+  x.zero();
+  return x.answer()+x.echo(0);
+}
