@@ -70,13 +70,15 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
           compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"
         }),
         error => {
-          // compile-ores wraps the failing executable in
-          // "command failed (<absolute compiler path>): ...".
-          // Distinguish source rejection from a downstream Clang, Wasm
-          // validation or release failure; those must not satisfy the gate.
-          assert.match(error.message,/^command failed \(/);
-          assert.ok(error.message.startsWith("command failed ("+compiler+"):"),
-            "source rejection must originate in the pinned LLVM compiler: "+error.message);
+          // compile-ores runs a private, byte-pinned snapshot named
+          // compiler-exact, NOT the original compiler pathname. A downstream
+          // Clang error, missing executable or timeout cannot count as a
+          // successful source-language rejection.
+          assert.match(error.message,
+            /^command failed \([^)]+[\\/]compiler-exact\): /,
+            "rejection must originate in the staged native compiler");
+          assert.doesNotMatch(error.message,/spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL/,
+            "infrastructure failure is not a compiler diagnostic");
           return true;
         },
         "unsupported unary plus source must be rejected by the real compiler"
