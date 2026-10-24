@@ -99,6 +99,9 @@ export async function verifyRealCompiler({
       {name:"negative-result",expected:-5n},
       {name:"zero-result",expected:0n},
       {name:"class-scalar-constructor",expected:40n},
+      // Actual LLVM -> Clang wasm32 -> Node guest dispatch of foo/0 + foo/1.
+      // Requires the companion native inline self implementation.
+      {name:"class-inline-self-arity",expected:42n},
       // Byte-identical to the shared value-pipeline conformance source.
       // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
       {name:"value-pipe-scalar",expected:7n}
@@ -221,6 +224,19 @@ export async function verifyRealCompiler({
       });
       assertNativeFrontendRejection(frontendResult);
     }
+
+    // A declaration-only 'self' and implicit 'self' are one foo/0
+    // selector. A real compiler must reject the duplicate *before* emitting
+    // LLVM IR, not have the bridge or Wasm validator reject the artifact.
+    const duplicateSelf = fileURLToPath(
+      new URL("../examples/class-inline-self-duplicate.ores", import.meta.url));
+    const duplicateFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", duplicateSelf], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(duplicateFrontend);
+    if (!duplicateFrontend.stderr.includes("duplicate native method name/arity"))
+      throw Error("native inline self duplicate lacked name/arity collision diagnostic");
 
     // Source ownership syntax is pointerless. These cases must be rejected by
     // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
