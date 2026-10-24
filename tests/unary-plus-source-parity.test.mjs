@@ -35,7 +35,9 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
       ["++(40+2)",42n],
       ["2*+(20+1)",42n],
       ["-+(0-42)",42n],
-      ["+0",0n]
+      ["+0",0n],
+      ["+(4_0+2)",42n],
+      ["+(40_0-35_8)",42n]
     ];
     for (let i=0;i<positives.length;i++) {
       const [expression,expected]=positives[i];
@@ -61,7 +63,7 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
     // Strict no-IR/no-publication negatives. The host may not interpret
     // +bool or +String as a numeric conversion, even if the source compiler
     // widens its type system in the future.
-    const negatives=["+true",'+"x"',"+9223372036854775808","+"];
+    const negatives=["+true",'+"x"',"+9223372036854775808","+","1__0","1_"];
     for (let i=0;i<negatives.length;i++) {
       const output=join(dir,"negative-"+i+".wasm");
       await writeFile(source,"pub fnc main():int{return "+negatives[i]+";}\n");
