@@ -104,6 +104,7 @@ export async function verifyRealCompiler({
       {name:"class-inline-self-arity",expected:42n},
       {name:"class-inline-self-empty-void",expected:42n},
       {name:"class-inline-self-void-dispatch",expected:42n},
+      {name:"class-inline-self-mtd",expected:42n},
       // Byte-identical to the shared value-pipeline conformance source.
       // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
       {name:"value-pipe-scalar",expected:7n}
@@ -239,6 +240,19 @@ export async function verifyRealCompiler({
     assertNativeFrontendRejection(duplicateFrontend);
     if (!duplicateFrontend.stderr.includes("duplicate native method name/arity"))
       throw Error("native inline self duplicate lacked name/arity collision diagnostic");
+
+    // Formatter-inserted 'mtd' is optional and does not create a distinct
+    // receiver/overload slot. Verify compiler rejection (no IR), not merely
+    // a wasm32 linking or host-admission error.
+    const mtdCollision = fileURLToPath(
+      new URL("../examples/class-inline-self-mtd-duplicate.ores", import.meta.url));
+    const mtdFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", mtdCollision], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(mtdFrontend);
+    if (!mtdFrontend.stderr.includes("duplicate native method name/arity"))
+      throw Error("native mtd duplicate did not reject the same name/value-arity slot");
 
     // Source ownership syntax is pointerless. These cases must be rejected by
     // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
