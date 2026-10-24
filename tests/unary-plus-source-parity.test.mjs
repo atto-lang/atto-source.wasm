@@ -69,7 +69,16 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
         compileOresToWasm({
           compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"
         }),
-        /oreslang-llvmc:/,
+        error => {
+          // compile-ores wraps the failing executable in
+          // "command failed (<absolute compiler path>): ...".
+          // Distinguish source rejection from a downstream Clang, Wasm
+          // validation or release failure; those must not satisfy the gate.
+          assert.match(error.message,/^command failed \(/);
+          assert.ok(error.message.startsWith("command failed ("+compiler+"):"),
+            "source rejection must originate in the pinned LLVM compiler: "+error.message);
+          return true;
+        },
         "unsupported unary plus source must be rejected by the real compiler"
       );
       await assert.rejects(stat(output+".current.json"),{code:"ENOENT"},
