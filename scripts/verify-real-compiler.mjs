@@ -105,6 +105,7 @@ export async function verifyRealCompiler({
       {name:"class-inline-self-empty-void",expected:42n},
       {name:"class-inline-self-void-dispatch",expected:42n},
       {name:"class-inline-self-mtd",expected:42n},
+      {name:"class-inline-self-mtd-end",expected:42n},
       // Byte-identical to the shared value-pipeline conformance source.
       // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
       {name:"value-pipe-scalar",expected:7n}
