@@ -77,7 +77,7 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
           // Clang error, missing executable or timeout cannot count as a
           // successful source-language rejection.
           assert.match(error.message,
-            /^command failed \([^)]+[\\/]compiler-exact\): /,
+            /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /,
             "rejection must originate in the staged native compiler");
           assert.doesNotMatch(error.message,/spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL/,
             "infrastructure failure is not a compiler diagnostic");
