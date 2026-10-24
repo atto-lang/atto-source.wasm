@@ -1,0 +1,13 @@
+define class X1 as
+
+   foo():void {}
+
+end
+
+define class X2 as
+
+   foo(self):void {}
+
+end
+
+pub fnc main():int{return 42;}
