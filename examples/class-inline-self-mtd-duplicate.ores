@@ -1,0 +1,5 @@
+define class X as
+  mtd foo():void {}
+  foo(self):void {}
+end
+pub fnc main():int{return 42;}
