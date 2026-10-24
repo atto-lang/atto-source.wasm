@@ -102,6 +102,7 @@ export async function verifyRealCompiler({
       // Actual LLVM -> Clang wasm32 -> Node guest dispatch of foo/0 + foo/1.
       // Requires the companion native inline self implementation.
       {name:"class-inline-self-arity",expected:42n},
+      {name:"class-inline-self-empty-void",expected:42n},
       // Byte-identical to the shared value-pipeline conformance source.
       // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
       {name:"value-pipe-scalar",expected:7n}
