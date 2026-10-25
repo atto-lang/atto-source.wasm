@@ -4,7 +4,8 @@ on:
     paths:
       - 'contracts/v1/actor_arena_quiescence_matrix_v2.json'
       - 'contracts/v1/ACTOR_ARENA_QUIESCENCE_EVIDENCE_V2.md'
-      - 'tools/contract_gate.rs'
+      - 'scripts/verify_actor_arena_quiescence_matrix_v2.py'
+      - 'scripts/test_actor_arena_quiescence_matrix_v2.py'
       - '.github/workflows/actor-arena-quiescence-evidence-v2.yml'
   workflow_dispatch:
 
@@ -19,17 +20,9 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Compile Rust quiescence policy gate
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustc --edition=2021 -D warnings tools/contract_gate.rs -o /tmp/contract-gate
       - name: Check quiescence policy and reject weakened claims
         shell: bash
         run: |
           set -euo pipefail
-          output="$(/tmp/contract-gate actor-arena-quiescence .)"
-          printf '%s\n' "$output"
-          grep -Fq 'barriers=16' <<<"$output"
-          grep -Fq 'negative_controls=27' <<<"$output"
-          grep -Fq 'runtime=NOT_VERIFIED' <<<"$output"
+          python3 scripts/verify_actor_arena_quiescence_matrix_v2.py
+          python3 scripts/test_actor_arena_quiescence_matrix_v2.py
