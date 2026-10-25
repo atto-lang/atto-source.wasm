@@ -22,6 +22,12 @@ export function assertNativeFrontendRejection(frontend) {
   }
   return true;
 }
+export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -216,6 +222,26 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
+    // Source ownership syntax is pointerless. These cases must be rejected by
+    // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
+    for (const [name, body] of [
+      ["address-of", "pub fnc main(): int { val x = 1; return &x; }\n"],
+      ["address-of-mut", "pub fnc main(): int { let mut int x = 1; return &mut x; }\n"],
+      ["unary-deref", "pub fnc main(): int { val x = 1; return *x; }\n"],
+      ["legacy-borrow-order", "pub fnc main(): int { let mut int x = 1; return rt borrow mut x; }\n"],
+      ["pointer-type", "pub fnc main(): Pointer<int> { return value; }\n"],
+      ["rt-ref", "pub fnc main(): int { val x = 1; return rt ref x; }\n"],
+      ["rt-deref", "pub fnc main(): int { return rt deref value; }\n"],
+      ["rt-unref", "pub fnc main(): int { return rt unref value; }\n"]
+    ]) {
+      const source = join(work, "deny-pointer-syntax-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(frontendResult);
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -283,6 +309,41 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    const tupleV2Cases = [
+      {
+        name:"tuple-explicit",
+        source:"fnc take(tuple (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-shorthand",
+        source:"fnc take((int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native positional tuple parameter requires verified readonly-slot and optional-tail lowering"
+      },
+      {
+        name:"tuple-structural",
+        source:"fnc take(structural (int,int,string?) value): int { return 1; }\n",
+        diagnostic:"native structural positional tuple requires verified readonly-width and nonescape lowering"
+      },
+      {
+        name:"tuple-return",
+        source:"fnc take(): tuple (int,int) { return 1; }\n",
+        diagnostic:"native positional tuple return requires verified tuple ABI lowering"
+      }
+    ];
+    for (const tupleCase of tupleV2Cases) {
+      const tupleSource = join(work, tupleCase.name + ".ores");
+      await writeFile(tupleSource, tupleCase.source, {flag:"wx"});
+      const tupleFrontend = spawnSync(
+        pinnedCompiler, ["--target=wasm32", tupleSource],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertTupleV2FrontendRejection(tupleFrontend, tupleCase.diagnostic);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024,
+        "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during tuple-v2 rejection test");
+    }
+
     return Object.freeze({
       status:"verified", llvmSourceCommitDeclared:llvmSourceSha,
       compilerSha256, wasmSha256:published.wasmSha256,
@@ -291,7 +352,8 @@ export async function verifyRealCompiler({
       scalarFixtures:Object.freeze(scalarResults),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
-      unsupportedPipelineRejected:true
+      unsupportedPipelineRejected:true,
+      tupleV2Rejected:true
     });
   } catch (error) {
     primaryError = error;

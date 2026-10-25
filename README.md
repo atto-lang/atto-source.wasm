@@ -1,6 +1,20 @@
 # Oreslang source-to-WebAssembly backend
 
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
+Compare with oreslang-source.* repos.
+
+Please keep parity with oreslang-source.java in terms of features and capability. The same guest code that runs on graalvm should compile and execute with gcc/llvm. Do not use python for anything, use Rust instead of python to support the language.
+
+Notes on the compiler and runtime:
+
+* Strive for zero gc. The borrow checker should accomplish this, and having separate heaps/arenas per actor helps reduce gc overhead.
+* Borrow checking uses reserved keywords rt copy, rt share, rt take, rt borrow
+* Go for full AOT. Some JIT elements are ok, as long as they can be explicitly controlled/governed by user.
+* Strive for hard real time not just soft-real time by minimizing JIT (or having JIT switched off for certain paths) and moving towards full AOT.
+* Use data-oriented design and data oriented programming - be mindful of using AoS, SoA, AoSoA and SoAoS where possible.
+* Use 32 bit pointers instead of 64 bit pointers for allocation/heaps. Having separate heaps per actor helps with this. 32 bit pointers helps us save up to 50% on memory/RAM. The 32 bit pointers should be implemented so that it stays 32 bit even on Arm-64 machines, etc etc.
+* OresLang must be built around excellent tree-shaking so we can get final binary executables as small as possible and reduce startup overhead etc.
+
 
 ## Implemented (initial slice)
 
@@ -49,6 +63,10 @@ Related projects: [Oreslang LLVM compiler](https://github.com/ores-truffle-oresl
 See [value-boundary audit and admission tests](docs/VALUE_BOUNDARIES.md) for
 aggregate, call, string, conditional and async feature limits.
 
+## Engineering policy: no Python
+
+Python is prohibited in this repository and throughout the `ores-truffle-oreslang` organization for scripts, tests, CI helpers, code generators, analyzers, automation, and host tooling. Existing Python functionality must be migrated to **Rust** without weakening behavior, security checks, fixtures, or test coverage. Do not add `.py`, `.pyi`, `.ipynb`, Python dependency manifests, `python`/`python3` commands, `pip`, `pytest`, `poetry`, `uv`, or `actions/setup-python`. The WebAssembly backend remains its language-specific implementation; the Python-to-Rust mandate applies to Python tooling rather than rewriting the backend itself.
+
 ## Rust-only tooling policy (no Python)
 
 **Python is prohibited in this organization.** Do not add, maintain, invoke, generate, or require Python code or Python-based scripts, helpers, tests, code generators, build utilities, automation, CI steps, notebooks, or runtime dependencies. This includes `.py`, `.pyi`, `.ipynb`, `python` / `python3` commands, `pip`, `uv`, `poetry`, `pytest`, and Python GitHub Actions setup steps.
@@ -56,3 +74,12 @@ aggregate, call, string, conditional and async feature limits.
 Implement tooling previously written in Python in **Rust** instead. Preserve behavior and test coverage while migrating; use `cargo fmt`, `cargo clippy`, and `cargo test` for Rust code. Existing Python must be inventoried and ported, not merely deleted if it implements required behavior. Changes introducing Python must be rejected in review and CI. References discussing the prohibition are allowed in documentation; they are not an authorization to execute Python.
 
 This rule applies across all repositories, including compiler backends, examples, benchmarks, workflows, and documentation. Language implementations written in Java, LLVM/other native languages, .NET, etc. remain in their existing implementation languages; **the Python-to-Rust mandate applies to Python tooling and Python implementations**.
+
+### Migration status
+
+The Rust migration is incomplete. Newer mainline routing JSON/file-substitution
+and numeric overflow regressions remain required until their Rust replacements
+preserve the same checks and pass. The existing Rust serde and repository-policy
+Cargo tools remain authoritative. No-Python enforcement is expected to reject the
+remaining legacy files and invocations; do not delete security coverage or weaken
+the gate to claim compliance. Resolve the remaining migration debt before merge.

@@ -51,6 +51,20 @@ first NUL as string termination. The canonical `"\\u0000"` vector
 hashes to `af63bd4c8601b7df`, which selects `worker-a` in the
 three-consumer fixture.
 
+**Direct reply rule (v1):** `self.reply(value)` is a single new
+reverse-DATA admission **directly to the authenticated ingress actor**, not an
+implicit chain of intermediate actor handler invocations. The immutable
+forward actor path remains sealed in VM metadata for audit and fan-in
+correlation; its origin is the only authorized target. The current forward
+frame is consumed exactly once. The reply receives a new branch-unique route
+ID while preserving the flow ID and graph generation. The ingress actor
+cannot reply to itself, and a returning frame cannot be forwarded or
+re-replied. `self.backward(value)` remains one immediate upstream hop along
+that same immutable path; the two methods have deliberately different
+execution semantics. Failed actual mailbox admission retires only the
+undelivered new reply frame: earlier admitted sibling branches remain live.
+This contract is not a guest API availability claim.
+
 `forward_all` is **not transactional**. A successful receipt is only
 mailbox admission, not processing or exactly-once delivery. Partial success
 is returned per edge, never hidden. A moved unique value cannot be fanned

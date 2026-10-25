@@ -46,6 +46,26 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
   assert.equal(corpus.status,"reference-only-not-compiled-execution");
   assert.equal(corpus.cases.length,7);
   const controls = corpus.cases.map(c=>[c.expression,BigInt(c.expected)]);
+  const overflowBytes = await readFile(new URL(
+    "../contracts/v1/numeric-parity/source-i64-overflow-cases.json",import.meta.url));
+  const overflowBlobSha = createHash("sha1").update(
+    Buffer.from("blob " + overflowBytes.length + "\0","ascii"))
+    .update(overflowBytes).digest("hex");
+  assert.equal(overflowBlobSha,"2ce0b0ff5c52e54a788280fd64d67fa8dc32614a",
+    "negative numeric source corpus must remain byte-identical across backends");
+  const overflowCorpus = JSON.parse(overflowBytes.toString("utf8"));
+  assert.equal(overflowCorpus.schema_version,"1.0.0");
+  assert.equal(overflowCorpus.status,"requires-executable-negative-tests");
+  assert.equal(overflowCorpus.policy,"no-wrapping-i64");
+  assert.deepEqual(overflowCorpus.cases.map(c=>c.id),[
+    "positive-add-overflow","negative-sub-overflow",
+    "positive-multiply-overflow","negative-unary-overflow"
+  ]);
+  const overflowNegatives = overflowCorpus.cases.map(c=>{
+    assert.equal(c.expected,"reject-or-runtime-error");
+    assert.match(c.source,/^[0-9()+* -]{1,128}$/);
+    return "pub fnc main():int{return "+c.source+";}";
+  });
   const dir = await mkdtemp(join(tmpdir(),"ores-numeric-parity-"));
   try {
     const input = join(dir,"source.ores");
@@ -75,13 +95,11 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       "pub fnc main():int{return 1.25;}",
       "pub fnc main():bigint{return 1;}",
       "pub fnc main():decimal{return 1;}",
-      // Compile-time integer overflow must not wrap into a valid wasm i64.
+      // A bare out-of-range literal must always be rejected too.
       "pub fnc main():int{return 9223372036854775808;}",
-      "pub fnc main():int{return 9223372036854775807+1;}",
-      "pub fnc main():int{return -9223372036854775808-1;}",
-      "pub fnc main():int{return 3037000500*3037000500;}",
-      "pub fnc main():int{return -(-9223372036854775808);}"
+      ...overflowNegatives
     ];
+    const firstCheckedOverflow=negatives.length-overflowNegatives.length;
     for (let i=0;i<negatives.length;i++) {
       const source=negatives[i];
       const target=join(dir,"invalid-"+i+".wasm");
@@ -91,8 +109,15 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
           compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
           environment:"browser",publication:"atomic"
         }),
-        error=>/oreslang-llvmc:/.test(error.message),
-        "unsupported precision must be rejected by the real frontend"
+        error=>{
+          const diagnostic=String(error?.message ?? "");
+          if (!/oreslang-llvmc:/.test(diagnostic)) return false;
+          // Pure source signed-overflow cases have valid grammar. A generic
+          // parser/bridge/IO failure cannot count as a negative numeric pass.
+          return i<firstCheckedOverflow ||
+            /overflow|out.of.range|out.of.bounds|invalid i64|integer literal/i.test(diagnostic);
+        },
+        "invalid source must be rejected for its expected numeric reason"
       );
       await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
         "failed numeric compilation must not publish a release pointer");
