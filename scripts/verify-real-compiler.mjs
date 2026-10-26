@@ -103,6 +103,21 @@ export async function verifyRealCompiler({
         name:"explicit-alias",
         source:fileURLToPath(new URL(
           "../examples/explicit-export-boundary-alias.ores", import.meta.url))
+      },
+      {
+        name:"file-alias",
+        source:fileURLToPath(new URL(
+          "../examples/explicit-export-boundary-file.ores", import.meta.url))
+      },
+      {
+        name:"package-alias",
+        source:fileURLToPath(new URL(
+          "../examples/explicit-export-boundary-package.ores", import.meta.url))
+      },
+      {
+        name:"multiple-aliases",
+        source:fileURLToPath(new URL(
+          "../examples/explicit-export-boundary-multiple.ores", import.meta.url))
       }
     ];
     const exportBoundary = [];
@@ -129,8 +144,18 @@ export async function verifyRealCompiler({
       const exports = WebAssembly.Module.exports(module)
         .map(entry => Object.freeze({name:entry.name,kind:entry.kind}))
         .sort((a,b)=>a.name.localeCompare(b.name)||a.kind.localeCompare(b.kind));
-      if (exports.some(entry => entry.name === "public_helper"))
-        throw Error("Oreslang source export alias leaked into Wasm host export section");
+      const imports = WebAssembly.Module.imports(module)
+        .map(entry => Object.freeze({module:entry.module,name:entry.name,kind:entry.kind}))
+        .sort((a,b)=>a.module.localeCompare(b.module)
+          ||a.name.localeCompare(b.name)||a.kind.localeCompare(b.kind));
+      const sourceAliases = new Set([
+        "public_helper", "file_helper", "package_helper", "second_helper"
+      ]);
+      if (exports.some(entry => sourceAliases.has(entry.name)) ||
+          imports.some(entry => sourceAliases.has(entry.name)))
+        throw Error("Oreslang source export alias leaked into Wasm host import/export");
+      if (imports.length !== 0 || verified.manifest.imports.length !== 0)
+        throw Error("source export metadata must not create Wasm host imports");
 
       const observed = await runIsolatedCoreGuest(verified.wasm, {
         expectedSha256:built.wasmSha256, timeoutMs:5000
@@ -141,11 +166,20 @@ export async function verifyRealCompiler({
         name:testCase.name,
         sourceSha256:built.sourceSha256,
         wasmSha256:built.wasmSha256,
-        exports:Object.freeze(exports)
+        exports:Object.freeze(exports),
+        imports:Object.freeze(imports)
       }));
     }
-    if (JSON.stringify(exportBoundary[0].exports) !== JSON.stringify(exportBoundary[1].exports))
-      throw Error("explicit Oreslang source export changed the Wasm host export surface");
+    const baselineBoundary = JSON.stringify({
+      exports:exportBoundary[0].exports,
+      imports:exportBoundary[0].imports
+    });
+    for (const boundary of exportBoundary.slice(1)) {
+      if (JSON.stringify({exports:boundary.exports,imports:boundary.imports})
+            !== baselineBoundary)
+        throw Error("explicit Oreslang source export changed Wasm host ABI for "
+          + boundary.name);
+    }
 
     // A real compiler, not an IR test double, must support independently
     // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
