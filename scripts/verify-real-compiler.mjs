@@ -88,6 +88,65 @@ export async function verifyRealCompiler({
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
       throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
 
+    // Explicit Oreslang source exports are source-interface metadata, not
+    // Wasm host exports. Compile byte-distinct programs with identical guest
+    // behavior and require an unchanged Wasm export surface. In particular,
+    // the source alias "public_helper" must never appear in the Wasm export
+    // section merely because Oreslang source exported it.
+    const exportBoundaryCases = [
+      {
+        name:"baseline",
+        source:fileURLToPath(new URL(
+          "../examples/explicit-export-boundary-baseline.ores", import.meta.url))
+      },
+      {
+        name:"explicit-alias",
+        source:fileURLToPath(new URL(
+          "../examples/explicit-export-boundary-alias.ores", import.meta.url))
+      }
+    ];
+    const exportBoundary = [];
+    for (const testCase of exportBoundaryCases) {
+      const out = join(work, "explicit-export-boundary-" + testCase.name + ".wasm");
+      const sourceBytes = await readFile(testCase.source);
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:testCase.source, output:out,
+        environment:"browser", publication:"atomic"
+      });
+      const verified = await readAtomicRelease(out);
+      if (built.sourceSha256 !== sha256(sourceBytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(verified.wasm) ||
+          verified.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("explicit-export boundary artifact provenance mismatch");
+
+      let module;
+      try {
+        module = new WebAssembly.Module(verified.wasm);
+      } catch {
+        throw Error("explicit-export boundary artifact is not a valid Wasm module");
+      }
+      const exports = WebAssembly.Module.exports(module)
+        .map(entry => Object.freeze({name:entry.name,kind:entry.kind}))
+        .sort((a,b)=>a.name.localeCompare(b.name)||a.kind.localeCompare(b.kind));
+      if (exports.some(entry => entry.name === "public_helper"))
+        throw Error("Oreslang source export alias leaked into Wasm host export section");
+
+      const observed = await runIsolatedCoreGuest(verified.wasm, {
+        expectedSha256:built.wasmSha256, timeoutMs:5000
+      });
+      if (observed.value !== 42n || observed.admission.hostCapabilities !== 0)
+        throw Error("explicit-export boundary guest returned incorrect result/capabilities");
+      exportBoundary.push(Object.freeze({
+        name:testCase.name,
+        sourceSha256:built.sourceSha256,
+        wasmSha256:built.wasmSha256,
+        exports:Object.freeze(exports)
+      }));
+    }
+    if (JSON.stringify(exportBoundary[0].exports) !== JSON.stringify(exportBoundary[1].exports))
+      throw Error("explicit Oreslang source export changed the Wasm host export surface");
+
     // A real compiler, not an IR test double, must support independently
     // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
     // mistakes that a constant-42 smoke test cannot expose.
@@ -353,7 +412,9 @@ export async function verifyRealCompiler({
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
-      tupleV2Rejected:true
+      tupleV2Rejected:true,
+      explicitSourceExportNativeExposure:"UNCHANGED",
+      explicitSourceExportBoundary:Object.freeze(exportBoundary)
     });
   } catch (error) {
     primaryError = error;
