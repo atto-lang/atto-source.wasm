@@ -8,3 +8,12 @@
 /.github/private-ci-independent-reviewer.json @ORESoftware
 /.github/private-ci-required-checks.json @ORESoftware
 /.github/workflows/private-ci-policy.yml @ORESoftware
+
+# Wasm guest, AOT host, publication, and conformance trust boundaries.
+/src/ @ORESoftware
+/aot-host/ @ORESoftware
+/tests/ @ORESoftware
+/contracts/ @ORESoftware
+/tools/ @ORESoftware
+/scripts/ @ORESoftware
+/package.json @ORESoftware
