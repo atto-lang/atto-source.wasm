@@ -1,0 +1,4 @@
+export fnc helper as public_helper;
+export fnc helper as second_helper;
+fnc helper(): int { return 42; }
+pub fnc main(): int { return helper(); }
