@@ -100,6 +100,9 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
   assert.match(workflow,/name: Run full WebAssembly scalar and shared-contract suite\n        run: npm test/);
+  assert.ok(workflow.indexOf('name: Install LLVM wasm32 linker') <
+    workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite'),
+    'full Wasm scalar suite requires installed LLVM linker');
   assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
   assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
   assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);

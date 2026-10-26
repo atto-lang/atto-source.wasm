@@ -47,8 +47,6 @@ jobs:
           node-version: '22'
       - name: Assert fail-closed AOT build gates and CI coverage
         run: node --test tests/aot-architecture.test.mjs tests/real-aot-gate.test.mjs
-      - name: Run full WebAssembly scalar and shared-contract suite
-        run: npm test
       - name: Install Wasmtime 49 compatible Rust 1.96
         run: rustup toolchain install 1.96.0 --profile minimal
       - name: Inspect pinned toolchain
@@ -67,5 +65,7 @@ jobs:
           fi
       - name: Install LLVM wasm32 linker
         run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run full WebAssembly scalar and shared-contract suite
+        run: npm test
       - name: Run strict AOT scalar smoke and tamper rejection
         run: bash aot-host/tests/smoke.sh
