@@ -11,6 +11,14 @@ import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
+/**
+ * Reviewed candidate source implementation for the expanded explicit-export
+ * boundary matrix, LLVM PR #1015. Keep the exact expected head separate from
+ * the credential-bearing real-llvm.yml checkout pin; changing either value
+ * requires re-review and an actual compiler build. This check is a *test
+ * prerequisite*, not proof of source-chain authorization.
+ */
+const EXPLICIT_EXPORT_LLVM_CANDIDATE_SHA = "18f12eab339005cc9f8863782f9fa95e8426573d";
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
 // built compiler executable. Supplied source revision alone is not a proof.
@@ -39,6 +47,10 @@ export async function verifyRealCompiler({
     throw Error("ORESLANG_LLVM_COMPILER_SHA256 is required");
   if (!/^[0-9a-f]{40}$/.test(llvmSourceSha || ""))
     throw Error("ORESLANG_LLVM_SOURCE_SHA is required");
+  if (llvmSourceSha !== EXPLICIT_EXPORT_LLVM_CANDIDATE_SHA)
+    throw Error("explicit-export Wasm gate requires reviewed LLVM PR #1015 exact head "
+      + EXPLICIT_EXPORT_LLVM_CANDIDATE_SHA
+      + "; the configured compiler source pin is stale/unverified");
   // Bind all validation and execution to the same bounded immutable snapshot.
   // The original compiler pathname is never executed after the SHA check.
   const compilerBytes = (await readBoundedRegularFile(
