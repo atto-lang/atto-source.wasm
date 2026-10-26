@@ -130,3 +130,41 @@ test('persistent and scratch handles have bounded metadata quotas', () => {
   arena.endTurn(next);
   arena.retire();
 });
+
+test("actor arena write validates native typed-array slots across realms", async () => {
+  const {default: vm} = await import("node:vm");
+  const arena = new ActorArena({actorId: 35, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, new Uint8Array([9, 8, 7, 6]));
+
+  const short = new Uint8Array([1, 2]);
+  Object.defineProperty(short, "byteLength", {value: 4});
+  assert.throws(() => arena.write(turn, handle, short), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [9, 8, 7, 6]);
+
+  const privateBytes = new Uint8Array([4, 3, 2, 1]);
+  for (const key of ["byteLength", "buffer"]) {
+    Object.defineProperty(privateBytes, key, {
+      get() {throw Error("unexpected property access: " + key);}
+    });
+  }
+  assert.doesNotThrow(() => arena.write(turn, handle, privateBytes));
+  assert.deepEqual([...arena.read(turn, handle)], [4, 3, 2, 1]);
+
+  if (typeof SharedArrayBuffer === "function") {
+    const shared = new Uint8Array(new SharedArrayBuffer(4));
+    shared.set([7, 7, 7, 7]);
+    Object.defineProperty(shared, "buffer", {value: new ArrayBuffer(4)});
+    Object.defineProperty(shared, "byteLength", {value: 4});
+    assert.throws(() => arena.write(turn, handle, shared), /shared backing/);
+    const foreignShared = vm.runInNewContext("new Uint8Array(new SharedArrayBuffer(4))");
+    assert.throws(() => arena.write(turn, handle, foreignShared), /shared backing/);
+    assert.deepEqual([...arena.read(turn, handle)], [4, 3, 2, 1]);
+  }
+  const foreignPrivate = vm.runInNewContext("new Uint8Array([1, 2, 3, 4])");
+  assert.doesNotThrow(() => arena.write(turn, handle, foreignPrivate));
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  arena.endTurn(turn);
+  arena.retire();
+});
