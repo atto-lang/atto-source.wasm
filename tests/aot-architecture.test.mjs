@@ -84,7 +84,7 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/on:\n  push:\n    branches: \[main\]/);
   assert.match(workflow,/pull_request:\n    paths:/);
   for(const path of [
-    "aot-host/**", "scripts/**", "src/**", "tests/**",
+    "aot-host/**", "scripts/**", "src/**", "contracts/**", "tests/**",
     "examples/**", "package.json", "rust-toolchain.toml",
     ".github/workflows/aot-host.yml"
   ]){
@@ -99,6 +99,7 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/WASM_AOT_SOURCE_TREE=/);
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
+  assert.match(workflow,/name: Run full WebAssembly scalar and shared-contract suite\n        run: npm test/);
   assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
   assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
   assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
