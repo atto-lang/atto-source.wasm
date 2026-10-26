@@ -1,0 +1,3 @@
+export[pkg] fnc helper as package_helper;
+fnc helper(): int { return 42; }
+pub fnc main(): int { return helper(); }
