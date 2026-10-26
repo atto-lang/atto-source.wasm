@@ -92,6 +92,25 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   }
   assert.match(workflow,/permissions:\n  contents: read/);
   assert.match(workflow,/persist-credentials: false/);
+  assert.ok(workflow.includes('ref: 
+  assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
+  assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
+  assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/bash aot-host\/tests\/smoke\.sh/);
+});
+ + '{{ github.event.pull_request.head.sha || github.sha }}'),
+    'AOT PR must checkout exact reviewed head, not a synthetic merge');
+  assert.ok(workflow.includes('EXPECTED_HEAD: 
+  assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
+  assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
+  assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
+  assert.match(workflow,/bash aot-host\/tests\/smoke\.sh/);
+});
+ + '{{ github.event.pull_request.head.sha || github.sha }}'));
+  assert.match(workflow,/test "\$\(git rev-parse HEAD\)" = "\$EXPECTED_HEAD"/);
+  assert.match(workflow,/WASM_AOT_SOURCE_TREE=/);
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
   assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
