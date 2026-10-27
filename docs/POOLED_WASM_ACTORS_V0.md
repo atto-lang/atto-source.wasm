@@ -29,11 +29,12 @@ The worker uses the existing bounded core-WASM byte inspector; start functions,
 imports, tables, shared memory, memory64, managed reference types and extra
 exports are denied. A transport operation is keyed to an unguessable
 incarnation and monotonic ticket; malformed/stale carrier receipts terminate
-the pool. Teardown zeroes guest linear memory before acknowledging retirement.
-A guest trap or uncooperative CPU loop terminates the entire carrier pool, not
-just the current actor. Success/failure is settled only after Worker termination
-when a carrier must be killed. The application must account for collateral
-loss of other actors on that carrier and restart from known states.
+the **affected Worker carrier** and all actors pinned to it. Teardown zeroes
+guest linear memory before acknowledging normal retirement.
+A guest trap or uncooperative CPU loop quarantines its Worker, not the entire
+pool. Other healthy carriers remain available and new actors may be routed to
+them. Success/failure of work on the failed carrier is settled only after
+physical Worker termination; colocated actors necessarily lose their state.
 
 ## Explicit limitations and follow-up
 
@@ -92,6 +93,27 @@ The Worker independently repeats core-Wasm validation and the exact ABI
 check on its received private snapshot. Preflight is a safety boundary
 against an ordinary malformed artifact, not authorization to execute
 untrusted guest code or protection from malicious native engine defects.
-A guest trap or noncooperating callback still poisons the current pool in v0;
-per-carrier failure containment, compiler-enforced yielding and resumable
-continuations remain separate required milestones.
+A guest trap or noncooperating callback quarantines only its Worker,
+retiring all actor instances colocated there after an independently confirmed
+termination receipt. Other Workers continue, but no Worker is automatically
+replenished. Browser/Node cooperative continuation lowering and OS-process
+isolation for untrusted actors remain separate required milestones.
+
+## Per-carrier fault containment (2026-10-27)
+
+The pooled host now tracks carrier liveness separately from actor state.
+`activeWorkerCount` reports surviving Workers, whereas `workerCount` reports
+the original fixed number. On a trap, timeout, invalid receipt or unexpected
+Worker exit, the affected carrier is marked unavailable immediately and
+cannot acknowledge more turns. Colocated actors are sealed; pending DATA
+settles only after physical Worker termination is confirmed. Failed physical
+termination retains the actor identities and rejects work **without** allowing
+their memory/lifetime to be reclaimed or their carrier to be reused.
+
+Other live carriers retain their actors and continue processing. New spawns
+choose only live carriers. No automatic Worker respawn, actor recovery,
+migration, typed supervisor CONTROL or resumable preemption is implemented.
+The shared Worker is a trusted-only common failure domain for its actors.
+The test suite covers a spinning actor, a second live Worker, colocated
+failed actors, live-Worker replacement admission, and delayed termination
+receipts without early settlement.
