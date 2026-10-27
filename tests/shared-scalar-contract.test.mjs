@@ -63,7 +63,7 @@ test("shared scalar corpus bytes match .NET and JS parity contract",async()=>{
   await verifyScalarCorpus(root);
 });
 
-test("scalar corpus integrity detects adversarial filesystem mutations",async()=>{
+test("scalar corpus integrity detects adversarial filesystem mutations",async t=>{
   const mutations=[
     ["extra fixture",async dir=>{
       await writeFile(join(dir,"fixtures","unlisted.ores"),"pub fnc main(): int { return 0; }\n");
@@ -91,9 +91,9 @@ test("scalar corpus integrity detects adversarial filesystem mutations",async()=
     },/unsafe scalar corpus directory/]
   ];
   for(const [name,mutate,diagnostic] of mutations){
-    await test(name,async t=>{
+    await t.test(name,async child=>{
       if(process.platform==="win32"&&name.startsWith("symlink")){
-        t.skip("Windows symlink creation may require privileges");
+        child.skip("Windows symlink creation may require privileges");
         return;
       }
       const temp=await mkdtemp(join(tmpdir(),"ores-scalar-integrity-"));
