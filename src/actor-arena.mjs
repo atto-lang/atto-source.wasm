@@ -9,6 +9,10 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 const nativeFreeze = Object.freeze;
 const nativeFindIndex = Array.prototype.findIndex;
 const nativeSplice = Array.prototype.splice;
+const nativePush = Array.prototype.push;
+const nativeSort = Array.prototype.sort;
+const nativeWeakGet = WeakMap.prototype.get;
+const nativeWeakDelete = WeakMap.prototype.delete;
 const nativeWeakSet = WeakMap.prototype.set;
 const nativeFill = Uint8Array.prototype.fill;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
@@ -129,19 +133,32 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle);
+    const entry = nativeWeakGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    this.#bytes().fill(0, entry.offset, entry.offset + entry.length);
-    this.#handles.delete(handle);
-    --this.#persistentCount;
-    this.#freePersistent.push({...entry});
-    this.#freePersistent.sort((a, b) => a.offset - b.offset);
-    const coalesced = [];
-    for (const segment of this.#freePersistent) {
-      const prior = coalesced[coalesced.length - 1];
-      if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else coalesced.push(segment);
+
+    // PLAN the complete free list before revoking the handle or credit.
+    // A poisoned host Array prototype must not strand an unreachable segment.
+    const planned = [];
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
+      nativePush.call(planned, {offset: segment.offset, length: segment.length});
     }
+    nativePush.call(planned, {offset: entry.offset, length: entry.length});
+    nativeSort.call(planned, (a, b) => a.offset - b.offset);
+    const coalesced = [];
+    for (let i = 0; i < planned.length; ++i) {
+      const segment = planned[i];
+      const prior = coalesced[coalesced.length - 1];
+      if (prior && prior.offset + prior.length === segment.offset)
+        prior.length += segment.length;
+      else nativePush.call(coalesced, segment);
+    }
+
+    // PREPARE zeroing, then COMMIT the revocation and quota together.
+    // Native WeakMap deletion on a valid private map/key cannot call guest code.
+    nativeFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
+    nativeWeakDelete.call(this.#handles, handle);
+    --this.#persistentCount;
     this.#freePersistent = coalesced;
   }
 
