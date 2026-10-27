@@ -76,3 +76,22 @@ establish an independent physical quiescence barrier.
 `tests/pooled-actors.test.mjs` injects both synchronous-throw and missing
 termination-receipt failures. These tests validate fail-closed lifecycle
 accounting and do not substitute for an OS sandbox or certified recovery.
+
+
+## Pre-carrier artifact admission (2026-10-27)
+
+The parent host now verifies **the same snapshotted, SHA-256-pinned bytes**
+before creating an actor ID or enqueueing INIT on any shared carrier. The
+preflight runs the repository's bounded core-Wasm scanner, enforces one
+non-shared, fixed two-page linear memory, and checks the exact three-function
+actor ABI from the binary function/type/export sections. Malformed modules,
+imports, wrong signatures, and invalid memory limits reject the `spawn`
+request **without poisoning already-running peer actors**.
+
+The Worker independently repeats core-Wasm validation and the exact ABI
+check on its received private snapshot. Preflight is a safety boundary
+against an ordinary malformed artifact, not authorization to execute
+untrusted guest code or protection from malicious native engine defects.
+A guest trap or noncooperating callback still poisons the current pool in v0;
+per-carrier failure containment, compiler-enforced yielding and resumable
+continuations remain separate required milestones.
