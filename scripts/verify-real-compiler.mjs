@@ -28,6 +28,14 @@ export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
+export function assertGeneratorV1WasmRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  const expected =
+    "native generator v1 is not yet admitted for wasm32/Cortex-M targets";
+  if (!String(frontend.stderr || "").includes(expected))
+    throw Error("generator-v1 rejection did not come from the required wasm32 compiler gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
