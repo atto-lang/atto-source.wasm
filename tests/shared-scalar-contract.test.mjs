@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {readFile,lstat,readdir} from "node:fs/promises";
+import {readFile,lstat,readdir,mkdtemp,cp,rm,writeFile,appendFile,symlink} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import {dirname,join} from "node:path";
+import {tmpdir} from "node:os";
 
 const root=join(dirname(fileURLToPath(import.meta.url)),"..","contracts","scalar","v1");
 const expectedSuiteSha256="5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3";
 
-test("shared scalar corpus bytes match .NET and JS parity contract",async()=>{
+async function verifyScalarCorpus(root){
   const fixtureDir=join(root,"fixtures");
   for(const dir of [root,fixtureDir]){
     const st=await lstat(dir);
@@ -55,5 +56,56 @@ test("shared scalar corpus bytes match .NET and JS parity contract",async()=>{
   }
   assert.equal(accepts,6);
   assert.equal(rejects,5);
-  assert.equal(hash.digest("hex"),expectedSuiteSha256);
+  assert.equal(hash.digest("hex"),expectedSuiteSha256,"scalar corpus SHA-256 drift");
+}
+
+test("shared scalar corpus bytes match .NET and JS parity contract",async()=>{
+  await verifyScalarCorpus(root);
+});
+
+test("scalar corpus integrity detects adversarial filesystem mutations",async()=>{
+  const mutations=[
+    ["extra fixture",async dir=>{
+      await writeFile(join(dir,"fixtures","unlisted.ores"),"pub fnc main(): int { return 0; }\n");
+    },/scalar fixture directory must exactly match reviewed manifest/],
+    ["modified fixture bytes",async dir=>{
+      await appendFile(join(dir,"fixtures","literal-42.ores"),"\n");
+    },/scalar corpus SHA-256 drift/],
+    ["symlink fixture",async dir=>{
+      const target=join(dir,"fixtures","precedence.ores");
+      await rm(target);
+      await symlink("literal-42.ores",target);
+    },/unsafe scalar fixture/],
+    ["symlink manifest",async dir=>{
+      const manifest=join(dir,"cases.json");
+      await cp(manifest,join(dir,"original-cases.json"));
+      await rm(manifest);
+      await symlink("original-cases.json",manifest);
+    },/unsafe scalar manifest/],
+    ["symlink fixture directory",async dir=>{
+      const fixtures=join(dir,"fixtures");
+      const moved=join(dir,"original-fixtures");
+      await cp(fixtures,moved,{recursive:true});
+      await rm(fixtures,{recursive:true});
+      await symlink("original-fixtures",fixtures,"dir");
+    },/unsafe scalar corpus directory/]
+  ];
+  for(const [name,mutate,diagnostic] of mutations){
+    await test(name,async t=>{
+      if(process.platform==="win32"&&name.startsWith("symlink")){
+        t.skip("Windows symlink creation may require privileges");
+        return;
+      }
+      const temp=await mkdtemp(join(tmpdir(),"ores-scalar-integrity-"));
+      const candidate=join(temp,"v1");
+      try {
+        await cp(root,candidate,{recursive:true});
+        await verifyScalarCorpus(candidate);
+        await mutate(candidate);
+        await assert.rejects(verifyScalarCorpus(candidate),diagnostic);
+      } finally {
+        await rm(temp,{recursive:true,force:true});
+      }
+    });
+  }
 });
