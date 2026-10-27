@@ -28,23 +28,7 @@ test('CR, CRLF and LF comments cannot mask a later unsafe token', () => {
   for (const newline of ['\r', '\r\n', '\n', '\u0085', '\u2028', '\u2029']) {
     const source = 'fnc main():int{return 42;} // ignored' + newline + 'unsafe';
     const at = Buffer.byteLength(source.slice(0, source.lastIndexOf('unsafe')), 'utf8');
-    assert.throws(() => reject(bytes(source)), new RegExp('at byte ' + at + '
-  for (const source of harmless) assert.doesNotThrow(() => reject(bytes(source)));
-});
-test('UTF-8 offsets and malformed source handling are deterministic', () => {
-  const source = '/* café */ unsafe fnc f():int{return 42;}';
-  const at = Buffer.byteLength(source.slice(0, source.indexOf('unsafe')));
-  assert.throws(() => reject(bytes(source)), new RegExp(`at byte ${at}$`));
-  assert.throws(() => reject(bytes('fnc main():int{return 42;} // text\u2028unsafe')), /wasm unsafe boundary unsupported/);
-  assert.throws(() => reject(bytes('/* unclosed')), /unterminated block comment/);
-  assert.throws(() => reject(bytes('`broken ${unsafe')), /wasm unsafe boundary unsupported/);
-  assert.throws(() => reject(Buffer.from([0xff])), /encoded|valid|UTF-8|utf-8/i);
-  assert.throws(() => reject(Buffer.from([0xef, 0xbb, 0xbf, ...bytes('unsafe')])),
-                /wasm source BOM unsupported at byte 0/);
-  assert.throws(() => reject(bytes('/* café */\\0 unsafe'.replace('\\0', '\0'))),
-                /wasm source contains NUL at byte 11/);
-});
-));
+    assert.throws(() => reject(bytes(source)), new RegExp('at byte ' + at + '$'));
   }
 });
 test('Harmless textual unsafe and identifiers with suffixes are not rejected', () => {
