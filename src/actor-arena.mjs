@@ -145,7 +145,11 @@ export class ActorArena {
     nativePush.call(staged, {...entry});
     nativeSort.call(staged, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of staged) {
+    // Never invoke mutable Array.prototype[Symbol.iterator] for ownership.
+    // Host-realm guest code could conceal a freed span or inject overlapping
+    // segments into for...of, corrupting persistent arena allocation rights.
+    for (let i = 0; i < staged.length; ++i) {
+      const segment = staged[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else nativePush.call(coalesced, segment);

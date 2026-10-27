@@ -168,3 +168,41 @@ test('endTurn and retire zeroization survive patched Uint8Array.fill', () => {
   assert.equal(calls,0,'arena teardown must use captured native fill');
   assert.equal(arena.retired,true);
 });
+
+
+test('free-list reuse survives iterator patched to hide all staged spans', () => {
+  const arena=new ActorArena({actorId:120,incarnation:1});
+  const turn=arena.beginTurn();
+  const abandoned=arena.allocPersistent(turn,8);
+  const remaining=arena.allocPersistent(turn,PAGE-8);
+  withPatchedMethod(Array.prototype,Symbol.iterator,function*(){},()=>{
+    arena.dropPersistent(turn,abandoned);
+  });
+  const reused=arena.allocPersistent(turn,8);
+  assert.equal(arena.read(turn,reused).length,8);
+  assert.throws(()=>arena.read(turn,abandoned),/stale/);
+  arena.dropPersistent(turn,reused);
+  arena.dropPersistent(turn,remaining);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('iterator-injected fake free span never overlaps live ownership', () => {
+  const arena=new ActorArena({actorId:121,incarnation:1});
+  const turn=arena.beginTurn();
+  const abandoned=arena.allocPersistent(turn,8);
+  const stillOwned=arena.allocPersistent(turn,PAGE-8);
+  arena.write(turn,stillOwned,new Uint8Array(PAGE-8).fill(47));
+  withPatchedMethod(Array.prototype,Symbol.iterator,function*(){
+    yield {offset:0,length:PAGE};
+  },()=>arena.dropPersistent(turn,abandoned));
+  const reused=arena.allocPersistent(turn,8);
+  arena.write(turn,reused,new Uint8Array(8).fill(19));
+  assert.equal(arena.read(turn,stillOwned).every(b=>b===47),true,
+    'free-list must never overlap still-owned bytes');
+  assert.throws(()=>arena.allocPersistent(turn,1),/quota exhausted/);
+  arena.dropPersistent(turn,reused);
+  arena.dropPersistent(turn,stillOwned);
+  arena.endTurn(turn);
+  arena.retire();
+});
