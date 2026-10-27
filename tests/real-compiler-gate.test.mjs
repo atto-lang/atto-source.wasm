@@ -5,7 +5,7 @@ import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
 const realLlvmWorkflow = fileURLToPath(new URL("../.github/workflows/real-llvm.yml",import.meta.url));
-const hardenedGeneratorLlvmHead = "ae82a3fd6a40bc13581f9f0e3b722e0f4203818e";
+const hardenedGeneratorLlvmHead = "b364f613870f7382307e79bc30d67833a1e24841";
 
 test("real LLVM workflow pins the hardened generator compiler head consistently", () => {
   const workflow = readFileSync(realLlvmWorkflow, "utf8");
