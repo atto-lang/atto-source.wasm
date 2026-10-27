@@ -28,10 +28,13 @@ export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
-export function assertGeneratorV1FrontendRejection(frontend) {
+export function assertGeneratorV1FrontendRejection(
+  frontend,
+  expectedDiagnostic =
+    "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+) {
   assertNativeFrontendRejection(frontend);
-  if (!String(frontend.stderr || "").includes(
-      "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"))
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
     throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
   return true;
 }
@@ -265,13 +268,19 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
-    for (const [name, body] of [
-      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+    for (const [name, body, expectedDiagnostic] of [
+      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native async gen* requires scheduler-owned async iterator continuation lowering"],
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native suspend gen* requires scheduler-owned async iterator continuation lowering"],
+      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"]
     ]) {
       const source = join(work, "generator-v1-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
@@ -279,7 +288,7 @@ export async function verifyRealCompiler({
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
       if (name === "sync") assertGeneratorV1WasmRejection(frontendResult);
-      else assertGeneratorV1FrontendRejection(frontendResult);
+      else assertGeneratorV1FrontendRejection(frontendResult, expectedDiagnostic);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
       )).bytes) !== compilerSha256)
