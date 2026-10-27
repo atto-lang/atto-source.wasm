@@ -1,6 +1,8 @@
 import {Worker} from 'node:worker_threads';
 import {createHash, randomBytes} from 'node:crypto';
 import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
+import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
+import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
 const bounded = (n, min, max, name) => {
@@ -161,6 +163,17 @@ export class PooledWasmActors {
     const snapshot = snapshotGuestBytes(bytes, 1048576);
     const digest = createHash('sha256').update(snapshot).digest('hex');
     if (digest !== expectedSha256) throw Error('actor artifact digest mismatch');
+    // Admission is performed BEFORE occupying a carrier or creating actor
+    // authority: malformed artifacts must not terminate healthy peer actors.
+    // The Worker rechecks the same independently snapshotted bytes before
+    // instantiation; this parent preflight is not a substitute for that gate.
+    const admitted = inspectWasmBytes(snapshot, {
+      maxModuleBytes: 1048576, maxMemoryPages: 2
+    });
+    if (admitted.memoryCount !== 1 || !admitted.hasMemoryMaximum ||
+        admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
+      throw Error('actor requires private fixed two-page memory');
+    assertScalarActorAbi(admitted.bytes);
     const id = ++this.#nextId;
     const incarnation = randomBytes(16).toString('hex');
     const carrier = this.#carriers[(id - 1) % this.#carriers.length];
