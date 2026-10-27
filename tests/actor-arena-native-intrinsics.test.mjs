@@ -198,3 +198,67 @@ test('replacing global WebAssembly.Memory cannot capture actor private memory', 
   }
   assert.equal(intercepted, 0, 'actor must use captured native memory constructor');
 });
+
+
+test('host mutation of Number.isSafeInteger cannot admit invalid owners or arena lengths', () => {
+  const arena = new ActorArena({actorId:310, incarnation:1});
+  const turn = arena.beginTurn();
+  const original = Number.isSafeInteger;
+  let intercepted = 0;
+  let ownerRejected = false, persistentRejected = false, scratchRejected = false;
+  Number.isSafeInteger = () => {intercepted++; return true;};
+  try {
+    try {new ActorArena({actorId:NaN, incarnation:1});}
+    catch (error) {ownerRejected = error instanceof TypeError;}
+    try {arena.allocPersistent(turn, NaN);}
+    catch (error) {persistentRejected = error instanceof RangeError;}
+    try {arena.allocScratch(turn, Infinity);}
+    catch (error) {scratchRejected = error instanceof RangeError;}
+  } finally {
+    Number.isSafeInteger = original;
+  }
+  assert.equal(intercepted, 0, 'validation must use captured safe-integer intrinsic');
+  assert.equal(ownerRejected, true, 'NaN actor identity must fail closed');
+  assert.equal(persistentRejected, true, 'NaN cannot poison persistent high-water accounting');
+  assert.equal(scratchRejected, true, 'Infinity cannot poison scratch high-water accounting');
+  const valid = arena.allocPersistent(turn, 4);
+  arena.write(turn, valid, Uint8Array.from([1,2,3,4]));
+  assert.deepEqual([...arena.read(turn, valid)], [1,2,3,4]);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('host mutation of Set.has cannot admit unsupported actor kinds', () => {
+  const original = Set.prototype.has;
+  let intercepted = 0, rejected = false;
+  Set.prototype.has = function () {intercepted++; return true;};
+  try {
+    try {new ActorArena({actorId:311, incarnation:1, kind:'unsupported-source-actor'});}
+    catch (error) {rejected = error instanceof TypeError;}
+  } finally {
+    Set.prototype.has = original;
+  }
+  assert.equal(intercepted, 0, 'kind admission must use captured Set.has');
+  assert.equal(rejected, true, 'unsupported actor kind must remain denied');
+});
+
+test('host mutation of Object.freeze cannot forge an admitted actor turn', () => {
+  const arena = new ActorArena({actorId:312, incarnation:1});
+  const original = Object.freeze;
+  const forged = {};
+  let intercepted = 0, turn;
+  Object.freeze = () => {intercepted++; return forged;};
+  try {turn = arena.beginTurn();}
+  finally {Object.freeze = original;}
+  let forgedAccepted = false;
+  try {arena.allocPersistent(forged, 4); forgedAccepted = true;}
+  catch (error) {assert.match(String(error), /actor turn authority required/);}
+  assert.equal(intercepted, 0, 'turn token must use captured native freeze');
+  assert.notEqual(turn, forged, 'external object must not become the turn authority');
+  assert.equal(Object.isFrozen(turn), true, 'admitted turn remains opaque and frozen');
+  assert.equal(forgedAccepted, false, 'forged host object cannot allocate actor memory');
+  const valid = arena.allocPersistent(turn, 4);
+  assert.equal(arena.read(turn, valid).length, 4);
+  arena.endTurn(turn);
+  arena.retire();
+});
