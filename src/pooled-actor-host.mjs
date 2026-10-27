@@ -88,7 +88,9 @@ export class PooledWasmActors {
     }
   }
   #onMessage(carrier, message) {
-    if (this.#closed) return;
+    // A quarantined carrier has lost authority to ACK any accepted work.
+    // A late receipt cannot race ahead of the physical termination barrier.
+    if (this.#closed || carrier.dead) return;
     const active = carrier.active;
     if (!active || !message ||
         !['ack', 'fatal'].includes(message.kind) ||
