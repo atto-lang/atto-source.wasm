@@ -36,17 +36,18 @@ export class PooledWasmActors {
         type: 'module', execArgv: [], env: {},
         resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
       });
-      const carrier = {worker, ready: [], active: null, timer: null};
+      const carrier = {worker, ready: [], active: null, timer: null, dead: false, termination: null, retirePromise: null};
       worker.on('message', message => this.#onMessage(carrier, message));
-      worker.on('error', error => void this.#shutdown(error));
+      worker.on('error', error => void this.#retireCarrier(carrier, error));
       worker.on('exit', () => {
-        if (!this.#closed) void this.#shutdown(Error('actor carrier exited unexpectedly'));
+        if (!this.#closed) void this.#retireCarrier(carrier, Error('actor carrier exited unexpectedly'));
       });
       this.#carriers.push(carrier);
     }
   }
   get workerCount() {return this.#carriers.length;}
   get actorCount() {return this.#actors.size;}
+  get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}
 
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
@@ -66,7 +67,7 @@ export class PooledWasmActors {
     }
   }
   #pump(carrier) {
-    if (this.#closed || carrier.active) return;
+    if (this.#closed || carrier.dead || carrier.active) return;
     while (carrier.ready.length) {
       const actor = carrier.ready.shift();
       actor.queued = false;
@@ -75,14 +76,14 @@ export class PooledWasmActors {
       // Requeue a busy sender BEHIND other actors: actor-level round robin.
       this.#markReady(actor);
       carrier.active = {actor, op};
-      carrier.timer = setTimeout(() => void this.#shutdown(Error('actor execution deadline exceeded')),
+      carrier.timer = setTimeout(() => void this.#retireCarrier(carrier, Error('actor execution deadline exceeded')),
         this.#timeoutMs);
       try {
         carrier.worker.postMessage({kind: op.kind, id: actor.id,
           incarnation: actor.incarnation, ticket: op.ticket,
           ...(op.kind === 'init' ? {bytes: op.bytes} : {}),
           ...(op.kind === 'send' ? {value: op.value} : {})});
-      } catch (error) {void this.#shutdown(error);}
+      } catch (error) {void this.#retireCarrier(carrier, error);}
       return;
     }
   }
@@ -94,14 +95,14 @@ export class PooledWasmActors {
         message.ticket !== active.op.ticket ||
         message.id !== active.actor.id ||
         message.incarnation !== active.actor.incarnation)
-      return void this.#shutdown(Error('invalid or replayed actor carrier receipt'));
+      return void this.#retireCarrier(carrier, Error('invalid or replayed actor carrier receipt'));
     if (message.kind === 'fatal')
-      return void this.#shutdown(Error('WASM actor trap: ' + String(message.reason).slice(0, 200)));
+      return void this.#retireCarrier(carrier, Error('WASM actor trap: ' + String(message.reason).slice(0, 200)));
     const {actor, op} = active;
     if ((op.kind === 'send' && (typeof message.result !== 'bigint' ||
           message.result < I64_MIN || message.result > I64_MAX)) ||
         (op.kind !== 'send' && message.result !== null))
-      return void this.#shutdown(Error('invalid actor result ABI'));
+      return void this.#retireCarrier(carrier, Error('invalid actor result ABI'));
     clearTimeout(carrier.timer);
     carrier.timer = null;
     carrier.active = null;
@@ -112,6 +113,56 @@ export class PooledWasmActors {
     op.resolve(message.result);
     this.#pump(carrier);
   }
+  // Shared-carrier failure domains: a guest trap, deadline, forged receipt or
+  // unexpected Worker exit retires ONLY the actors pinned to that carrier.
+  // Accepted work is not settled until physical Worker termination confirms.
+  #terminateCarrier(carrier) {
+    if (carrier.termination) return carrier.termination;
+    carrier.termination = Promise.resolve().then(() => {
+      const receipt = carrier.worker.terminate();
+      if (!receipt || typeof receipt.then !== 'function')
+        throw Error('actor carrier returned no physical termination receipt');
+      return receipt;
+    });
+    return carrier.termination;
+  }
+
+  #retireCarrier(carrier, error) {
+    if (this.#closed) return this.#shutdownPromise;
+    if (carrier.retirePromise) return carrier.retirePromise;
+    carrier.dead = true;
+    clearTimeout(carrier.timer);
+    carrier.timer = null;
+    for (const actor of this.#actors.values()) {
+      if (actor.carrier === carrier) actor.phase = 'quarantining';
+    }
+    carrier.retirePromise = this.#terminateCarrier(carrier).then(
+      () => {
+        for (const actor of this.#actors.values()) {
+          if (actor.carrier !== carrier) continue;
+          actor.phase = 'retired';
+          for (const op of actor.pending) op.reject(error);
+          actor.pending.clear();
+          actor.queue.length = 0;
+          this.#actors.delete(actor.id);
+        }
+      }, () => {
+        const reason = Error('actor carrier termination unconfirmed');
+        for (const actor of this.#actors.values()) {
+          if (actor.carrier !== carrier) continue;
+          actor.phase = 'retirement-unconfirmed';
+          for (const op of actor.pending) op.reject(reason);
+          actor.pending.clear();
+          actor.queue.length = 0;
+          // Keep actor/instance authority pinned; no safe reclamation proof.
+        }
+        throw reason;
+      }
+    );
+    carrier.retirePromise.catch(() => {});
+    return carrier.retirePromise;
+  }
+
   #shutdown(error = Error('actor pool closed')) {
     if (this.#shutdownPromise) return this.#shutdownPromise;
     this.#closed = true;
@@ -124,14 +175,7 @@ export class PooledWasmActors {
     this.#shutdownPromise = Promise.allSettled(
       // A terminated Worker may throw synchronously (or return a rejected
       // Promise). Still attempt EVERY carrier and retain unconfirmed leases.
-      this.#carriers.map(c => Promise.resolve().then(() => {
-        const receipt = c.worker.terminate();
-        // Node Worker termination must return an awaitable exit receipt.
-        // A void or forged synchronous adapter response is not quiescence.
-        if (!receipt || typeof receipt.then !== 'function')
-          throw Error('actor carrier returned no physical termination receipt');
-        return receipt;
-      }))
+      this.#carriers.map(c => this.#terminateCarrier(c))
     ).then(results => {
       const uncertain = results.some(r => r.status !== 'fulfilled');
       const reason = uncertain ? Error('actor carrier termination unconfirmed') : error;
@@ -176,7 +220,9 @@ export class PooledWasmActors {
     assertScalarActorAbi(admitted.bytes);
     const id = ++this.#nextId;
     const incarnation = randomBytes(16).toString('hex');
-    const carrier = this.#carriers[(id - 1) % this.#carriers.length];
+    const live = this.#carriers.filter(c => !c.dead);
+    if (!live.length) throw Error('no live actor carriers');
+    const carrier = live[(id - 1) % live.length];
     const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
       pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
     this.#actors.set(id, actor);
