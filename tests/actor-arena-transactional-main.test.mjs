@@ -206,3 +206,36 @@ test('iterator-injected fake free span never overlaps live ownership', () => {
   arena.endTurn(turn);
   arena.retire();
 });
+
+
+test('owner whitelist resists Set.has tampering by guest code', () => {
+  withPatchedMethod(Set.prototype,'has',()=>true,()=>{
+    assert.throws(()=>new ActorArena({actorId:122,incarnation:1,kind:'external'}),
+      /invalid actor arena owner/);
+  });
+});
+
+test('actor metadata and allocation sizes resist patched Number.isSafeInteger', () => {
+  withPatchedMethod(Number,'isSafeInteger',()=>true,()=>{
+    assert.throws(()=>new ActorArena({actorId:1.5,incarnation:1}),
+      /invalid actor arena owner/);
+  });
+  const arena=new ActorArena({actorId:123,incarnation:1});
+  const turn=arena.beginTurn();
+  withPatchedMethod(Number,'isSafeInteger',()=>true,()=>{
+    assert.throws(()=>arena.allocPersistent(turn,0.5),/invalid arena allocation length/);
+  });
+  const valid=arena.allocPersistent(turn,8);
+  arena.dropPersistent(turn,valid);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('beginTurn creates a frozen authority token under Object.freeze pollution',()=>{
+  const arena=new ActorArena({actorId:124,incarnation:1});
+  let token;
+  withPatchedMethod(Object,'freeze',x=>x,()=>{ token=arena.beginTurn(); });
+  assert.equal(Object.isFrozen(token),true);
+  arena.endTurn(token);
+  arena.retire();
+});

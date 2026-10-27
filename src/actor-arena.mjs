@@ -7,6 +7,8 @@ const PAGE = 65536;
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 const nativeFreeze = Object.freeze;
+const nativeHasKind = Set.prototype.has;
+const nativeSafeInteger = Number.isSafeInteger;
 const nativeFindIndex = Array.prototype.findIndex;
 const nativeSplice = Array.prototype.splice;
 const nativeWeakSet = WeakMap.prototype.set;
@@ -37,9 +39,9 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!Number.isSafeInteger(actorId) || actorId <= 0 ||
-        !Number.isSafeInteger(incarnation) || incarnation <= 0 ||
-        !kinds.has(kind)) throw new TypeError("invalid actor arena owner");
+    if (!nativeSafeInteger(actorId) || actorId <= 0 ||
+        !nativeSafeInteger(incarnation) || incarnation <= 0 ||
+        !nativeHasKind.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
@@ -66,7 +68,7 @@ export class ActorArena {
   beginTurn() {
     this.#bytes();
     if (this.#turn !== null) throw new Error("actor already admitted");
-    const turn = Object.freeze({});
+    const turn = nativeFreeze({});
     this.#turn = turn;
     return turn;
   }
@@ -82,7 +84,7 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE)
+    if (!nativeSafeInteger(length) || length <= 0 || length > PAGE)
       throw new RangeError("invalid arena allocation length");
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES)
       throw new RangeError("actor arena handle quota exhausted");
