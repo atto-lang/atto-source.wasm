@@ -11,6 +11,7 @@ import {join, isAbsolute} from 'node:path';
 import {readBoundedRegularFile} from './compile-ores.mjs';
 import {assertWasm32IrTarget} from './wasm32-ir-target.mjs';
 import {inspectWasmBytes} from './inspect-core-memory.mjs';
+import {assertScalarActorAbi} from './actor-scalar-abi.mjs';
 
 const MAX_SOURCE = 1024 * 1024;
 const MAX_COMPILER = 256 * 1024 * 1024;
@@ -88,6 +89,7 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     if (inspected.memoryCount !== 1 || !inspected.hasMemoryMaximum ||
         inspected.memoryInitial !== 2 || inspected.memoryMaximum !== 2)
       throw Error('actor private two-page memory contract violated');
+    assertScalarActorAbi(inspected.bytes);
     const module = new WebAssembly.Module(inspected.bytes);
     if (WebAssembly.Module.imports(module).length !== 0) throw Error('WASM actor imported host capability');
     const actualExports = WebAssembly.Module.exports(module);
