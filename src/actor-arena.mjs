@@ -15,7 +15,7 @@ const nativeWeakGet = WeakMap.prototype.get;
 const nativeWeakDelete = WeakMap.prototype.delete;
 const nativeWeakSet = WeakMap.prototype.set;
 const nativeFill = Uint8Array.prototype.fill;
-const nativeSlice = Uint8Array.prototype.slice;
+const NativeUint8Array = Uint8Array;
 const nativeSet = Uint8Array.prototype.set;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
@@ -52,7 +52,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new Uint8Array(this.#memory.buffer);
+    return new NativeUint8Array(this.#memory.buffer);
   }
 
   #requireTurn(token) {
@@ -174,7 +174,13 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return nativeSlice.call(this.#bytes(), offset, offset + length); // owned copy
+    // TypedArray.prototype.slice consults mutable constructor[Symbol.species],
+    // even when the slice method itself was captured. Construct the owned
+    // result and exact source view with the captured native constructor.
+    const bytes = this.#bytes();
+    const copy = new NativeUint8Array(length);
+    nativeSet.call(copy, new NativeUint8Array(nativeBuffer.call(bytes), offset, length));
+    return copy; // owned copy
   }
 
   write(turn, handle, data) {

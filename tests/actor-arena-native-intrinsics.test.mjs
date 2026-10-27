@@ -108,3 +108,44 @@ test('handle lookup bypasses a forged WeakMap.get slot', () => {
   arena.endTurn(turn);
   arena.retire();
 });
+
+test('read bypasses hostile TypedArray species construction', () => {
+  const arena = new ActorArena({actorId:306, incarnation:1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.from([7,8,9,10]));
+  const original = Uint8Array.prototype.constructor;
+  let intercepted = 0;
+  Uint8Array.prototype.constructor = {
+    [Symbol.species](length) {intercepted++; return new Uint8Array(length);}
+  };
+  let copy;
+  try {copy = arena.read(turn, handle);}
+  finally {Uint8Array.prototype.constructor = original;}
+  assert.equal(intercepted, 0, 'read must not invoke a mutable species constructor');
+  assert.deepEqual([...copy], [7,8,9,10]);
+  copy[0] = 99;
+  assert.deepEqual([...arena.read(turn, handle)], [7,8,9,10]);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('arena private view construction bypasses a replaced global Uint8Array', () => {
+  const arena = new ActorArena({actorId:307, incarnation:1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  const Original = globalThis.Uint8Array;
+  let intercepted = 0;
+  globalThis.Uint8Array = class extends Original {
+    constructor(...args) {super(...args); intercepted++;}
+  };
+  let copy;
+  try {
+    arena.write(turn, handle, Original.from([3,5,7,9]));
+    copy = arena.read(turn, handle);
+  } finally {globalThis.Uint8Array = Original;}
+  assert.equal(intercepted, 0, 'arena must not invoke replaced global constructors');
+  assert.deepEqual([...copy], [3,5,7,9]);
+  arena.endTurn(turn);
+  arena.retire();
+});
