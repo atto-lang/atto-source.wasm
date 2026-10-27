@@ -128,7 +128,7 @@ test('owned read cannot expose live arena memory through patched Uint8Array.slic
   const handle=arena.allocPersistent(turn,4);
   arena.write(turn,handle,Uint8Array.of(1,2,3,4));
   let calls=0;
-  const copy=withPatchedMethod(Uint8Array.prototype,'slice',function(start,end){
+  const copy=withPatchedMethod(Object.getPrototypeOf(Uint8Array.prototype),'slice',function(start,end){
     calls++;
     return this.subarray(start,end);
   },()=>arena.read(turn,handle));
@@ -145,7 +145,7 @@ test('arena write ignores patched Uint8Array.set that drops payload', () => {
   const turn=arena.beginTurn();
   const handle=arena.allocPersistent(turn,4);
   let calls=0;
-  withPatchedMethod(Uint8Array.prototype,'set',()=>{calls++;},()=>{
+  withPatchedMethod(Object.getPrototypeOf(Uint8Array.prototype),'set',()=>{calls++;},()=>{
     arena.write(turn,handle,Uint8Array.of(9,8,7,6));
   });
   assert.equal(calls,0,'arena write must use captured native set');
@@ -161,7 +161,7 @@ test('endTurn and retire zeroization survive patched Uint8Array.fill', () => {
   const scratch=arena.allocScratch(turn,4);
   arena.write(turn,scratch,Uint8Array.of(5,6,7,8));
   let calls=0;
-  withPatchedMethod(Uint8Array.prototype,'fill',()=>{calls++;throw Error('host fill override');},()=>{
+  withPatchedMethod(Object.getPrototypeOf(Uint8Array.prototype),'fill',()=>{calls++;throw Error('host fill override');},()=>{
     assert.doesNotThrow(()=>arena.endTurn(turn));
     assert.doesNotThrow(()=>arena.retire());
   });
