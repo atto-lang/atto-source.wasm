@@ -10,7 +10,6 @@ const nativeFreeze = Object.freeze;
 const nativeIsSafeInteger = Number.isSafeInteger;
 const nativeSetHas = Set.prototype.has;
 const nativeFindIndex = Array.prototype.findIndex;
-const nativeSplice = Array.prototype.splice;
 const nativePush = Array.prototype.push;
 const nativeSort = Array.prototype.sort;
 const nativeWeakGet = WeakMap.prototype.get;
@@ -126,8 +125,14 @@ export class ActorArena {
         const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0)
-          nativeSplice.call(this.#freePersistent, freeIndex, 1);
+        if (segment.length === 0) {
+          // Array.prototype.splice consults mutable constructor[Symbol.species],
+          // even when the splice method is captured. Compact the private,
+          // dense free list without calling guest-controlled constructors.
+          for (let i = freeIndex + 1; i < this.#freePersistent.length; ++i)
+            this.#freePersistent[i - 1] = this.#freePersistent[i];
+          --this.#freePersistent.length;
+        }
       } else {
         this.#persistentTop += length;
       }
