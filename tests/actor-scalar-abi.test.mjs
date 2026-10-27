@@ -5,6 +5,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
+import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
+import {createHash} from 'node:crypto';
 
 function compile(returns = 'i64', initReturns = 'void', teardownReturns = 'void') {
   const dir = mkdtempSync(join(tmpdir(), 'ores-actor-abi-'));
@@ -34,4 +36,15 @@ test('wrong handler result, init result and teardown result fail pre-execution',
   assert.throws(()=>assertScalarActorAbi(compile('i32')),/incorrect function signature: oreslang_wasm_actor_on_message/);
   assert.throws(()=>assertScalarActorAbi(compile('i64','i64')),/incorrect function signature: oreslang_wasm_actor_init/);
   assert.throws(()=>assertScalarActorAbi(compile('i64','void','i64')),/incorrect function signature: oreslang_wasm_actor_teardown/);
+});
+
+test('pooled actor worker rejects a forged ABI before guest initialization', async () => {
+  const wasm = compile('i32');
+  const pool = new PooledWasmActors({workers: 1});
+  try {
+    await assert.rejects(pool.spawn(wasm, {trusted: true,
+      expectedSha256: createHash('sha256').update(wasm).digest('hex')}),
+      /incorrect function signature: oreslang_wasm_actor_on_message/);
+    assert.equal(pool.actorCount, 0);
+  } finally {await pool.close();}
 });
