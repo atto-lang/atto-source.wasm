@@ -57,6 +57,26 @@ test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", a
   }), /required compiler-owned gate/);
 });
 
+test("generator-v1 wasm32 gate requires backend capability diagnostic", async () => {
+  const {assertGeneratorV1WasmRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native generator v1 is not yet admitted for wasm32/Cortex-M targets";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected
+  };
+  assert.equal(assertGeneratorV1WasmRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+  }), /required wasm32 compiler gate/);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stdout:"define i32 @fake() { ret i32 0 }"
+  }), /diagnosed error/);
+});
+
 test("inverted real-compiler gate requires native declaration rejection", async () => {
   const {assertInvertedFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
