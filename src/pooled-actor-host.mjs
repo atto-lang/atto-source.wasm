@@ -110,7 +110,7 @@ export class PooledWasmActors {
     op.resolve(message.result);
     this.#pump(carrier);
   }
-  async #shutdown(error = Error('actor pool closed')) {
+  #shutdown(error = Error('actor pool closed')) {
     if (this.#shutdownPromise) return this.#shutdownPromise;
     this.#closed = true;
     for (const carrier of this.#carriers) {
