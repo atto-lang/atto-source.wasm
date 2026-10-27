@@ -44,6 +44,24 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
   }
 });
 
+test("generator-v1 wasm32 gate requires compiler-owned capability diagnostic", async () => {
+  const {assertGeneratorV1WasmRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native generator v1 is not yet admitted for wasm32/Cortex-M targets";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected
+  };
+  assert.equal(assertGeneratorV1WasmRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token"
+  }), /required wasm32 compiler gate/);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed, stdout:"define i32 @fake() { ret i32 0 }"
+  }), /diagnosed error/);
+});
+
 test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
   const {assertTupleV2FrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
