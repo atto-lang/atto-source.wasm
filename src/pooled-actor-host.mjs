@@ -120,17 +120,22 @@ export class PooledWasmActors {
     // Do not settle accepted work or release actors before physical Worker
     // termination. A rejected terminate() is NOT quiescence evidence.
     this.#shutdownPromise = Promise.allSettled(
-      this.#carriers.map(c => c.worker.terminate())
+      // A terminated Worker may throw synchronously (or return a rejected
+      // Promise). Still attempt EVERY carrier and retain unconfirmed leases.
+      this.#carriers.map(c => Promise.resolve().then(() => c.worker.terminate()))
     ).then(results => {
       const uncertain = results.some(r => r.status !== 'fulfilled');
       const reason = uncertain ? Error('actor carrier termination unconfirmed') : error;
       for (const actor of this.#actors.values()) {
-        actor.phase = 'retired';
+        actor.phase = uncertain ? 'retirement-unconfirmed' : 'retired';
         for (const op of actor.pending) op.reject(reason);
         actor.pending.clear();
         actor.queue.length = 0;
       }
-      this.#actors.clear();
+      // A failed termination is NOT physical quiescence. Keep actor identities
+      // and their carrier references pinned; callers must not infer safe reuse
+      // or reclamation from a rejected close() or the absence of pending work.
+      if (!uncertain) this.#actors.clear();
       if (uncertain) throw reason;
     });
     // Event handlers may initiate a terminal shutdown without an awaiting
