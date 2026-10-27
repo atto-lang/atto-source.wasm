@@ -172,3 +172,26 @@ test('invalid actor admission preserves existing healthy actors on shared carrie
     await next.stop();
   } finally {await pool.close();}
 });
+
+test('one noncooperating carrier fails without terminating healthy actors on a second carrier', async () => {
+  const stalled = compile({spin: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, timeoutMs: 250});
+  try {
+    const stuck = await pool.spawn(stalled, {trusted: true, expectedSha256: pin(stalled)});
+    const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    const colocated = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(pool.activeWorkerCount, 2);
+    const stuckWork = stuck.send(1n);
+    const queuedColocated = colocated.send(1n);
+    assert.equal(await healthy.send(2n), 2n);
+    await assert.rejects(stuckWork, /deadline exceeded/);
+    await assert.rejects(queuedColocated, /deadline exceeded/);
+    assert.equal(pool.activeWorkerCount, 1);
+    assert.equal(pool.actorCount, 1);
+    assert.equal(await healthy.send(3n), 5n);
+    const successor = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await successor.send(9n), 9n);
+    await healthy.stop();
+    await successor.stop();
+  } finally {await pool.close();}
+});
