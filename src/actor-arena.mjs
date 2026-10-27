@@ -156,7 +156,7 @@ export class ActorArena {
     const coalesced = [];
     for (let i = 0; i < planned.length; ++i) {
       const segment = planned[i];
-      const prior = coalesced[coalesced.length - 1];
+      const prior = coalesced.length === 0 ? null : coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset)
         prior.length += segment.length;
       else nativePush.call(coalesced, segment);
@@ -215,3 +215,4 @@ export class ActorArena {
     this.#freePersistent = [];
   }
 }
+
