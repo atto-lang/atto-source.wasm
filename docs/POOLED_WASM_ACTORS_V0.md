@@ -54,3 +54,25 @@ these gates execute successfully.
 
 Default test entry: `node --test tests/pooled-actors.test.mjs` (Clang wasm32
 required); included automatically in `npm test`.
+
+
+## Carrier termination and lifetime fencing (audit hardening)
+
+Worker termination is a **physical retirement boundary**, not merely a
+logical mailbox closure. Even a synchronous `Worker.terminate()` exception
+must not prevent attempts to terminate remaining carriers. The host requires
+an awaitable Node Worker termination receipt and waits for **all** carrier
+termination attempts before settling accepted work.
+
+If any carrier termination fails or returns no awaitable receipt, the
+shutdown operation rejects with `actor carrier termination unconfirmed`.
+The host retains the corresponding actor identity and lifetime references
+instead of clearing the actor registry or allowing a new incarnation.
+Outstanding sends reject, but their rejection is **not** a proof of
+reclaimed guest memory. The current API deliberately offers no automatic
+retry or reclamation after unconfirmed carrier termination; operators must
+establish an independent physical quiescence barrier.
+
+`tests/pooled-actors.test.mjs` injects both synchronous-throw and missing
+termination-receipt failures. These tests validate fail-closed lifecycle
+accounting and do not substitute for an OS sandbox or certified recovery.
