@@ -1,5 +1,6 @@
 import {parentPort} from 'node:worker_threads';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
+import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 
 // Experimental trusted scalar actor carrier. One OS Worker owns MANY distinct
 // Wasm instances. Never accept raw host imports or cross-instance pointers.
@@ -22,6 +23,7 @@ parentPort.on('message', request => {
       if (admitted.memoryCount !== 1 || !admitted.hasMemoryMaximum ||
           admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
         throw Error('actor requires private fixed two-page memory');
+      assertScalarActorAbi(admitted.bytes);
       const module = new WebAssembly.Module(admitted.bytes);
       const exported = WebAssembly.Module.exports(module);
       if (exported.length !== ABI.length ||
