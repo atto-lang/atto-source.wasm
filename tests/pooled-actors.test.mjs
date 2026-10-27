@@ -90,3 +90,29 @@ test('noncooperating turn times out and kills its entire shared carrier', async 
   await assert.rejects(a.send(2n), /not accepting/);
   await pool.close();
 });
+
+
+test('stop drains already admitted DATA before teardown and seals new admission', async () => {
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1, mailboxCapacity: 2});
+  try {
+    const actor = await pool.spawn(wasm, {expectedSha256: pin(wasm), trusted: true});
+    const first = actor.send(3n), second = actor.send(5n);
+    const stop = actor.stop();
+    await assert.rejects(actor.send(2n), /not accepting/);
+    assert.deepEqual(await Promise.all([first, second]), [3n, 8n]);
+    await stop;
+    assert.equal(pool.actorCount, 0);
+  } finally {await pool.close();}
+});
+
+test('explicit pool close does not acknowledge pending guest work before termination', async () => {
+  const wasm = compile({spin: true});
+  const pool = new PooledWasmActors({workers: 1, timeoutMs: 3000});
+  const actor = await pool.spawn(wasm, {expectedSha256: pin(wasm), trusted: true});
+  const pending = actor.send(2n);
+  await pool.close();
+  await assert.rejects(pending, /actor pool closed/);
+  assert.equal(pool.actorCount, 0);
+  await assert.rejects(actor.send(4n), /not accepting/);
+});
