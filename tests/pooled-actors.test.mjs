@@ -138,3 +138,20 @@ test('synchronous carrier termination fault retains actor identity and fails clo
     if (held) await original.call(held);
   }
 });
+
+test('void carrier termination receipt does not release an actor lease', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1});
+  await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {held = this; return undefined;};
+    await assert.rejects(pool.close(), /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
