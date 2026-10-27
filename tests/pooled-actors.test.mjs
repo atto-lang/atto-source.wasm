@@ -155,3 +155,20 @@ test('void carrier termination receipt does not release an actor lease', async (
     if (held) await original.call(held);
   }
 });
+
+test('invalid actor admission preserves existing healthy actors on shared carriers', async () => {
+  const good = compile(), malformed = compile({invalidImport: true});
+  const pool = new PooledWasmActors({workers: 1, maxActors: 3});
+  try {
+    const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await healthy.send(3n), 3n);
+    await assert.rejects(pool.spawn(malformed, {trusted: true,
+      expectedSha256: pin(malformed)}), /host imports denied/);
+    assert.equal(pool.actorCount, 1);
+    assert.equal(await healthy.send(4n), 7n);
+    const next = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await next.send(1n), 1n);
+    await healthy.stop();
+    await next.stop();
+  } finally {await pool.close();}
+});
