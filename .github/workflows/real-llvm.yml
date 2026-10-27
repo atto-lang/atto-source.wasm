@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      ORESLANG_LLVM_SOURCE_SHA: ae82a3fd6a40bc13581f9f0e3b722e0f4203818e
+      ORESLANG_LLVM_SOURCE_SHA: b364f613870f7382307e79bc30d67833a1e24841
     steps:
       - name: Require authorized private LLVM read access
         shell: bash
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ores-truffle-oreslang/oreslang-source.llvm
-          ref: ae82a3fd6a40bc13581f9f0e3b722e0f4203818e
+          ref: b364f613870f7382307e79bc30d67833a1e24841
           path: llvm-source
           token: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
           persist-credentials: false
