@@ -28,6 +28,13 @@ export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
+export function assertGeneratorV1FrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(
+      "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"))
+    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -242,6 +249,23 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
+    for (const [name, body] of [
+      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
+      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+    ]) {
+      const source = join(work, "generator-v1-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertGeneratorV1FrontendRejection(frontendResult);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+      )).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during generator-v1 rejection test");
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -353,6 +377,7 @@ export async function verifyRealCompiler({
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
+      generatorV1Rejected:true,
       tupleV2Rejected:true
     });
   } catch (error) {
