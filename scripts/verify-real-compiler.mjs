@@ -271,6 +271,10 @@ export async function verifyRealCompiler({
     for (const [name, body, expectedDiagnostic] of [
       ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n",
         "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-min", "pub gen* values(): Iterator<int> { yield -9223372036854775808; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-max", "pub gen* values(): Iterator<int> { yield 9223372036854775807; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
       ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n",
         "native async gen* requires scheduler-owned async iterator continuation lowering"],
       ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n",
@@ -287,7 +291,7 @@ export async function verifyRealCompiler({
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      if (name === "sync") assertGeneratorV1WasmRejection(frontendResult);
+      if (name.startsWith("sync")) assertGeneratorV1WasmRejection(frontendResult);
       else assertGeneratorV1FrontendRejection(frontendResult, expectedDiagnostic);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
