@@ -15,7 +15,7 @@ public repositories, mirror across organizations, or assume the default
 `GITHUB_TOKEN` has cross-repository permissions.
 
 The workflow pins the reviewed LLVM generator revision
-`6a896d7e4b93433d505545baf663b7e12f585980`, checks the
+`b0796dfd6e0f5979200eafda87513ac2bf5f423d`, checks the
 exact checkout commit, builds `oreslang-llvmc`, and records the SHA-256
 of the actual executable before running the integration gate.
 This source commit is an immutable input, **not** proof of source/toolchain
