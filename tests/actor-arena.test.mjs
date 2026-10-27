@@ -130,3 +130,98 @@ test('persistent and scratch handles have bounded metadata quotas', () => {
   arena.endTurn(next);
   arena.retire();
 });
+
+test("actor arena write validates native typed-array slots across realms", async () => {
+  const {default: vm} = await import("node:vm");
+  const arena = new ActorArena({actorId: 35, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, new Uint8Array([9, 8, 7, 6]));
+
+  const short = new Uint8Array([1, 2]);
+  Object.defineProperty(short, "byteLength", {value: 4});
+  assert.throws(() => arena.write(turn, handle, short), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [9, 8, 7, 6]);
+
+  const privateBytes = new Uint8Array([4, 3, 2, 1]);
+  for (const key of ["byteLength", "buffer"]) {
+    Object.defineProperty(privateBytes, key, {
+      get() {throw Error("unexpected property access: " + key);}
+    });
+  }
+  assert.doesNotThrow(() => arena.write(turn, handle, privateBytes));
+  assert.deepEqual([...arena.read(turn, handle)], [4, 3, 2, 1]);
+
+  if (typeof SharedArrayBuffer === "function") {
+    const shared = new Uint8Array(new SharedArrayBuffer(4));
+    shared.set([7, 7, 7, 7]);
+    Object.defineProperty(shared, "buffer", {value: new ArrayBuffer(4)});
+    Object.defineProperty(shared, "byteLength", {value: 4});
+    assert.throws(() => arena.write(turn, handle, shared), /shared backing/);
+    const foreignShared = vm.runInNewContext("new Uint8Array(new SharedArrayBuffer(4))");
+    assert.throws(() => arena.write(turn, handle, foreignShared), /shared backing/);
+    assert.deepEqual([...arena.read(turn, handle)], [4, 3, 2, 1]);
+  }
+  const foreignPrivate = vm.runInNewContext("new Uint8Array([1, 2, 3, 4])");
+  assert.doesNotThrow(() => arena.write(turn, handle, foreignPrivate));
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+
+test('arena writes fail closed for detached or forged typed-array views', () => {
+  const arena = new ActorArena({actorId: 36, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.from([8, 7, 6, 5]));
+
+  // A typed-array prototype alone does not confer native internal slots.
+  const forged = Object.create(Uint8Array.prototype);
+  Object.defineProperty(forged, 'byteLength', {value: 4});
+  Object.defineProperty(forged, 'buffer', {value: new ArrayBuffer(4)});
+  assert.throws(() => arena.write(turn, handle, forged), /exact-size/);
+  assert.throws(() => arena.write(turn, handle, new Uint16Array(2)), /exact-size/);
+
+  // A previously admissible byte view must become inadmissible after detach.
+  const detachedBacking = new ArrayBuffer(4);
+  const detached = new Uint8Array(detachedBacking);
+  detached.set([1, 2, 3, 4]);
+  structuredClone(detachedBacking, {transfer: [detachedBacking]});
+  assert.equal(detached.byteLength, 0);
+  assert.throws(() => arena.write(turn, handle, detached), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [8, 7, 6, 5],
+    'failed admissions must never partially change actor-owned data');
+
+  // The caller may supply a precise view into a larger, private buffer.
+  // Copy only the view, not its surrounding backing allocation.
+  const padded = Uint8Array.from([99, 1, 2, 3, 4, 88]);
+  arena.write(turn, handle, padded.subarray(1, 5));
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+
+test('arena write checks current resizable ArrayBuffer view length on every call', () => {
+  const backing = new ArrayBuffer(8, {maxByteLength: 16});
+  if (typeof backing.resize !== 'function') return; // unsupported host feature
+  const input = new Uint8Array(backing, 2, 4);
+  input.set([1, 2, 3, 4]);
+  const arena = new ActorArena({actorId: 37, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, input);
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  backing.resize(3);
+  assert.equal(input.byteLength, 0);
+  assert.throws(() => arena.write(turn, handle, input), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  backing.resize(8);
+  input.set([5, 6, 7, 8]);
+  arena.write(turn, handle, input);
+  assert.deepEqual([...arena.read(turn, handle)], [5, 6, 7, 8]);
+  arena.endTurn(turn);
+  arena.retire();
+});
