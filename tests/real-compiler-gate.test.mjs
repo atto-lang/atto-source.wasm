@@ -44,6 +44,37 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
   }
 });
 
+test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering at byte 4"
+  };
+  assert.equal(assertGeneratorV1FrontendRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1FrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected fnc or routine at byte 4"
+  }), /required compiler-owned gate/);
+});
+
+test("inverted real-compiler gate requires native declaration rejection", async () => {
+  const {assertInvertedFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  for (const stderr of [
+    "oreslang-llvmc: INVERTED_BACKEND_UNSUPPORTED: native inverted class requires lowering at byte 7",
+    "oreslang-llvmc: expected 'module', 'class' or 'actor' at byte 7",
+    "oreslang-llvmc: expected 'class', 'actor', or built-in MaxActorThreads enum at byte 7"
+  ]) {
+    assert.equal(assertInvertedFrontendRejection({
+      status:1,signal:null,error:undefined,stdout:"",stderr
+    }), true);
+  }
+  assert.throws(() => assertInvertedFrontendRejection({
+    status:1,signal:null,error:undefined,stdout:"",
+    stderr:"oreslang-llvmc: unrelated arithmetic failure"
+  }), /inverted-class source did not fail/);
+});
+
 test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
   const {assertTupleV2FrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
