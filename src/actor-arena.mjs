@@ -4,6 +4,11 @@
 const PAGE = 65536;
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
+const nativeFreeze = Object.freeze;
+const nativeFindIndex = Array.prototype.findIndex;
+const nativeSplice = Array.prototype.splice;
+const nativeWeakSet = WeakMap.prototype.set;
+const nativeFill = Uint8Array.prototype.fill;
 
 export class ActorArena {
   #memory;
@@ -65,39 +70,52 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE)
       throw new RangeError("invalid arena allocation length");
-    }
-    if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
+    if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES)
       throw new RangeError("actor arena handle quota exhausted");
-    }
-    let offset;
+
+    // PLAN without consuming a byte or a free-list segment. Token creation,
+    // zeroing and WeakMap registration can fail: none may strand actor credit.
+    let offset, freeIndex = -1;
     if (scratch) {
-      if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
+      if (length > PAGE - this.#scratchTop)
+        throw new RangeError("actor arena quota exhausted");
       offset = PAGE + this.#scratchTop;
+    } else {
+      freeIndex = nativeFindIndex.call(
+        this.#freePersistent, segment => segment.length >= length);
+      if (freeIndex !== -1) {
+        offset = this.#freePersistent[freeIndex].offset;
+      } else {
+        if (length > PAGE - this.#persistentTop)
+          throw new RangeError("actor arena quota exhausted");
+        offset = this.#persistentTop;
+      }
+    }
+
+    const handle = nativeFreeze({});
+    const slot = {offset, length};
+    nativeFill.call(this.#bytes(), 0, offset, offset + length);
+    nativeWeakSet.call(scratch ? this.#scratch : this.#handles, handle, slot);
+
+    // COMMIT only after every fallible token/byte operation succeeded. Use
+    // captured host intrinsics instead of dynamic prototype dispatch.
+    if (scratch) {
       this.#scratchTop += length;
       ++this.#scratchCount;
     } else {
-      // First-fit over bounded free segments. Removed persistent handles cannot
-      // regain authority, even when their bytes are reused at the same offset.
-      const index = this.#freePersistent.findIndex(segment => segment.length >= length);
-      if (index !== -1) {
-        const segment = this.#freePersistent[index];
-        offset = segment.offset;
+      if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0) this.#freePersistent.splice(index, 1);
+        if (segment.length === 0)
+          nativeSplice.call(this.#freePersistent, freeIndex, 1);
       } else {
-        if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
-        offset = this.#persistentTop;
         this.#persistentTop += length;
       }
       ++this.#persistentCount;
     }
-    const handle = Object.freeze({});
-    const slot = {offset, length};
-    (scratch ? this.#scratch : this.#handles).set(handle, slot);
-    this.#bytes().fill(0, offset, offset + length);
     return handle;
   }
 
