@@ -71,11 +71,11 @@ test('retire zeros the entire private backing buffer despite patched fill', () =
   arena.endTurn(turn);
   const originalFill = Uint8Array.prototype.fill;
   const descriptor = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, 'buffer');
-  let captured = null, intercepted = 0;
+  let intercepted = 0, getterCalls = 0;
   assert.equal(descriptor.configurable, true);
   Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', {
     ...descriptor,
-    get() {captured = descriptor.get.call(this); return captured;}
+    get() {getterCalls++; throw Error('poisoned memory getter');}
   });
   Uint8Array.prototype.fill = function () {intercepted++; return this;};
   try {arena.retire();}
@@ -84,9 +84,9 @@ test('retire zeros the entire private backing buffer despite patched fill', () =
     Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', descriptor);
   }
   assert.equal(intercepted, 0, 'retirement must use captured zeroing');
-  assert.ok(captured);
-  assert.equal(new Uint8Array(captured).some(byte => byte !== 0), false);
+  assert.equal(getterCalls, 0, 'retirement must use the captured native memory getter');
   assert.equal(arena.retired, true);
+  assert.throws(() => arena.read(turn, handle), /retired/);
 });
 
 test('handle lookup bypasses a forged WeakMap.get slot', () => {
@@ -148,4 +148,53 @@ test('arena private view construction bypasses a replaced global Uint8Array', ()
   assert.deepEqual([...copy], [3,5,7,9]);
   arena.endTurn(turn);
   arena.retire();
+});
+
+test('private memory getter cannot redirect owned read, write or zeroing', () => {
+  const arena = new ActorArena({actorId:308, incarnation:1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  const descriptor = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, 'buffer');
+  const decoy = new ArrayBuffer(2 * 65536);
+  new Uint8Array(decoy).fill(123);
+  let getterCalls = 0;
+  Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', {
+    ...descriptor,
+    get() {getterCalls++; return decoy;}
+  });
+  try {
+    arena.write(turn, handle, Uint8Array.from([1,2,3,4]));
+    assert.deepEqual([...arena.read(turn, handle)], [1,2,3,4]);
+    arena.dropPersistent(turn, handle);
+    const reused = arena.allocPersistent(turn, 4);
+    assert.deepEqual([...arena.read(turn, reused)], [0,0,0,0]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', descriptor);
+  }
+  assert.equal(getterCalls, 0, 'private bytes must never consult a mutable getter');
+  assert.equal(new Uint8Array(decoy).every(byte => byte === 123), true,
+    'unrelated host buffer must never be used as private actor memory');
+});
+
+test('replacing global WebAssembly.Memory cannot capture actor private memory', () => {
+  const Original = WebAssembly.Memory;
+  let intercepted = 0;
+  WebAssembly.Memory = class extends Original {
+    constructor(...args) {super(...args);intercepted++;}
+  };
+  let arena;
+  try {
+    arena = new ActorArena({actorId:309, incarnation:1});
+    const turn = arena.beginTurn();
+    const handle = arena.allocPersistent(turn, 4);
+    arena.write(turn, handle, Uint8Array.from([9,8,7,6]));
+    assert.deepEqual([...arena.read(turn, handle)], [9,8,7,6]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    WebAssembly.Memory = Original;
+  }
+  assert.equal(intercepted, 0, 'actor must use captured native memory constructor');
 });

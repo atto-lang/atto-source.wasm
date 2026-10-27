@@ -69,7 +69,7 @@ test('dropPersistent uses captured sort, zero and WeakMap revocation intrinsics'
   arena.retire();
 });
 
-test('precommit memory fault preserves live handle and its bytes', () => {
+test('poisoned memory getter cannot interrupt persistent release or strand quota', () => {
   const arena = new ActorArena({actorId: 203, incarnation: 1});
   const turn = arena.beginTurn();
   const handle = arena.allocPersistent(turn, 8);
@@ -80,21 +80,17 @@ test('precommit memory fault preserves live handle and its bytes', () => {
   Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', {
     ...base,
     get() {
-      if (++reads === 2) throw Error('injected zero-preparation failure');
-      return base.get.call(this);
+      reads++;
+      throw Error('poisoned buffer getter');
     }
   });
   try {
-    assert.throws(() => arena.dropPersistent(turn, handle),
-      /injected zero-preparation failure/);
+    arena.dropPersistent(turn, handle);
   } finally {
     Object.defineProperty(WebAssembly.Memory.prototype, 'buffer', base);
   }
-  assert.equal(reads, 2);
-  assert.deepEqual([...arena.read(turn, handle)], [1,2,3,4,5,6,7,8],
-    'a failed release must retain both handle authority and original bytes');
-  arena.dropPersistent(turn, handle);
-  assert.throws(() => arena.dropPersistent(turn, handle), /stale/);
+  assert.equal(reads, 0, 'native memory buffer getter must be captured');
+  assert.throws(() => arena.read(turn, handle), /stale/);
   const replacement = arena.allocPersistent(turn, 8);
   assert.deepEqual([...arena.read(turn, replacement)], Array(8).fill(0));
   arena.endTurn(turn);

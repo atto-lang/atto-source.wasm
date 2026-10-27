@@ -16,6 +16,8 @@ const nativeWeakDelete = WeakMap.prototype.delete;
 const nativeWeakSet = WeakMap.prototype.set;
 const nativeFill = Uint8Array.prototype.fill;
 const NativeUint8Array = Uint8Array;
+const NativeMemory = WebAssembly.Memory;
+const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "buffer").get;
 const nativeSet = Uint8Array.prototype.set;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
@@ -43,7 +45,7 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new NativeMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
@@ -52,7 +54,9 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new NativeUint8Array(this.#memory.buffer);
+    // A mutable WebAssembly.Memory.prototype.buffer getter could redirect
+    // private zeroing/writes to an attacker-held decoy ArrayBuffer.
+    return new NativeUint8Array(nativeMemoryBuffer.call(this.#memory));
   }
 
   #requireTurn(token) {
