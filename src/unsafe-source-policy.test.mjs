@@ -35,4 +35,8 @@ test('UTF-8 offsets and malformed source handling are deterministic', () => {
   assert.throws(() => reject(bytes('/* unclosed')), /unterminated block comment/);
   assert.throws(() => reject(bytes('`broken ${unsafe')), /wasm unsafe boundary unsupported/);
   assert.throws(() => reject(Buffer.from([0xff])), /encoded|valid|UTF-8|utf-8/i);
+  assert.throws(() => reject(Buffer.from([0xef, 0xbb, 0xbf, ...bytes('unsafe')])),
+                /wasm source BOM unsupported at byte 0/);
+  assert.throws(() => reject(bytes('/* café */\\0 unsafe'.replace('\\0', '\0'))),
+                /wasm source contains NUL at byte 11/);
 });
