@@ -9,6 +9,9 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 const nativeFreeze = Object.freeze;
 const nativeIsSafeInteger = Number.isSafeInteger;
 const nativeSetHas = Set.prototype.has;
+// Guest code may replace the global constructor between actor turns. Only
+// privately held native maps may carry handles and slot authority.
+const NativeWeakMap = WeakMap;
 const nativeFindIndex = Array.prototype.findIndex;
 const nativePush = Array.prototype.push;
 const nativeSort = Array.prototype.sort;
@@ -29,8 +32,8 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new NativeWeakMap();
+  #scratch = new NativeWeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -80,7 +83,7 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#turn = null;
   }
 
@@ -214,8 +217,8 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new NativeWeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#freePersistent = [];
   }
