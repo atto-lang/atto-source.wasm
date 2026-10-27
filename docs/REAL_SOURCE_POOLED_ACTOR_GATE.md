@@ -8,7 +8,7 @@ implemented in the LLVM backend. No new Oreslang parser is introduced.
 
 ```sh
 export ORESLANG_LLVM_COMPILER=/absolute/path/to/real/oreslang-llvmc
-# Optional extra executable pin, or provision from an independently trusted CI step:
+# Mandatory executable pin, provisioned from an independently trusted CI step:
 export ORESLANG_LLVM_COMPILER_SHA256=<exact-compiler-sha256>
 npm run test:real-pooled-actors
 ```
