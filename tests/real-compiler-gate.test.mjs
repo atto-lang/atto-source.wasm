@@ -75,6 +75,22 @@ test("inverted real-compiler gate requires native declaration rejection", async 
   }), /inverted-class source did not fail/);
 });
 
+test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
+  const {assertSelectFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native async/channel/select boundary unsupported at byte 17"
+  };
+  assert.equal(assertSelectFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token select at byte 17"
+  }), /LLVM async\/channel\/select capability gate/);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stdout:"define i64 @main() { ret i64 0 }"
+  }), /diagnosed error/);
+});
+
 test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
   const {assertTupleV2FrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
@@ -130,6 +146,17 @@ test("real compiler workspace cleanup unseals readonly releases without followin
   }
 });
 
+
+test("opaque-top ternary fixture is pinned and remains source-only negative coverage", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const content = await readFile(new URL(
+    "../examples/unsupported-any-ternary.ores", import.meta.url));
+  const gitSha = createHash("sha1")
+    .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
+    .update(content).digest("hex");
+  assert.equal(gitSha, "e03fff33333ad9407b2d1151dc3a6355654349ed");
+});
 
 test("value-pipeline source fixture is byte-identical to shared conformance", async () => {
   const {readFile} = await import("node:fs/promises");
