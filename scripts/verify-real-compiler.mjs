@@ -35,6 +35,15 @@ export function assertGeneratorV1FrontendRejection(frontend) {
     throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
   return true;
 }
+export function assertInvertedFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  const stderr = String(frontend.stderr || "");
+  if (!stderr.includes("INVERTED_BACKEND_UNSUPPORTED") &&
+      !stderr.includes("expected 'module', 'class' or 'actor'") &&
+      !stderr.includes("expected 'class', 'actor'"))
+    throw Error("inverted-class source did not fail through the native declaration boundary");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -266,6 +275,23 @@ export async function verifyRealCompiler({
         throw Error("pinned compiler mutated during generator-v1 rejection test");
     }
 
+    // Inverted classes have host substrate in some backends, but no verified
+    // wasm32 guest lowering. The pinned native frontend must reject every
+    // contextual declaration before emitting IR or publishing a Wasm artifact.
+    for (const [name, body] of [
+      ["root", "define inverted class Particle as x: int; end\n"],
+      ["define-pub", "define pub inverted class Particle as x: int; end\n"],
+      ["pub-define", "pub define inverted class Particle as x: int; end\n"],
+      ["module", "define module Physics as\n define inverted class Particle as x: int; end\n pub fnc main(): int { return 0; }\nend\n"]
+    ]) {
+      const source = join(work, "deny-inverted-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(
+        pinnedCompiler, ["--target=wasm32", source],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertInvertedFrontendRejection(frontendResult);
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -378,7 +404,8 @@ export async function verifyRealCompiler({
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
-      tupleV2Rejected:true
+      tupleV2Rejected:true,
+      invertedSourceRejected:true
     });
   } catch (error) {
     primaryError = error;
