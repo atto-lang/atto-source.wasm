@@ -147,6 +147,17 @@ test("real compiler workspace cleanup unseals readonly releases without followin
 });
 
 
+test("opaque-top ternary fixture is pinned and remains source-only negative coverage", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const content = await readFile(new URL(
+    "../examples/unsupported-any-ternary.ores", import.meta.url));
+  const gitSha = createHash("sha1")
+    .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
+    .update(content).digest("hex");
+  assert.equal(gitSha, "e03fff33333ad9407b2d1151dc3a6355654349ed");
+});
+
 test("value-pipeline source fixture is byte-identical to shared conformance", async () => {
   const {readFile} = await import("node:fs/promises");
   const {createHash} = await import("node:crypto");
