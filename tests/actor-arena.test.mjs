@@ -168,3 +168,37 @@ test("actor arena write validates native typed-array slots across realms", async
   arena.endTurn(turn);
   arena.retire();
 });
+
+
+test('arena writes fail closed for detached or forged typed-array views', () => {
+  const arena = new ActorArena({actorId: 36, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, Uint8Array.from([8, 7, 6, 5]));
+
+  // A typed-array prototype alone does not confer native internal slots.
+  const forged = Object.create(Uint8Array.prototype);
+  Object.defineProperty(forged, 'byteLength', {value: 4});
+  Object.defineProperty(forged, 'buffer', {value: new ArrayBuffer(4)});
+  assert.throws(() => arena.write(turn, handle, forged), /exact-size/);
+  assert.throws(() => arena.write(turn, handle, new Uint16Array(2)), /exact-size/);
+
+  // A previously admissible byte view must become inadmissible after detach.
+  const detachedBacking = new ArrayBuffer(4);
+  const detached = new Uint8Array(detachedBacking);
+  detached.set([1, 2, 3, 4]);
+  structuredClone(detachedBacking, {transfer: [detachedBacking]});
+  assert.equal(detached.byteLength, 0);
+  assert.throws(() => arena.write(turn, handle, detached), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [8, 7, 6, 5],
+    'failed admissions must never partially change actor-owned data');
+
+  // The caller may supply a precise view into a larger, private buffer.
+  // Copy only the view, not its surrounding backing allocation.
+  const padded = Uint8Array.from([99, 1, 2, 3, 4, 88]);
+  arena.write(turn, handle, padded.subarray(1, 5));
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+
+  arena.endTurn(turn);
+  arena.retire();
+});
