@@ -252,7 +252,10 @@ export async function verifyRealCompiler({
     for (const [name, body] of [
       ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
       ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
+      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n"],
+      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
+      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
     ]) {
       const source = join(work, "generator-v1-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
