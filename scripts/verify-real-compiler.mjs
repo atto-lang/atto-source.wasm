@@ -11,6 +11,9 @@ import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
+const opaqueTernarySource = fileURLToPath(new URL(
+  "../examples/unsupported-any-ternary.ores", import.meta.url));
+
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
 // built compiler executable. Supplied source revision alone is not a proof.
@@ -421,6 +424,42 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    // WASM delegates source parsing to the pinned LLVM compiler. Until the
+    // native backend has a tagged opaque-value ABI plus typed ternary CFG,
+    // this canonical any/unknown source form must fail in that frontend and
+    // must never publish a Wasm release.
+    const opaqueTernaryOutput = join(work, "unsupported-any-ternary.wasm");
+    const opaqueFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", opaqueTernarySource], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(opaqueFrontend);
+    if (!/native opaque top type requires tagged value ABI/i.test(opaqueFrontend.stderr || ""))
+      throw Error("LLVM frontend lacks the explicit any/unknown tagged-ABI admission gate");
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during opaque-top/ternary admission test");
+    let opaqueTernaryRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:opaqueTernarySource, output:opaqueTernaryOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      opaqueTernaryRejected = true;
+    }
+    if (!opaqueTernaryRejected)
+      throw Error("unsupported any/unknown ternary source reached Wasm artifact publication");
+    try {
+      await stat(opaqueTernaryOutput + ".current.json");
+      throw Error("unsupported any/unknown ternary source published a release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const tupleV2Cases = [
       {
         name:"tuple-explicit",
@@ -468,7 +507,8 @@ export async function verifyRealCompiler({
       generatorV1Rejected:true,
       tupleV2Rejected:true,
       invertedSourceRejected:true,
-      staticSelectRejected:true
+      staticSelectRejected:true,
+      opaqueTopTernaryRejected:true
     });
   } catch (error) {
     primaryError = error;
