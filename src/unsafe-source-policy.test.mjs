@@ -31,6 +31,12 @@ test('CR, CRLF and LF comments cannot mask a later unsafe token', () => {
     assert.throws(() => reject(bytes(source)), new RegExp('at byte ' + at + '$'));
   }
 });
+test('Template brace budget fails closed without rejecting its exact boundary', () => {
+  const nested = count => '`value ${' + '{'.repeat(count) + '42' + '}'.repeat(count) + '}`';
+  assert.doesNotThrow(() => reject(bytes(nested(256))));
+  assert.throws(() => reject(bytes(nested(257))),
+                /template interpolation brace nesting limit exceeded \(256\) at byte [0-9]+/);
+});
 test('Harmless textual unsafe and identifiers with suffixes are not rejected', () => {
   for (const source of harmless) assert.doesNotThrow(() => reject(bytes(source)));
 });
