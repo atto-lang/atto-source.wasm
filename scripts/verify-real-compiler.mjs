@@ -250,6 +250,24 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
+    // Generator source is a required explicit capability boundary. Until
+    // LLVM's wasm32 lowering owns a linear-memory init/next/close frame ABI,
+    // the pinned compiler must reject canonical gen* with the dedicated
+    // backend diagnostic. Generic syntax failure or linker rejection is not
+    // acceptable evidence.
+    const generatorSource = join(work, "generator-v1.ores");
+    await writeFile(generatorSource,
+      "pub gen* values(): Iterator<int> { yield 1; yield 2; return; }\n",
+      {flag:"wx"});
+    const generatorFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", generatorSource],
+      {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+    assertGeneratorV1WasmRejection(generatorFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024,
+      "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during generator-v1 rejection test");
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -361,6 +379,7 @@ export async function verifyRealCompiler({
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
+      generatorV1Rejected:true,
       tupleV2Rejected:true
     });
   } catch (error) {
