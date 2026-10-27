@@ -116,3 +116,25 @@ test('explicit pool close does not acknowledge pending guest work before termina
   assert.equal(pool.actorCount, 0);
   await assert.rejects(actor.send(4n), /not accepting/);
 });
+
+test('synchronous carrier termination fault retains actor identity and fails close', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  assert.equal(await actor.send(1n), 1n);
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      throw Error('injected synchronous termination fault');
+    };
+    await assert.rejects(pool.close(), /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1, 'unconfirmed actor lease must not be released');
+    await assert.rejects(actor.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
