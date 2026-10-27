@@ -14,6 +14,8 @@ const fixture = name => fileURLToPath(new URL('./fixtures/' + name, import.meta.
 test('real .ores actor compiles through LLVM wasm32 and runs 1000 turns on two Workers',
   {skip}, async () => {
     assert.ok(compiler, 'real ORESLANG_LLVM_COMPILER required');
+    if (requireReal) assert.match(process.env.ORESLANG_LLVM_COMPILER_SHA256 || '',
+      /^[a-f0-9]{64}$/, 'exact compiler binary pin mandatory');
     const built = await compileSourceActorToWasm({compiler,
       source: fixture('wasm32-single-source-actor.ores'),
       expectedCompilerSha256: process.env.ORESLANG_LLVM_COMPILER_SHA256});
