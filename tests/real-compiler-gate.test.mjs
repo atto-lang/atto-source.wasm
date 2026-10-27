@@ -44,6 +44,19 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
   }
 });
 
+test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering at byte 4"
+  };
+  assert.equal(assertGeneratorV1FrontendRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1FrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected fnc or routine at byte 4"
+  }), /required compiler-owned gate/);
+});
+
 test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
   const {assertTupleV2FrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
