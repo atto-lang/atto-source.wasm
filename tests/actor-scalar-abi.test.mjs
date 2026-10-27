@@ -48,3 +48,18 @@ test('pooled actor worker rejects a forged ABI before guest initialization', asy
     assert.equal(pool.actorCount, 0);
   } finally {await pool.close();}
 });
+
+test('wrong handler signature is rejected without poisoning a healthy carrier peer', async () => {
+  const good = compile('i64'), bad = compile('i32');
+  const sha = bytes => createHash('sha256').update(bytes).digest('hex');
+  const pool = new PooledWasmActors({workers: 1});
+  try {
+    const healthy = await pool.spawn(good, {trusted: true, expectedSha256: sha(good)});
+    assert.equal(await healthy.send(1n), 7n);
+    await assert.rejects(pool.spawn(bad, {trusted: true, expectedSha256: sha(bad)}),
+      /incorrect function signature: oreslang_wasm_actor_on_message/);
+    assert.equal(pool.actorCount, 1);
+    assert.equal(await healthy.send(3n), 7n);
+    await healthy.stop();
+  } finally {await pool.close();}
+});
