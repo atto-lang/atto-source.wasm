@@ -4,7 +4,14 @@
  * compiler must separately reject unsupported unsafe operations.
  */
 export function rejectUnsupportedUnsafeSource(sourceBytes) {
-  const source = new TextDecoder('utf-8', {fatal: true}).decode(sourceBytes);
+  // Preserve byte provenance. TextDecoder strips a leading UTF-8 BOM by
+  // default, which would make diagnostics point three bytes too early.
+  // G0 rejects BOM and binary NUL rather than normalizing signed source.
+  const source = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(sourceBytes);
+  if (source.startsWith('\uFEFF')) throw Error('wasm source BOM unsupported at byte 0');
+  const nul = source.indexOf('\0');
+  if (nul !== -1) throw Error('wasm source contains NUL at byte ' +
+                             Buffer.byteLength(source.slice(0, nul), 'utf8'));
   let pos = 0;
   const start = c => /[A-Za-z_]/.test(c);
   const part = c => /[A-Za-z0-9_]/.test(c);
