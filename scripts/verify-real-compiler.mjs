@@ -35,6 +35,13 @@ export function assertGeneratorV1FrontendRejection(frontend) {
     throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
   return true;
 }
+export function assertGeneratorV1WasmRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(
+      "native generator v1 is not yet admitted for wasm32/Cortex-M targets"))
+    throw Error("generator-v1 rejection did not come from the required wasm32 compiler gate");
+  return true;
+}
 export function assertInvertedFrontendRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   const stderr = String(frontend.stderr || "");
@@ -271,7 +278,8 @@ export async function verifyRealCompiler({
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      assertGeneratorV1FrontendRejection(frontendResult);
+      if (name === "sync") assertGeneratorV1WasmRejection(frontendResult);
+      else assertGeneratorV1FrontendRejection(frontendResult);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
       )).bytes) !== compilerSha256)
