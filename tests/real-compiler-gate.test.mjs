@@ -57,6 +57,25 @@ test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", a
   }), /required compiler-owned gate/);
 });
 
+test("generator-v1 async and suspend gates require their dedicated compiler diagnostics", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  for (const diagnostic of [
+    "native async gen* requires scheduler-owned async iterator continuation lowering",
+    "native suspend gen* requires scheduler-owned async iterator continuation lowering"
+  ]) {
+    const diagnosed = {
+      status:1, signal:null, error:undefined, stdout:"",
+      stderr:"oreslang-llvmc: " + diagnostic
+    };
+    assert.equal(assertGeneratorV1FrontendRejection(diagnosed, diagnostic), true);
+    assert.throws(() => assertGeneratorV1FrontendRejection({
+      ...diagnosed,
+      stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+    }, diagnostic), /required compiler-owned gate/);
+  }
+});
+
 test("generator-v1 wasm32 gate requires backend capability diagnostic", async () => {
   const {assertGeneratorV1WasmRejection} =
     await import("../scripts/verify-real-compiler.mjs");
