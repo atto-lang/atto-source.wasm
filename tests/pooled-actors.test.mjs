@@ -195,3 +195,38 @@ test('one noncooperating carrier fails without terminating healthy actors on a s
     await successor.stop();
   } finally {await pool.close();}
 });
+
+test('failed carrier cannot settle admitted work before delayed physical termination receipt', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const stalled = compile({spin: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, timeoutMs: 250});
+  const stuck = await pool.spawn(stalled, {trusted: true, expectedSha256: pin(stalled)});
+  const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+  const original = Worker.prototype.terminate;
+  let release, signal;
+  const physicallyTerminated = new Promise(resolve => {signal = resolve;});
+  try {
+    Worker.prototype.terminate = function () {
+      return original.call(this).then(code => new Promise(resolve => {
+        release = () => resolve(code);
+        signal();
+      }));
+    };
+    let settled = false;
+    const pending = stuck.send(1n);
+    pending.catch(() => {settled = true;});
+    await physicallyTerminated;
+    assert.equal(settled, false, 'receipt withheld: admitted work must remain unsettled');
+    assert.equal(pool.actorCount, 2, 'failed actor lease must remain pinned');
+    assert.equal(await healthy.send(3n), 3n, 'healthy carrier remains available');
+    assert.equal(settled, false);
+    release();
+    await assert.rejects(pending, /deadline exceeded/);
+    assert.equal(pool.actorCount, 1);
+    await healthy.stop();
+  } finally {
+    Worker.prototype.terminate = original;
+    if (release) release();
+    await pool.close();
+  }
+});
