@@ -202,3 +202,26 @@ test('arena writes fail closed for detached or forged typed-array views', () => 
   arena.endTurn(turn);
   arena.retire();
 });
+
+
+test('arena write checks current resizable ArrayBuffer view length on every call', () => {
+  const backing = new ArrayBuffer(8, {maxByteLength: 16});
+  if (typeof backing.resize !== 'function') return; // unsupported host feature
+  const input = new Uint8Array(backing, 2, 4);
+  input.set([1, 2, 3, 4]);
+  const arena = new ActorArena({actorId: 37, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, input);
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  backing.resize(3);
+  assert.equal(input.byteLength, 0);
+  assert.throws(() => arena.write(turn, handle, input), /exact-size/);
+  assert.deepEqual([...arena.read(turn, handle)], [1, 2, 3, 4]);
+  backing.resize(8);
+  input.set([5, 6, 7, 8]);
+  arena.write(turn, handle, input);
+  assert.deepEqual([...arena.read(turn, handle)], [5, 6, 7, 8]);
+  arena.endTurn(turn);
+  arena.retire();
+});
