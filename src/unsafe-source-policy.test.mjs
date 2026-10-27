@@ -53,3 +53,26 @@ test('UTF-8 offsets and malformed source handling are deterministic', () => {
   assert.throws(() => reject(bytes('/* café */\\0 unsafe'.replace('\\0', '\0'))),
                 /wasm source contains NUL at byte 11/);
 });
+
+test('Deterministic compositional lexical fuzzer: inert unsafe cannot mask real keyword', () => {
+  let seed = 0x25abba11;
+  const rnd = n => ((seed ^= seed << 13, seed ^= seed >>> 17,
+                     seed ^= seed << 5, seed >>> 0) % n);
+  const inert = ['// unsafe\n', '/* unsafe */', '/* /* unsafe */ */',
+                 '"unsafe"', "'unsafe'", '`unsafe`', '#unsafe',
+                 'unsafe_helper', '_unsafe', 'unsafe_count',
+                 '`outer ${"unsafe"}`'];
+  const separators = ['\n', '\r', '\r\n', ' ', '\t', '\u2028'];
+  for (let i = 0; i < 1000; i++) {
+    let prefix = '';
+    const length = 1 + rnd(6);
+    for (let j = 0; j < length; j++)
+      prefix += ' ' + inert[rnd(inert.length)] + separators[rnd(separators.length)];
+    assert.doesNotThrow(() => reject(bytes(prefix)));
+    let failure;
+    try { reject(bytes(prefix + 'unsafe')); } catch (err) { failure = err; }
+    assert.equal(failure?.message,
+                 'wasm unsafe boundary unsupported: effects and native grants unavailable at byte ' +
+                 Buffer.byteLength(prefix, 'utf8'));
+  }
+});
