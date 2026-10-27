@@ -121,3 +121,50 @@ test('persistent free-list commit survives patched Array.push and Array.sort', (
     arena.retire();
   }
 });
+
+test('owned read cannot expose live arena memory through patched Uint8Array.slice', () => {
+  const arena=new ActorArena({actorId:117,incarnation:1});
+  const turn=arena.beginTurn();
+  const handle=arena.allocPersistent(turn,4);
+  arena.write(turn,handle,Uint8Array.of(1,2,3,4));
+  let calls=0;
+  const copy=withPatchedMethod(Uint8Array.prototype,'slice',function(start,end){
+    calls++;
+    return this.subarray(start,end);
+  },()=>arena.read(turn,handle));
+  assert.equal(calls,0,'arena read must use captured native slice');
+  copy[0]=99;
+  assert.deepEqual([...arena.read(turn,handle)],[1,2,3,4]);
+  arena.dropPersistent(turn,handle);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('arena write ignores patched Uint8Array.set that drops payload', () => {
+  const arena=new ActorArena({actorId:118,incarnation:1});
+  const turn=arena.beginTurn();
+  const handle=arena.allocPersistent(turn,4);
+  let calls=0;
+  withPatchedMethod(Uint8Array.prototype,'set',()=>{calls++;},()=>{
+    arena.write(turn,handle,Uint8Array.of(9,8,7,6));
+  });
+  assert.equal(calls,0,'arena write must use captured native set');
+  assert.deepEqual([...arena.read(turn,handle)],[9,8,7,6]);
+  arena.dropPersistent(turn,handle);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('endTurn and retire zeroization survive patched Uint8Array.fill', () => {
+  const arena=new ActorArena({actorId:119,incarnation:1});
+  const turn=arena.beginTurn();
+  const scratch=arena.allocScratch(turn,4);
+  arena.write(turn,scratch,Uint8Array.of(5,6,7,8));
+  let calls=0;
+  withPatchedMethod(Uint8Array.prototype,'fill',()=>{calls++;throw Error('host fill override');},()=>{
+    assert.doesNotThrow(()=>arena.endTurn(turn));
+    assert.doesNotThrow(()=>arena.retire());
+  });
+  assert.equal(calls,0,'arena teardown must use captured native fill');
+  assert.equal(arena.retired,true);
+});

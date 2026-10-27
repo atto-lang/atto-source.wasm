@@ -16,6 +16,8 @@ const nativeMap = Array.prototype.map;
 const nativePush = Array.prototype.push;
 const nativeSort = Array.prototype.sort;
 const nativeFill = Uint8Array.prototype.fill;
+const nativeSlice = Uint8Array.prototype.slice;
+const nativeSet = Uint8Array.prototype.set;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
 const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteLength").get;
@@ -71,7 +73,7 @@ export class ActorArena {
 
   endTurn(turn) {
     this.#requireTurn(turn);
-    this.#bytes().fill(0, PAGE, PAGE + this.#scratchTop);
+    nativeFill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
     this.#scratch = new WeakMap();
@@ -166,7 +168,7 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return this.#bytes().slice(offset, offset + length); // owned copy
+    return nativeSlice.call(this.#bytes(), offset, offset + length); // owned copy
   }
 
   write(turn, handle, data) {
@@ -180,13 +182,13 @@ export class ActorArena {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
-    this.#bytes().set(data, offset);
+    nativeSet.call(this.#bytes(), data, offset);
   }
 
   retire() {
     if (this.#closed) return;
     if (this.#turn !== null) throw new Error("active actor turn blocks retirement");
-    this.#bytes().fill(0);
+    nativeFill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
     this.#handles = new WeakMap();
