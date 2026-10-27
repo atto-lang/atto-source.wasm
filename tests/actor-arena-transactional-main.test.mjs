@@ -64,3 +64,60 @@ test('failed scratch preparation does not consume disposable turn capacity',()=>
   arena.endTurn(next);
   arena.retire();
 });
+
+function withPatchedMethod(proto, name, replacement, action) {
+  const original = Object.getOwnPropertyDescriptor(proto, name);
+  assert.ok(original?.configurable, 'test requires restorable host method');
+  Object.defineProperty(proto, name, {...original, value:replacement});
+  try { return action(); }
+  finally { Object.defineProperty(proto, name, original); }
+}
+
+test('foreign arena handles cannot be forged through patched WeakMap.get', () => {
+  const arena=new ActorArena({actorId:113,incarnation:1});
+  const turn=arena.beginTurn();
+  const owned=arena.allocPersistent(turn,8);
+  arena.write(turn,owned,new Uint8Array(8).fill(77));
+  const foreign=Object.freeze({});
+  withPatchedMethod(WeakMap.prototype,'get',()=>({offset:0,length:8}),()=>{
+    assert.throws(()=>arena.read(turn,foreign),/foreign or stale arena handle/);
+    assert.deepEqual([...arena.read(turn,owned)],Array(8).fill(77));
+  });
+  arena.dropPersistent(turn,owned);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('persistent handle revocation survives patched WeakMap.delete', () => {
+  const arena=new ActorArena({actorId:114,incarnation:1});
+  const turn=arena.beginTurn();
+  const stale=arena.allocPersistent(turn,PAGE);
+  withPatchedMethod(WeakMap.prototype,'delete',()=>false,()=>{
+    arena.dropPersistent(turn,stale);
+  });
+  assert.throws(()=>arena.read(turn,stale),/stale/);
+  const reused=arena.allocPersistent(turn,PAGE);
+  arena.write(turn,reused,new Uint8Array(PAGE).fill(19));
+  assert.throws(()=>arena.read(turn,stale),/stale/,
+    'freed token must never alias a new owner of the same region');
+  arena.dropPersistent(turn,reused);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test('persistent free-list commit survives patched Array.push and Array.sort', () => {
+  for(const name of ['push','sort']) {
+    const arena=new ActorArena({actorId:name==='push'?115:116,incarnation:1});
+    const turn=arena.beginTurn();
+    const stale=arena.allocPersistent(turn,PAGE);
+    withPatchedMethod(Array.prototype,name,()=>{throw Error('patched '+name);},()=>{
+      arena.dropPersistent(turn,stale);
+    });
+    assert.throws(()=>arena.read(turn,stale),/stale/);
+    const reused=arena.allocPersistent(turn,PAGE);
+    assert.ok(arena.read(turn,reused).every(value=>value===0));
+    arena.dropPersistent(turn,reused);
+    arena.endTurn(turn);
+    arena.retire();
+  }
+});

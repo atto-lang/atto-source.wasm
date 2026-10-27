@@ -10,6 +10,11 @@ const nativeFreeze = Object.freeze;
 const nativeFindIndex = Array.prototype.findIndex;
 const nativeSplice = Array.prototype.splice;
 const nativeWeakSet = WeakMap.prototype.set;
+const nativeWeakGet = WeakMap.prototype.get;
+const nativeWeakDelete = WeakMap.prototype.delete;
+const nativeMap = Array.prototype.map;
+const nativePush = Array.prototype.push;
+const nativeSort = Array.prototype.sort;
 const nativeFill = Uint8Array.prototype.fill;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
@@ -129,25 +134,32 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle);
+    const entry = nativeWeakGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    this.#bytes().fill(0, entry.offset, entry.offset + entry.length);
-    this.#handles.delete(handle);
-    --this.#persistentCount;
-    this.#freePersistent.push({...entry});
-    this.#freePersistent.sort((a, b) => a.offset - b.offset);
+    // Stage all free-list work before revoking the handle. A failed array
+    // operation must not lose the allocation or leave a live handle aliased
+    // with a future allocation. Clone segments before coalescing.
+    const staged = nativeMap.call(this.#freePersistent, segment => ({...segment}));
+    nativePush.call(staged, {...entry});
+    nativeSort.call(staged, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    for (const segment of staged) {
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else coalesced.push(segment);
+      else nativePush.call(coalesced, segment);
     }
+    // Zero while ownership is still valid; then commit only infallible
+    // internal-slot operations, using captured intrinsics for revocation.
+    nativeFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
+    nativeWeakDelete.call(this.#handles, handle);
+    --this.#persistentCount;
     this.#freePersistent = coalesced;
   }
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle) ?? this.#scratch.get(handle);
+    const entry = nativeWeakGet.call(this.#handles, handle) ??
+      nativeWeakGet.call(this.#scratch, handle);
     if (!entry) throw new Error("foreign or stale arena handle");
     return entry;
   }
