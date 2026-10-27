@@ -44,6 +44,13 @@ export function assertInvertedFrontendRejection(frontend) {
     throw Error("inverted-class source did not fail through the native declaration boundary");
   return true;
 }
+export function assertSelectFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(
+      "native async/channel/select boundary unsupported"))
+    throw Error("select rejection did not come from the LLVM async/channel/select capability gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -362,6 +369,58 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    // Static select is parsed and owned by the LLVM frontend, not by this
+    // Wasm bridge. Require the compiler-owned capability diagnostic for both
+    // outer delimiter families so Wasm stays fail-closed ahead of lowering.
+    const selectCases = [
+      ["plain-braced", "select { default: { return 1; } }"],
+      ["plain-over", "select over default: { return 1; } end"],
+      ["do-braced", "do select { default: { return 1; } }"],
+      ["do-over", "do select over default: { return 1; } end"],
+      ["nb-braced", "nb select { default: { return 1; } }"],
+      ["nb-over", "nb select over default: { return 1; } end"],
+      ["do-nb-braced", "do nb select { default: { return 1; } }"],
+      ["do-nb-over", "do nb select over default: { return 1; } end"]
+    ];
+    for (const [name, form] of selectCases) {
+      const source = join(work, "deny-select-" + name + ".ores");
+      await writeFile(source,
+        "pub fnc main(): int { " + form + " return 0; }\n", {flag:"wx"});
+      const frontendResult = spawnSync(
+        pinnedCompiler, ["--target=wasm32", source],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertSelectFrontendRejection(frontendResult);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+      )).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during select rejection test");
+    }
+
+    const selectBridgeSource = join(work, "deny-select-bridge.ores");
+    const selectBridgeOutput = join(work, "deny-select-bridge.wasm");
+    await writeFile(selectBridgeSource,
+      "pub fnc main(): int { nb select over default: { return 1; } end return 0; }\n",
+      {flag:"wx"});
+    let selectBridgeRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:selectBridgeSource, output:selectBridgeOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      selectBridgeRejected = true;
+    }
+    if (!selectBridgeRejected)
+      throw Error("unsupported static select reached Wasm artifact publication");
+    try {
+      await stat(selectBridgeOutput + ".current.json");
+      throw Error("unsupported static select published a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const tupleV2Cases = [
       {
         name:"tuple-explicit",
@@ -408,7 +467,8 @@ export async function verifyRealCompiler({
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
       tupleV2Rejected:true,
-      invertedSourceRejected:true
+      invertedSourceRejected:true,
+      staticSelectRejected:true
     });
   } catch (error) {
     primaryError = error;
