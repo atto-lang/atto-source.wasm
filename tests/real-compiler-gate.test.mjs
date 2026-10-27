@@ -75,6 +75,22 @@ test("inverted real-compiler gate requires native declaration rejection", async 
   }), /inverted-class source did not fail/);
 });
 
+test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
+  const {assertSelectFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native async/channel/select boundary unsupported at byte 17"
+  };
+  assert.equal(assertSelectFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token select at byte 17"
+  }), /LLVM async\/channel\/select capability gate/);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stdout:"define i64 @main() { ret i64 0 }"
+  }), /diagnosed error/);
+});
+
 test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
   const {assertTupleV2FrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
