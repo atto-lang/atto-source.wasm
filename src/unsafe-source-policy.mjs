@@ -86,7 +86,10 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
           failure('wasm unsafe boundary unsupported: effects and native grants unavailable', at);
         continue;
       }
-      if (inInterpolation && c === '{') { braces++; pos++; continue; }
+      if (inInterpolation && c === '{') {
+        if (++braces > 256) failure('template interpolation brace nesting limit exceeded (256)', pos);
+        pos++; continue;
+      }
       if (inInterpolation && c === '}') {
         pos++;
         if (braces-- === 0) return;
