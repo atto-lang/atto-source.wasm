@@ -122,7 +122,14 @@ export class PooledWasmActors {
     this.#shutdownPromise = Promise.allSettled(
       // A terminated Worker may throw synchronously (or return a rejected
       // Promise). Still attempt EVERY carrier and retain unconfirmed leases.
-      this.#carriers.map(c => Promise.resolve().then(() => c.worker.terminate()))
+      this.#carriers.map(c => Promise.resolve().then(() => {
+        const receipt = c.worker.terminate();
+        // Node Worker termination must return an awaitable exit receipt.
+        // A void or forged synchronous adapter response is not quiescence.
+        if (!receipt || typeof receipt.then !== 'function')
+          throw Error('actor carrier returned no physical termination receipt');
+        return receipt;
+      }))
     ).then(results => {
       const uncertain = results.some(r => r.status !== 'fulfilled');
       const reason = uncertain ? Error('actor carrier termination unconfirmed') : error;
