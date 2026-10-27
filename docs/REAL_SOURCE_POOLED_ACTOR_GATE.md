@@ -42,8 +42,9 @@ previously unsupported feature as accepted.
   native/OresVM transport remain unsupported.
 - These are trusted-only pooled Node Worker carriers, not an OS sandbox for
   malicious tenants. Any infinite-loop turn consumes its Worker until deadline
-  and terminates the entire pool when it is killed. It does not resume a
-  preempted guest.
+  and physically retires every actor on that Worker; other live carriers stay
+  operational and can admit replacement actors. No interrupted guest is
+  preempted and resumed.
 - Future scheduler integration must insert verified `rt cooperate` safepoints,
   typed resumable frames and borrow revalidation. Actors retain exclusive
   execution leases across every guest callback/continuation and before
