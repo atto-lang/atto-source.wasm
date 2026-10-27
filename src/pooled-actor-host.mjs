@@ -148,6 +148,10 @@ export class PooledWasmActors {
           actor.queue.length = 0;
           this.#actors.delete(actor.id);
         }
+        // Memory may be released only after the terminated Worker cannot
+        // execute any more guest turns. Drop dead dispatch references here.
+        carrier.ready.length = 0;
+        carrier.active = null;
       }, () => {
         const reason = Error('actor carrier termination unconfirmed');
         for (const actor of this.#actors.values()) {
@@ -190,7 +194,13 @@ export class PooledWasmActors {
       // A failed termination is NOT physical quiescence. Keep actor identities
       // and their carrier references pinned; callers must not infer safe reuse
       // or reclamation from a rejected close() or the absence of pending work.
-      if (!uncertain) this.#actors.clear();
+      if (!uncertain) {
+        this.#actors.clear();
+        for (const carrier of this.#carriers) {
+          carrier.ready.length = 0;
+          carrier.active = null;
+        }
+      }
       if (uncertain) throw reason;
     });
     // Event handlers may initiate a terminal shutdown without an awaiting
