@@ -1,3 +1,5 @@
+import {types} from "node:util";
+
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
 // Guest source arena lowering and shared-domain regions are separate gates.
@@ -9,6 +11,9 @@ const nativeFindIndex = Array.prototype.findIndex;
 const nativeSplice = Array.prototype.splice;
 const nativeWeakSet = WeakMap.prototype.set;
 const nativeFill = Uint8Array.prototype.fill;
+const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
+const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteLength").get;
 
 export class ActorArena {
   #memory;
@@ -154,12 +159,12 @@ export class ActorArena {
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    if (!(data instanceof Uint8Array) || data.byteLength !== length) {
+    // Native internal slots prevent instance property overrides from changing
+    // the exact-size and shared-memory admission checks.
+    if (!types.isUint8Array(data) || nativeByteLength.call(data) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
-    // SharedArrayBuffer allows another Worker to mutate the source mid-copy,
-    // tearing the actor's snapshot. Require owned, non-shared input bytes.
-    if (typeof SharedArrayBuffer !== "undefined" && data.buffer instanceof SharedArrayBuffer) {
+    if (types.isSharedArrayBuffer(nativeBuffer.call(data))) {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
