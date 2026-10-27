@@ -7,6 +7,7 @@ on:
       - "aot-host/**"
       - "scripts/**"
       - "src/**"
+      - "contracts/**"
       - "tests/**"
       - "examples/**"
       - "package.json"
@@ -25,7 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          # Bind to reviewed PR head, never the synthetic merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact source head and clean checkout before AOT execution
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet --exit-code HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          echo "WASM_AOT_SOURCE_COMMIT=$EXPECTED_HEAD"
+          echo "WASM_AOT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Set up pinned Node 22 for architecture assertions
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -50,5 +65,7 @@ jobs:
           fi
       - name: Install LLVM wasm32 linker
         run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run full WebAssembly scalar and shared-contract suite
+        run: npm test
       - name: Run strict AOT scalar smoke and tamper rejection
         run: bash aot-host/tests/smoke.sh
