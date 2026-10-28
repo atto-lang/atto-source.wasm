@@ -141,7 +141,11 @@ export class NativeWasmActorRegistry {
   }
 
   async rotate(ref, bytes, {expectedSha256, trusted = false} = {}) {
-    const {actor} = this.#resolve(ref, 'stop');
+    const {record, actor} = this.#resolve(ref, 'stop');
+    // Rotation mints fresh full rights: delegated stop-only or attenuated
+    // references must never escalate to supervisor/root authority.
+    if (record.parent !== null || !record.rights.send)
+      throw Error('ActorRef rotation requires root supervisor authority');
     if (actor.state !== 'active' || actor.rotating)
       throw Error('actor generation rotation already pending');
     actor.rotating = true;
