@@ -25,11 +25,12 @@ const positives = [
   ["maximum-minus-minimum", "9223372036854775807 % -9223372036854775808", 9223372036854775807n]
 ];
 const negatives = [
-  ["zero-divisor", "7 % 0"],
-  ["computed-divisor", "7 % (1+1)"],
-  ["negative-computed-divisor", "7 % -(1+1)"],
-  ["out-of-range-divisor", "7 % -9223372036854775809"],
-  ["float-division-not-int", "7 / 2"]
+  ["zero-divisor", "7 % 0", /nonzero signed integer literal divisor/],
+  ["computed-divisor", "7 % (1+1)", /nonzero signed integer literal divisor/],
+  ["negative-computed-divisor", "7 % -(1+1)", /nonzero signed integer literal divisor/],
+  ["out-of-range-divisor", "7 % -9223372036854775809",
+    /integer|literal|out.of.range|overflow/i],
+  ["float-division-not-int", "7 / 2", /floating division|float result/i]
 ];
 
 test("pinned LLVM signed-literal remainder compiles and executes in a real isolated wasm32 guest", {
@@ -74,7 +75,7 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
       assert.equal(observed.admission.hostCapabilities, 0);
       assert.equal(observed.admission.imports, 0);
     }
-    for (const [id, expression] of negatives) {
+    for (const [id, expression, requiredDiagnostic] of negatives) {
       await writeFile(input, "pub fnc main():int{return " + expression + ";}\n");
       const output = join(work, "rejected-" + id + ".wasm");
       await assert.rejects(
@@ -82,11 +83,49 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
           compiler, compilerSha256, source: input, output,
           environment: "browser", publication: "atomic"
         }),
-        error => /oreslang-llvmc:/.test(String(error?.message || "")),
-        id + " must be denied by the real compiler, not by a missing tool"
+        error => {
+          const message = String(error?.message || "");
+          // A broken compiler invocation, linker, runner or bridge is not
+          // evidence that Oreslang diagnosed the intended source error.
+          const diagnostic = message.match(/oreslang-llvmc:([^\\n]*)/i)?.[1] || "";
+          return requiredDiagnostic.test(diagnostic) &&
+            !/unknown option|not found|permission denied|failed to execute/i.test(message);
+        },
+        id + " must return the expected native compiler semantic diagnostic"
       );
       await assert.rejects(stat(output + ".current.json"), {code: "ENOENT"},
         "rejected guest may not publish an atomic release pointer");
+    }
+    // A modulo -1 must *not* erase a checked-overflow trap in its
+    // numerator: returning zero here would violate Java's i64 contract.
+    const overflowSource =
+      "pub fnc main():int{return (9223372036854775807 + 1) % -1;}\\n";
+    await writeFile(input, overflowSource);
+    const overflowOutput = join(work, "overflow-before-minus-one.wasm");
+    let overflowPublished = false;
+    try {
+      const compiled = await compileOresToWasm({
+        compiler, compilerSha256, source: input, output: overflowOutput,
+        environment: "browser", publication: "atomic"
+      });
+      overflowPublished = true;
+      const release = await readAtomicRelease(overflowOutput);
+      await assert.rejects(
+        runIsolatedCoreGuest(release.wasm, {
+          expectedSha256: compiled.wasmSha256, timeoutMs: 5000
+        }),
+        error => /^guest rejected or failed: (?:unreachable|integer overflow)/i
+          .test(String(error?.message || "")),
+        "overflow-before-remainder must execute a real guest trap, not wrap to zero"
+      );
+    } catch (error) {
+      if (overflowPublished) throw error;
+      const message = String(error?.message || "");
+      assert.match(message, /oreslang-llvmc:/,
+        "compiler rejection must come from the verified native frontend");
+      assert.match(message, /overflow|out.of.range|invalid i64/i,
+        "compiler rejection must explain the checked overflow");
+      await assert.rejects(stat(overflowOutput + ".current.json"), {code: "ENOENT"});
     }
   } finally {
     await cleanupRealCompilerWorkspace(work);
