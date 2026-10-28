@@ -101,6 +101,17 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
   assert.match(workflow,/name: Run full WebAssembly scalar and shared-contract suite\n        run: npm test/);
   assert.match(workflow,/name: Require real Oreslang source actor execution[\s\S]*npm run test:real-pooled-actors/);
+  assert.match(workflow,/name: Mutation-test pinned LLVM compiler receipt consumer[\s\S]*node --test tests\/llvm-compiler-handoff\.test\.mjs/);
+  assert.match(workflow,/name: Require approved LLVM build handoff before expensive AOT work[\s\S]*node scripts\/verify-llvm-compiler-handoff\.mjs/);
+  assert.ok(workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work') <
+    workflow.indexOf('name: Build trusted AOT precompiler'),
+    'compiler handoff must fail closed before costly Rust builds');
+  assert.ok(workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work') <
+    workflow.indexOf('name: Require real Oreslang source actor execution'),
+    'real source execution cannot bypass compiler handoff');
+  const mandatory = source('scripts/verify-real-source-pooled-actor.mjs');
+  assert.match(mandatory,/verifyLlvmCompilerHandoff\(/);
+  assert.match(mandatory,/ORESLANG_LLVM_COMPILER_RECEIPT/);
   assert.ok(workflow.indexOf('name: Install LLVM wasm32 linker') <
     workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite'),
     'full Wasm scalar suite requires installed LLVM linker');
