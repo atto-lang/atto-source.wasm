@@ -25,23 +25,29 @@ export class PooledWasmActors {
   #maxActors;
   #mailboxCapacity;
   #timeoutMs;
+  #terminationTimeoutMs;
 
-  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000} = {}) {
+  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16,
+    timeoutMs = 2000, terminationTimeoutMs = 5000} = {}) {
     bounded(workers, 1, 4, 'worker count');
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
     this.#timeoutMs = bounded(timeoutMs, 1, 30000, 'deadline');
+    this.#terminationTimeoutMs = bounded(terminationTimeoutMs, 10, 30000, 'physical exit deadline');
     for (let i = 0; i < workers; i++) {
       const worker = new Worker(new URL('./pooled-actor-worker.mjs', import.meta.url), {
         type: 'module', execArgv: [], env: {},
         resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
       });
       const carrier = {worker, ready: [], active: null, timer: null, dead: false,
-        termination: null, retirePromise: null, exitObserved: null};
+        termination: null, retirePromise: null, exitObserved: null, exited: false};
       // Physical exit is an independently observed boundary. The Promise
       // returned by terminate() alone is not proof that guest turns stopped.
       // Register before asynchronous startup or shutdown can emit 'exit'.
-      carrier.exitObserved = new Promise(resolve => worker.once('exit', resolve));
+      carrier.exitObserved = new Promise(resolve => worker.once('exit', code => {
+        carrier.exited = true;
+        resolve(code);
+      }));
       worker.on('message', message => this.#onMessage(carrier, message));
       worker.on('error', error => void this.#retireCarrier(carrier, error));
       worker.on('exit', () => {
@@ -125,14 +131,27 @@ export class PooledWasmActors {
   // Accepted work is not settled until physical Worker termination confirms.
   #terminateCarrier(carrier) {
     if (carrier.termination) return carrier.termination;
-    carrier.termination = Promise.resolve().then(() => {
+    // Timer completion is a *failure*, never evidence of physical quiescence.
+    // Keep leases and Worker references pinned when exit cannot be observed.
+    let deadline;
+    const timedOut = new Promise((_, reject) => {
+      deadline = setTimeout(() =>
+        reject(Error('actor carrier termination unconfirmed: physical exit deadline exceeded')),
+        this.#terminationTimeoutMs);
+    });
+    const completion = Promise.resolve().then(async () => {
+      // An independently observed exit already proves quiescence; don't call
+      // terminate() again on an exited Worker (which can reject or hang).
+      if (carrier.exited) return;
       const receipt = carrier.worker.terminate();
       if (!receipt || typeof receipt.then !== 'function')
         throw Error('actor carrier returned no physical termination receipt');
-      // A mocked, accidentally early or otherwise invalid fulfillment must
-      // never retire actor leases before the actual Worker exit event.
-      return Promise.resolve(receipt).then(() => carrier.exitObserved);
+      // Require BOTH the termination receipt and the real Worker exit event.
+      await receipt;
+      await carrier.exitObserved;
     });
+    carrier.termination = Promise.race([completion, timedOut])
+      .finally(() => clearTimeout(deadline));
     return carrier.termination;
   }
 
