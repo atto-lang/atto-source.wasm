@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {mkdtempSync, writeFileSync, chmodSync, symlinkSync, rmSync} from 'node:fs';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
 
 // Source-local admission checks. Never substitute a fake compiler for actual
 // LLVM -> wasm32 -> pooled guest execution. These tests only prove that the
@@ -44,4 +48,53 @@ test('real pooled guest gate rejects a pinned but nonexistent executable', () =>
     ORESLANG_LLVM_COMPILER_SHA256: '0'.repeat(64)
   });
   assert.match(result.stdout + result.stderr, /(?:ENOENT|no such file|not a regular file|actor compilation command failed)/i);
+});
+
+test('real guest verifier rejects wrong compiler SHA before any test invocation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ores-wrong-pin-'));
+  try {
+    const binary = join(dir, 'candidate.bin');
+    writeFileSync(binary, 'arbitrary test bytes', {mode: 0o700});
+    chmodSync(binary, 0o700);
+    const result = deny({
+      ORESLANG_LLVM_COMPILER: binary,
+      ORESLANG_LLVM_COMPILER_SHA256: '0'.repeat(64)
+    });
+    assert.match(result.stderr, /compiler executable SHA-256 mismatch/);
+    assert.doesNotMatch(result.stdout + result.stderr, /NOT_VERIFIED: real source-actor guest test inventory/);
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});
+
+test('real guest verifier rejects a symlink, even with a matching target digest', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ores-symlink-pin-'));
+  try {
+    const target = join(dir, 'candidate.bin');
+    const alias = join(dir, 'alias.bin');
+    const bytes = Buffer.from('ordinary data used only for admission rejection');
+    writeFileSync(target, bytes, {mode: 0o700});
+    chmodSync(target, 0o700);
+    symlinkSync(target, alias);
+    const result = deny({
+      ORESLANG_LLVM_COMPILER: alias,
+      ORESLANG_LLVM_COMPILER_SHA256: createHash('sha256').update(bytes).digest('hex')
+    });
+    assert.match(result.stderr, /symlink or special input file is forbidden/);
+    assert.doesNotMatch(result.stdout + result.stderr, /NOT_VERIFIED: real source-actor guest test inventory/);
+  } finally {rmSync(dir, {recursive: true, force: true});}
+});
+
+test('real guest verifier rejects a non-executable candidate with a matching digest', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ores-unexecutable-pin-'));
+  try {
+    const binary = join(dir, 'candidate.bin');
+    const bytes = Buffer.from('ordinary non-executable candidate');
+    writeFileSync(binary, bytes, {mode: 0o600});
+    chmodSync(binary, 0o600);
+    const result = deny({
+      ORESLANG_LLVM_COMPILER: binary,
+      ORESLANG_LLVM_COMPILER_SHA256: createHash('sha256').update(bytes).digest('hex')
+    });
+    assert.match(result.stderr, /compiler is empty or not executable/);
+    assert.doesNotMatch(result.stdout + result.stderr, /NOT_VERIFIED: real source-actor guest test inventory/);
+  } finally {rmSync(dir, {recursive: true, force: true});}
 });
