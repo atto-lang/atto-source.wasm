@@ -452,3 +452,101 @@ test('forged Worker exit event cannot reclaim actor lease until native thread is
     await pool.close();
   }
 });
+
+test('late physical exit after deadline reclaims exactly once but preserves failed close', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1, terminationTimeoutMs: 60});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  assert.equal(await actor.send(4n), 4n);
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      return Promise.resolve(0); // A receipt without physical termination.
+    };
+    const closed = pool.close();
+    await assert.rejects(closed, /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1, 'deadline must not reclaim a still-live actor');
+    assert.ok(held.threadId > 0);
+    await original.call(held); // Genuine exit AFTER failure receipt.
+    for (let i = 0; i < 25 && pool.actorCount; i++)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(pool.actorCount, 0, 'late native exit must eventually release the lease');
+    held.emit('exit', 0);
+    assert.equal(pool.actorCount, 0, 'duplicate exit may not reclaim twice');
+    assert.strictEqual(pool.close(), closed);
+    await assert.rejects(closed, /carrier termination unconfirmed/,
+      'late cleanup must not falsely promote the earlier close failure to success');
+    await assert.rejects(actor.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held && held.threadId !== -1) await original.call(held);
+  }
+});
+
+test('rejected termination receipt preserves failure while later exit retires actor', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1, terminationTimeoutMs: 100});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      return Promise.reject(Error('injected termination rejection'));
+    };
+    const closed = pool.close();
+    await assert.rejects(closed, /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1);
+    await original.call(held);
+    for (let i = 0; i < 25 && pool.actorCount; i++)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(pool.actorCount, 0, 'rejected receipt cannot permanently retain an exited carrier');
+    await assert.rejects(closed, /carrier termination unconfirmed/);
+    await assert.rejects(actor.send(5n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held && held.threadId !== -1) await original.call(held);
+  }
+});
+
+test('timeout, STOP and close race settles every accepted operation once after failure', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile({spin: true});
+  const pool = new PooledWasmActors({workers: 1, timeoutMs: 3000, terminationTimeoutMs: 75});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const original = Worker.prototype.terminate;
+  let held;
+  const settled = [0, 0, 0];
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      return Promise.resolve(0);
+    };
+    const accepted = [actor.send(1n), actor.send(2n), actor.stop()];
+    accepted.forEach((p, i) => p.then(
+      () => {settled[i]++;},
+      () => {settled[i]++;}
+    ));
+    const closed = pool.close();
+    assert.strictEqual(closed, pool.close());
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.deepEqual(settled, [0, 0, 0], 'no early settlement without exit');
+    await assert.rejects(closed, /carrier termination unconfirmed/);
+    for (const op of accepted)
+      await assert.rejects(op, /carrier termination unconfirmed/);
+    assert.deepEqual(settled, [1, 1, 1], 'all pending operations must settle once');
+    assert.equal(pool.actorCount, 1, 'unconfirmed lease remains pinned');
+    await original.call(held);
+    for (let i = 0; i < 25 && pool.actorCount; i++)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(pool.actorCount, 0);
+    assert.deepEqual(settled, [1, 1, 1], 'late exit cannot settle operations twice');
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held && held.threadId !== -1) await original.call(held);
+  }
+});
