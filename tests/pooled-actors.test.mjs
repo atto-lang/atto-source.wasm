@@ -7,18 +7,27 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
-function compile({spin = false, invalidImport = false} = {}) {
+function compile({spin = false, invalidImport = false, linearHeap = false} = {}) {
+  if (linearHeap && (spin || invalidImport)) throw TypeError('linear heap fixture is standalone');
   const path = mkdtempSync(join(tmpdir(), 'ores-wasm-pool-'));
   const output = join(path, 'actor.wasm');
   const ir = [
     'target triple = "wasm32-unknown-unknown"',
-    '@counter = internal global i64 0',
+    ...(linearHeap ? [] : ['@counter = internal global i64 0']),
     ...(invalidImport ? ['declare i64 @forbidden()'] : []),
     'define void @oreslang_wasm_actor_init() { ret void }',
     'define i64 @oreslang_wasm_actor_on_message(i64 %value) {',
     'entry:',
     ...(spin ? ['br label %spin', 'spin:', 'br label %spin'] :
-      invalidImport ? ['%x = call i64 @forbidden()', 'ret i64 %x'] : [
+      invalidImport ? ['%x = call i64 @forbidden()', 'ret i64 %x'] : linearHeap ? [
+      // Deliberately use actual private wasm linear memory at a fixed in-bounds
+      // address, NOT a compiler global. Clang links this synthetic LLVM IR.
+      '%base = inttoptr i32 1024 to ptr',
+      '%old = load volatile i64, ptr %base, align 8',
+      '%next = add i64 %old, %value',
+      'store volatile i64 %next, ptr %base, align 8',
+      'ret i64 %next'
+    ] : [
       '%old = load i64, ptr @counter',
       '%next = add i64 %old, %value',
       'store i64 %next, ptr @counter',
@@ -58,6 +67,36 @@ test('40 private WASM actors share two OS Workers and preserve per-actor state',
     await Promise.all(actors.map(a => a.stop()));
     assert.equal(pool.actorCount, 0);
     await assert.rejects(actors[0].send(2n), /not accepting/);
+  } finally {await pool.close();}
+});
+
+test('two actors on one Worker retain independent linear-memory heaps across STOP and restart', async () => {
+  // Host/runtime verification with independently authored LLVM IR, NOT a
+  // compiled Oreslang .ores actor. Source compilation is a separate gate.
+  const wasm = compile({linearHeap: true});
+  assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(wasm)), []);
+  const pool = new PooledWasmActors({workers: 1, maxActors: 2});
+  const expectedSha256 = pin(wasm);
+  try {
+    const left = await pool.spawn(wasm, {trusted: true, expectedSha256});
+    const right = await pool.spawn(wasm, {trusted: true, expectedSha256});
+    assert.equal(pool.actorCount, 2);
+    assert.equal(await left.send(21n), 21n);
+    assert.equal(await right.send(7n), 7n);
+    assert.equal(await left.send(1n), 22n);
+    await left.stop();
+    await assert.rejects(left.send(2n), /not accepting/);
+    assert.equal(pool.activeWorkerCount, 1, 'colocated carrier must survive STOP');
+    assert.equal(await right.send(2n), 9n,
+      'retirement of left must not zero the right actor private linear memory');
+    const fresh = await pool.spawn(wasm, {trusted: true, expectedSha256});
+    assert.equal(await fresh.send(3n), 3n,
+      'new incarnation must not inherit the retired actor linear memory');
+    assert.equal(await right.send(1n), 10n);
+    await fresh.stop();
+    await assert.rejects(fresh.send(1n), /not accepting/);
+    await right.stop();
+    assert.equal(pool.actorCount, 0);
   } finally {await pool.close();}
 });
 
