@@ -31,12 +31,23 @@ test('real .ores actor compiles through LLVM wasm32 and runs 1000 turns on two W
         const result = await Promise.all(actors.map(a => a.send(1n)));
         assert.deepEqual(result, Array(40).fill(BigInt(i)));
       }
-      // A fresh incarnation cannot read previous per-instance state.
-      await Promise.all(actors.map(a => a.stop()));
+      // Actor 0 and actor 2 share Worker 0, but must never share native
+      // guest memory. Retiring one actor must preserve its still-live peer.
+      await actors[0].stop();
+      await assert.rejects(actors[0].send(1n), /actor not accepting messages/);
+      assert.equal(await actors[2].send(1n), 26n,
+        'retiring a colocated actor must not erase another actor heap');
+      assert.equal(pool.actorCount, 39);
+
+      // Admit a fresh incarnation while 39 other instances remain active.
+      // In particular, it must never see the old actor's accumulated 25.
       const replacement = await pool.spawn(built.wasm,
         {trusted: true, expectedSha256: built.provenance.wasmSha256});
+      assert.equal(pool.actorCount, 40);
       assert.equal(await replacement.send(3n), 3n);
       await replacement.stop();
+      await assert.rejects(replacement.send(1n), /actor not accepting messages/);
+      await Promise.all(actors.slice(1).map(a => a.stop()));
       assert.equal(pool.actorCount, 0);
     } finally {await pool.close();}
   });
