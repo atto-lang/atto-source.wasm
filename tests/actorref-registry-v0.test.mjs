@@ -180,3 +180,24 @@ test('supervisor revocation during blocked stop aborts successor generation', as
   assert.equal(spawns,1);
   await registry.close();
 });
+
+test('revocation during successor spawn tears down guest before minting new rights', async () => {
+  let complete, spawns=0, retired=0;
+  const handle=()=>({send:async()=>1n,stop:async()=>{retired++;}});
+  const pool={
+    spawn:()=>{spawns++;return spawns===1
+      ? Promise.resolve(handle()) : new Promise(resolve=>{complete=resolve;});},
+    close:async()=>{}
+  };
+  const registry=new NativeWasmActorRegistry({pool});
+  const root=await registry.spawn(new Uint8Array([0]),{trusted:true});
+  const rotating=registry.rotate(root,new Uint8Array([1]),{trusted:true});
+  for(let i=0;i<8&&!complete;i++) await Promise.resolve();
+  assert.equal(typeof complete,'function');
+  registry.revoke(root); complete(handle());
+  await assert.rejects(rotating,/revoked or registry closed/);
+  assert.equal(spawns,2);
+  assert.equal(retired,2);
+  assert.equal(registry.actorCount,0);
+  await registry.close();
+});
