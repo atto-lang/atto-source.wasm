@@ -1,12 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
+import {mkdtemp,readFile,writeFile,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
+import {cleanupRealCompilerWorkspace} from "../scripts/cleanup-real-compiler.mjs";
 
 // This suite is intentionally NOT counted as parity unless the *real* native
 // LLVM compiler is supplied, pinned and used to execute actual wasm32 output.
@@ -123,6 +124,6 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
         "failed numeric compilation must not publish a release pointer");
     }
   } finally {
-    await rm(dir,{recursive:true,force:true});
+    await cleanupRealCompilerWorkspace(dir);
   }
 });
