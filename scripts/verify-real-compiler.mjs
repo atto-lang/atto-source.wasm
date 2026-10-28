@@ -217,7 +217,7 @@ export async function verifyRealCompiler({
       ["arity", "Integer.bitXor(1)"],
       ["extra-argument", "Integer.bitXor(1,2,3)"],
       ["wrong-type", "Integer.bitXor(true,3)"],
-      ["unknown-method", "Integer.mod(9,4)"]
+      ["unknown-method", "Integer.unknownStrictMethod(9,4)"]
     ]) {
       const source = join(work, "named-integer-deny-" + id + ".ores");
       await writeFile(source, "fnc main():int{return " + expression + ";}\n",
