@@ -36,7 +36,12 @@ export class PooledWasmActors {
         type: 'module', execArgv: [], env: {},
         resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
       });
-      const carrier = {worker, ready: [], active: null, timer: null, dead: false, termination: null, retirePromise: null};
+      const carrier = {worker, ready: [], active: null, timer: null, dead: false,
+        termination: null, retirePromise: null, exitObserved: null};
+      // Physical exit is an independently observed boundary. The Promise
+      // returned by terminate() alone is not proof that guest turns stopped.
+      // Register before asynchronous startup or shutdown can emit 'exit'.
+      carrier.exitObserved = new Promise(resolve => worker.once('exit', resolve));
       worker.on('message', message => this.#onMessage(carrier, message));
       worker.on('error', error => void this.#retireCarrier(carrier, error));
       worker.on('exit', () => {
@@ -124,7 +129,9 @@ export class PooledWasmActors {
       const receipt = carrier.worker.terminate();
       if (!receipt || typeof receipt.then !== 'function')
         throw Error('actor carrier returned no physical termination receipt');
-      return receipt;
+      // A mocked, accidentally early or otherwise invalid fulfillment must
+      // never retire actor leases before the actual Worker exit event.
+      return Promise.resolve(receipt).then(() => carrier.exitObserved);
     });
     return carrier.termination;
   }
