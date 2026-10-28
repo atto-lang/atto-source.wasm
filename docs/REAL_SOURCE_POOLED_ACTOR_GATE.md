@@ -10,14 +10,18 @@ implemented in the LLVM backend. No new Oreslang parser is introduced.
 export ORESLANG_LLVM_COMPILER=/absolute/path/to/real/oreslang-llvmc
 # Mandatory executable pin, provisioned from an independently trusted CI step:
 export ORESLANG_LLVM_COMPILER_SHA256=<exact-compiler-sha256>
+export ORESLANG_LLVM_SOURCE_SHA=<exact-40-hex-compiler-commit>
+export ORESLANG_LLVM_SOURCE_TREE=<exact-40-hex-root-tree>
 npm run test:real-pooled-actors
 ```
 
-This command **fails** without a real absolute compiler path. The normal
-`npm test` can mark the two compiler-dependent tests SKIP when the compiler is
-not supplied, but SKIP is never proof of source actor execution. Real compiler
-provenance must additionally bind its exact source commit/tree to the compiled
-binary; SHA-256 alone only identifies bytes.
+This command **fails** without a real absolute compiler path, exact compiler
+SHA-256, exact LLVM source commit, and exact LLVM root tree. The normal
+`npm test` can mark compiler-dependent tests SKIP when the compiler is not
+supplied, but SKIP is never proof of source actor execution. The AOT workflow
+therefore invokes this command as a separate mandatory step before its scalar
+AOT smoke. A compiler binary hash identifies bytes; the commit/tree pins record
+the independently verified source provenance that produced those bytes.
 
 The test fixture `tests/fixtures/wasm32-single-source-actor.ores` is identical
 to the upstream native LLVM source actor fixture. The actual native compiler
