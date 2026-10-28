@@ -1,5 +1,7 @@
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {readBoundedRegularFile} from './compile-ores.mjs';
 
 const executable = process.env.ORESLANG_LLVM_COMPILER;
 const digest = process.env.ORESLANG_LLVM_COMPILER_SHA256;
@@ -10,6 +12,24 @@ if (!executable || !executable.startsWith('/')) {
   console.error('NOT_EXECUTED: exact ORESLANG_LLVM_COMPILER_SHA256 pin is mandatory');
   process.exitCode = 1;
 } else {
+  // Do not even launch the test harness until the exact executable bytes
+  // match the independently approved digest. The child actor compiler bridge
+  // independently snapshots/rechecks its input after this admission gate.
+  let compilerAdmitted = false;
+  try {
+    const {bytes, stat} = await readBoundedRegularFile(
+      executable, 256 * 1024 * 1024, 'compiler exceeds 256MiB budget');
+    if (bytes.length === 0 || !(stat.mode & 0o111))
+      throw Error('compiler is empty or not executable');
+    if (createHash('sha256').update(bytes).digest('hex') !== digest)
+      throw Error('compiler executable SHA-256 mismatch');
+    compilerAdmitted = true;
+  } catch (error) {
+    console.error('NOT_EXECUTED: compiler executable admission failed: ' +
+      String(error?.message || error).slice(0, 300));
+    process.exitCode = 1;
+  }
+  if (compilerAdmitted) {
   const path = fileURLToPath(new URL('../tests/real-source-pooled-actor.test.mjs', import.meta.url));
   // A Node test process can exit zero even if every real guest test was marked
   // SKIP. Treat actual TAP inventory and pass/skip totals as part of the
@@ -42,5 +62,6 @@ if (!executable || !executable.startsWith('/')) {
     process.exitCode = 1;
   } else {
     console.log('REAL_POOLED_ACTOR_TESTS_VERIFIED=3; SKIPPED=0; WORKERS=2; ACTORS=40; TURNS=1000');
+  }
   }
 }
