@@ -49,6 +49,10 @@ jobs:
         run: node --test tests/aot-architecture.test.mjs tests/real-aot-gate.test.mjs
       - name: Mutation-test pinned LLVM compiler receipt consumer
         run: node --test tests/llvm-compiler-handoff.test.mjs
+      - name: Build pinned LLVM compiler from preapproved local source
+        # Does not fetch source or enable GitHub private-repository sharing.
+        # Without a previously authorized checkout this fails NOT_EXECUTED.
+        run: bash scripts/build-pinned-llvm-compiler.sh
       - name: Require approved LLVM build handoff before expensive AOT work
         # Requires an independently authorized, already-present source checkout
         # and compiler build receipt. No private cross-repository fetch or export.
