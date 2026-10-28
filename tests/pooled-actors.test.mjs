@@ -306,3 +306,112 @@ test('early fulfilled terminate receipt cannot retire a live Worker before exit 
     if (held) await original.call(held);
   }
 });
+
+test('bounded close keeps uncertain actor pinned when terminate receipt arrives without exit', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile({spin: true});
+  const pool = new PooledWasmActors({workers: 1, timeoutMs: 3000, terminationTimeoutMs: 70});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const original = Worker.prototype.terminate;
+  let held, called;
+  const calledPromise = new Promise(resolve => {called = resolve;});
+  let pendingSettled = false;
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      called();
+      return Promise.resolve(0); // No Worker exit: forged completion.
+    };
+    const pending = actor.send(1n);
+    pending.catch(() => {pendingSettled = true;});
+    const closing = pool.close();
+    assert.strictEqual(pool.close(), closing, 'concurrent close calls share one terminal receipt');
+    await calledPromise;
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(pendingSettled, false, 'DATA must not settle before exit or timeout');
+    assert.equal(pool.actorCount, 1);
+    await assert.rejects(closing, /carrier termination unconfirmed/);
+    await assert.rejects(pending, /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1, 'uncertain actor lease must stay pinned');
+    await assert.rejects(actor.send(2n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
+
+test('one failed carrier close cannot pin physically retired peer leases', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const originalPost = Worker.prototype.postMessage, originalTerminate = Worker.prototype.terminate;
+  const admitted = [];
+  Worker.prototype.postMessage = function (message, ...rest) {
+    if (message?.kind === 'init' && !admitted.includes(this)) admitted.push(this);
+    return originalPost.call(this, message, ...rest);
+  };
+  const pool = new PooledWasmActors({workers: 2, terminationTimeoutMs: 80});
+  try {
+    const a = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+    const b = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+    assert.equal(await a.send(1n), 1n);
+    assert.equal(await b.send(2n), 2n);
+    assert.equal(admitted.length, 2);
+    Worker.prototype.terminate = function (...args) {
+      if (this === admitted[0]) return Promise.resolve(0); // Does not exit.
+      return originalTerminate.call(this, ...args);
+    };
+    await assert.rejects(pool.close(), /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1, 'only uncertain carrier lease remains pinned');
+    await assert.rejects(a.send(1n), /not accepting/);
+    await assert.rejects(b.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = originalTerminate;
+    Worker.prototype.postMessage = originalPost;
+    for (const worker of admitted) await originalTerminate.call(worker);
+  }
+});
+
+test('unexpected physical Worker exit retires only its actors and tolerates repeated exit notification', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const originalPost = Worker.prototype.postMessage;
+  const admitted = [];
+  Worker.prototype.postMessage = function (message, ...rest) {
+    if (message?.kind === 'init' && !admitted.includes(this)) admitted.push(this);
+    return originalPost.call(this, message, ...rest);
+  };
+  const pool = new PooledWasmActors({workers: 2, terminationTimeoutMs: 200});
+  try {
+    const a = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+    const b = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+    assert.equal(await a.send(3n), 3n);
+    assert.equal(await b.send(4n), 4n);
+    assert.equal(admitted.length, 2);
+    await admitted[0].terminate();
+    for (let i = 0; i < 25 && pool.actorCount !== 1; i++)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(pool.actorCount, 1, 'physical exit retires departed carrier');
+    admitted[0].emit('exit', 0); // Duplicate host-side notification after actual exit.
+    assert.equal(pool.actorCount, 1, 'duplicate exit cannot reclaim peer');
+    await assert.rejects(a.send(1n), /not accepting/);
+    assert.equal(await b.send(2n), 6n, 'independent carrier stays live');
+    await b.stop();
+  } finally {
+    Worker.prototype.postMessage = originalPost;
+    await pool.close();
+  }
+});
+
+test('concurrent STOP and close reject unacknowledged work only after confirmed exit', async () => {
+  const wasm = compile({spin: true});
+  const pool = new PooledWasmActors({workers: 1, timeoutMs: 3000, terminationTimeoutMs: 500});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const sending = actor.send(1n), stopping = actor.stop();
+  const closing = pool.close();
+  assert.strictEqual(closing, pool.close());
+  await assert.rejects(sending, /actor pool closed/);
+  await assert.rejects(stopping, /actor pool closed/);
+  await closing;
+  assert.equal(pool.actorCount, 0);
+  await assert.rejects(actor.send(1n), /not accepting/);
+});
