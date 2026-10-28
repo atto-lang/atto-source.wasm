@@ -415,3 +415,40 @@ test('concurrent STOP and close reject unacknowledged work only after confirmed 
   assert.equal(pool.actorCount, 0);
   await assert.rejects(actor.send(1n), /not accepting/);
 });
+
+test('forged Worker exit event cannot reclaim actor lease until native thread is gone', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const originalPost = Worker.prototype.postMessage, originalTerminate = Worker.prototype.terminate;
+  const wasm = compile();
+  let held;
+  Worker.prototype.postMessage = function (message, ...args) {
+    if (message?.kind === 'init') held = this;
+    return originalPost.call(this, message, ...args);
+  };
+  const pool = new PooledWasmActors({workers: 1, terminationTimeoutMs: 500});
+  try {
+    const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+    assert.equal(await actor.send(4n), 4n);
+    assert.ok(held.threadId > 0, 'carrier must still be physically executing');
+    Worker.prototype.terminate = function () {
+      if (this === held) return Promise.resolve(0); // A forged early receipt.
+      return originalTerminate.call(this);
+    };
+    held.emit('exit', 0); // A host-side event is NOT a native exit receipt.
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(pool.actorCount, 1,
+      'fabricated exit event cannot free an actor while native thread remains live');
+    assert.ok(held.threadId > 0);
+    await originalTerminate.call(held);
+    for (let i = 0; i < 30 && pool.actorCount > 0; i++)
+      await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(held.threadId, -1);
+    assert.equal(pool.actorCount, 0, 'real exit may now release actor lease');
+    await assert.rejects(actor.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.postMessage = originalPost;
+    Worker.prototype.terminate = originalTerminate;
+    if (held && held.threadId !== -1) await originalTerminate.call(held);
+    await pool.close();
+  }
+});
