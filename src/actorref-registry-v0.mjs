@@ -1,5 +1,21 @@
 import {randomBytes} from 'node:crypto';
 
+// Capture collection authority before less-trusted host/guest code can
+// replace mutable prototype methods. These defend an in-realm registry only;
+// they are not a substitute for isolating untrusted native or JS code.
+const PrimordialWeakMap = WeakMap;
+const PrimordialMap = Map;
+const weakGet = Function.prototype.call.bind(WeakMap.prototype.get);
+const weakSet = Function.prototype.call.bind(WeakMap.prototype.set);
+const mapGet = Function.prototype.call.bind(Map.prototype.get);
+const mapSet = Function.prototype.call.bind(Map.prototype.set);
+const mapDelete = Function.prototype.call.bind(Map.prototype.delete);
+const mapClear = Function.prototype.call.bind(Map.prototype.clear);
+const mapValues = Function.prototype.call.bind(Map.prototype.values);
+const mapSize = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(Map.prototype, 'size').get);
+
+
 const MIN = -(1n << 63n), MAX = (1n << 63n) - 1n;
 const bounded = (value, min, max, label) => {
   if (!Number.isSafeInteger(value) || value < min || value > max)
@@ -15,8 +31,8 @@ const bounded = (value, min, max, label) => {
  */
 export class NativeWasmActorRegistry {
   #pool;
-  #refs = new WeakMap();
-  #actors = new Map();
+  #refs = new PrimordialWeakMap();
+  #actors = new PrimordialMap();
   #closed = false;
   #closePromise = null;
   #maxPending;
@@ -31,18 +47,18 @@ export class NativeWasmActorRegistry {
     this.#maxPending = bounded(maxPendingPerActor, 1, 1024, 'actor pending limit');
     this.#maxActors = bounded(maxActors, 1, 4096, 'registry actor limit');
   }
-  get actorCount() { return this.#actors.size; }
+  get actorCount() { return mapSize(this.#actors); }
 
   #mint(actor, rights, parent = null) {
     // No own fields: no serializable address, capability token, nonce or owner.
     const ref = Object.freeze(Object.create(null));
-    this.#refs.set(ref, {actorId: actor.id, generation: actor.generation,
+    weakSet(this.#refs, ref, {actorId: actor.id, generation: actor.generation,
       incarnation: actor.incarnation, rights, parent, revoked: false});
     return ref;
   }
   #resolve(ref, right) {
     if (this.#closed) throw Error('actor registry closed');
-    const record = ref !== null && typeof ref === 'object' ? this.#refs.get(ref) : null;
+    const record = ref !== null && typeof ref === 'object' ? weakGet(this.#refs, ref) : null;
     if (!record) throw Error('unrecognized or forged ActorRef');
     let current = record;
     while (current) {
@@ -50,7 +66,7 @@ export class NativeWasmActorRegistry {
       current = current.parent;
     }
     if (right && !record.rights[right]) throw Error('ActorRef permission denied');
-    const actor = this.#actors.get(record.actorId);
+    const actor = mapGet(this.#actors, record.actorId);
     if (!actor || actor.generation !== record.generation ||
         actor.incarnation !== record.incarnation || actor.state === 'retired')
       throw Error('stale ActorRef generation');
@@ -60,13 +76,13 @@ export class NativeWasmActorRegistry {
     const actor = {id, generation, incarnation: randomBytes(16).toString('hex'),
       handle, state: 'active', lastTicket: 0n, pending: 0,
       stopPromise: null, rotating: false};
-    this.#actors.set(id, actor);
+    mapSet(this.#actors, id, actor);
     return actor;
   }
 
   async spawn(bytes, {expectedSha256, trusted = false} = {}) {
     if (this.#closed) throw Error('actor registry closed');
-    if (this.#actors.size + this.#starting + this.#rotating >= this.#maxActors)
+    if (mapSize(this.#actors) + this.#starting + this.#rotating >= this.#maxActors)
       throw Error('registry actor capacity exceeded');
     this.#starting++; // Reserve admission before the first await.
     try {
@@ -94,7 +110,7 @@ export class NativeWasmActorRegistry {
 
   revoke(ref) {
     // Only a real, host-minted capability may revoke itself and its descendants.
-    const record = ref !== null && typeof ref === 'object' ? this.#refs.get(ref) : null;
+    const record = ref !== null && typeof ref === 'object' ? weakGet(this.#refs, ref) : null;
     if (!record) throw Error('unrecognized or forged ActorRef');
     record.revoked = true;
   }
@@ -130,7 +146,7 @@ export class NativeWasmActorRegistry {
     actor.stopPromise = Promise.resolve().then(() => actor.handle.stop()).then(
       () => {
         actor.state = 'retired';
-        this.#actors.delete(actor.id);
+        mapDelete(this.#actors, actor.id);
       }, error => {
         // Stop was not confirmed. Never claim physical reclamation.
         actor.state = 'retirement-unconfirmed';
@@ -175,14 +191,14 @@ export class NativeWasmActorRegistry {
   close() {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true; // revoke all DATA/CONTROL capability admission first
-    for (const actor of this.#actors.values())
+    for (const actor of mapValues(this.#actors))
       if (actor.state === 'active') actor.state = 'closing';
     this.#closePromise = Promise.resolve().then(() => this.#pool.close()).then(
       () => {
-        for (const actor of this.#actors.values()) actor.state = 'retired';
-        this.#actors.clear();
+        for (const actor of mapValues(this.#actors)) actor.state = 'retired';
+        mapClear(this.#actors);
       }, error => {
-        for (const actor of this.#actors.values())
+        for (const actor of mapValues(this.#actors))
           actor.state = 'retirement-unconfirmed';
         throw error;
       });
