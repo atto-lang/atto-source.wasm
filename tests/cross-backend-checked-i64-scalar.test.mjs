@@ -57,6 +57,10 @@ test("int / int is not admitted as an i64 result",async t=>{
   await assert.rejects(
     ()=>compileOresToWasm({compiler:resolve(compiler),
       compilerSha256:process.env.ORESLANG_LLVM_COMPILER_SHA256,source,output}),
-    /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /);
+    error=>{
+      assert.match(error.message,
+        /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /);
+      return true;
+    });
   await assert.rejects(stat(output),{code:"ENOENT"});
 });

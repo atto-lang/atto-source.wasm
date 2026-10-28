@@ -42,9 +42,8 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
 });
 
 
-test("missing LLVM compiler cannot publish a success-shaped structural artifact", {
-  skip: !!compiler && "configured compiler is covered by the real bridge test"
-}, async () => {
+// The missing-executable path is independent of any configured real compiler.
+test("missing LLVM compiler cannot publish a success-shaped structural artifact", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ores-wasm-structural-absent-"));
   try {
     const input = join(dir, "structural.ores");
