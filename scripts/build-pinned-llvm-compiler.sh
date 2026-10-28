@@ -10,7 +10,7 @@ die() { echo "NOT_EXECUTED: pinned LLVM build: $*" >&2; exit 1; }
 mode="${1:-build}"
 [[ "$mode" == build || "$mode" == --preflight ]] || die 'unknown compiler build mode'
 source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
-[[ "$source_dir" == /* && "$source_dir" != *$'\n'* && "$source_dir" != * && ! -L "$source_dir" ]] ||\r'* && -d "$source_dir" && ! -L "$source_dir" ]] ||
+[[ "$source_dir" == /* && "$source_dir" != *$'\n'* && -d "$source_dir" && ! -L "$source_dir" ]] ||
   die 'authorized absolute non-symlink ORESLANG_LLVM_SOURCE_DIR required'
 [[ "$(realpath -e "$source_dir")" == "$source_dir" ]] ||
   die 'LLVM source directory must be canonical'
