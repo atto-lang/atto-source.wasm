@@ -22,6 +22,12 @@ source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
   die 'LLVM source Git tree differs from approved pin'
 [[ -z "$(git -C "$source_dir" status --porcelain --untracked-files=no)" ]] ||
   die 'LLVM tracked source is dirty'
+[[ ! -e "$source_dir/build" && ! -L "$source_dir/build" ]] ||
+  die 'refusing preexisting compiler build tree before source admission'
+[[ -z "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]] ||
+  die 'LLVM checkout contains untracked source files'
+[[ -z "$(git -C "$source_dir" ls-files --others --ignored --exclude-standard)" ]] ||
+  die 'LLVM checkout contains ignored source files'
 [[ -f "$source_dir/tests/verify_compiler_receipt.py" ]] ||
   die 'LLVM source-local receipt verifier missing'
 
