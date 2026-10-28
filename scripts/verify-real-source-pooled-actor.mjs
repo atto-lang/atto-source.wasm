@@ -1,6 +1,6 @@
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-import {verifyPinnedLlvmCheckout} from './verify-pinned-llvm-checkout.mjs';
+import {verifyLlvmCompilerHandoff} from './verify-llvm-compiler-handoff.mjs';
 if (!process.env.ORESLANG_LLVM_COMPILER ||
     !process.env.ORESLANG_LLVM_COMPILER.startsWith('/')) {
   console.error('NOT_EXECUTED: a real absolute-path ORESLANG_LLVM_COMPILER is required');
@@ -16,10 +16,13 @@ if (!process.env.ORESLANG_LLVM_COMPILER ||
   process.exitCode = 1;
 } else {
   try {
-    verifyPinnedLlvmCheckout({
+    await verifyLlvmCompilerHandoff({
+      compiler: process.env.ORESLANG_LLVM_COMPILER,
+      compilerSha256: process.env.ORESLANG_LLVM_COMPILER_SHA256,
       sourceDir: process.env.ORESLANG_LLVM_SOURCE_DIR,
       sourceSha: process.env.ORESLANG_LLVM_SOURCE_SHA,
-      sourceTree: process.env.ORESLANG_LLVM_SOURCE_TREE
+      sourceTree: process.env.ORESLANG_LLVM_SOURCE_TREE,
+      receipt: process.env.ORESLANG_LLVM_COMPILER_RECEIPT
     });
     const path = fileURLToPath(new URL('../tests/real-source-pooled-actor.test.mjs', import.meta.url));
     const r = spawnSync(process.execPath, ['--test', path], {
