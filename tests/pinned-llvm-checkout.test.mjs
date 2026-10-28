@@ -25,6 +25,24 @@ test('pinned LLVM compiler source must be an independently matching Git checkout
     const ok=verify({sourceDir:dir,sourceSha,sourceTree});
     assert.deepEqual(ok,{sourceSha,sourceTree,validatedGitCheckout:true,
       binaryBuiltFromSourceAuthenticated:false});
+    // A matching Git commit/tree must not admit additional source bytes.
+    const extra=join(dir,'rogue-untracked.hpp');
+    await writeFile(extra,'#define INJECTED 1\n');
+    assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree}),
+      /untracked or ignored files outside build/);
+    await rm(extra);
+    await writeFile(join(dir,'.git','info','exclude'),'rogue-ignored.hpp\n');
+    const ignored=join(dir,'rogue-ignored.hpp');
+    await writeFile(ignored,'#define INJECTED_IGNORED 1\n');
+    assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree}),
+      /untracked or ignored files outside build/);
+    await rm(ignored);
+    // Build outputs are allowed only under the isolated untracked build tree.
+    await writeFile(join(dir,'build-output.txt'),'invalid outside build\n');
+    assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree}),
+      /untracked or ignored files outside build/);
+    await rm(join(dir,'build-output.txt'));
+    assert.equal(verify({sourceDir:dir,sourceSha,sourceTree}).validatedGitCheckout,true);
     assert.throws(()=>verify({sourceDir:dir,sourceSha:'a'.repeat(40),sourceTree}),
       /commit\/tree mismatch/);
     assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree:'b'.repeat(40)}),
