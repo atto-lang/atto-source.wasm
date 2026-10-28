@@ -42,9 +42,9 @@ export function assertGeneratorV1FrontendRejection(frontend,
 export function assertInvertedFrontendRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   const stderr = String(frontend.stderr || "");
-  if (!stderr.includes("INVERTED_BACKEND_UNSUPPORTED") &&
-      !stderr.includes("expected 'module', 'class' or 'actor'") &&
-      !stderr.includes("expected 'class', 'actor'"))
+  // A generic parse error is not evidence of intentional inverted-class
+  // denial. Require the compiler's dedicated unsupported-ABI diagnostic.
+  if (!stderr.includes("INVERTED_BACKEND_UNSUPPORTED: native inverted class requires"))
     throw Error("inverted-class source did not fail through the native declaration boundary");
   return true;
 }
