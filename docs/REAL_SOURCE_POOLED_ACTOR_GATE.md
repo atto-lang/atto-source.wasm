@@ -4,6 +4,42 @@ Status: **experimental integration / not parity certified**. This stacks on
 WASM PR #151 and builds the narrow compiler-generated source actor ABI already
 implemented in the LLVM backend. No new Oreslang parser is introduced.
 
+## Pinned compiler build and receipt handoff (pending private CI authorization)
+
+The WASM AOT workflow now calls `scripts/build-pinned-llvm-compiler.sh`
+before the mandatory real-source actor gate. That script **does not clone,
+fetch or mirror LLVM source**. It builds only from a preapproved, local,
+clean Git checkout at exactly:
+
+- LLVM commit: `a5114e57fe8e7a159ec9754478227912d339f70b`
+- LLVM root tree: `6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e`
+
+It runs CMake against the pinned local checkout, builds
+`build/oreslang-llvmc`, captures and verifies the compiler receipt through
+LLVM's source-local `tests/verify_compiler_receipt.py`, and exports the
+six required `ORESLANG_LLVM_*` paths and pins via `GITHUB_ENV`. The
+consumer `scripts/verify-llvm-compiler-handoff.mjs` verifies the real Git
+checkout, compiler digest, executable mode and *exact* four-field v1 receipt
+bytes (including refusal of duplicate keys or extra success fields). The
+mandatory `npm run test:real-pooled-actors` invokes that same consumer
+even when run outside the GitHub workflow.
+
+This stage **intentionally fails NOT_EXECUTED on ordinary GitHub-hosted
+runners**, because no approved LLVM checkout provisioning mechanism exists
+yet. The checked-in private-CI destination and source-snapshot allowlists
+are empty and independent review is disabled. Do not add a checkout token,
+enable private action sharing, transfer source to WASM, or bypass this gate
+until the relevant source-owner approvals and protected policy review exist.
+After authorization, a trusted runner can provision the precise local
+checkout; the builder then becomes self-contained. On a newly approved
+LLVM head, update *both* pins after review and rerun the mutation tests.
+
+**Provenance distinction:** matching a compiler binary, source Git identity
+and receipt is not a cryptographic attestation that the binary was produced
+by a trusted runner, and the receipt is not proof of guest execution. The
+build must run under an independently trusted CI definition; the actor
+and AOT suites must execute and report their own nonzero steps and artifacts.
+
 ## Required exact-toolchain execution
 
 ```sh
@@ -13,11 +49,13 @@ export ORESLANG_LLVM_COMPILER_SHA256=<exact-compiler-sha256>
 export ORESLANG_LLVM_SOURCE_SHA=<exact-40-hex-compiler-commit>
 export ORESLANG_LLVM_SOURCE_TREE=<exact-40-hex-root-tree>
 export ORESLANG_LLVM_SOURCE_DIR=/absolute/path/to/clean/llvm-git-root
+export ORESLANG_LLVM_COMPILER_RECEIPT=/absolute/path/to/fresh-compiler-receipt.json
+node scripts/verify-llvm-compiler-handoff.mjs
 npm run test:real-pooled-actors
 ```
 
 This command **fails** without a real absolute compiler path, exact compiler
-SHA-256, exact LLVM source commit/tree, and a real clean LLVM Git root whose
+SHA-256, exact LLVM source commit/tree, a fresh matching compiler receipt, and a real clean LLVM Git root whose
 HEAD and HEAD^{tree} independently match those pins. Tracked source changes,
 symlink checkout roots, and missing/mismatched Git checkout evidence fail
 before the actor test runs. Git identity checks do NOT establish that the
