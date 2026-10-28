@@ -27,6 +27,13 @@ the first suspension**; if a physical guest's outcome is uncertain, its
 ticket is never reused. The broker limits outstanding accepted sends and
 reserves concurrent spawn slots before awaiting `pool.spawn`.
 
+Rotation is a **root-supervisor-only** privilege even when a delegated ref
+has both send and stop rights. A delegated stop-only ref may terminate an actor
+but never mint a replacement full-rights ref. Revocation is rechecked after
+the asynchronous stop and after successor spawn. If authority disappears while
+the successor is being created, the successor is never published and its stop
+must be confirmed; uncertain cleanup retains a quarantined runtime handle.
+
 `stop(ref)` seals new DATA and grants **synchronously**, then waits for
 the pooled runtime's stop acknowledgment. On stop failure it retains the
 retirement-unconfirmed actor entry. `rotate` first waits for confirmed stop
