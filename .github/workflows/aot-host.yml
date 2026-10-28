@@ -67,5 +67,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld
       - name: Run full WebAssembly scalar and shared-contract suite
         run: npm test
+      - name: Require real Oreslang source actor execution
+        # Fail closed: ordinary npm test may skip compiler-dependent cases.
+        # This job is not green until an independently pinned LLVM compiler
+        # (binary SHA + source commit + source tree) is provisioned.
+        run: npm run test:real-pooled-actors
       - name: Run strict AOT scalar smoke and tamper rejection
         run: bash aot-host/tests/smoke.sh
