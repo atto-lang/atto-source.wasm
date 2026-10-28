@@ -17,6 +17,9 @@ test('LLVM compiler build is fixed to independently reviewed commit and tree',()
   assert.ok(content.includes("git -C \"$source_dir\" rev-parse 'HEAD^{tree}'"));
   assert.ok(content.includes('git -C "$source_dir" status --porcelain --untracked-files=no'));
   assert.ok(content.includes('--target oreslang-llvmc --parallel 2'));
+  assert.ok(content.includes("mode=\"\${1:-build}\""));
+  assert.ok(content.includes('mode" == --preflight'));
+  assert.ok(content.includes('refusing preexisting build directory or symbolic link'));
   assert.ok(content.includes('verify_compiler_receipt.py" capture'));
   assert.ok(content.includes('verify_compiler_receipt.py" verify'));
   assert.ok(content.includes('ORESLANG_LLVM_COMPILER_RECEIPT='));
