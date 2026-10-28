@@ -144,3 +144,19 @@ test('parallel async spawns reserve capacity before first await', async () => {
   assert.equal(registry.actorCount,1);
   await registry.close();
 });
+
+test('delegated stop-only ref cannot rotate and mint new full rights', async () => {
+  const {registry,spawn}=fixture();
+  const root=await spawn(), delegated=registry.attenuate(root,{send:false,stop:true});
+  await assert.rejects(registry.rotate(delegated,new Uint8Array([1]),{
+    expectedSha256:'0'.repeat(64),trusted:true}),/root supervisor/);
+  assert.equal(await registry.send(root,1n,3n),3n);
+  await registry.close();
+});
+test('even delegated send-and-stop ref cannot rotate into supervisor root', async () => {
+  const {registry,spawn}=fixture();
+  const root=await spawn(), delegated=registry.attenuate(root,{send:true,stop:true});
+  await assert.rejects(registry.rotate(delegated,new Uint8Array([1]),{
+    expectedSha256:'0'.repeat(64),trusted:true}),/root supervisor/);
+  await registry.close();
+});
