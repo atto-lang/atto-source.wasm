@@ -201,3 +201,35 @@ test('revocation during successor spawn tears down guest before minting new righ
   assert.equal(registry.actorCount,0);
   await registry.close();
 });
+
+test('forged ref cannot borrow another authority through poisoned WeakMap.get', async () => {
+  const {registry, spawn} = fixture();
+  const original = await spawn();
+  const fake = Object.freeze(Object.create(null));
+  const savedGet = WeakMap.prototype.get;
+  WeakMap.prototype.get = function(key) {
+    return savedGet.call(this, key === fake ? original : key);
+  };
+  try {
+    assert.throws(() => registry.stop(fake), /unrecognized or forged ActorRef/);
+  } finally {
+    WeakMap.prototype.get = savedGet;
+  }
+  assert.equal(await registry.send(original, 1n, 4n), 4n);
+  await registry.close();
+});
+
+test('registry Map lookup survives prototype replacement after import', async () => {
+  const {registry, spawn} = fixture();
+  const root = await spawn();
+  const savedGet = Map.prototype.get;
+  let reduced;
+  Map.prototype.get = function() { throw Error('poisoned Map.get'); };
+  try {
+    reduced = registry.attenuate(root, {send: true, stop: false});
+  } finally {
+    Map.prototype.get = savedGet;
+  }
+  assert.equal(await registry.send(reduced, 1n, 2n), 2n);
+  await registry.close();
+});
