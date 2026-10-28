@@ -51,6 +51,10 @@ jobs:
         run: node --test tests/llvm-compiler-handoff.test.mjs
       - name: Prove LLVM build source pin and transfer policy fail closed
         run: node --test tests/pinned-llvm-build-policy.test.mjs
+      - name: Preflight reviewed LLVM source commit and root tree
+        run: bash scripts/build-pinned-llvm-compiler.sh --preflight
+      - name: Install LLVM compiler build toolchain after source admission
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang lld llvm-dev python3
       - name: Build pinned LLVM compiler from preapproved local source
         # Does not fetch source or enable GitHub private-repository sharing.
         # Without a previously authorized checkout this fails NOT_EXECUTED.
