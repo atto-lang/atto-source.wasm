@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 import {compileSourceActorToWasm} from '../scripts/compile-source-actor.mjs';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
@@ -54,15 +59,37 @@ test('real .ores actor compiles through LLVM wasm32 and runs 1000 turns on two W
     } finally {await pool.close();}
   });
 
-test('actual LLVM frontend rejects source spawn and send with no output IR', {skip}, () => {
+test('actual LLVM frontend rejects source spawn and send with no output IR', {skip}, async () => {
   assert.ok(compiler, 'real compiler required');
-  for (const name of ['source-actor-spawn-stop.ores', 'source-actor-send.ores']) {
-    const r = spawnSync(compiler, ['--target=wasm32', fixture(name)],
-      {encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024});
-    assert.equal(r.error, undefined);
-    assert.notEqual(r.status, 0, name);
-    assert.equal(r.stdout, '', name + ' emitted unsafe IR');
-    assert.match(r.stderr, /wasm32 actor operations are not implemented/, name);
+  const pinnedSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  assert.match(pinnedSha256 || '', /^[a-f0-9]{64}$/, 'exact compiler byte pin required');
+  // A positive test alone is insufficient: a caller could replace the
+  // original compiler pathname before these negative no-IR checks. Execute
+  // an immutable private byte snapshot for BOTH negative cases.
+  const limit = 256 * 1024 * 1024;
+  const checksum = bytes => createHash('sha256').update(bytes).digest('hex');
+  const snapshot = (await readBoundedRegularFile(
+    compiler, limit, 'compiler exceeds 256MiB budget')).bytes;
+  assert.equal(checksum(snapshot), pinnedSha256, 'negative fixture compiler hash drift');
+  const work = await mkdtemp(join(tmpdir(), 'ores-wasm-negative-llvmc-'));
+  try {
+    const pinnedCompiler = join(work, 'compiler-exact');
+    await writeFile(pinnedCompiler, snapshot, {flag: 'wx', mode: 0o500});
+    for (const name of ['source-actor-spawn-stop.ores', 'source-actor-send.ores']) {
+      const r = spawnSync(pinnedCompiler, ['--target=wasm32', fixture(name)],
+        {encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
+          env: {PATH: process.env.PATH || ''}});
+      assert.equal(r.error, undefined);
+      assert.equal(r.signal, null, name + ' compiler was killed');
+      assert.notEqual(r.status, 0, name);
+      assert.equal(r.stdout, '', name + ' emitted unsafe IR');
+      assert.match(r.stderr, /wasm32 actor operations are not implemented/, name);
+    }
+    assert.equal(checksum((await readBoundedRegularFile(
+      compiler, limit, 'original compiler changed')).bytes), pinnedSha256,
+      'original compiler mutated during negative source checks');
+  } finally {
+    await rm(work, {recursive: true, force: true});
   }
 });
 
