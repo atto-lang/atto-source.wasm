@@ -156,7 +156,17 @@ export class NativeWasmActorRegistry {
       if (this.#closed || record.revoked)
         throw Error('actor registry closed or ActorRef revoked during rotation');
       const handle = await this.#pool.spawn(bytes, {expectedSha256, trusted});
-      if (this.#closed) throw Error('actor registry closed during rotation');
+      if (this.#closed || record.revoked) {
+        // If authority is revoked while spawning, never publish the successor.
+        // Confirm teardown, or retain a quarantined unconfirmed instance.
+        try { await handle.stop(); }
+        catch (error) {
+          const uncertain = this.#newActor(actor.id, actor.generation + 1, handle);
+          uncertain.state = 'retirement-unconfirmed';
+          throw Error('revoked successor retirement unconfirmed', {cause: error});
+        }
+        throw Error('ActorRef revoked or registry closed during rotation');
+      }
       const next = this.#newActor(actor.id, actor.generation + 1, handle);
       return this.#mint(next, Object.freeze({send: true, stop: true}));
     } finally { this.#rotating--; }
