@@ -1,8 +1,15 @@
 name: Real pinned Oreslang LLVM to Wasm gate
 
-# Manual: cross-private-repository read credential; never expose to PR code.
+# Manual same-organization, source-local build: no cross-org source export.
+# Execute only after the exact source head and LLVM companion are reviewed.
+# The LLVM checkout credential must never enter guest-source test processes.
 on:
   workflow_dispatch:
+    inputs:
+      wasm_source_sha:
+        description: 'Exact reviewed 40-character WASM source commit to test'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -14,8 +21,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      ORESLANG_LLVM_SOURCE_SHA: 8e2bc48e77e51eff06f811b451a69b2f7c77055f
+      ORESLANG_LLVM_SOURCE_SHA: 9a467fe32fed59a50b109758b0ff456810508b6a
     steps:
+      - name: Admit exact WASM source revision before private compiler checkout
+        env:
+          WASM_SOURCE_SHA: ${{ inputs.wasm_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$WASM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Exact 40-hex WASM source head required' >&2; exit 1; }
       - name: Require authorized private LLVM read access
         shell: bash
         env:
@@ -25,15 +39,26 @@ jobs:
             echo "Missing ORESLANG_LLVM_READ_TOKEN; refusing checkout" >&2
             exit 1
           fi
-      - name: Check out Wasm backend
+      - name: Check out exact reviewed Wasm backend head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          ref: ${{ inputs.wasm_source_sha }}
           persist-credentials: false
+      - name: Verify exact Wasm head and Git tree before executing code
+        env:
+          WASM_SOURCE_SHA: ${{ inputs.wasm_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$WASM_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          echo "WASM_SOURCE_HEAD=$WASM_SOURCE_SHA"
+          echo "WASM_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Check out immutable private LLVM compiler source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ores-truffle-oreslang/oreslang-source.llvm
-          ref: 8e2bc48e77e51eff06f811b451a69b2f7c77055f
+          ref: 9a467fe32fed59a50b109758b0ff456810508b6a
           path: llvm-source
           token: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
           persist-credentials: false
@@ -54,12 +79,44 @@ jobs:
           cmake -S llvm-source -B llvm-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build llvm-build --target oreslang-llvmc --parallel 2
           test -x "$PWD/llvm-build/oreslang-llvmc"
-      - name: Pin actual native compiler binary
+      - name: Pin compiler bytes and remove private LLVM source checkout before guest code runs
         shell: bash
         run: |
-          echo "ORESLANG_LLVM_COMPILER=$PWD/llvm-build/oreslang-llvmc" >> "$GITHUB_ENV"
-          echo "ORESLANG_LLVM_COMPILER_SHA256=$(sha256sum llvm-build/oreslang-llvmc | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
-      - name: Run WebAssembly regression suite
+          set -euo pipefail
+          compiler="$PWD/llvm-build/oreslang-llvmc"
+          test -x "$compiler"
+          digest="$(sha256sum "$compiler" | cut -d ' ' -f 1)"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "ORESLANG_LLVM_COMPILER=$compiler" >> "$GITHUB_ENV"
+          echo "ORESLANG_LLVM_COMPILER_SHA256=$digest" >> "$GITHUB_ENV"
+          # Never expose the second private repository's checkout to an
+          # executing WASM test script, even with empty Git credentials.
+          rm -rf -- llvm-source
+          test ! -e llvm-source
+          echo "LLVM_COMPILER_SOURCE_SHA=$ORESLANG_LLVM_SOURCE_SHA"
+          echo "LLVM_COMPILER_BINARY_SHA256=$digest"
+      - name: Execute full WebAssembly host regression suite (not guest evidence alone)
         run: npm test
-      - name: Execute genuine Oreslang-to-Wasm end-to-end gate
+      - name: Run pinned LLVM compiler scalar guest checks
         run: npm run test:real-compiler
+      - name: Mandatory real source-actor pooled WASM guest execution (zero skips)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e llvm-source
+          test -x "$ORESLANG_LLVM_COMPILER"
+          test "$(sha256sum "$ORESLANG_LLVM_COMPILER" | cut -d ' ' -f 1)" = "$ORESLANG_LLVM_COMPILER_SHA256"
+          npm run test:real-pooled-actors
+          echo "REAL_POOLED_ACTOR_GUEST_EXECUTED=YES"
+      - name: Verify tested source and compiler did not drift
+        env:
+          WASM_SOURCE_SHA: ${{ inputs.wasm_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$WASM_SOURCE_SHA"
+          test -z "$(git status --porcelain)"
+          test "$(sha256sum "$ORESLANG_LLVM_COMPILER" | cut -d ' ' -f 1)" = "$ORESLANG_LLVM_COMPILER_SHA256"
+          printf 'WASM_SOURCE_SHA=%s\\nWASM_SOURCE_TREE=%s\\nLLVM_SOURCE_SHA=%s\\nLLVM_BINARY_SHA256=%s\\n' \\
+            "$WASM_SOURCE_SHA" "$(git rev-parse 'HEAD^{tree}')" \\
+            "$ORESLANG_LLVM_SOURCE_SHA" "$ORESLANG_LLVM_COMPILER_SHA256"
