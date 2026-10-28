@@ -160,3 +160,23 @@ test('even delegated send-and-stop ref cannot rotate into supervisor root', asyn
     expectedSha256:'0'.repeat(64),trusted:true}),/root supervisor/);
   await registry.close();
 });
+
+test('supervisor revocation during blocked stop aborts successor generation', async () => {
+  let finishStop, spawns=0;
+  const pool={
+    spawn: async () => {
+      spawns++;
+      return {send:async()=>1n,stop:()=>new Promise(resolve=>{finishStop=resolve;})};
+    },
+    close: async()=>{}
+  };
+  const registry=new NativeWasmActorRegistry({pool});
+  const root=await registry.spawn(new Uint8Array([0]),{trusted:true});
+  const rotating=registry.rotate(root,new Uint8Array([1]),{trusted:true});
+  registry.revoke(root);
+  await Promise.resolve(); await Promise.resolve();
+  finishStop();
+  await assert.rejects(rotating,/revoked during rotation/);
+  assert.equal(spawns,1);
+  await registry.close();
+});
