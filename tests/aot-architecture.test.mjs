@@ -112,6 +112,14 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   const mandatory = source('scripts/verify-real-source-pooled-actor.mjs');
   assert.match(mandatory,/verifyLlvmCompilerHandoff\(/);
   assert.match(mandatory,/ORESLANG_LLVM_COMPILER_RECEIPT/);
+  assert.match(workflow,/name: Prove LLVM build source pin and transfer policy fail closed[\s\S]*node --test tests\/pinned-llvm-build-policy\.test\.mjs/);
+  assert.match(workflow,/name: Build pinned LLVM compiler from preapproved local source[\s\S]*bash scripts\/build-pinned-llvm-compiler\.sh/);
+  assert.ok(workflow.indexOf('name: Prove LLVM build source pin and transfer policy fail closed') <
+    workflow.indexOf('name: Build pinned LLVM compiler from preapproved local source'),
+    'builder policy tests must precede construction');
+  assert.ok(workflow.indexOf('name: Build pinned LLVM compiler from preapproved local source') <
+    workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work'),
+    'local source build must produce receipt before handoff check');
   assert.ok(workflow.indexOf('name: Install LLVM wasm32 linker') <
     workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite'),
     'full Wasm scalar suite requires installed LLVM linker');
