@@ -76,14 +76,14 @@ jobs:
       - name: Compile exact LLVM compiler checkout
         shell: bash
         run: |
-          cmake -S llvm-source -B llvm-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build llvm-build --target oreslang-llvmc --parallel 2
-          test -x "$PWD/llvm-build/oreslang-llvmc"
+          cmake -S llvm-source -B "$RUNNER_TEMP/llvm-build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build "$RUNNER_TEMP/llvm-build" --target oreslang-llvmc --parallel 2
+          test -x "$RUNNER_TEMP/llvm-build/oreslang-llvmc"
       - name: Pin compiler bytes and remove private LLVM source checkout before guest code runs
         shell: bash
         run: |
           set -euo pipefail
-          compiler="$PWD/llvm-build/oreslang-llvmc"
+          compiler="$RUNNER_TEMP/llvm-build/oreslang-llvmc"
           test -x "$compiler"
           digest="$(sha256sum "$compiler" | cut -d ' ' -f 1)"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
