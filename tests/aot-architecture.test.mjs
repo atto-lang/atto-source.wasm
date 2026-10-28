@@ -100,9 +100,16 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
   assert.match(workflow,/name: Run full WebAssembly scalar and shared-contract suite\n        run: npm test/);
+  assert.match(workflow,/name: Require real Oreslang source actor execution[\s\S]*npm run test:real-pooled-actors/);
   assert.ok(workflow.indexOf('name: Install LLVM wasm32 linker') <
     workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite'),
     'full Wasm scalar suite requires installed LLVM linker');
+  assert.ok(workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite') <
+    workflow.indexOf('name: Require real Oreslang source actor execution'),
+    'real source actor gate must run after the ordinary suite');
+  assert.ok(workflow.indexOf('name: Require real Oreslang source actor execution') <
+    workflow.indexOf('name: Run strict AOT scalar smoke and tamper rejection'),
+    'AOT smoke must not mask a missing real-source compiler gate');
   assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
   assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
   assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
