@@ -114,8 +114,8 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(mandatory,/ORESLANG_LLVM_COMPILER_RECEIPT/);
   assert.match(workflow,/name: Prove LLVM build source pin and transfer policy fail closed[\s\S]*node --test tests\/pinned-llvm-build-policy\.test\.mjs/);
   assert.match(workflow,/name: Build pinned LLVM compiler from preapproved local source[\s\S]*bash scripts\/build-pinned-llvm-compiler\.sh/);
-  assert.match(workflow,/name: Preflight reviewed LLVM source commit and root tree[\\s\\S]*bash scripts\\/build-pinned-llvm-compiler\\.sh --preflight/);
-  assert.match(workflow,/name: Install LLVM compiler build toolchain after source admission[\\s\\S]*llvm-dev python3/);
+  assert.match(workflow,/name: Preflight reviewed LLVM source commit and root tree[\s\S]*bash scripts\/build-pinned-llvm-compiler\.sh --preflight/);
+  assert.match(workflow,/name: Install LLVM compiler build toolchain after source admission[\s\S]*llvm-dev python3/);
   assert.ok(workflow.indexOf('name: Preflight reviewed LLVM source commit and root tree') <
     workflow.indexOf('name: Install LLVM compiler build toolchain after source admission'),
     'source identity must be admitted before package installation');
