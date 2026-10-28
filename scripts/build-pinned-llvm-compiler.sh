@@ -7,6 +7,8 @@ PINNED_LLVM_SOURCE_COMMIT=a5114e57fe8e7a159ec9754478227912d339f70b
 PINNED_LLVM_SOURCE_TREE=6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e
 
 die() { echo "NOT_EXECUTED: pinned LLVM build: $*" >&2; exit 1; }
+mode="${1:-build}"
+[[ "$mode" == build || "$mode" == --preflight ]] || die 'unknown compiler build mode'
 source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
 [[ "$source_dir" == /* && "$source_dir" != *$'\n'* && -d "$source_dir" && ! -L "$source_dir" ]] ||
   die 'authorized absolute non-symlink ORESLANG_LLVM_SOURCE_DIR required'
@@ -23,10 +25,17 @@ source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
 [[ -f "$source_dir/tests/verify_compiler_receipt.py" ]] ||
   die 'LLVM source-local receipt verifier missing'
 
+if [[ "$mode" == --preflight ]]; then
+  echo "PINNED_LLVM_SOURCE_ADMITTED source=$PINNED_LLVM_SOURCE_COMMIT tree=$PINNED_LLVM_SOURCE_TREE"
+  exit 0
+fi
+
 command -v cmake >/dev/null || die 'CMake unavailable'
 command -v python3 >/dev/null || die 'Python unavailable'
 command -v git >/dev/null || die 'Git unavailable'
 compiler="$source_dir/build/oreslang-llvmc"
+[[ ! -e "$source_dir/build" && ! -L "$source_dir/build" ]] ||
+  die 'refusing preexisting build directory or symbolic link'
 [[ ! -e "$compiler" && ! -L "$compiler" ]] ||
   die 'refusing preexisting compiler build output'
 cmake -S "$source_dir" -B "$source_dir/build" \
