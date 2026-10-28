@@ -12,11 +12,17 @@ export ORESLANG_LLVM_COMPILER=/absolute/path/to/real/oreslang-llvmc
 export ORESLANG_LLVM_COMPILER_SHA256=<exact-compiler-sha256>
 export ORESLANG_LLVM_SOURCE_SHA=<exact-40-hex-compiler-commit>
 export ORESLANG_LLVM_SOURCE_TREE=<exact-40-hex-root-tree>
+export ORESLANG_LLVM_SOURCE_DIR=/absolute/path/to/clean/llvm-git-root
 npm run test:real-pooled-actors
 ```
 
 This command **fails** without a real absolute compiler path, exact compiler
-SHA-256, exact LLVM source commit, and exact LLVM root tree. The normal
+SHA-256, exact LLVM source commit/tree, and a real clean LLVM Git root whose
+HEAD and HEAD^{tree} independently match those pins. Tracked source changes,
+symlink checkout roots, and missing/mismatched Git checkout evidence fail
+before the actor test runs. Git identity checks do NOT establish that the
+binary was built from that source; an independently reviewed source-local
+build receipt must bind the compiler SHA-256 to the actual build. The normal
 `npm test` can mark compiler-dependent tests SKIP when the compiler is not
 supplied, but SKIP is never proof of source actor execution. The AOT workflow
 therefore invokes this command as a separate mandatory step before its scalar
