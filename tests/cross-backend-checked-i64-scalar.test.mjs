@@ -54,5 +54,9 @@ test("int / int is not admitted as an i64 result",async t=>{
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
   await writeFile(source,header+"pub fnc main(): int { return 7 / 2; }\n");
-  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256:process.env.ORESLANG_LLVM_COMPILER_SHA256,source,output}),\n    /^command failed \\([^)]+[\\\\/]compiler-exact\\): oreslang-llvmc: /);\n  await assert.rejects(stat(output),{code:"ENOENT"});
+  await assert.rejects(
+    ()=>compileOresToWasm({compiler:resolve(compiler),
+      compilerSha256:process.env.ORESLANG_LLVM_COMPILER_SHA256,source,output}),
+    /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /);
+  await assert.rejects(stat(output),{code:"ENOENT"});
 });
