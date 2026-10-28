@@ -10,7 +10,7 @@ die() { echo "NOT_EXECUTED: pinned LLVM build: $*" >&2; exit 1; }
 mode="${1:-build}"
 [[ "$mode" == build || "$mode" == --preflight ]] || die 'unknown compiler build mode'
 source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
-[[ "$source_dir" == /* && "$source_dir" != *$'\n'* && -d "$source_dir" && ! -L "$source_dir" ]] ||
+[[ "$source_dir" == /* && "$source_dir" != *$'\n'* && "$source_dir" != * && ! -L "$source_dir" ]] ||\r'* && -d "$source_dir" && ! -L "$source_dir" ]] ||
   die 'authorized absolute non-symlink ORESLANG_LLVM_SOURCE_DIR required'
 [[ "$(realpath -e "$source_dir")" == "$source_dir" ]] ||
   die 'LLVM source directory must be canonical'
@@ -20,14 +20,17 @@ source_dir="${ORESLANG_LLVM_SOURCE_DIR:-}"
   die 'LLVM commit is not the reviewed full SHA'
 [[ "$(git -C "$source_dir" rev-parse 'HEAD^{tree}')" == "$PINNED_LLVM_SOURCE_TREE" ]] ||
   die 'LLVM source Git tree differs from approved pin'
-[[ -z "$(git -C "$source_dir" status --porcelain --untracked-files=no)" ]] ||
-  die 'LLVM tracked source is dirty'
+tracked="$(git -C "$source_dir" status --porcelain --untracked-files=no)" ||
+  die 'LLVM tracked source status query failed'
+[[ -z "$tracked" ]] || die 'LLVM tracked source is dirty'
 [[ ! -e "$source_dir/build" && ! -L "$source_dir/build" ]] ||
   die 'refusing preexisting compiler build tree before source admission'
-[[ -z "$(git -C "$source_dir" ls-files --others --exclude-standard)" ]] ||
-  die 'LLVM checkout contains untracked source files'
-[[ -z "$(git -C "$source_dir" ls-files --others --ignored --exclude-standard)" ]] ||
-  die 'LLVM checkout contains ignored source files'
+untracked="$(git -C "$source_dir" ls-files --others --exclude-standard)" ||
+  die 'LLVM untracked-file audit failed'
+[[ -z "$untracked" ]] || die 'LLVM checkout contains untracked source files'
+ignored="$(git -C "$source_dir" ls-files --others --ignored --exclude-standard)" ||
+  die 'LLVM ignored-file audit failed'
+[[ -z "$ignored" ]] || die 'LLVM checkout contains ignored source files'
 [[ -f "$source_dir/tests/verify_compiler_receipt.py" ]] ||
   die 'LLVM source-local receipt verifier missing'
 
