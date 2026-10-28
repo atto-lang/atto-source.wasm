@@ -40,6 +40,16 @@ export function verifyPinnedLlvmCheckout({
     throw Error('LLVM source checkout commit/tree mismatch');
   if (git(root, ['status', '--porcelain', '--untracked-files=no']) !== '')
     throw Error('LLVM source checkout has modified tracked files');
+  // Verify the effective source worktree, not just tracked Git objects.
+  // Untracked/ignored files outside build/ can shadow headers, CMake modules
+  // or compiler resources without changing the root Git tree.
+  for (const args of [
+    ['ls-files', '--others', '--exclude-standard', '--', '.', ':(exclude)build'],
+    ['ls-files', '--others', '--ignored', '--exclude-standard', '--', '.', ':(exclude)build']
+  ]) {
+    if (git(root, args) !== '')
+      throw Error('LLVM source checkout has untracked or ignored files outside build');
+  }
   return Object.freeze({sourceSha:actualSha, sourceTree:actualTree,
     validatedGitCheckout:true, binaryBuiltFromSourceAuthenticated:false});
 }
