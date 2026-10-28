@@ -37,11 +37,15 @@ function invoke(exe, args, input) {
 }
 
 export async function compileSourceActorToWasm({compiler, source, clang = process.env.CLANG || 'clang',
-  expectedCompilerSha256} = {}) {
+  expectedCompilerSha256, expectedCompilerSourceSha, expectedCompilerSourceTree} = {}) {
   if (!isAbsolute(compiler || '') || !isAbsolute(source || ''))
     throw TypeError('source actor bridge requires absolute compiler/source paths');
   if (expectedCompilerSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedCompilerSha256))
     throw TypeError('invalid compiler SHA-256 pin');
+  if (expectedCompilerSourceSha !== undefined && !/^[a-f0-9]{40}$/.test(expectedCompilerSourceSha))
+    throw TypeError('invalid compiler source commit pin');
+  if (expectedCompilerSourceTree !== undefined && !/^[a-f0-9]{40}$/.test(expectedCompilerSourceTree))
+    throw TypeError('invalid compiler source tree pin');
   const [sourceRead, compilerRead] = await Promise.all([
     readBoundedRegularFile(source, MAX_SOURCE, 'source exceeds 1MiB budget'),
     readBoundedRegularFile(compiler, MAX_COMPILER, 'compiler exceeds 256MiB budget')
@@ -101,7 +105,10 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     return {
       wasm,
       provenance: Object.freeze({kind: 'real-source-pooled-actor-v0',
-        sourceSha256, compilerSha256, llvmIrSha256: sha(Buffer.from(ir, 'utf8')),
+        sourceSha256, compilerSha256,
+        compilerSourceSha: expectedCompilerSourceSha ?? null,
+        compilerSourceTree: expectedCompilerSourceTree ?? null,
+        llvmIrSha256: sha(Buffer.from(ir, 'utf8')),
         wasmSha256: sha(wasm), wasmBytes: wasm.length, guestImports: 0,
         actorAbi: 'pooled-actor-i64-v0'})
     };
