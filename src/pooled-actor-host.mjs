@@ -44,7 +44,12 @@ export class PooledWasmActors {
       // Physical exit is an independently observed boundary. The Promise
       // returned by terminate() alone is not proof that guest turns stopped.
       // Register before asynchronous startup or shutdown can emit 'exit'.
-      carrier.exitObserved = new Promise(resolve => worker.once('exit', code => {
+      carrier.exitObserved = new Promise(resolve => worker.on('exit', code => {
+        // EventEmitter permits arbitrary host-side 'exit' emission. Treat
+        // the event as physical evidence only after Node has marked its
+        // native Worker thread as gone. A forged event cannot release memory.
+        if (worker.threadId !== -1) return;
+        if (carrier.exited) return; // Idempotent duplicate notification.
         carrier.exited = true;
         resolve(code);
       }));
