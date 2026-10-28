@@ -47,6 +47,12 @@ jobs:
           node-version: '22'
       - name: Assert fail-closed AOT build gates and CI coverage
         run: node --test tests/aot-architecture.test.mjs tests/real-aot-gate.test.mjs
+      - name: Mutation-test pinned LLVM compiler receipt consumer
+        run: node --test tests/llvm-compiler-handoff.test.mjs
+      - name: Require approved LLVM build handoff before expensive AOT work
+        # Requires an independently authorized, already-present source checkout
+        # and compiler build receipt. No private cross-repository fetch or export.
+        run: node scripts/verify-llvm-compiler-handoff.mjs
       - name: Install Wasmtime 49 compatible Rust 1.96
         run: rustup toolchain install 1.96.0 --profile minimal
       - name: Inspect pinned toolchain
