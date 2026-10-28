@@ -13,6 +13,9 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(),"ores-wasm-structural-"));
   try {
+    // Use genuinely unsupported structural shape patterns, not scalar
+    // wildcard match (which has native lowering). Generic parser errors
+    // must never count as semantic unsupported-feature diagnostics.
     const cases = [
       ["callable", "structural fnc main(): int { return 1; }",
         /native structural callable requires/],
@@ -22,9 +25,9 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
         /native structural parameter requires/],
       ["routine-parameter", "routine check(structural Shape s): int { return 1; }\nfnc main(): int { return 1; }",
         /native structural parameter requires/],
-      ["statement-match", "fnc main(): int { match 1 over on _ -> { return 1; } end return 1; }",
+      ["statement-match", "fnc main(): int { do match 1 over on structural { id:int } v -> { return 1; } on _ -> { return 0; } end return 1; }",
         /native structural match expression requires/],
-      ["value-match", "fnc main(): int { return match 1 over on _ -> { return 1; } end; }",
+      ["value-match", "fnc main(): int { return match 1 over on structural { id:int } v -> { return 1; } on _ -> { return 0; } end; }",
         /native structural match expression requires/]
     ];
     for (const [name,source,diagnostic] of cases) {
