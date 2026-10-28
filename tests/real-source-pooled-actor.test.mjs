@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {mkdtemp, writeFile, readdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
@@ -75,15 +75,29 @@ test('actual LLVM frontend rejects source spawn and send with no output IR', {sk
   try {
     const pinnedCompiler = join(work, 'compiler-exact');
     await writeFile(pinnedCompiler, snapshot, {flag: 'wx', mode: 0o500});
-    for (const name of ['source-actor-spawn-stop.ores', 'source-actor-send.ores']) {
-      const r = spawnSync(pinnedCompiler, ['--target=wasm32', fixture(name)],
-        {encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
-          env: {PATH: process.env.PATH || ''}});
+    const inputs = ['source-actor-spawn-stop.ores', 'source-actor-send.ores'];
+    for (const name of inputs) {
+      // Keep both rejected source files inside the same private scratch
+      // directory as the executable. A compiler that writes an IR/object
+      // artifact despite its negative diagnostic must fail this gate.
+      const sourceBytes = (await readBoundedRegularFile(
+        fixture(name), 1024 * 1024, 'negative fixture too large')).bytes;
+      const stagedSource = join(work, name);
+      await writeFile(stagedSource, sourceBytes, {flag: 'wx', mode: 0o400});
+      const r = spawnSync(pinnedCompiler, ['--target=wasm32', stagedSource],
+        {cwd: work, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
+          windowsHide: true, env: {PATH: process.env.PATH || ''}});
       assert.equal(r.error, undefined);
       assert.equal(r.signal, null, name + ' compiler was killed');
       assert.notEqual(r.status, 0, name);
       assert.equal(r.stdout, '', name + ' emitted unsafe IR');
       assert.match(r.stderr, /wasm32 actor operations are not implemented/, name);
+      assert.equal(checksum((await readBoundedRegularFile(
+        stagedSource, 1024 * 1024, 'negative fixture changed')).bytes),
+        checksum(sourceBytes), name + ' was mutated by a rejecting compiler');
+      assert.deepEqual((await readdir(work)).sort(),
+        ['compiler-exact', ...inputs.slice(0, inputs.indexOf(name) + 1)].sort(),
+        name + ' emitted a forbidden on-disk IR/object artifact');
     }
     assert.equal(checksum((await readBoundedRegularFile(
       compiler, limit, 'original compiler changed')).bytes), pinnedSha256,
