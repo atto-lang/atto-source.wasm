@@ -67,6 +67,8 @@ export async function runTrustedNativeWasmLoop({
         if (failure) throw failure;
         if (bytes.length > MAX_FRAME_BYTES) throw Error('native peer oversized DATA');
         if (pending === null) {
+          if (nextRequest > BigInt(turns))
+            throw Error('native peer exceeded admitted turn budget');
           const msg = decodeNativeWasmPair(REQUEST_SCHEMA,bytes);
           if (msg.ticket !== nextRequest || msg.value !== 1n)
             throw Error('unexpected/replayed native actor request');
