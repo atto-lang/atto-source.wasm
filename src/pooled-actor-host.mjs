@@ -210,23 +210,26 @@ export class PooledWasmActors {
       this.#carriers.map(c => this.#terminateCarrier(c))
     ).then(results => {
       const uncertain = results.some(r => r.status !== 'fulfilled');
-      const reason = uncertain ? Error('actor carrier termination unconfirmed') : error;
+      const reason = Error('actor carrier termination unconfirmed');
+      // Quarantine only the carriers whose physical completion is unknown.
+      // Independently confirmed peers may release their own actor memory.
       for (const actor of this.#actors.values()) {
-        actor.phase = uncertain ? 'retirement-unconfirmed' : 'retired';
-        for (const op of actor.pending) op.reject(reason);
+        const index = this.#carriers.indexOf(actor.carrier);
+        const confirmed = index >= 0 && results[index].status === 'fulfilled';
+        actor.phase = confirmed ? 'retired' : 'retirement-unconfirmed';
+        for (const op of actor.pending) op.reject(confirmed ? error : reason);
         actor.pending.clear();
         actor.queue.length = 0;
+        if (confirmed) this.#actors.delete(actor.id);
       }
-      // A failed termination is NOT physical quiescence. Keep actor identities
-      // and their carrier references pinned; callers must not infer safe reuse
-      // or reclamation from a rejected close() or the absence of pending work.
-      if (!uncertain) {
-        this.#actors.clear();
-        for (const carrier of this.#carriers) {
-          carrier.ready.length = 0;
-          carrier.active = null;
-        }
+      for (let index = 0; index < this.#carriers.length; index++) {
+        if (results[index].status !== 'fulfilled') continue;
+        const carrier = this.#carriers[index];
+        carrier.ready.length = 0;
+        carrier.active = null;
       }
+      // A failed termination is NOT physical quiescence. Keep its actor
+      // identity and Worker references pinned even after close() rejects.
       if (uncertain) throw reason;
     });
     // Event handlers may initiate a terminal shutdown without an awaiting
