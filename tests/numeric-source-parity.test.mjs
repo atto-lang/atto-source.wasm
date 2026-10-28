@@ -97,10 +97,8 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       "pub fnc main():bigint{return 1;}",
       "pub fnc main():decimal{return 1;}",
       // A bare out-of-range literal must always be rejected too.
-      "pub fnc main():int{return 9223372036854775808;}",
-      ...overflowNegatives
+      "pub fnc main():int{return 9223372036854775808;}"
     ];
-    const firstCheckedOverflow=negatives.length-overflowNegatives.length;
     for (let i=0;i<negatives.length;i++) {
       const source=negatives[i];
       const target=join(dir,"invalid-"+i+".wasm");
@@ -112,16 +110,44 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
         }),
         error=>{
           const diagnostic=String(error?.message ?? "");
-          if (!/oreslang-llvmc:/.test(diagnostic)) return false;
-          // Pure source signed-overflow cases have valid grammar. A generic
-          // parser/bridge/IO failure cannot count as a negative numeric pass.
-          return i<firstCheckedOverflow ||
-            /overflow|out.of.range|out.of.bounds|invalid i64|integer literal/i.test(diagnostic);
+          return /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /.test(diagnostic);
         },
-        "invalid source must be rejected for its expected numeric reason"
+        "invalid source must be rejected for its expected numeric reason: "+source
       );
       await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
         "failed numeric compilation must not publish a release pointer");
+    }
+    // The shared corpus explicitly permits diagnosed rejection OR a runtime
+    // error. A published checked-overflow guest must trap, never return a
+    // wrapped arithmetic value; infrastructure failures cannot satisfy this.
+    for (let i=0;i<overflowNegatives.length;i++) {
+      const target=join(dir,"overflow-"+i+".wasm");
+      await writeFile(input,overflowNegatives[i]);
+      let compiled;
+      try {
+        compiled=await compileOresToWasm({
+          compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
+          environment:"browser",publication:"atomic"
+        });
+      } catch (error) {
+        assert.match(String(error?.message ?? ""),
+          /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /);
+        assert.match(String(error?.message ?? ""),
+          /overflow|out.of.range|out.of.bounds|invalid i64|integer literal/i);
+        await assert.rejects(stat(target+".current.json"),{code:"ENOENT"});
+        continue;
+      }
+      const released=await readAtomicRelease(target);
+      assert.equal(compiled.compilerSha256,expectedCompilerSha);
+      assert.equal(compiled.sourceSha256,
+        createHash("sha256").update(await readFile(input)).digest("hex"));
+      assert.equal(compiled.wasmSha256,released.manifest.wasmSha256);
+      assert.deepEqual(released.manifest.imports,[]);
+      assert.deepEqual(released.manifest.requiredCapabilities,[]);
+      await assert.rejects(runIsolatedCoreGuest(released.wasm,{
+        expectedSha256:compiled.wasmSha256,timeoutMs:5000
+      }),error=>error?.message==="guest rejected or failed: unreachable",
+      "checked signed overflow must trap: "+overflowCorpus.cases[i].id);
     }
   } finally {
     await cleanupRealCompilerWorkspace(dir);

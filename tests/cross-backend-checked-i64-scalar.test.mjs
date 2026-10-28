@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
+import {mkdtemp,writeFile,readFile,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
@@ -13,8 +13,8 @@ async function compileMain(t,expression){
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return "+expression+"; }\n");
-  await compileOresToWasm({compiler:resolve(compiler),source,output});
+  await writeFile(source,header+"pub fnc main(): int { return "+expression+"; }\n");
+  await compileOresToWasm({compiler:resolve(compiler),compilerSha256:process.env.ORESLANG_LLVM_COMPILER_SHA256,source,output});
   const bytes=await readFile(output);
   const {instance}=await WebAssembly.instantiate(bytes,{});
   assert.equal(typeof instance.exports.main,"function");
@@ -53,6 +53,6 @@ test("int / int is not admitted as an i64 result",async t=>{
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return 7 / 2; }\n");
-  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
+  await writeFile(source,header+"pub fnc main(): int { return 7 / 2; }\n");
+  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256:process.env.ORESLANG_LLVM_COMPILER_SHA256,source,output}),\n    /^command failed \\([^)]+[\\\\/]compiler-exact\\): oreslang-llvmc: /);\n  await assert.rejects(stat(output),{code:"ENOENT"});
 });
