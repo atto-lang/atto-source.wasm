@@ -87,7 +87,7 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
           const message = String(error?.message || "");
           // A broken compiler invocation, linker, runner or bridge is not
           // evidence that Oreslang diagnosed the intended source error.
-          const diagnostic = message.match(/oreslang-llvmc:([^\\n]*)/i)?.[1] || "";
+          const diagnostic = message.match(/oreslang-llvmc:([^\n]*)/i)?.[1] || "";
           return requiredDiagnostic.test(diagnostic) &&
             !/unknown option|not found|permission denied|failed to execute/i.test(message);
         },
@@ -99,7 +99,7 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
     // A modulo -1 must *not* erase a checked-overflow trap in its
     // numerator: returning zero here would violate Java's i64 contract.
     const overflowSource =
-      "pub fnc main():int{return (9223372036854775807 + 1) % -1;}\\n";
+      "pub fnc main():int{return (9223372036854775807 + 1) % -1;}\n";
     await writeFile(input, overflowSource);
     const overflowOutput = join(work, "overflow-before-minus-one.wasm");
     let overflowPublished = false;
