@@ -5,6 +5,12 @@ import {types} from "node:util";
 // Guest source arena lowering and shared-domain regions are separate gates.
 const PAGE = 65536;
 const MAX_HANDLES = 4096;
+// Capture trusted startup constructors and predicates as well as methods.
+// Later shared-realm mutation must not merge capability registries or weaken
+// the prohibition on concurrently mutable source buffers.
+const NativeWeakMap = WeakMap;
+const nativeIsUint8Array = types.isUint8Array;
+const nativeIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const kinds = new Set(["shared", "private", "untrusted"]);
 const nativeFreeze = Object.freeze;
 const nativeIsSafeInteger = Number.isSafeInteger;
@@ -30,8 +36,8 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new NativeWeakMap();
+  #scratch = new NativeWeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -81,7 +87,7 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#turn = null;
   }
 
@@ -193,10 +199,10 @@ export class ActorArena {
     const {offset, length} = this.#slot(turn, handle);
     // Native internal slots prevent instance property overrides from changing
     // the exact-size and shared-memory admission checks.
-    if (!types.isUint8Array(data) || nativeByteLength.call(data) !== length) {
+    if (!nativeIsUint8Array(data) || nativeByteLength.call(data) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
-    if (types.isSharedArrayBuffer(nativeBuffer.call(data))) {
+    if (nativeIsSharedArrayBuffer(nativeBuffer.call(data))) {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
@@ -209,8 +215,8 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new NativeWeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#freePersistent = [];
   }
