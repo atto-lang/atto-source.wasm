@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import {isNativeSemanticRejection, isExecutedWasmOverflowTrap} from "../scripts/signed-remainder-evidence.mjs";
 
 const semantic = /nonzero signed integer literal divisor/;
-const diagnosed = message => Error("command failed (/tmp/private/compiler-exact): oreslang-llvmc: " + message);
+const diagnosed = (message, override = {}) => {
+  const error = Error("command failed (/tmp/private/compiler-exact): oreslang-llvmc: " + message);
+  error.commandEvidence = Object.freeze({
+    status: 1, signal: null, spawnError: null, stdoutLength: 0,
+    command: "/tmp/private/compiler-exact", ...override
+  });
+  return error;
+};
 
 test("diagnosed compiler source rejection is distinct from infrastructure failure", () => {
   assert.equal(isNativeSemanticRejection(
@@ -16,6 +23,12 @@ test("diagnosed compiler source rejection is distinct from infrastructure failur
     diagnosed("native remainder requires a signed integer literal divisor"),
     Error("command failed (/tmp/private/compiler-exact): fake success"),
     {message: null},
+    Error("command failed (/tmp/private/compiler-exact): oreslang-llvmc: native remainder requires a nonzero signed integer literal divisor"),
+    diagnosed("native remainder requires a nonzero signed integer literal divisor", {status: 139}),
+    diagnosed("native remainder requires a nonzero signed integer literal divisor", {signal: "SIGSEGV"}),
+    diagnosed("native remainder requires a nonzero signed integer literal divisor", {spawnError: "ENOENT"}),
+    diagnosed("native remainder requires a nonzero signed integer literal divisor", {stdoutLength: 16}),
+    diagnosed("native remainder requires a nonzero signed integer literal divisor", {command: "/tmp/clang"}),
   ]) assert.equal(isNativeSemanticRejection(error, semantic), false);
   assert.equal(isNativeSemanticRejection(diagnosed("native remainder requires a nonzero signed integer literal divisor"), /signed/g), false);
 });

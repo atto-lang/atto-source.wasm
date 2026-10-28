@@ -6,6 +6,15 @@ export function isNativeSemanticRejection(error, requiredDiagnostic) {
       requiredDiagnostic.global || requiredDiagnostic.sticky ||
       typeof error?.message !== "string") return false;
   const message = error.message;
+  // Proof of an ordinary compiler-owned diagnostic must include the bounded
+  // spawnSync result, not merely a string resembling stderr. A killed
+  // compiler, ENOENT, nonzero-with-IR or arbitrary linker error is not a
+  // valid expected source rejection.
+  const evidence = error.commandEvidence;
+  if (!evidence || typeof evidence !== "object" || evidence.status !== 1 ||
+      evidence.signal !== null || evidence.spawnError !== null ||
+      evidence.stdoutLength !== 0 || typeof evidence.command !== "string" ||
+      !evidence.command.endsWith("/compiler-exact")) return false;
   // The bridge must have invoked an actual bounded compiler and observed its
   // own diagnosed failure; missing executables, Clang, and bad env are not it.
   if (!/^command failed \([^()\r\n]*\/compiler-exact\): oreslang-llvmc:\s+/i.test(message)) return false;
