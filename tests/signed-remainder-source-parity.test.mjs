@@ -8,6 +8,7 @@ import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "../scripts/cleanup-real-compiler.mjs";
+import {isNativeSemanticRejection, isExecutedWasmOverflowTrap} from "../scripts/signed-remainder-evidence.mjs";
 
 // Depend on a real, separately reviewed LLVM compiler with signed-literal
 // remainder lowering. This file never ships a mock parser or Wasm module.
@@ -83,14 +84,7 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
           compiler, compilerSha256, source: input, output,
           environment: "browser", publication: "atomic"
         }),
-        error => {
-          const message = String(error?.message || "");
-          // A broken compiler invocation, linker, runner or bridge is not
-          // evidence that Oreslang diagnosed the intended source error.
-          const diagnostic = message.match(/oreslang-llvmc:([^\n]*)/i)?.[1] || "";
-          return requiredDiagnostic.test(diagnostic) &&
-            !/unknown option|not found|permission denied|failed to execute/i.test(message);
-        },
+        error => isNativeSemanticRejection(error, requiredDiagnostic),
         id + " must return the expected native compiler semantic diagnostic"
       );
       await assert.rejects(stat(output + ".current.json"), {code: "ENOENT"},
@@ -114,17 +108,13 @@ test("pinned LLVM signed-literal remainder compiles and executes in a real isola
         runIsolatedCoreGuest(release.wasm, {
           expectedSha256: compiled.wasmSha256, timeoutMs: 5000
         }),
-        error => /^guest rejected or failed: (?:unreachable|integer overflow)/i
-          .test(String(error?.message || "")),
+        error => isExecutedWasmOverflowTrap(error),
         "overflow-before-remainder must execute a real guest trap, not wrap to zero"
       );
     } catch (error) {
       if (overflowPublished) throw error;
-      const message = String(error?.message || "");
-      assert.match(message, /oreslang-llvmc:/,
-        "compiler rejection must come from the verified native frontend");
-      assert.match(message, /overflow|out.of.range|invalid i64/i,
-        "compiler rejection must explain the checked overflow");
+      assert.ok(isNativeSemanticRejection(error, /overflow|out.of.range|invalid i64/i),
+        "compiler rejection must explain checked overflow in the native frontend");
       await assert.rejects(stat(overflowOutput + ".current.json"), {code: "ENOENT"});
     }
   } finally {
