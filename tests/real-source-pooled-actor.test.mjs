@@ -38,6 +38,8 @@ test('real .ores actor compiles through LLVM wasm32 and runs 1000 turns on two W
       assert.equal(await actors[2].send(1n), 26n,
         'retiring a colocated actor must not erase another actor heap');
       assert.equal(pool.actorCount, 39);
+      assert.equal(pool.activeWorkerCount, 2,
+        'stopping one source actor must preserve its shared physical carrier');
 
       // Admit a fresh incarnation while 39 other instances remain active.
       // In particular, it must never see the old actor's accumulated 25.
