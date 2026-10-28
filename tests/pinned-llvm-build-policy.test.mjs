@@ -1,0 +1,39 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+
+const script=fileURLToPath(new URL('../scripts/build-pinned-llvm-compiler.sh',import.meta.url));
+const content=readFileSync(script,'utf8');
+const sourcePin='a5114e57fe8e7a159ec9754478227912d339f70b';
+const treePin='6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e';
+
+test('LLVM compiler build is fixed to independently reviewed commit and tree',()=>{
+  assert.match(content,/PINNED_LLVM_SOURCE_COMMIT=a5114e57fe8e7a159ec9754478227912d339f70b/);
+  assert.match(content,/PINNED_LLVM_SOURCE_TREE=6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e/);
+  assert.ok(content.includes('git -C "$source_dir" rev-parse HEAD'));
+  assert.ok(content.includes("git -C \"$source_dir\" rev-parse 'HEAD^{tree}'"));
+  assert.ok(content.includes('git -C "$source_dir" status --porcelain --untracked-files=no'));
+  assert.ok(content.includes('--target oreslang-llvmc --parallel 2'));
+  assert.ok(content.includes('verify_compiler_receipt.py" capture'));
+  assert.ok(content.includes('verify_compiler_receipt.py" verify'));
+  assert.ok(content.includes('ORESLANG_LLVM_COMPILER_RECEIPT='));
+  assert.equal(sourcePin.length,40);
+  assert.equal(treePin.length,40);
+});
+test('compiler build script cannot fetch private source or use cross-repository credentials',()=>{
+  assert.doesNotMatch(content,/(?:git|gh)\s+(?:clone|fetch)|curl\s|wget\s|GITHUB_TOKEN|secrets\.|private.*token/i);
+  const syntax=spawnSync('bash',['-n',script],{encoding:'utf8',timeout:3000});
+  assert.equal(syntax.status,0,syntax.stderr);
+});
+test('missing authorized checkout fails before any compiler build',()=>{
+  const r=spawnSync('bash',[script],{
+    cwd:resolve(fileURLToPath(new URL('..',import.meta.url))),
+    encoding:'utf8',timeout:3000,
+    env:{PATH:process.env.PATH||'/usr/bin:/bin',RUNNER_TEMP:'/tmp'}
+  });
+  assert.equal(r.status,1);
+  assert.match(r.stderr,/NOT_EXECUTED: pinned LLVM build: authorized absolute/);
+});
