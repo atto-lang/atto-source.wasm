@@ -269,3 +269,40 @@ test('failed carrier cannot settle admitted work before delayed physical termina
     await pool.close();
   }
 });
+
+test('early fulfilled terminate receipt cannot retire a live Worker before exit event', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  assert.equal(await actor.send(6n), 6n);
+  const original = Worker.prototype.terminate;
+  let intercepted, acknowledge;
+  const wasIntercepted = new Promise(resolve => {acknowledge = resolve;});
+  let settled = false, held;
+  try {
+    // This forged successful Promise is NOT a physical termination receipt.
+    Worker.prototype.terminate = function () {
+      held = this;
+      acknowledge();
+      return Promise.resolve(0);
+    };
+    const closing = pool.close().then(
+      () => {settled = true;},
+      error => {settled = true; throw error;}
+    );
+    await wasIntercepted;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false,
+      'a resolved terminate Promise cannot release the actor without Worker exit');
+    assert.equal(pool.actorCount, 1, 'actor memory lease must remain pinned');
+    await original.call(held);
+    await closing;
+    assert.equal(settled, true);
+    assert.equal(pool.actorCount, 0);
+    await assert.rejects(actor.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
