@@ -153,7 +153,8 @@ export class NativeWasmActorRegistry {
     try {
       // Never overlap old/new guest authority. Stop ACK precedes new spawn.
       await this.stop(ref);
-      if (this.#closed) throw Error('actor registry closed during rotation');
+      if (this.#closed || record.revoked)
+        throw Error('actor registry closed or ActorRef revoked during rotation');
       const handle = await this.#pool.spawn(bytes, {expectedSha256, trusted});
       if (this.#closed) throw Error('actor registry closed during rotation');
       const next = this.#newActor(actor.id, actor.generation + 1, handle);
