@@ -32,6 +32,17 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
         } else parts.push(part);
       }
       normalized = parts.join('/');
+    } else if (normalized.includes('/')) {
+      // A relative import may become compiler-owned after graph resolution:
+      // ./std/unsafe and pkg/../std/unsafe are not guest package names.
+      const parts = [];
+      for (const part of normalized.split('/')) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') {
+          if (parts.length) parts.pop();
+        } else parts.push(part);
+      }
+      normalized = parts.join('/');
     }
     return ['ores.std/unsafe', 'std/unsafe', 'ores.std.unsafe',
             'std.unsafe', 'ores.std:unsafe', 'std:unsafe'].some(root =>
