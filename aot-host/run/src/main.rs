@@ -1,5 +1,6 @@
 #[path="../../profile.rs"] mod profile;
 #[path="../../io.rs"] mod io;
+mod tenant_isolation;
 use std::env;
 use sha2::{Digest,Sha256};
 use wasmtime::{Engine,Instance,Module,Precompiled,Store,StoreLimitsBuilder};
@@ -19,7 +20,10 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
 // path is compiled into the ordinary debug or any ordinary release binary.
 #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
 fn main()->Result<(),Box<dyn std::error::Error>>{
- let args=env::args().skip(1).collect::<Vec<_>>();
+ let all_args=env::args().skip(1).collect::<Vec<_>>();
+ // This is a debug-only regression path, NEVER a tenant security-service API.
+ let tenant_smoke=all_args.first().map(String::as_str)==Some("--tenant-isolation-smoke");
+ let args=if tenant_smoke {&all_args[1..]} else {&all_args[..]};
  if args.len()!=2 && args.len()!=3{
   return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256 [FUEL]".into());
  }
@@ -50,6 +54,41 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // A guest-supplied pin or self-reported manifest is never sufficient.
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
+ if tenant_smoke {
+  // Compile the same AOT code once, but admit each tenant to a distinct
+  // Store + Instance. A counter module must retain independent guest state.
+  let mut registry=tenant_isolation::TenantRegistry::new(engine,module,2)?;
+  let a=registry.admit("tenant-a")?;
+  let b=registry.admit("tenant-b")?;
+  if registry.admit("tenant-c").is_ok() || registry.admit("tenant-a").is_ok(){
+   return Err("tenant capacity or duplicate admission failed".into());
+  }
+  let observed=[
+   registry.invoke(&a,fuel)?, registry.invoke(&b,fuel)?,
+   registry.invoke(&a,fuel)?, registry.invoke(&b,fuel)?
+  ];
+  if observed != [1,1,2,2]{
+   return Err(format!("tenant stores shared state: {observed:?}").into());
+  }
+  registry.begin_shutdown(&a)?;
+  if registry.invoke(&a,fuel).is_ok(){
+   return Err("quiescing tenant accepted execution".into());
+  }
+  registry.destroy(&a)?;
+  let fresh_a=registry.admit("tenant-a")?;
+  if registry.invoke(&a,fuel).is_ok() || registry.invoke(&fresh_a,fuel)?!=1{
+   return Err("stale handle or fresh tenant state failure".into());
+  }
+  registry.begin_shutdown(&fresh_a)?;
+  registry.destroy(&fresh_a)?;
+  registry.begin_shutdown(&b)?;
+  registry.destroy(&b)?;
+  if registry.active_tenants()!=0{
+   return Err("tenant store reclamation failure".into());
+  }
+  println!("wasmtime_tenant_store_isolation=ok");
+  return Ok(());
+ }
  let limits=StoreLimitsBuilder::new()
   .memory_size(131072).memories(1).tables(0).instances(1).build();
  let mut store=Store::new(&engine,limits);
