@@ -63,6 +63,11 @@ test('claim expiry before submit is rejected by trusted clock',async()=>{
   assert.equal(submits,0);
   assert.equal(await gate(config({nowMs:()=>10000})).dispatch(request(),9000),false);
   assert.throws(()=>gate(config({nowMs:null})),/trusted host/);
+  assert.equal(await gate(config({nowMs:()=>0})).dispatch(request(),9000),false);
+  let tick=0;
+  const rollback=gate(config({nowMs:()=>[9000,8999][Math.min(tick++,1)],
+    submitDataOnly:async()=>{throw Error('rollback admitted')}}));
+  assert.equal(await rollback.dispatch(request(),9000),false);
 });
 test('forged getters, prototype or extra authorization fields are rejected',async()=>{
   for(const bad of [
