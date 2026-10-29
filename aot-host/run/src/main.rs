@@ -81,8 +81,20 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   }
   registry.begin_shutdown(&fresh_a)?;
   registry.destroy(&fresh_a)?;
-  registry.begin_shutdown(&b)?;
-  registry.destroy(&b)?;
+  // A trapped guest must retire its entire Store/Instance. The same tenant
+  // ID can be re-admitted only with a fresh generation and fresh Wasm memory.
+  if registry.invoke(&b,1).is_ok(){
+   return Err("one-fuel guest unexpectedly completed".into());
+  }
+  if registry.invoke(&b,fuel).is_ok(){
+   return Err("trapped tenant handle was not revoked".into());
+  }
+  let fresh_b=registry.admit("tenant-b")?;
+  if registry.invoke(&fresh_b,fuel)?!=1{
+   return Err("post-trap tenant retained old memory".into());
+  }
+  registry.begin_shutdown(&fresh_b)?;
+  registry.destroy(&fresh_b)?;
   if registry.active_tenants()!=0{
    return Err("tenant store reclamation failure".into());
   }
