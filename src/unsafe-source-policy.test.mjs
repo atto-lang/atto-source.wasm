@@ -64,16 +64,20 @@ test('Canonicalized unsafe import matrix cannot be laundered by alias or comment
       root.replace('/', '/./') + suffix,
       root.replace('/', '//') + suffix,
       root.replace('/', '/foo/../') + suffix);
+    paths.push('./' + root + suffix,
+               '../' + root + suffix,
+               'pkg/../' + root + suffix);
     for (const path of paths) for (const prefix of prefixes) {
       assert.throws(() => reject(bytes(prefix + '"' + path + '";')),
                     /wasm unsafe standard-library import unavailable in guest domains/);
       rejected++;
     }
   }
-  assert.equal(rejected, 240);
+  assert.equal(rejected, 360);
   for (const nearMiss of ['std/unsafe_tools', 'std/unsafe-math',
                           'ores.std/safe', 'pkg:unsafe', 'std/./unsafe_tools',
-                          'std/stuff/../safe', 'ores.std:unsafe_tools']) {
+                          'std/stuff/../safe', 'ores.std:unsafe_tools',
+                          'pkg/std/unsafe/memory', 'pkg/std/unsafe_tools']) {
     assert.doesNotThrow(() =>
       reject(bytes('import module tools from "' + nearMiss + '";')));
   }
