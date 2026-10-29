@@ -21,9 +21,13 @@ across all five `oreslang-source.*` repositories at this review. It pins:
 - A **durable atomic** one-shot `claim_once` implementation, keyed by the
   logical dispatch identity with immutable payload digest; unknown remote
   outcome remains claimed. The test callback is not a durable backing store.
-- Second revision/policy checks **after** claiming and immediately before
-  data-only submission. The trusted provider must independently enforce
-  authorization and idempotency at its actual dispatch point.
+- Second revision/policy checks **after** claiming, plus an independent trusted
+  host-clock check both before admission and after the claim. Zero, missing,
+  backwards or expired clocks fail closed even if the caller's original
+  timestamp was valid. A claim may remain spent when dispatch is refused.
+  The trusted provider must independently enforce authorization, deadline
+  and idempotency at its actual dispatch point (host-to-provider TOCTOU
+  is otherwise still present).
 - Explicit rejection of malformed IDs, stale actor generation/epoch/revision,
   expiry, resource overflow, missing claim/policy, spoofed fields, storage
   errors, and ambiguous remote completion.
