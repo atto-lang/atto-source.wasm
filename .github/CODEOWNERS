@@ -18,4 +18,7 @@
 /.github/private-ci-required-checks.json @ORESoftware
 /.github/private-ci-incident-dispositions.json @ORESoftware
 /.github/private-ci-quarantined-destinations.json @ORESoftware
+/contracts/private-ci-authority-v1.json @ORESoftware
+/scripts/private_ci_authorization_oracle.py @ORESoftware
+/scripts/test_private_ci_authorization_oracle.py @ORESoftware
 /.github/workflows/private-ci-policy.yml @ORESoftware
