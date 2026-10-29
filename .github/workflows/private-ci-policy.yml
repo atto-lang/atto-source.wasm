@@ -67,6 +67,8 @@ jobs:
               "/.github/private-ci-approved-source-snapshots.txt",
               "/.github/private-ci-independent-reviewer.json",
               "/.github/private-ci-required-checks.json",
+              "/.github/private-ci-incident-dispositions.json",
+              "/.github/private-ci-quarantined-destinations.json",
               "/.github/workflows/private-ci-policy.yml",
           ]
           for protected_path in paths:
@@ -133,6 +135,78 @@ jobs:
                   raise SystemExit("destination and snapshot approvals must activate together")
               if repos and repos[0].split()[1] != snaps[0].split()[2]:
                   raise SystemExit("destination and snapshot repository IDs differ")
+
+          incidents=read_json(".github/private-ci-incident-dispositions.json")
+          expected_incident_ids={
+              "22":5832921751,"77":5904679716,"127":5935338521,
+              "171":6042555082,"172":6042602777,"198":6070465058,
+              "200":6071264936,"212":6087989978,"222":6092501448,
+          }
+          if (set(incidents)!={"schema","incident_repository","incident_repository_id","incidents"}
+                  or incidents.get("schema")!=1
+                  or incidents.get("incident_repository")!="ores-truffle-oreslang/oreslang-platform-conformance"
+                  or incidents.get("incident_repository_id")!=1413795502
+                  or not isinstance(incidents.get("incidents"),dict)
+                  or set(incidents["incidents"])!=set(expected_incident_ids)):
+              raise SystemExit("invalid private CI incident disposition registry")
+          all_resolved=True
+          for number,issue_id in expected_incident_ids.items():
+              entry=incidents["incidents"][number]
+              if not isinstance(entry,dict) or entry.get("issue_id")!=issue_id:
+                  raise SystemExit("private CI incident identity mismatch")
+              status=entry.get("status")
+              if status=="hold":
+                  if set(entry)!={"issue_id","status"}:
+                      raise SystemExit("invalid hold incident disposition")
+                  all_resolved=False
+              elif status=="resolved":
+                  required={"issue_id","status","comment_id","comment_body_sha256","comment_updated_at","reviewer_id","reviewer_login"}
+                  if (set(entry)!=required or type(entry.get("comment_id")) is not int
+                          or entry["comment_id"]<=0
+                          or re.fullmatch(r"[0-9a-f]{64}",entry.get("comment_body_sha256","")) is None
+                          or entry.get("reviewer_id")!=11139560
+                          or entry.get("reviewer_login")!="ORESoftware"
+                          or not isinstance(entry.get("comment_updated_at"),str)):
+                      raise SystemExit("invalid resolved incident disposition")
+              else:
+                  raise SystemExit("invalid incident disposition status")
+
+          quarantine=read_json(".github/private-ci-quarantined-destinations.json")
+          expected_quarantine={
+              "zed-pkg-test/java-app":(1323575966,(22,)),
+              "scintilla-run-test/gleam-runner-conformance":(1323598260,(77,)),
+              "ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra":(1412142815,(127,)),
+              "agent-pontifex-test/agent-pontifex-e2e-tests":(1370782550,(171,)),
+              "led-dynamo/leddy-e2e":(1324139596,(172,)),
+              "ClaimGraph-test/claimgraph-e2e":(1350751074,(198,200)),
+          }
+          if (set(quarantine)!={"schema","destinations"} or quarantine.get("schema")!=1
+                  or not isinstance(quarantine.get("destinations"),list)
+                  or len(quarantine["destinations"])!=len(expected_quarantine)):
+              raise SystemExit("invalid private CI quarantine registry")
+          seen_names=set()
+          seen_ids=set()
+          for entry in quarantine["destinations"]:
+              if not isinstance(entry,dict) or set(entry)!={"repository","repository_id","incidents"}:
+                  raise SystemExit("invalid quarantine entry")
+              name=entry.get("repository")
+              repo_id=entry.get("repository_id")
+              refs=entry.get("incidents")
+              key=name.casefold() if isinstance(name,str) else None
+              expected=expected_quarantine.get(name)
+              if (expected is None or key in seen_names or repo_id in seen_ids
+                      or type(repo_id) is not int or repo_id<=0
+                      or not isinstance(refs,list)
+                      or (repo_id,tuple(refs))!=expected):
+                  raise SystemExit("quarantine identity mismatch")
+              seen_names.add(key); seen_ids.add(repo_id)
+          active_names={x.split()[0].casefold() for x in repos}
+          active_ids={int(x.split()[1]) for x in repos}
+          snapshot_ids={int(x.split()[2]) for x in snaps}
+          if active_names & seen_names or active_ids & seen_ids or snapshot_ids & seen_ids:
+              raise SystemExit("quarantined destination cannot be approved")
+          if (repos or snaps) and not all_resolved:
+              raise SystemExit("private CI approval forbidden while a blocking incident is on hold")
 
           data=read_json(".github/private-ci-required-checks.json")
           if (set(data)!={"schema","checks"} or type(data.get("schema")) is not int
