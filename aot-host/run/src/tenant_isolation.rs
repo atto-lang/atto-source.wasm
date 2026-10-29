@@ -191,12 +191,12 @@ mod tests {
     }
 
     #[test]
-    fn tenant_capacity_is_bounded() {
-        let engine = crate::profile::engine().expect("runtime engine");
-        // A Module is intentionally not constructed in this unit test:
-        // the actual inter-Store memory test is in the pinned AOT smoke.
+    fn resource_policy_is_bounded() {
         assert_eq!(MAX_TENANTS, 32);
         assert_eq!(GUEST_MEMORY_BYTES, 131072);
-        assert!(engine.increment_epoch() == ());
+        assert!((1..=MAX_FUEL).contains(&1_000_000));
+        assert!(!(1..=MAX_FUEL).contains(&0));
+        // The real Wasmtime multi-Store proof lives in smoke.sh; constants
+        // alone do not demonstrate memory separation or native execution.
     }
 }
