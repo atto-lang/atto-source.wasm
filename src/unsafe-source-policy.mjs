@@ -80,6 +80,11 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
       if (source.startsWith('/*', pos)) { blockComment(); continue; }
       if (c === '"' || c === "'") {
         const at = pos, value = quoted(c);
+        // The external compiler may decode source string escapes. G0 cannot
+        // safely interpret escaped import paths, so reject them before any
+        // native compiler invocation rather than trusting a raw-byte match.
+        if (awaitingImportPath && value.includes(String.fromCharCode(92)))
+          failure('wasm escaped import path unavailable in guest domains', at);
         if (awaitingImportPath && unsafeImportPath(value))
           failure('wasm unsafe standard-library import unavailable in guest domains', at);
         awaitingImportPath = false;
