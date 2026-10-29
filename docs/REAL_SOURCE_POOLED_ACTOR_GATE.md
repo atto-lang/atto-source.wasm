@@ -31,7 +31,16 @@ are empty and independent review is disabled. Do not add a checkout token,
 enable private action sharing, transfer source to WASM, or bypass this gate
 until the relevant source-owner approvals and protected policy review exist.
 After authorization, a trusted runner can provision the precise local
-checkout; the builder then becomes self-contained. **Review status (2026-10-28):** these SHA/tree values select a candidate\ncompiler revision whose changes since the preceding pin were inspected for\nsource/receipt ABI drift. They do **not** constitute independent source-export\nauthorization, CI-run attestation, or proof that compilation has occurred.\nThe LLVM actor guest and source fixtures retain the prior Git blob identities,\nwhile CI admission and CTest validation changed. Keep real actor and AOT\nacceptance **NOT_EXECUTED** until independently approved and executed.\n\nOn a newly approved\nLLVM head, update *both* pins after review and rerun the mutation tests.
+checkout; the builder then becomes self-contained. **Review status (2026-10-28):** these SHA/tree values select a candidate
+compiler revision whose changes since the preceding pin were inspected for
+source/receipt ABI drift. They do **not** constitute independent source-export
+authorization, CI-run attestation, or proof that compilation has occurred.
+The LLVM actor guest and source fixtures retain the prior Git blob identities,
+while CI admission and CTest validation changed. Keep real actor and AOT
+acceptance **NOT_EXECUTED** until independently approved and executed.
+
+On a newly approved
+LLVM head, update *both* pins after review and rerun the mutation tests.
 
 **Provenance distinction:** matching a compiler binary, source Git identity
 and receipt is not a cryptographic attestation that the binary was produced
