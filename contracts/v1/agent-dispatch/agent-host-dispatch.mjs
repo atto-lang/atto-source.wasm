@@ -56,7 +56,7 @@ export function create_agent_host_dispatch_gate(raw) {
         s.measured_tokens > config.token_cap) return false;
     try {
       const admittedAt = config.nowMs();
-      if (!Number.isSafeInteger(admittedAt) || admittedAt < 0 ||
+      if (!Number.isSafeInteger(admittedAt) || admittedAt <= 0 ||
           s.expires_at_ms <= admittedAt) return false;
       if (await config.isCurrent(s) !== true ||
           await config.authorize(s) !== true ||
