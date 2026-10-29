@@ -183,13 +183,13 @@ def _api_get(path):
     return _strict_api_json(raw)
 
 
-def _fetch_jobs(fetch, prefix, run_id):
-    """Fetch a complete latest-attempt job set without trusting pagination gaps."""
+def _fetch_jobs(fetch, prefix, run_id, attempt):
+    """Fetch the complete independently pinned attempt job set without pagination gaps."""
     jobs = []
     total = None
     for page in range(1, MAX_PAGES + 1):
         payload = _object(fetch(prefix + "/actions/runs/" + str(run_id)
-                                + "/jobs?filter=latest&per_page=100&page=" + str(page)),
+                                + "/attempts/" + str(attempt) + "/jobs?per_page=100&page=" + str(page)),
                           "workflow jobs")
         reported_total = payload.get("total_count")
         if type(reported_total) is not int or reported_total < 1 or reported_total > 1000:
@@ -342,7 +342,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or run.get("path") != expected_run_path
             or run.get("status") != "completed"):
         raise Denied("workflow run is not a completed exact-repository HEAD execution")
-    jobs = _fetch_jobs(fetch, prefix, run_id)
+    jobs = _fetch_jobs(fetch, prefix, run_id, attempt)
     if run.get("conclusion") != "success":
         _reject_non_success_run(jobs, run_id, commit, attempt)
     seen_ids, job_names, required_job_steps = set(), set(), set()
