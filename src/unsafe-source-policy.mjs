@@ -21,7 +21,18 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
   const unsafeImportPath = path => {
     // Reserved compiler-owned stdlib identity, including legacy spellings.
     // Do not reject quoted text outside an import declaration.
-    const normalized = path.split(String.fromCharCode(92)).join('/');
+    let normalized = path.split(String.fromCharCode(92)).join('/');
+    if (normalized.startsWith('std/') || normalized.startsWith('ores.std/')) {
+      const parts = [];
+      for (const part of normalized.split('/')) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') {
+          if (parts.length <= 1) return true; // Cannot escape stdlib root.
+          parts.pop();
+        } else parts.push(part);
+      }
+      normalized = parts.join('/');
+    }
     return ['ores.std/unsafe', 'std/unsafe', 'ores.std.unsafe',
             'std.unsafe', 'ores.std:unsafe', 'std:unsafe'].some(root =>
       normalized === root || normalized.startsWith(root + '/') ||
