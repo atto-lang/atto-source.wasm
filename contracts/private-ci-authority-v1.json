@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "contract": "ores-private-ci-authority-v1",
+  "incident_repository": "ores-truffle-oreslang/oreslang-platform-conformance",
+  "incident_repository_id": 1413795502,
+  "blocking_incidents": [
+    {
+      "number": 22,
+      "issue_id": 5832921751
+    },
+    {
+      "number": 77,
+      "issue_id": 5904679716
+    },
+    {
+      "number": 127,
+      "issue_id": 5935338521
+    },
+    {
+      "number": 171,
+      "issue_id": 6042555082
+    },
+    {
+      "number": 172,
+      "issue_id": 6042602777
+    },
+    {
+      "number": 198,
+      "issue_id": 6070465058
+    },
+    {
+      "number": 200,
+      "issue_id": 6071264936
+    },
+    {
+      "number": 212,
+      "issue_id": 6087989978
+    },
+    {
+      "number": 222,
+      "issue_id": 6092501448
+    }
+  ],
+  "quarantined_destinations": [
+    {
+      "repository": "zed-pkg-test/java-app",
+      "repository_id": 1323575966,
+      "incidents": [
+        22
+      ]
+    },
+    {
+      "repository": "scintilla-run-test/gleam-runner-conformance",
+      "repository_id": 1323598260,
+      "incidents": [
+        77
+      ]
+    },
+    {
+      "repository": "ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra",
+      "repository_id": 1412142815,
+      "incidents": [
+        127
+      ]
+    },
+    {
+      "repository": "agent-pontifex-test/agent-pontifex-e2e-tests",
+      "repository_id": 1370782550,
+      "incidents": [
+        171
+      ]
+    },
+    {
+      "repository": "led-dynamo/leddy-e2e",
+      "repository_id": 1324139596,
+      "incidents": [
+        172
+      ]
+    },
+    {
+      "repository": "ClaimGraph-test/claimgraph-e2e",
+      "repository_id": 1350751074,
+      "incidents": [
+        198,
+        200
+      ]
+    }
+  ],
+  "backend_transfer_capability": {
+    "java": true,
+    "llvm": true,
+    "net": false,
+    "wasm": false,
+    "forge": false
+  },
+  "required_gates": [
+    "explicit_destination_allowlist",
+    "exact_destination_repository_id",
+    "private_nonfork_destination",
+    "protected_source_main",
+    "protected_carrier_main",
+    "independent_exact_head_security_approval",
+    "all_blocking_incidents_resolved",
+    "verified_independent_disposition_comments",
+    "exact_source_head_pin",
+    "exact_source_root_tree_pin",
+    "ownership_verified",
+    "visibility_verified",
+    "permissions_verified",
+    "retention_verified",
+    "codeowner_review",
+    "dismiss_stale_reviews",
+    "last_push_approval",
+    "conversation_resolution",
+    "app_bound_required_checks",
+    "admin_enforcement",
+    "no_review_bypass",
+    "no_force_push",
+    "no_branch_delete",
+    "per_write_reauthorization"
+  ]
+}
