@@ -27,15 +27,19 @@
     "expiry_future_strict": true,
     "utf8_bytes_max": 65536,
     "measured_tokens_max": 16384,
-    "tokenizer_host_owned": true
+    "tokenizer_host_owned": true,
+    "trusted_host_clock_mandatory": true,
+    "expiration_rechecked_after_claim": true
   },
   "required_sequence": [
     "host_construct_and_validate",
+    "trusted_clock_check_expiration",
     "current_revision",
     "host_authorize",
     "atomic_durable_claim",
     "current_revision_recheck",
     "host_authorize_recheck",
+    "trusted_clock_recheck_expiration_and_no_rollback",
     "submit_data_only_with_dispatch_id_and_digest"
   ],
   "negative_cases": [
@@ -57,7 +61,11 @@
     "concurrent_duplicate",
     "changed_payload_same_dispatch_id",
     "claim_storage_failure",
-    "unknown_remote_outcome"
+    "unknown_remote_outcome",
+    "missing_trusted_clock",
+    "clock_fails",
+    "expiry_during_claim",
+    "clock_rollback"
   ],
   "not_implemented": [
     "signed_capability_issuer",
