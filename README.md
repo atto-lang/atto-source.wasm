@@ -1,5 +1,12 @@
 # Oreslang source-to-WebAssembly backend
 
+## VM isolate execution architecture
+
+A tenant-scoped `OresVM` worker host now assigns separate handles, quotas and shutdown tracking around the existing disposable-worker `runIsolatedCoreGuest`. Node Workers are **not** an OS-level security sandbox.
+
+See [the shared tenant IsolateVM contract](docs/VM_ISOLATE_CONTRACT.md) for lifecycle, V8 lessons, resource retirement, restrictions and remaining acceptance gates.
+
+
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
 Compare with oreslang-source.* repos.
 
