@@ -22,6 +22,23 @@ define actor HungryActor as end`)),
     bytes("define actor Ordinary as end")), /source actor execution unsupported/);
 });
 
+test("WASM fails closed on any unlowered annotation before invoking native LLVM", () => {
+  for (const annotation of [
+    "@Ret(int)", "@FromJson(\"id\")", "@Critical(1)",
+    "@RequiresPermission(\"ffi\")", "@Unknown", "@inline(always)"
+  ]) {
+    assert.throws(
+      () => rejectUnsupportedActorThreadSource(bytes(
+        annotation + "\\nfnc main(): int { return 42; }"
+      )),
+      /source annotation unsupported/, annotation
+    );
+  }
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(
+    bytes("fnc main(): int { return 42; }")
+  ));
+});
+
 test("policy words inside comments and strings are not source annotations", () => {
   const scalar = `fnc main():int {
    const x = "define enum MaxActorThreads as LOW int = 3";
