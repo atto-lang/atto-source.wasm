@@ -1,0 +1,39 @@
+name: WASM capability I/O zero authority (fail closed)
+on:
+  pull_request:
+    paths:
+      - 'src/guest-admission.mjs'
+      - 'tests/capability-io-zero-authority.test.mjs'
+      - '.github/workflows/capability-io-admission-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest-fail-closed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head and Git tree
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          git diff --quiet HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
+          echo "WASM_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Run capability-denial tests before full suite
+        run: node --test tests/capability-io-zero-authority.test.mjs
+      - name: Run existing guest admission and ABI regression tests
+        run: npm test
+      - name: Classification
+        run: echo 'WASM_GUEST_ZERO_CAPABILITY_NO_HOST_IO_PROVIDER'
