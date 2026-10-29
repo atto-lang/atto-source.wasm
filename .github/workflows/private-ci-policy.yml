@@ -24,6 +24,12 @@ jobs:
           git diff --quiet --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
           echo "PRIVATE_CI_POLICY_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Canonical authority oracle adversarial suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/private_ci_authorization_oracle.py scripts/test_private_ci_authorization_oracle.py
+          python3 scripts/test_private_ci_authorization_oracle.py
       - name: Validate fail-closed export policy
         shell: bash
         run: |
@@ -69,6 +75,9 @@ jobs:
               "/.github/private-ci-required-checks.json",
               "/.github/private-ci-incident-dispositions.json",
               "/.github/private-ci-quarantined-destinations.json",
+              "/contracts/private-ci-authority-v1.json",
+              "/scripts/private_ci_authorization_oracle.py",
+              "/scripts/test_private_ci_authorization_oracle.py",
               "/.github/workflows/private-ci-policy.yml",
           ]
           for protected_path in paths:
