@@ -27,7 +27,8 @@ test('Wasm bridge rejects actual unsafe source lexemes, including nested templat
 test('Unsafe stdlib imports are denied even when the package path is quoted', () => {
   const paths = ['ores.std/unsafe', 'ores.std/unsafe/ffi', 'std/unsafe/memory',
                  'std.unsafe.ffi', 'std:unsafe.native', 'ores.std:unsafe',
-                 'std\\\\unsafe\\\\native'];
+                 'std/./unsafe/ffi', 'std/other/../unsafe/native',
+                 'ores.std//unsafe/memory'];
   for (const path of paths) {
     for (const before of ['import module native_ops from ',
                           'import ns ffi as native_ops from ']) {
@@ -42,6 +43,7 @@ test('Unsafe stdlib imports are denied even when the package path is quoted', ()
     'fnc main():string{return "std/unsafe/ffi";}',
     '// import module ffi from "std/unsafe/ffi";\\nfnc main():int{return 42;}',
     'import module tools from "std/unsafe_tools";',
+    'import module tools from "std/./unsafe_tools";',
     'import module tools from "pkg:unsafe";',
   ]) assert.doesNotThrow(() => reject(bytes(source)), source);
 });
