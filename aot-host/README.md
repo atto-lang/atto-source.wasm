@@ -1,5 +1,20 @@
 # Experimental Wasmtime strict-AOT host
 
+## Experimental per-tenant Wasmtime Stores
+
+A native tenant compartment prototype now lives in
+[`run/src/tenant_isolation.rs`](run/src/tenant_isolation.rs). One tenant
+owns one `wasmtime::Store` and one Wasm `Instance` with its own
+128-KiB bounded linear memory. A shared `Engine` and compiled `Module`
+may be reused across tenants. The debug-only
+`--tenant-isolation-smoke` runner path executes a real precompiled
+counter guest across two separate Stores and checks lifecycle fencing.
+
+**This is not a production-enabled service or an OS sandbox.** The existing
+release-mode deny gate is unchanged. The tenant ID is not a credential;
+the deployment broker, authenticated approval and process sandbox are
+still required. See [the full contract](../docs/WASMTIME_TENANT_STORES_V0.md).
+
 The Wasm/AOT foundation was merged into `main` through [PR #4](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/4) and [PR #3](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/3).
 **This remains an experimental development-only loader, not a production sandbox.** The independent [private Rust AOT verification run](https://github.com/embedded-alerts-test/web-ui-e2e/actions/runs/38755259716) passed its `wasm-aot` job, but [source-repository CI issue #5](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/issues/5) remains unresolved. Neither result authorizes production execution.
 
