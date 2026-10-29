@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "incident_repository": "ores-truffle-oreslang/oreslang-platform-conformance",
+  "incident_repository_id": 1413795502,
+  "incidents": {
+    "22": {
+      "issue_id": 5832921751,
+      "status": "hold"
+    },
+    "77": {
+      "issue_id": 5904679716,
+      "status": "hold"
+    },
+    "127": {
+      "issue_id": 5935338521,
+      "status": "hold"
+    },
+    "171": {
+      "issue_id": 6042555082,
+      "status": "hold"
+    },
+    "172": {
+      "issue_id": 6042602777,
+      "status": "hold"
+    },
+    "198": {
+      "issue_id": 6070465058,
+      "status": "hold"
+    },
+    "200": {
+      "issue_id": 6071264936,
+      "status": "hold"
+    },
+    "212": {
+      "issue_id": 6087989978,
+      "status": "hold"
+    },
+    "222": {
+      "issue_id": 6092501448,
+      "status": "hold"
+    }
+  }
+}
