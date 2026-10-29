@@ -96,6 +96,20 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
  * lowering; a scalar-only Wasm guest may never materialize them by accident.
  * Reuses the bounded UTF-8 lexer so strings/comments are never evidence.
  */
+/**
+ * The Wasm scalar bridge does not implement annotation expansion. Reject
+ * source-level attributes before invoking a pinned LLVM compiler or staging
+ * publication. The shared lexer excludes quoted literals and nested comments.
+ */
+export function rejectUnsupportedAnnotationsSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(tokens[i].text==="@"){
+   const name=tokens[i+1]?.id ? tokens[i+1].text : "<missing>";
+   throw Error("wasm annotation @"+name+" requires checked target and guest-AOT lowering at byte "+tokens[i].offset);
+  }
+ }
+}
 export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  const tokens=tupleV2Tokens(sourceBytes);
  for(let i=0;i+1<tokens.length;i++){
@@ -250,6 +264,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
+ rejectUnsupportedAnnotationsSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
