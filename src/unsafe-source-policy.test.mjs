@@ -48,6 +48,37 @@ test('Unsafe stdlib imports are denied even when the package path is quoted', ()
   ]) assert.doesNotThrow(() => reject(bytes(source)), source);
 });
 
+test('Canonicalized unsafe import matrix cannot be laundered by alias or comments', () => {
+  const roots = ['std/unsafe', 'ores.std/unsafe',
+                 'std.unsafe', 'ores.std.unsafe',
+                 'std:unsafe', 'ores.std:unsafe'];
+  const suffixes = ['', '/ffi', '.ffi', '/memory', '/native.ores'];
+  const prefixes = ['import module ffi from ',
+                    'import module foo as ffi from ',
+                    'import module ffi from /* inert */ ',
+                    'import module ffi from\\n'];
+  let rejected = 0;
+  for (const root of roots) for (const suffix of suffixes) {
+    const paths = [root + suffix];
+    if (root.includes('/')) paths.push(
+      root.replace('/', '/./') + suffix,
+      root.replace('/', '//') + suffix,
+      root.replace('/', '/foo/../') + suffix);
+    for (const path of paths) for (const prefix of prefixes) {
+      assert.throws(() => reject(bytes(prefix + '"' + path + '";')),
+                    /wasm unsafe standard-library import unavailable in guest domains/);
+      rejected++;
+    }
+  }
+  assert.equal(rejected, 240);
+  for (const nearMiss of ['std/unsafe_tools', 'std/unsafe-math',
+                          'ores.std/safe', 'pkg:unsafe', 'std/./unsafe_tools',
+                          'std/stuff/../safe', 'ores.std:unsafe_tools']) {
+    assert.doesNotThrow(() =>
+      reject(bytes('import module tools from "' + nearMiss + '";')));
+  }
+});
+
 test('Escaped import strings fail before the external compiler can decode them', () => {
   for (const path of [
     String.raw`std\\/unsafe/ffi`,
