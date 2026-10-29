@@ -24,6 +24,28 @@ test('Wasm bridge rejects actual unsafe source lexemes, including nested templat
     assert.throws(() => reject(bytes(source)), /wasm unsafe boundary unsupported: effects and native grants unavailable at byte [0-9]+/);
   }
 });
+test('Unsafe stdlib imports are denied even when the package path is quoted', () => {
+  const paths = ['ores.std/unsafe', 'ores.std/unsafe/ffi', 'std/unsafe/memory',
+                 'std.unsafe.ffi', 'std:unsafe.native', 'ores.std:unsafe',
+                 'std\\\\unsafe\\\\native'];
+  for (const path of paths) {
+    for (const before of ['import module native_ops from ',
+                          'import ns ffi as native_ops from ']) {
+      const source = before + '"' + path + '";';
+      assert.throws(() => reject(bytes(source)),
+                    /wasm unsafe standard-library import unavailable in guest domains at byte [0-9]+/);
+    }
+  }
+  // Import parsing must not misinterpret an ordinary quoted string, comments,
+  // or a distinct unsafe_tools namespace as privileged native FFI.
+  for (const source of [
+    'fnc main():string{return "std/unsafe/ffi";}',
+    '// import module ffi from "std/unsafe/ffi";\\nfnc main():int{return 42;}',
+    'import module tools from "std/unsafe_tools";',
+    'import module tools from "pkg:unsafe";',
+  ]) assert.doesNotThrow(() => reject(bytes(source)), source);
+});
+
 test('CR, CRLF and LF comments cannot mask a later unsafe token', () => {
   for (const newline of ['\r', '\r\n', '\n', '\u0085', '\u2028', '\u2029']) {
     const source = 'fnc main():int{return 42;} // ignored' + newline + 'unsafe';
