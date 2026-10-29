@@ -172,4 +172,37 @@ if ! grep -q 'AOT execution is disabled unless' "$tmp/release.stderr"; then
   cat "$tmp/release.stderr" >&2
   exit 1
 fi
-echo 'AOT smoke: positive scalars, strict policy negatives and release-mode denial passed'
+
+# Exercise the actual Wasmtime Store-per-tenant registry using one compiled,
+# import-free Wasm module with a mutable guest global. Two tenant Stores must
+# independently observe 1, then 2. Revoked/recreated tenants start at 1.
+# This is an in-process memory isolation check, NOT a process-sandbox proof.
+cat > "$tmp/tenant-counter.ll" <<'LLVM'
+target triple = "wasm32-unknown-unknown"
+@counter = internal global i64 0, align 8
+define i64 @main() {
+entry:
+  %old = load volatile i64, ptr @counter, align 8
+  %next = add i64 %old, 1
+  store volatile i64 %next, ptr @counter, align 8
+  ret i64 %next
+}
+LLVM
+clang --target=wasm32 -x ir -Oz -nostdlib -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-counter.wasm" "$tmp/tenant-counter.ll"
+"$builder" "$tmp/tenant-counter.wasm" "$(sha256sum "$tmp/tenant-counter.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-counter.cwasm" > "$tmp/tenant-counter.meta"
+tenant_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-counter.meta")"
+[[ "$tenant_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing tenant AOT digest" >&2; exit 1; }
+tenant_result="$("$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$tenant_pin")"
+if [[ "$tenant_result" != "wasmtime_tenant_store_isolation=ok" ]]; then
+  echo "Wasmtime tenant-store isolation failed: $tenant_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "tenant smoke bypassed AOT digest check" >&2
+  exit 1
+fi
+
+echo 'AOT smoke: positive scalars, strict policy negatives, tenant store isolation and release-mode denial passed'
