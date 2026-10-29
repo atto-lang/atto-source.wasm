@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
+use crate::durable_lock_queues::{DurableLockQueues, Limits as DurableQueueLimits};
 use wasmtime::{Engine, Instance, Module, Store, StoreLimits, StoreLimitsBuilder};
 
 type Failure = Box<dyn Error>;
@@ -40,6 +41,8 @@ struct Tenant {
     phase: Phase,
     store: Store<StoreLimits>,
     instance: Instance,
+    // Not guest-reachable. Scheduler-issued actor capability required before use.
+    durable: DurableLockQueues,
 }
 
 pub struct TenantRegistry {
@@ -106,12 +109,14 @@ impl TenantRegistry {
             generation,
             identity: Arc::clone(&identity),
         };
+        let durable = DurableLockQueues::new(generation, DurableQueueLimits::default())?;
         self.tenants.insert(id.to_string(), Tenant {
             generation,
             identity,
             phase: Phase::Running,
             store,
             instance,
+            durable,
         });
         self.next_generation = next;
         Ok(handle)
@@ -162,6 +167,7 @@ impl TenantRegistry {
         if tenant.phase != Phase::Running {
             return Err("tenant already quiescing".into());
         }
+        tenant.durable.quiesce();
         tenant.phase = Phase::Quiescing;
         Ok(())
     }
@@ -170,6 +176,9 @@ impl TenantRegistry {
         let tenant = self.checked_mut(handle)?;
         if tenant.phase != Phase::Quiescing {
             return Err("tenant must quiesce before destruction".into());
+        }
+        if !tenant.durable.drained() {
+            return Err("tenant durable queue has unretired work".into());
         }
         // This registry is synchronously borrowed via &mut self: destruction
         // cannot overlap an invoke through its safe Rust API. Production
