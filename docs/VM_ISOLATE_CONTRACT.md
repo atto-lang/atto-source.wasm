@@ -66,3 +66,21 @@ Quiescing closes new admission; completeShutdown waits for all worker
 promises to settle after termination. Worker threads/V8 isolates are
 not OS-process isolation and do not establish hard-real-time or strict AOT.
 Tenant worker limits here are not a complete multi-process deployment quota.
+
+## Real Worker memory-isolation regression (added)
+
+`tests/tenant-worker-memory.test.mjs` runs a **real import-free core Wasm
+module** via `OresVM.runGuest` and the repository's existing disposable
+Worker pipeline. The fixture was compiled from a freestanding clang17 C
+volatile static i64 counter, fixed 2-page linear memory and `main()->i64`.
+Independent WebAssembly instances would return 1,2 if reused; each
+disposable worker invocation must return 1. This is a **guest instance
+memory freshness test**, not Oreslang source lowering, not durable actor
+state, and not a proof that untrusted native/Wasm engine bugs are contained.
+
+An invalid SHA-256 pin is additionally required to reject and release its
+per-tenant/global worker lease only after underlying Worker termination,
+so a neighboring tenant can continue. The original `tenant-vm.test.mjs`
+checks identity-fenced handles, admission quotas and pending shutdown.
+Exact-head `npm test` and real Worker/Node process logs are still
+unverified. Hostile tenants still require an OS process sandbox.
