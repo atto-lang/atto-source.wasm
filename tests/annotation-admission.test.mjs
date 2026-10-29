@@ -25,6 +25,18 @@ test("Wasm preflight ignores comments and quoted annotation decoys", () => {
  )));
 });
 
+test("Wasm annotation scanning recognizes CR-only comment boundaries", () => {
+ assert.throws(() => rejectUnsupportedAnnotationsSource(bytes(
+  "// inline comment\r@CallerRole(Admin)\npub fnc main(): int { return 42; }"
+ )), /wasm annotation @CallerRole/);
+});
+
+test("Wasm annotation scanning does not mistake template text for attributes", () => {
+ assert.doesNotThrow(() => rejectUnsupportedAnnotationsSource(bytes(
+  "pub fnc main(): int { stdio.println(\`email@test.example\`); return 42; }"
+ )));
+});
+
 test("Wasm preflight rejects invalid UTF-8 before token admission", () => {
  assert.throws(() => rejectUnsupportedAnnotationsSource(Uint8Array.from([0xc0, 0xaf])),
   /encoded|encoding|utf-8|UTF-8|valid/i);
