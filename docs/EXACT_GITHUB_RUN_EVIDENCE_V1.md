@@ -2,7 +2,7 @@
 
 ## Strict runner ID typing
 
-The source-free regression suite now has 95 tests per round. Non-success
+The source-free regression suite now has 96 tests per round. Non-success
 classification accepts only null or an actual integer zero as an unallocated
 runner ID. Boolean and floating-point zero values are malformed and return
 ordinary rejection, never `NOT_EXECUTED`. Positive integer IDs indicate runner
@@ -18,8 +18,9 @@ checks out private source, starts workflows, or changes repository policy.
 The verifier checks that a **real GitHub Actions run** corresponds to a
 specific immutable commit and its actual Git tree **and approved workflow file path**, in one of eight exact
 private repositories (five compiler backends plus three Rx prototypes) with pinned numeric repository IDs. It independently
-fetches the repository, commit, run and *all* Actions jobs through GitHub's
-read-only API. It rejects nonprivate/mismatched/archived identities, wrong
+fetches the repository, commit, run and *all* Actions jobs for the independently
+pinned run attempt through GitHub's read-only attempt-specific jobs API. It
+never substitutes the latest-attempt shortcut for a historical attempt. It rejects nonprivate/mismatched/archived identities, wrong
 commit/tree, foreign run/head repository, wrong run SHA, foreign/missing workflow path, uncompleted/failed
 runs, missing/failed/skipped jobs, zero-step jobs, missing or stale run-attempt IDs, missing expected jobs or
 expected executable steps, ambiguous duplicate job names, missing/zero/noninteger
