@@ -10,7 +10,7 @@ function config(override={}) {
   return {tenant_id:'tenant',actor_id:'worker',actor_generation:7,
     activation_epoch:9,exact_revision:revision,token_cap:100,
     isCurrent:async()=>true,authorize:async()=>true,claimOnce:async()=>true,
-    submitDataOnly:async()=>true,...override};
+    submitDataOnly:async()=>true,nowMs:()=>9000,...override};
 }
 test('admission validates exact scope, digest, expiry and resource caps', async()=>{
   for (const patch of [{tenant_id:'other'}, {actor_generation:8},
@@ -52,6 +52,17 @@ test('unknown remote result fails closed and cannot retry',async()=>{
   assert.equal(await g.dispatch(request(),9000),false);
   assert.equal(await g.dispatch(request(),9000),false);
   assert.equal(sent,1);
+});
+test('claim expiry before submit is rejected by trusted clock',async()=>{
+  let now=9000, submits=0, claims=0;
+  const g=gate(config({nowMs:()=>now,
+    claimOnce:async()=>{claims++;now=10000;return true;},
+    submitDataOnly:async()=>{submits++;return true}}));
+  assert.equal(await g.dispatch(request(),9000),false);
+  assert.equal(claims,1);
+  assert.equal(submits,0);
+  assert.equal(await gate(config({nowMs:()=>10000})).dispatch(request(),9000),false);
+  assert.throws(()=>gate(config({nowMs:null})),/trusted host/);
 });
 test('forged getters, prototype or extra authorization fields are rejected',async()=>{
   for(const bad of [
