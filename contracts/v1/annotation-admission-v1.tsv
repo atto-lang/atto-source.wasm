@@ -1,0 +1,17 @@
+# Oreslang annotation-admission-v1; tab-separated kind,id,source. Only \n escaping is defined.
+# shared-deny: every backend rejects; bootstrap-deny: LLVM/Wasm/.NET/Forge reject; shared-allow: every backend admits.
+shared-deny	caller_role	@CallerRole(Admin)\nfnc main():int{return 42;}
+shared-deny	callable_by	@CallableBy(Admin)\nfnc main():int{return 42;}
+shared-deny	default_arg_vals	@DefaultArgVals(x=1)\nfnc main():int{return 42;}
+shared-deny	derive	@derive(Eq)\nfnc main():int{return 42;}
+shared-deny	cfg	@cfg(test)\nfnc main():int{return 42;}
+shared-deny	generated_builder	@GenerateBuilder\nfnc main():int{return 42;}
+shared-deny	requires_state	@RequiresState(write)\nfnc main():int{return 42;}
+shared-deny	from_json_wrong_target	@FromJson("id")\nfnc main():int{return 42;}
+shared-deny	trailing_role	fnc main():int{return 42;}\n@CallerRole(Admin)
+shared-deny	malformed_annotation	@\nfnc main():int{return 42;}
+bootstrap-deny	unknown_annotation	@UnknownPolicy\nfnc main():int{return 42;}
+bootstrap-deny	serialized_field_attribute	@FromJson("id")\ndefine class Item as id: int; end\nfnc main():int{return 42;}
+shared-allow	plain_scalar	fnc main():int{return 42;}
+shared-allow	leading_comment	// @CallerRole(Admin)\nfnc main():int{return 42;}
+shared-allow	trailing_comment	fnc main():int{return 42;} // @DefaultArgVals(x=1)
