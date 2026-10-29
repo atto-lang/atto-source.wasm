@@ -46,6 +46,21 @@ test('Unsafe stdlib imports are denied even when the package path is quoted', ()
   ]) assert.doesNotThrow(() => reject(bytes(source)), source);
 });
 
+test('Escaped import strings fail before the external compiler can decode them', () => {
+  for (const path of [
+    String.raw`std\\/unsafe/ffi`,
+    String.raw`std\\u002funsafe/ffi`,
+    String.raw`ores.std\\/unsafe/native`,
+    String.raw`std\\x2funsafe`,
+  ]) {
+    const source = 'import module ffi from "' + path + '";';
+    assert.throws(() => reject(bytes(source)),
+      /wasm escaped import path unavailable in guest domains at byte [0-9]+/);
+  }
+  assert.doesNotThrow(() =>
+    reject(bytes(String.raw`fnc main():string{return "std\\/unsafe";}`)));
+});
+
 test('CR, CRLF and LF comments cannot mask a later unsafe token', () => {
   for (const newline of ['\r', '\r\n', '\n', '\u0085', '\u2028', '\u2029']) {
     const source = 'fnc main():int{return 42;} // ignored' + newline + 'unsafe';
