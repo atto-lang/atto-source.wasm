@@ -1,13 +1,3 @@
-# Private CI export authorization policy.
-# Protect all workflow changes from unreviewed same-name GitHub Actions check spoofing.
-# Keep the directory wildcard directly before the final exact policy rules.
-/.github/workflows/ @ORESoftware
-/.github/CODEOWNERS @ORESoftware
-/.github/private-ci-approved-repositories.txt @ORESoftware
-/.github/private-ci-approved-source-snapshots.txt @ORESoftware
-/.github/private-ci-independent-reviewer.json @ORESoftware
-/.github/private-ci-required-checks.json @ORESoftware
-/.github/workflows/private-ci-policy.yml @ORESoftware
 
 # Wasm guest, AOT host, publication, and conformance trust boundaries.
 /src/ @ORESoftware
@@ -17,3 +7,15 @@
 /tools/ @ORESoftware
 /scripts/ @ORESoftware
 /package.json @ORESoftware
+
+# Private CI export authorization policy.
+# This terminal block must remain last so no later rule can override security ownership.
+/.github/workflows/ @ORESoftware
+/.github/CODEOWNERS @ORESoftware
+/.github/private-ci-approved-repositories.txt @ORESoftware
+/.github/private-ci-approved-source-snapshots.txt @ORESoftware
+/.github/private-ci-independent-reviewer.json @ORESoftware
+/.github/private-ci-required-checks.json @ORESoftware
+/.github/private-ci-incident-dispositions.json @ORESoftware
+/.github/private-ci-quarantined-destinations.json @ORESoftware
+/.github/workflows/private-ci-policy.yml @ORESoftware
