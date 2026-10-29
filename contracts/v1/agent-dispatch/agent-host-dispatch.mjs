@@ -24,7 +24,8 @@ const scopeFields = ['tenant_id','actor_id','actor_generation','activation_epoch
   'exact_revision','dispatch_id','context_sha256','expires_at_ms','utf8_bytes',
   'measured_tokens'];
 const configFields = ['tenant_id','actor_id','actor_generation','activation_epoch',
-  'exact_revision','token_cap','isCurrent','authorize','claimOnce','submitDataOnly'];
+  'exact_revision','token_cap','isCurrent','authorize','claimOnce','submitDataOnly',
+  'nowMs'];
 export function create_agent_host_dispatch_gate(raw) {
   const config = snapshot(raw, configFields);
   if (!config || !id(config.tenant_id) || !id(config.actor_id) ||
@@ -33,7 +34,7 @@ export function create_agent_host_dispatch_gate(raw) {
       !Number.isSafeInteger(config.activation_epoch) || config.activation_epoch <= 0 ||
       !Number.isSafeInteger(config.token_cap) || config.token_cap <= 0 ||
       config.token_cap > 16384 ||
-      [config.isCurrent,config.authorize,config.claimOnce,config.submitDataOnly]
+      [config.isCurrent,config.authorize,config.claimOnce,config.submitDataOnly,config.nowMs]
         .some(x => typeof x !== 'function')) {
     throw new TypeError('trusted host dispatch configuration required');
   }
@@ -54,11 +55,17 @@ export function create_agent_host_dispatch_gate(raw) {
         !Number.isSafeInteger(s.measured_tokens) || s.measured_tokens <= 0 ||
         s.measured_tokens > config.token_cap) return false;
     try {
+      const admittedAt = config.nowMs();
+      if (!Number.isSafeInteger(admittedAt) || admittedAt < 0 ||
+          s.expires_at_ms <= admittedAt) return false;
       if (await config.isCurrent(s) !== true ||
           await config.authorize(s) !== true ||
           await config.claimOnce(s) !== true ||
           await config.isCurrent(s) !== true ||
           await config.authorize(s) !== true) return false;
+      const beforeSubmit = config.nowMs();
+      if (!Number.isSafeInteger(beforeSubmit) || beforeSubmit < admittedAt ||
+          s.expires_at_ms <= beforeSubmit) return false;
       return await config.submitDataOnly(s) === true;
     } catch { return false; }
   }
