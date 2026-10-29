@@ -26,7 +26,7 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   i+=2;while(i<text.length&&!/[\r\n\u0085\u2028\u2029]/.test(text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
@@ -38,7 +38,7 @@ function tupleV2Tokens(sourceBytes){
    if(depth)throw Error("unterminated block comment at byte "+start);
    continue;
   }
-  if(c==="\""||c==="'"){
+  if(c==="\""||c==="'"||c==="`"){
    const quote=c;i++;let escaped=false;
    while(i<text.length){
     const q=text[i++];
