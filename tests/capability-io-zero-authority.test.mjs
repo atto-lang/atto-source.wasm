@@ -33,3 +33,38 @@ test("inherited settings, accessors and symbols cannot hide capabilities", () =>
   const symbol = {[Symbol("net")]: true};
   assert.throws(() => assertZeroCapabilityOptions(symbol), /unsupported WASM/);
 });
+
+test("validated snapshot cannot be mutated or swapped by a malicious Proxy", () => {
+  let secondRead = 0;
+  const hostile = new Proxy({guestNetworkIo:false}, {
+    get(target, property) {
+      if (property === "guestNetworkIo") {
+        ++secondRead;
+        return true; // would escalate if the checked object were re-read
+      }
+      return Reflect.get(target, property);
+    },
+  });
+  const checked = assertZeroCapabilityOptions(hostile);
+  assert.equal(checked.guestNetworkIo, false);
+  assert.equal(Object.isFrozen(checked), true);
+  assert.equal(Object.getPrototypeOf(checked), null);
+  assert.throws(() => compileAdmittedCoreGuest(BAD_GUEST, hostile));
+  assert.equal(secondRead, 0, "guest option values must come from one descriptor snapshot");
+});
+
+test("a proxy cannot smuggle privileged options via a second descriptor read", () => {
+  let descriptorReads = 0;
+  const hostile = new Proxy({guestNetworkIo:false}, {
+    getOwnPropertyDescriptor(target, key) {
+      ++descriptorReads;
+      return Reflect.getOwnPropertyDescriptor(target,key);
+    },
+    get(_target,key) {
+      if (key === "guestNetworkIo") throw Error("unvalidated property getter executed");
+    },
+  });
+  const checked = assertZeroCapabilityOptions(hostile);
+  assert.equal(checked.guestNetworkIo, false);
+  assert.ok(descriptorReads > 0);
+});
