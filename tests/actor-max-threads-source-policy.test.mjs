@@ -29,7 +29,7 @@ test("WASM fails closed on any unlowered annotation before invoking native LLVM"
   ]) {
     assert.throws(
       () => rejectUnsupportedActorThreadSource(bytes(
-        annotation + "\\nfnc main(): int { return 42; }"
+        annotation + "\nfnc main(): int { return 42; }"
       )),
       /source annotation unsupported/, annotation
     );
