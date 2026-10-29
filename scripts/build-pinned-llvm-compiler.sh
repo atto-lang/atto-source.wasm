@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build only from an already-authorized, locally present LLVM checkout.
-# Never clone/fetch private source, mirror it, or accept an arbitrary HEAD.
+# Never clone/fetch private source, mirror it, or accept an arbitrary HEAD.\n# Commit/tree below are an integration CANDIDATE, not transfer authorization.
 set -euo pipefail
 
-PINNED_LLVM_SOURCE_COMMIT=a5114e57fe8e7a159ec9754478227912d339f70b
-PINNED_LLVM_SOURCE_TREE=6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e
+PINNED_LLVM_SOURCE_COMMIT=a79156b74098c368763ee2c6843a65126e3051bf
+PINNED_LLVM_SOURCE_TREE=43f8bda51bae2deb7747d73962be3ef6a3534628
 
 die() { echo "NOT_EXECUTED: pinned LLVM build: $*" >&2; exit 1; }
 mode="${1:-build}"

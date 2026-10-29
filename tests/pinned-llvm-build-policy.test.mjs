@@ -7,12 +7,12 @@ import {resolve} from 'node:path';
 
 const script=fileURLToPath(new URL('../scripts/build-pinned-llvm-compiler.sh',import.meta.url));
 const content=readFileSync(script,'utf8');
-const sourcePin='a5114e57fe8e7a159ec9754478227912d339f70b';
-const treePin='6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e';
+const sourcePin='a79156b74098c368763ee2c6843a65126e3051bf';
+const treePin='43f8bda51bae2deb7747d73962be3ef6a3534628';
 
 test('LLVM compiler build is fixed to independently reviewed commit and tree',()=>{
-  assert.match(content,/PINNED_LLVM_SOURCE_COMMIT=a5114e57fe8e7a159ec9754478227912d339f70b/);
-  assert.match(content,/PINNED_LLVM_SOURCE_TREE=6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e/);
+  assert.match(content,/PINNED_LLVM_SOURCE_COMMIT=a79156b74098c368763ee2c6843a65126e3051bf/);
+  assert.match(content,/PINNED_LLVM_SOURCE_TREE=43f8bda51bae2deb7747d73962be3ef6a3534628/);
   assert.ok(content.includes('git -C "$source_dir" rev-parse HEAD'));
   assert.ok(content.includes("git -C \"$source_dir\" rev-parse 'HEAD^{tree}'"));
   assert.ok(content.includes('git -C "$source_dir" status --porcelain --untracked-files=no'));

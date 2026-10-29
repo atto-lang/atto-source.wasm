@@ -11,8 +11,8 @@ before the mandatory real-source actor gate. That script **does not clone,
 fetch or mirror LLVM source**. It builds only from a preapproved, local,
 clean Git checkout at exactly:
 
-- LLVM commit: `a5114e57fe8e7a159ec9754478227912d339f70b`
-- LLVM root tree: `6a9e76b9e5a9499b7db6d42a4c7e2dc1f2ecd90e`
+- LLVM commit: `a79156b74098c368763ee2c6843a65126e3051bf`
+- LLVM root tree: `43f8bda51bae2deb7747d73962be3ef6a3534628`
 
 It runs CMake against the pinned local checkout, builds
 `build/oreslang-llvmc`, captures and verifies the compiler receipt through
@@ -31,8 +31,7 @@ are empty and independent review is disabled. Do not add a checkout token,
 enable private action sharing, transfer source to WASM, or bypass this gate
 until the relevant source-owner approvals and protected policy review exist.
 After authorization, a trusted runner can provision the precise local
-checkout; the builder then becomes self-contained. On a newly approved
-LLVM head, update *both* pins after review and rerun the mutation tests.
+checkout; the builder then becomes self-contained. **Review status (2026-10-28):** these SHA/tree values select a candidate\ncompiler revision whose changes since the preceding pin were inspected for\nsource/receipt ABI drift. They do **not** constitute independent source-export\nauthorization, CI-run attestation, or proof that compilation has occurred.\nThe LLVM actor guest and source fixtures retain the prior Git blob identities,\nwhile CI admission and CTest validation changed. Keep real actor and AOT\nacceptance **NOT_EXECUTED** until independently approved and executed.\n\nOn a newly approved\nLLVM head, update *both* pins after review and rerun the mutation tests.
 
 **Provenance distinction:** matching a compiler binary, source Git identity
 and receipt is not a cryptographic attestation that the binary was produced
