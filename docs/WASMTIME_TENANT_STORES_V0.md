@@ -66,9 +66,11 @@ produces a pin-checked Wasmtime AOT module. The debug runner's
 2. Duplicate/capacity admission fails and quiescing rejects new execution.
 3. Destroying A invalidates its old handle; recreating the same tenant ID
    starts with a fresh counter of `1`.
-4. All tenants are retired; a wrong AOT digest is refused before unsafe native
+4. Exhausting B's per-call fuel must trap and retire its entire Store. The old
+   handle must fail, and a fresh B incarnation must start with a counter of `1`.
+5. All tenants are retired; a wrong AOT digest is refused before unsafe native
    deserialization.
-5. The separate production-release runner remains fail-closed.
+6. The separate production-release runner remains fail-closed.
 
 The shell smoke requires the pinned Rust toolchain, Clang/LLD and an executed
 CI runner. **A zero-step GitHub Actions failure is NOT_EXECUTED, not a test
