@@ -5,7 +5,7 @@
   "release_gate": "NOT_VERIFIED",
   "boundary": "trusted host -> tool-free model-data service; never a guest authority or a tool grant",
   "authority": "host callback must independently verify issuer, tenant, actor incarnation, epoch, revocation, expiration and permitted model data action; bool from guest, LLM or repository text is not evidence",
-  "claim": "durable atomic one-shot claim keyed by tenant+actor+generation+epoch+revision+dispatch_id; payload SHA-256 immutable on first claim; no automatic replay on unknown result",
+  "claim": "A durable atomic one-shot claim MUST use stable tenant_id + durable logical actor_id + dispatch_id; actor generation, activation epoch, exact revision and payload digest are independently authenticated but MUST NOT rotate the claim key. Immutable context SHA-256 recorded with the first claim. No auto-replay of unknown outcomes.",
   "scope": [
     "tenant_id",
     "actor_id",
@@ -29,7 +29,9 @@
     "measured_tokens_max": 16384,
     "tokenizer_host_owned": true,
     "trusted_host_clock_mandatory": true,
-    "expiration_rechecked_after_claim": true
+    "expiration_rechecked_after_claim": true,
+    "actor_id_stable_logical_across_restarts": true,
+    "claim_key_includes_generation_epoch_revision": false
   },
   "required_sequence": [
     "host_construct_and_validate",
@@ -65,7 +67,10 @@
     "missing_trusted_clock",
     "clock_fails",
     "expiry_during_claim",
-    "clock_rollback"
+    "clock_rollback",
+    "restarted_actor_same_logical_dispatch",
+    "code_reload_same_logical_dispatch",
+    "cross_backend_local_claim_collision"
   ],
   "not_implemented": [
     "signed_capability_issuer",
