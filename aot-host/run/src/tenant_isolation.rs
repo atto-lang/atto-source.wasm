@@ -132,23 +132,29 @@ impl TenantRegistry {
         if !(1..=MAX_FUEL).contains(&fuel) {
             return Err("tenant fuel outside admission bounds".into());
         }
-        let outcome = {
-            let tenant = self.checked_mut(handle)?;
-            if tenant.phase != Phase::Running {
-                return Err("tenant is quiescing".into());
-            }
+        let tenant = self.checked_mut(handle)?;
+        if tenant.phase != Phase::Running {
+            return Err("tenant is quiescing".into());
+        }
+        // All errors after the host has authorized an execution attempt
+        // must pass through one cleanup path. In particular, do NOT use
+        // '?' directly on set_fuel or get_typed_func outside the closure:
+        // doing so skips the Store retirement below.
+        let outcome = (|| -> Result<i64, Failure> {
             tenant.store.set_fuel(fuel)?;
             let main = tenant.instance
                 .get_typed_func::<(), i64>(&mut tenant.store, "main")?;
-            main.call(&mut tenant.store, ())
-        };
+            Ok(main.call(&mut tenant.store, ())?)
+        })();
 
-        // After a guest trap, drop its Store/Instance so no state can be
-        // reused accidentally. A fresh admission has a new generation.
+        // Always retire a compartment after a failed invocation, whether
+        // Wasmtime reports a trap, fuel setup error, or an ABI lookup error.
+        // Retain the old identity in the external handle to fence reopening
+        // a tenant with the same string ID after this Store is destroyed.
         if outcome.is_err() {
             self.tenants.remove(&handle.id);
         }
-        Ok(outcome?)
+        outcome
     }
 
     pub fn begin_shutdown(&mut self, handle: &TenantHandle) -> Result<(), Failure> {
