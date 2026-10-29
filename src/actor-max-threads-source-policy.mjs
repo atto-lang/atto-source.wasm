@@ -39,6 +39,11 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       let closed = false;
       while (i < source.length) {
         if (source[i] === "\\") {i += 2;continue;}
+        // Template interpolation is executable source, not inert text.
+        // This bridge has no template-expression annotation AST/ABI gate.
+        // Reject it rather than missing an active @directive inside ${...}.
+        if (quote === "`" && source.startsWith("${", i))
+          throw Error("WASM source template interpolation unsupported until checked annotation and expression lowering");
         if (source[i++] === quote) {closed=true;break;}
       }
       if (!closed) throw Error("unterminated source string");
