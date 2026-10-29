@@ -74,7 +74,11 @@
     "ancestor_symlink_directory",
     "absolute_dotdot_claim_path",
     "relative_claim_path",
-    "path_component_symlink_swapping"
+    "path_component_symlink_swapping",
+    "concurrent_ancestor_rename_symlink_swap",
+    "mutable_user_home_owner_spoof",
+    "missing_secure_directory_stream_provider",
+    "no_anchored_directory_fsync"
   ],
   "not_implemented": [
     "signed_capability_issuer",
@@ -100,7 +104,7 @@
       "preexisting_claim_key"
     ],
     "native_llvm": "root-anchored openat walk with O_NOFOLLOW/O_DIRECTORY on every component; owner-only 0700 final directory; fsync file and directory",
-    "java": "noncanonical/relative paths and symlink ancestors fail closed, but pathname-based creation has a residual mutation race; use a trusted immutable directory tree or a dirfd-anchored provider",
+    "java": "root-anchored SecureDirectoryStream with NOFOLLOW_LINKS on every path component, atomic CREATE_NEW relative to pinned directory, and FileChannel.force on the same pinned directory handle; verify POSIX owner with OS UnixSystem identity, never user.home. Reject non-SDS and non-FileChannel providers without fallback. Same-UID hostile initial directory substitution and independent provider/remote TOCTOU remain out of scope.",
     "cross_host_claims": "NOT_IMPLEMENTED"
   }
 }
