@@ -8,17 +8,48 @@ import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
-  expectedSha256,
-  entry = "main",
-  maxModuleBytes = 16 * 1024 * 1024,
-  maxMemoryPages = 2,
-  ioMode = "nio-only",
-  guestNetworkIo = false,
-  nioReactors = 0,
-  actorPhysicalTurns = 0,
-  hardRealtime = false
-} = {}) {
+const CORE_GUEST_OPTIONS = new Set([
+  "expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages",
+  "ioMode", "guestNetworkIo", "nioReactors", "actorPhysicalTurns", "hardRealtime"
+]);
+
+// This profile has no guest capability transport. Silent unknown options could
+// make callers believe requested FFI/network/broker authority was enabled.
+export function assertZeroCapabilityOptions(options) {
+  if (options === null || typeof options !== "object" || Array.isArray(options) ||
+      (Object.getPrototypeOf(options) !== Object.prototype &&
+       Object.getPrototypeOf(options) !== null)) {
+    throw new TypeError("WASM guest admission requires plain option data");
+  }
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  for (const key of Reflect.ownKeys(options)) {
+    if (typeof key !== "string" || !CORE_GUEST_OPTIONS.has(key))
+      throw new TypeError("unsupported WASM guest capability/option: " + String(key));
+    if (!Object.hasOwn(descriptors[key], "value"))
+      throw new TypeError("WASM admission option getters/setters are forbidden");
+  }
+  for (const key of ["guestNetworkIo", "nioReactors", "actorPhysicalTurns", "hardRealtime"]) {
+    if (Object.hasOwn(options, key)) {
+      const required = key === "nioReactors" || key === "actorPhysicalTurns" ? 0 : false;
+      if (descriptors[key].value !== required)
+        throw new TypeError("unsupported WASM guest capability: " + key);
+    }
+  }
+}
+
+export function compileAdmittedCoreGuest(input, options = {}) {
+  assertZeroCapabilityOptions(options);
+  const {
+    expectedSha256,
+    entry = "main",
+    maxModuleBytes = 16 * 1024 * 1024,
+    maxMemoryPages = 2,
+    ioMode = "nio-only",
+    guestNetworkIo = false,
+    nioReactors = 0,
+    actorPhysicalTurns = 0,
+    hardRealtime = false
+  } = options;
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
