@@ -49,6 +49,20 @@ test("policy words inside comments and strings are not source annotations", () =
   assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(scalar)));
 });
 
+test("template interpolations cannot hide executable annotation syntax", () => {
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(bytes(
+      "fnc main(): int { return `value ${@Critical(1)}`; }"
+    )),
+    /template interpolation unsupported/
+  );
+  assert.doesNotThrow(
+    () => rejectUnsupportedActorThreadSource(bytes(
+      "fnc main(): int { return `inert @Critical(1)`; }"
+    ))
+  );
+});
+
 test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource("not bytes"), TypeError);
   assert.throws(() => rejectUnsupportedActorThreadSource(new Uint8Array([0xff])),
