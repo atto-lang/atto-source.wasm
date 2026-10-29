@@ -1,0 +1,39 @@
+name: Source-free runner admission canary
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/source-free-runner-canary.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/source-free-runner-canary.yml'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Prove a real runner executed without checking out private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${RUNNER_OS:-}" = Linux
+          test "${GITHUB_ACTIONS:-}" = true
+          [[ "${GITHUB_REPOSITORY:-}" =~ ^ores-truffle-oreslang/oreslang-source\.(java|llvm|wasm|net|forge)$ ]]
+          [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]]
+          valid_id() { [[ "$1" =~ ^[1-9][0-9]*$ ]]; }
+          valid_id "${GITHUB_RUN_ID:-}"
+          valid_id "${GITHUB_RUN_ATTEMPT:-}"
+          valid_id "${GITHUB_REPOSITORY_ID:-}"
+          if valid_id 0 || valid_id bad || valid_id '1/2'; then
+            echo '::error::source-free admission negative cases failed'
+            exit 1
+          fi
+          actual="$(printf '%s' oreslang-source-free-runner-admission-v1 | sha256sum | cut -d ' ' -f1)"
+          test "$actual" = 4a35cbaad4c7ea93615312c3e39ee83cae0405a29bdf9540094fb89524266b1e
+          echo 'SOURCE_FREE_RUNNER_ADMISSION=EXECUTED'
+          echo 'SOURCE_FREE_RUNNER_CLASSIFICATION=RUNNER_ONLY_NOT_COMPILER_OR_GUEST_PARITY'
+          echo 'SOURCE_FREE_RUNNER_SOURCE_CHECKOUT=NONE'
+          echo 'SOURCE_FREE_RUNNER_CROSS_ORG_TRANSFER=NONE'
+          echo 'Source-free execution is not proof of Actions billing capacity for larger jobs.'
