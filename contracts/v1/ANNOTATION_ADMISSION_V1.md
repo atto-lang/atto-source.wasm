@@ -42,3 +42,29 @@ Positive controls only where implemented:
 - **Forge:** narrow independent bootstrap; reject annotation source syntax, do not simulate annotations using C++ host attributes.
 
 Promotion requires both byte-identical contract files and executable, compiler-owned positive/negative fixtures per backend. Unimplemented features must remain explicitly unsupported, not no-op metadata.
+
+## Shared executable admission ledger
+
+The identical file `contracts/v1/annotation-admission-v1.cases` contains 17 bounded,
+base64-encoded UTF-8 source vectors, with exact pipe-separated columns:
+
+`id|java|llvm|wasm|net|forge|source_utf8_base64`
+
+An expectation of `pass` is **phase-scoped**. Java means parser admission
+only; LLVM means actual host/wasm32 IR generation; WASM means only preflight
+admission before the pinned LLVM bridge; .NET means acceptance by both scalar
+and structured parsers; Forge means the real scalar/native-call executable
+entrypoints return 42. No `pass` at a source-preflight phase proves that a
+native binary was emitted or executed.
+
+The all-backend negative set includes unimplemented deadline, permission,
+unsafe authority, role/middleware, ABI layout, inline/derive, duplicate
+return-type and invalid-target annotations. Two Java-only positive
+controls preserve its existing `@Ret` callable parsing and opaque
+`@BuildMetadata` module retention without advertising runtime execution.
+
+Every parity harness must enforce expected result, full corpus cardinality,
+unique case IDs and canonical UTF-8/base64 decoding. Native compiler
+harnesses must additionally reject stdout IR or on-disk artifacts on
+negative outcomes. Positive controls must not be satisfied by mocks or
+unexecuted Actions jobs.
