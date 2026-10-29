@@ -29,16 +29,22 @@ export function assertZeroCapabilityOptions(options) {
       throw new TypeError("WASM admission option getters/setters are forbidden");
   }
   for (const key of ["guestNetworkIo", "nioReactors", "actorPhysicalTurns", "hardRealtime"]) {
-    if (Object.hasOwn(options, key)) {
+    if (Object.hasOwn(descriptors, key)) {
       const required = key === "nioReactors" || key === "actorPhysicalTurns" ? 0 : false;
       if (descriptors[key].value !== required)
         throw new TypeError("unsupported WASM guest capability: " + key);
     }
   }
+  // Never read the supplied object a second time. An untrusted Proxy can
+  // return permitted data descriptors during checking and different values
+  // from a later property get. Execution must use the checked snapshot.
+  const checked = Object.create(null);
+  for (const key of Object.keys(descriptors)) checked[key] = descriptors[key].value;
+  return Object.freeze(checked);
 }
 
 export function compileAdmittedCoreGuest(input, options = {}) {
-  assertZeroCapabilityOptions(options);
+  const checked = assertZeroCapabilityOptions(options);
   const {
     expectedSha256,
     entry = "main",
@@ -49,7 +55,7 @@ export function compileAdmittedCoreGuest(input, options = {}) {
     nioReactors = 0,
     actorPhysicalTurns = 0,
     hardRealtime = false
-  } = options;
+  } = checked;
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
