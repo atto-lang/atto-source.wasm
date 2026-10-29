@@ -1,0 +1,7 @@
+# Source-free CI provenance parity contract (v1)
+
+This standalone exact-head PR check is intentionally identical across oreslang-source.java, .llvm, .wasm, .net and .forge. It proves that an unprivileged GitHub Actions runner checked out the advertised commit/tree and can verify the checksum of a **synthetic public-only** artifact. It runs negative tests against substituted repository, commit, tree, checksum, payload, and false authority metadata. Real job/step execution is established only by GitHub Actions' job-step API, not by JSON self-attestation.
+
+This workflow does not build the compiler, resolve external dependencies, read or export private source, obtain secrets, publish artifacts, change approvals, or authorize cross-organization mirroring. Each backend keeps its pre-existing independent-review/destination policy. Never copy a private source Git tree to a carrier based on Actions minutes alone; independent source-owner and destination authorization is required before any export, with exact tree equality and fresh review on the exact head.
+
+Native dependency remediation stays backend-specific: Maven/GraalVM, CMake/LLVM, npm/Rust/Wasm, NuGet/.NET, and CMake/Forge cannot be treated as the same Cargo.lock operation. Trusted dependency resolution requires a protected workflow, immutable dependency pins, a credential-free/offline proposal stage, real checksum provenance, and subsequent full native build/security tests. This source-free contract is only the common CI admission baseline.
