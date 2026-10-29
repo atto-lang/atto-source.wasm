@@ -55,6 +55,8 @@ jobs:
         run: cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
       - name: Build compiler-free AOT runner
         run: cargo check --locked --manifest-path aot-host/run/Cargo.toml
+      - name: Run native Wasmtime tenant-registry unit tests
+        run: cargo test --locked --manifest-path aot-host/run/Cargo.toml
       - name: Assert native runtime dependency tree contains no Wasm compiler
         shell: bash
         run: |
