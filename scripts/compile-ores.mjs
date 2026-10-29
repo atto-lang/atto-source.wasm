@@ -92,11 +92,6 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
  }
 }
 /**
- * Structural match-arm patterns need typed metadata and readonly loan
- * lowering; a scalar-only Wasm guest may never materialize them by accident.
- * Reuses the bounded UTF-8 lexer so strings/comments are never evidence.
- */
-/**
  * The Wasm scalar bridge does not implement annotation expansion. Reject
  * source-level attributes before invoking a pinned LLVM compiler or staging
  * publication. The shared lexer excludes quoted literals and nested comments.
@@ -110,6 +105,11 @@ export function rejectUnsupportedAnnotationsSource(sourceBytes){
   }
  }
 }
+/**
+ * Structural match-arm patterns need typed metadata and readonly loan
+ * lowering; a scalar-only Wasm guest may never materialize them by accident.
+ * Reuses the bounded UTF-8 lexer so strings/comments are never evidence.
+ */
 export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  const tokens=tupleV2Tokens(sourceBytes);
  for(let i=0;i+1<tokens.length;i++){
