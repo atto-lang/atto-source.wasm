@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "destinations": [
+    {
+      "repository": "zed-pkg-test/java-app",
+      "repository_id": 1323575966,
+      "incidents": [
+        22
+      ]
+    },
+    {
+      "repository": "scintilla-run-test/gleam-runner-conformance",
+      "repository_id": 1323598260,
+      "incidents": [
+        77
+      ]
+    },
+    {
+      "repository": "ores-dummy-org-oreslang-stack/ores-dummy-org-oreslang-stack-infra",
+      "repository_id": 1412142815,
+      "incidents": [
+        127
+      ]
+    },
+    {
+      "repository": "agent-pontifex-test/agent-pontifex-e2e-tests",
+      "repository_id": 1370782550,
+      "incidents": [
+        171
+      ]
+    },
+    {
+      "repository": "led-dynamo/leddy-e2e",
+      "repository_id": 1324139596,
+      "incidents": [
+        172
+      ]
+    },
+    {
+      "repository": "ClaimGraph-test/claimgraph-e2e",
+      "repository_id": 1350751074,
+      "incidents": [
+        198,
+        200
+      ]
+    }
+  ]
+}
