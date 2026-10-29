@@ -70,7 +70,11 @@
     "clock_rollback",
     "restarted_actor_same_logical_dispatch",
     "code_reload_same_logical_dispatch",
-    "cross_backend_local_claim_collision"
+    "cross_backend_local_claim_collision",
+    "ancestor_symlink_directory",
+    "absolute_dotdot_claim_path",
+    "relative_claim_path",
+    "path_component_symlink_swapping"
   ],
   "not_implemented": [
     "signed_capability_issuer",
@@ -84,5 +88,19 @@
     "net_native_aot_guest_oracles",
     "forge_guest_oracles",
     "cross_backend_trace_parity"
-  ]
+  ],
+  "local_claim_directory_security": {
+    "evidence_scope": "Java and LLVM host-only local-filesystem prototype; not implemented in WASM/.NET/Forge or a native Oreslang guest",
+    "must_reject": [
+      "nonabsolute_claim_root",
+      "dotdot_path_components",
+      "symlink_in_any_directory_ancestor",
+      "group_or_world_access_to_final_claim_root",
+      "non_owner_final_claim_root",
+      "preexisting_claim_key"
+    ],
+    "native_llvm": "root-anchored openat walk with O_NOFOLLOW/O_DIRECTORY on every component; owner-only 0700 final directory; fsync file and directory",
+    "java": "noncanonical/relative paths and symlink ancestors fail closed, but pathname-based creation has a residual mutation race; use a trusted immutable directory tree or a dirfd-anchored provider",
+    "cross_host_claims": "NOT_IMPLEMENTED"
+  }
 }
