@@ -3,7 +3,7 @@
 // It does NOT by itself prove that the compiler executable was built from HEAD.
 import {spawnSync} from 'node:child_process';
 import {lstatSync, realpathSync} from 'node:fs';
-import {isAbsolute, resolve} from 'node:path';
+import {isAbsolute, resolve, join} from 'node:path';
 
 const SHA1 = /^[a-f0-9]{40}$/;
 function git(root, args) {
@@ -30,6 +30,15 @@ export function verifyPinnedLlvmCheckout({
   const root = realpathSync(sourceDir);
   if (root !== resolve(sourceDir) || !lstatSync(root).isDirectory())
     throw Error('LLVM source checkout must be a real absolute directory');
+  // O_NOFOLLOW protects only a file's last component, not build/ itself.
+  let buildStat;
+  try {
+    buildStat = lstatSync(join(root, 'build'));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  if (buildStat && (!buildStat.isDirectory() || buildStat.isSymbolicLink()))
+    throw Error('LLVM build directory must be a real non-symlink directory');
   if (git(root, ['rev-parse', '--show-toplevel']) !== root)
     throw Error('LLVM source directory must be the Git root, not a subdirectory');
   const actualSha = git(root, ['rev-parse', 'HEAD']);

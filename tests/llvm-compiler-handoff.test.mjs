@@ -5,6 +5,8 @@ import {spawnSync} from 'node:child_process';
 import {mkdtemp, mkdir, writeFile, readFile, chmod, symlink, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {REVIEWED_LLVM_SOURCE_SHA, REVIEWED_LLVM_SOURCE_TREE}
+  from '../scripts/verify-llvm-compiler-handoff.mjs';
 import {verifyLlvmCompilerHandoff as verify} from '../scripts/verify-llvm-compiler-handoff.mjs';
 
 function git(dir,...args) {
@@ -112,5 +114,25 @@ test('compiler or receipt symlinks, oversized receipt, and missing receipt are r
     await rm(d.compiler);
     await symlink(orig,d.compiler);
     await assert.rejects(verify(d));
+  });
+});
+
+test('mandatory handoff rejects internally consistent but unreviewed LLVM source',async()=>{
+  await withFixture(async d=>{
+    assert.equal((await verify(d)).receiptMatched,true);
+    await assert.rejects(verify({...d,requireReviewedPin:true}),/not the reviewed pin/);
+    await assert.rejects(verify({...d,sourceSha:REVIEWED_LLVM_SOURCE_SHA,
+      requireReviewedPin:true}),/not the reviewed pin/);
+    await assert.rejects(verify({...d,sourceTree:REVIEWED_LLVM_SOURCE_TREE,
+      requireReviewedPin:true}),/not the reviewed pin/);
+  });
+});
+
+test('compiler receipt consumer refuses a FIFO without blocking', {skip:process.platform!=='linux'},async()=>{
+  await withFixture(async d=>{
+    const fifo=join(d.tmp,'receipt-fifo');
+    const mk=spawnSync('mkfifo',[fifo],{encoding:'utf8',timeout:3000});
+    assert.equal(mk.status,0,mk.stderr);
+    await assert.rejects(verify({...d,receipt:fifo}),/unsafe regular-file size/);
   });
 });

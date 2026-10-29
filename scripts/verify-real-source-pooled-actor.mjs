@@ -22,7 +22,8 @@ if (!process.env.ORESLANG_LLVM_COMPILER ||
       sourceDir: process.env.ORESLANG_LLVM_SOURCE_DIR,
       sourceSha: process.env.ORESLANG_LLVM_SOURCE_SHA,
       sourceTree: process.env.ORESLANG_LLVM_SOURCE_TREE,
-      receipt: process.env.ORESLANG_LLVM_COMPILER_RECEIPT
+      receipt: process.env.ORESLANG_LLVM_COMPILER_RECEIPT,
+      requireReviewedPin: true
     });
     const path = fileURLToPath(new URL('../tests/real-source-pooled-actor.test.mjs', import.meta.url));
     const r = spawnSync(process.execPath, ['--test', path], {

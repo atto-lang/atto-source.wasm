@@ -22,7 +22,12 @@ consumer `scripts/verify-llvm-compiler-handoff.mjs` verifies the real Git
 checkout, compiler digest, executable mode and *exact* four-field v1 receipt
 bytes (including refusal of duplicate keys or extra success fields). The
 mandatory `npm run test:real-pooled-actors` invokes that same consumer
-even when run outside the GitHub workflow.
+even when run outside the GitHub workflow. The CLI and mandatory actor
+gate now additionally require the *exact reviewed* LLVM commit/tree (not
+merely well-formed source SHA declarations). The compiler receipt verifier
+rejects FIFO receipts without blocking, and the build/ directory cannot be
+a symlink to an external compiler. These checks do not authorize any
+private-source transfer or substitute for an independently trusted build.
 
 This stage **intentionally fails NOT_EXECUTED on ordinary GitHub-hosted
 runners**, because no approved LLVM checkout provisioning mechanism exists

@@ -15,13 +15,16 @@ import {verifyPinnedLlvmCheckout} from './verify-pinned-llvm-checkout.mjs';
 const SHA1 = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const SCHEMA = 'oreslang.llvm.compiler-receipt.v1';
+// These pins select candidate compiler source; they do not authorize transfer.
+export const REVIEWED_LLVM_SOURCE_SHA = 'a79156b74098c368763ee2c6843a65126e3051bf';
+export const REVIEWED_LLVM_SOURCE_TREE = '43f8bda51bae2deb7747d73962be3ef6a3534628';
 const MAX_COMPILER = 256 * 1024 * 1024;
 const MAX_RECEIPT = 8192;
 
 async function readRegularNoFollow(path, maximum, label) {
   if (typeof path !== 'string' || !isAbsolute(path))
     throw Error(label + ': absolute path required');
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0) | (constants.O_NONBLOCK || 0));
   try {
     const before = await handle.stat();
     if (!before.isFile() || before.size < 1 || before.size > maximum)
@@ -45,12 +48,16 @@ function canonicalLlvmReceipt({sourceCommit,sourceTree,compilerSha256}) {
 }
 
 export async function verifyLlvmCompilerHandoff({
-  compiler, compilerSha256, sourceDir, sourceSha, sourceTree, receipt
+  compiler, compilerSha256, sourceDir, sourceSha, sourceTree, receipt,
+  requireReviewedPin = false
 } = {}) {
   if (typeof sourceSha !== 'string' || !SHA1.test(sourceSha) ||
       typeof sourceTree !== 'string' || !SHA1.test(sourceTree) ||
       typeof compilerSha256 !== 'string' || !SHA256.test(compilerSha256))
     throw Error('NOT_EXECUTED: exact LLVM source, tree and compiler digest pins required');
+  if (requireReviewedPin && (sourceSha !== REVIEWED_LLVM_SOURCE_SHA ||
+      sourceTree !== REVIEWED_LLVM_SOURCE_TREE))
+    throw Error('NOT_EXECUTED: LLVM compiler source commit/tree is not the reviewed pin');
   if (typeof sourceDir !== 'string' || !isAbsolute(sourceDir) ||
       typeof compiler !== 'string' || !isAbsolute(compiler) ||
       typeof receipt !== 'string' || !isAbsolute(receipt))
@@ -88,7 +95,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       sourceDir:process.env.ORESLANG_LLVM_SOURCE_DIR,
       sourceSha:process.env.ORESLANG_LLVM_SOURCE_SHA,
       sourceTree:process.env.ORESLANG_LLVM_SOURCE_TREE,
-      receipt:process.env.ORESLANG_LLVM_COMPILER_RECEIPT
+      receipt:process.env.ORESLANG_LLVM_COMPILER_RECEIPT,
+      requireReviewedPin:true
     });
     console.log('LLVM_COMPILER_HANDOFF_BYTES_VERIFIED ' +
       result.sourceSha + ' ' + result.sourceTree + ' ' + result.compilerSha256);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtemp, writeFile, rm, symlink} from 'node:fs/promises';
+import {mkdtemp, writeFile, rm, symlink, mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {verifyPinnedLlvmCheckout as verify} from '../scripts/verify-pinned-llvm-checkout.mjs';
@@ -43,6 +43,17 @@ test('pinned LLVM compiler source must be an independently matching Git checkout
       /untracked or ignored files outside build/);
     await rm(join(dir,'build-output.txt'));
     assert.equal(verify({sourceDir:dir,sourceSha,sourceTree}).validatedGitCheckout,true);
+    if(process.platform!=='win32') {
+      const outside=await mkdtemp(join(tmpdir(),'ores-build-alias-'));
+      try {
+        await symlink(outside,join(dir,'build'));
+        assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree}),
+          /build directory must be a real non-symlink/);
+        await rm(join(dir,'build'));
+        await mkdir(join(dir,'build'));
+        assert.equal(verify({sourceDir:dir,sourceSha,sourceTree}).validatedGitCheckout,true);
+      } finally {await rm(outside,{recursive:true,force:true});}
+    }
     assert.throws(()=>verify({sourceDir:dir,sourceSha:'a'.repeat(40),sourceTree}),
       /commit\/tree mismatch/);
     assert.throws(()=>verify({sourceDir:dir,sourceSha,sourceTree:'b'.repeat(40)}),

@@ -8,6 +8,8 @@ import {tmpdir} from 'node:os';
 
 const script=fileURLToPath(new URL('../scripts/build-pinned-llvm-compiler.sh',import.meta.url));
 const content=readFileSync(script,'utf8');
+import {REVIEWED_LLVM_SOURCE_SHA, REVIEWED_LLVM_SOURCE_TREE}
+  from '../scripts/verify-llvm-compiler-handoff.mjs';
 const sourcePin='a79156b74098c368763ee2c6843a65126e3051bf';
 const treePin='43f8bda51bae2deb7747d73962be3ef6a3534628';
 
@@ -29,6 +31,8 @@ test('LLVM compiler build is fixed to independently reviewed commit and tree',()
   assert.ok(content.includes('ORESLANG_LLVM_COMPILER_RECEIPT='));
   assert.equal(sourcePin.length,40);
   assert.equal(treePin.length,40);
+  assert.equal(REVIEWED_LLVM_SOURCE_SHA,sourcePin);
+  assert.equal(REVIEWED_LLVM_SOURCE_TREE,treePin);
 });
 test('compiler build script cannot fetch private source or use cross-repository credentials',()=>{
   assert.doesNotMatch(content,/(?:git|gh)\s+(?:clone|fetch)|curl\s|wget\s|GITHUB_TOKEN|secrets\.|private.*token/i);
@@ -86,4 +90,14 @@ test('compiler checks trusted environment paths before invoking CMake',()=>{
   assert.ok(content.includes("$receipt_dir\" != *$'\\n'"));
   assert.ok(content.includes('GitHub environment file path must be canonical'));
   assert.ok(content.includes('RUNNER_TEMP must be a canonical directory'));
+});
+
+test('mandatory actor and CLI paths require the immutable reviewed compiler source pin',()=>{
+  const real=readFileSync(fileURLToPath(new URL('../scripts/verify-real-source-pooled-actor.mjs',import.meta.url)),'utf8');
+  const handoff=readFileSync(fileURLToPath(new URL('../scripts/verify-llvm-compiler-handoff.mjs',import.meta.url)),'utf8');
+  assert.match(real,/requireReviewedPin:\s*true/);
+  assert.match(handoff,/requireReviewedPin:\s*true/);
+  assert.match(handoff,/sourceSha !== REVIEWED_LLVM_SOURCE_SHA/);
+  assert.match(handoff,/sourceTree !== REVIEWED_LLVM_SOURCE_TREE/);
+  assert.match(handoff,/O_NONBLOCK/);
 });
