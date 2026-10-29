@@ -73,7 +73,7 @@ test('Canonicalized unsafe import matrix cannot be laundered by alias or comment
       rejected++;
     }
   }
-  assert.equal(rejected, 360);
+  assert.equal(rejected, 600);
   for (const nearMiss of ['std/unsafe_tools', 'std/unsafe-math',
                           'ores.std/safe', 'pkg:unsafe', 'std/./unsafe_tools',
                           'std/stuff/../safe', 'ores.std:unsafe_tools',
