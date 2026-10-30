@@ -61,6 +61,15 @@ pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
 if "$runner" "$tmp/aot-symlink.cwasm" "$pin" > /dev/null 2>&1; then
   echo "runner followed symlinked native artifact" >&2; exit 1
 fi
+# The Rust tamper fixture must not follow a swapped AOT symlink either:
+# it opens private artifacts with O_NOFOLLOW and rechecks dev/inode/size.
+untouched="$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)"
+if "$fixtures" corrupt "$tmp/aot-symlink.cwasm" > /dev/null 2>&1; then
+  echo "Rust AOT corruption fixture followed a symlink" >&2; exit 1
+fi
+if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$untouched" ]]; then
+  echo "Rust tamper fixture mutated the symlink target" >&2; exit 1
+fi
 mkfifo "$tmp/input.fifo"
 set +e
 timeout 4s "$builder" "$tmp/input.fifo" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
