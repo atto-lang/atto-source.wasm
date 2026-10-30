@@ -9,6 +9,8 @@ const BOUNDARIES = new Set([
   "SPAWN",
 ]);
 
+const MAX_TRACE_BOUNDARIES = 8;
+
 const CALLBACK_FIELDS = [
   "kind",
   "runtimeDomain",
@@ -18,6 +20,8 @@ const CALLBACK_FIELDS = [
   "parentExecution",
   "continuation",
   "boundary",
+  "traceBoundaries",
+  "traceElided",
 ];
 const CALLBACK_FIELD_SET = new Set(CALLBACK_FIELDS);
 
@@ -86,8 +90,16 @@ function validateCallback(value) {
   asPositiveBigInt(value.generation, "generation");
   asNonNegativeBigInt(value.parentExecution, "parentExecution");
   asNonNegativeBigInt(value.continuation, "continuation");
+  if (!Array.isArray(value.traceBoundaries)
+      || value.traceBoundaries.length === 0
+      || value.traceBoundaries.length > MAX_TRACE_BOUNDARIES
+      || value.traceBoundaries.some((item) => !BOUNDARIES.has(item))) {
+    throw new TypeError("invalid callback trace boundary history");
+  }
+  asNonNegativeBigInt(value.traceElided, "traceElided");
 
-  if (Object.isFrozen(value)) return value;
+  if (Object.isFrozen(value) && Object.isFrozen(value.traceBoundaries)) return value;
+  const traceBoundaries = Object.freeze([...value.traceBoundaries]);
   return Object.freeze({
     kind: "ores.callback.v1",
     runtimeDomain: value.runtimeDomain,
@@ -97,6 +109,8 @@ function validateCallback(value) {
     parentExecution: value.parentExecution,
     continuation: value.continuation,
     boundary: value.boundary,
+    traceBoundaries,
+    traceElided: value.traceElided,
   });
 }
 
@@ -118,6 +132,34 @@ export function captureExecutionCallbackContext(activeExecution, boundary) {
     parentExecution: active.parentExecution,
     continuation: active.continuation,
     boundary,
+    traceBoundaries: Object.freeze([boundary]),
+    traceElided: 0n,
+  });
+}
+
+export function deriveExecutionCallbackContext(parentContext, boundary) {
+  if (!BOUNDARIES.has(boundary)) {
+    throw new TypeError("invalid Ores callback boundary");
+  }
+  const parent = validateCallback(parentContext);
+  const trace = [...parent.traceBoundaries, boundary];
+  let traceElided = parent.traceElided;
+  while (trace.length > MAX_TRACE_BOUNDARIES) {
+    trace.shift();
+    traceElided += 1n;
+  }
+
+  return Object.freeze({
+    kind: "ores.callback.v1",
+    runtimeDomain: parent.runtimeDomain,
+    execution: parent.execution,
+    dispatch: parent.dispatch,
+    generation: parent.generation,
+    parentExecution: parent.parentExecution,
+    continuation: parent.continuation,
+    boundary,
+    traceBoundaries: Object.freeze(trace),
+    traceElided,
   });
 }
 
