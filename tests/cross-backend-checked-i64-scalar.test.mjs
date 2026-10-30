@@ -78,6 +78,25 @@ for(const [name,expression] of [
   });
 }
 
+for(const numericType of ["bigint","decimal","f32","f64","float","i32","u64"]){
+  test("unsupported numeric type fails before Wasm publication: "+numericType,async t=>{
+    if(!compiler){
+      if(requireReal) assert.fail(
+        "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required numeric admission");
+      t.skip("set ORESLANG_LLVM_COMPILER to run optional real cross-backend parity");return;
+    }
+    const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-numeric-reject-"));
+    t.after(()=>rm(dir,{recursive:true,force:true}));
+    const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
+    await writeFile(source,header+"define pub fnc main("+numericType+" value): int { return 0; }\n");
+    await assert.rejects(()=>compileOresToWasm({
+      compiler:resolve(compiler),compilerSha256:await compilerPin(),source,output
+    }));
+    await assert.rejects(()=>readFile(output),
+      "rejected precision type must not publish a Wasm artifact");
+  });
+}
+
 test("int / int is not admitted as an i64 result",async t=>{
   if(!compiler){
     if(requireReal) assert.fail(
