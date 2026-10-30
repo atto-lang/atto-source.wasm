@@ -84,7 +84,12 @@
     "postgres_fsync_off",
     "unknown_database_commit_without_retry",
     "new_generation_old_dispatch_replay",
-    "postgres_unsafe_direct_table_privilege"
+    "postgres_unsafe_direct_table_privilege",
+    "reject_non_synchronous_commit_session",
+    "existing_schema_migration_replacement_denied",
+    "security_definer_owner_not_superuser",
+    "runtime_credential_cannot_authenticate_migration_owner",
+    "runtime_table_read_prohibited"
   ],
   "not_implemented": [
     "signed_capability_issuer",
@@ -120,7 +125,7 @@
     "server_authorization": "session_user bound to enabled tenant/actor row maintained by trusted administrator, locked FOR SHARE",
     "actor_fence": "generation, activation_epoch and exact revision locked FOR SHARE at transaction admission",
     "storage": "PRIMARY KEY tenant_id+actor_id+dispatch_id, INSERT ON CONFLICT DO NOTHING, no expiry deletion or automatic retry after unknown commit",
-    "durability": "function SET synchronous_commit=on; refuse server fsync=off; local service transaction success does NOT prove remote provider effects",
+    "durability": "Database requires fsync=on and synchronous_commit in [on, remote_apply] at admission; host uses a trusted single-statement autocommit connection and must not alter session durability before commit. Function-level SET synchronous_commit is insufficient because it can revert before COMMIT. Provider receipt and independent durability review still required.",
     "provider": "Independent signed/verified capability checks, idempotency and authenticated outcome reconciliation REQUIRED before production",
     "test_requirements": [
       "real PostgreSQL migration success",
@@ -132,6 +137,8 @@
       "new actor generation cannot recycle an old dispatch",
       "old actor generation denied after supervisor advances fence",
       "real compiled Oreslang guest execution on each backend"
-    ]
+    ],
+    "migration": "Apply v1 exactly once into an empty schema with a dedicated non-superuser migration owner; fail closed if an existing schema or function is present; revoke PUBLIC execution inside same migration transaction.",
+    "test_authentication": "Use ephemeral SCRAM credentials; forbid trust authentication and require a negative runtime-as-admin login test; source-free carrier canaries do not prove private source or database migration."
   }
 }
