@@ -70,6 +70,16 @@ fi
 if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$untouched" ]]; then
   echo "Rust tamper fixture mutated the symlink target" >&2; exit 1
 fi
+# O_NOFOLLOW alone is insufficient: hardlinks alias the same inode. A fixture
+# must have exactly one link before we deliberately mutate any bytes.
+ln "$tmp/42.cwasm" "$tmp/aot-hardlink.cwasm"
+if "$fixtures" corrupt "$tmp/aot-hardlink.cwasm" > /dev/null 2>&1; then
+  echo "Rust AOT corruption fixture admitted a multiply-linked inode" >&2; exit 1
+fi
+if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$untouched" ]]; then
+  echo "Rust tamper fixture mutated a shared hardlink target" >&2; exit 1
+fi
+rm -- "$tmp/aot-hardlink.cwasm"
 mkfifo "$tmp/input.fifo"
 set +e
 timeout 4s "$builder" "$tmp/input.fifo" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
