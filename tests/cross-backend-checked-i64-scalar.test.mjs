@@ -29,6 +29,10 @@ for(const [name,expression,expected] of [
   ["min","-9223372036854775808",-9223372036854775808n],
   ["zero","0",0n],
   ["signed multiplication","-7 * -6",42n],
+  ["Math.abs negative","Math.abs(-42)",42n],
+  ["Math.abs zero","Math.abs(0)",0n],
+  ["Math.neg positive","Math.neg(42)",-42n],
+  ["Math.neg negative","Math.neg(-42)",42n],
 ]){
   test("checked-i64 cross-backend scalar: "+name,async t=>{
     const main=await compileMain(t,expression); if(!main)return;
@@ -41,6 +45,8 @@ for(const [name,expression] of [
   ["subtract overflow","-9223372036854775808 - 1"],
   ["multiply overflow","9223372036854775807 * 2"],
   ["unary negate minimum","-(-9223372036854775808)"],
+  ["Math.abs minimum","Math.abs(-9223372036854775808)"],
+  ["Math.neg minimum","Math.neg(-9223372036854775808)"],
 ]){
   test("checked-i64 cross-backend overflow traps: "+name,async t=>{
     const main=await compileMain(t,expression); if(!main)return;
