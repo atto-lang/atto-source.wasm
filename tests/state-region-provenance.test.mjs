@@ -7,6 +7,10 @@ import {
   stateRegionProvenance,
   stateRegionReleaseRecord
 } from "../src/state-region-provenance.mjs";
+import {
+  stateRegionRequirement,
+  stateRegionRequirementAuthorizesRelease
+} from "../src/state-region-requirement.mjs";
 
 const vectors = JSON.parse(fs.readFileSync(
   fileURLToPath(new URL("../contracts/v1/state-region-provenance-v1.json", import.meta.url)),
@@ -53,4 +57,36 @@ test("metadata record is immutable and does not expose actor linear memory", () 
   assert.throws(() => {
     metadata.executionGeneration = 999;
   }, TypeError);
+});
+
+
+test("compile-time requirement never contains concrete runtime identity", () => {
+  const borrow = stateRegionRequirement({
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "write",
+    action: "borrow"
+  });
+  const release = stateRegionRequirement({...borrow, action: "release"});
+  assert.equal(stateRegionRequirementAuthorizesRelease(borrow, release), true);
+
+  for (const [field, value] of [
+    ["regionId", 9],
+    ["regionGeneration", 3],
+    ["runtimeDomain", 7],
+    ["executionId", 1001],
+    ["executionSlot", 41],
+    ["executionGeneration", 6]
+  ]) {
+    assert.throws(
+      () => stateRegionRequirement({...borrow, [field]: value}),
+      /must not contain/);
+  }
+  assert.throws(
+    () => stateRegionRequirement({...borrow, generationFence: false}),
+    /generation fenced/);
 });
