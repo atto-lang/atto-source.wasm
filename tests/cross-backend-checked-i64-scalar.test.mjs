@@ -4,6 +4,7 @@ import {createHash} from "node:crypto";
 import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
@@ -28,6 +29,25 @@ async function compilerPin(){
   return pinnedCompilerSha;
 }
 
+async function compilePortableFixture(t,name){
+  if(!compiler){
+    if(requireReal) assert.fail(
+      "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required Math parity");
+    t.skip("set ORESLANG_LLVM_COMPILER to run optional real cross-backend parity");return null;
+  }
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-portable-"));
+  t.after(()=>rm(dir,{recursive:true,force:true}));
+  const source=fileURLToPath(new URL("./fixtures/numeric-v1/"+name,import.meta.url));
+  const output=join(dir,"main.wasm");
+  await compileOresToWasm({
+    compiler:resolve(compiler),compilerSha256:await compilerPin(),source,output
+  });
+  const bytes=await readFile(output);
+  const {instance}=await WebAssembly.instantiate(bytes,{});
+  assert.equal(typeof instance.exports.main,"function");
+  return instance.exports.main;
+}
+
 async function compileMain(t,expression){
   if(!compiler){
     if(requireReal) assert.fail(
@@ -43,6 +63,18 @@ async function compileMain(t,expression){
   const {instance}=await WebAssembly.instantiate(bytes,{});
   assert.equal(typeof instance.exports.main,"function");
   return instance.exports.main;
+}
+
+test("portable numeric guest blob: Math i64 success",async t=>{
+  const main=await compilePortableFixture(t,"math-i64-ok.ores"); if(!main)return;
+  assert.equal(main(),84n);
+});
+
+for(const name of ["math-i64-abs-min.ores","math-i64-neg-min.ores"]){
+  test("portable numeric guest blob traps: "+name,async t=>{
+    const main=await compilePortableFixture(t,name); if(!main)return;
+    assert.throws(()=>main(),WebAssembly.RuntimeError);
+  });
 }
 
 for(const [name,expression,expected] of [
@@ -107,5 +139,5 @@ test("int / int is not admitted as an i64 result",async t=>{
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
   await writeFile(source,header+"define pub fnc main(): int { return 7 / 2; }\n");
-  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
+  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256:await compilerPin(),source,output}));
 });
