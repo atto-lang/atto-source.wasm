@@ -11,7 +11,11 @@
     "decimal_exact": "unsupported_explicit",
     "complex_binary64": "unsupported_explicit",
     "decimal_matrix": "unsupported_explicit",
-    "source_division_to_float": "unsupported_explicit"
+    "source_division_to_float": "unsupported_explicit",
+    "math_i64_unary": "unsupported_explicit",
+    "binary64_unary": "unsupported_explicit",
+    "bigint_unary": "unsupported_explicit",
+    "decimal_unary": "unsupported_explicit"
   },
   "evidence": {
     "source_i64": {},
@@ -22,8 +26,13 @@
     "decimal_exact": {},
     "complex_binary64": {},
     "decimal_matrix": {},
-    "source_division_to_float": {}
+    "source_division_to_float": {},
+    "math_i64_unary": {},
+    "binary64_unary": {},
+    "bigint_unary": {},
+    "decimal_unary": {}
   },
   "source_i64_fixture_git_blob_sha": "bbc319c19ecd007109d33592e210091eb267e5a2",
-  "source_i64_overflow_fixture_git_blob_sha": "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a"
+  "source_i64_overflow_fixture_git_blob_sha": "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a",
+  "math_unary_precision_fixture_git_blob_sha": "3249d837ae6bcf6e2c2c23cac872becf92d0c8e0"
 }
