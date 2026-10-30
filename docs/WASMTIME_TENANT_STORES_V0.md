@@ -31,8 +31,10 @@ compromise of the Rust host or Wasmtime's native code.
   The v0 synchronous `&mut self` registry serializes host operations; a
   future asynchronous broker must prove drain/termination before destroying
   in-flight tenant workloads.
-- Tenant IDs are bounded ASCII identifiers and do not encode filesystem
-  paths. The `StoreLimits` budget is **not** a bound on total native RSS,
+- Tenant IDs are bounded ASCII identifiers, reject reserved dot-only
+  components (`.` and `..`), and do not encode filesystem paths. The
+  corresponding cross-backend reference contract is proposed in
+  `oreslang-platform-conformance` PR #243. The `StoreLimits` budget is **not** a bound on total native RSS,
   compiler memory, host heap, or CPU wall time.
 
 ## Authentication and deployment gates
