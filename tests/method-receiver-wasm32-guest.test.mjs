@@ -15,7 +15,11 @@ const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 
 function run(command,args,options={}) {
   const result=spawnSync(command,args,{encoding:"utf8",timeout:30000,
-    maxBuffer:4*1024*1024,...options});
+    maxBuffer:4*1024*1024,
+    // Compiler and linker never inherit CI tokens, cloud credentials,
+    // Node injection hooks or runtime loader overrides.
+    env:{PATH:process.env.PATH||"/usr/bin:/bin",LANG:"C.UTF-8",LC_ALL:"C.UTF-8"},
+    ...options});
   assert.ifError(result.error);
   assert.equal(result.signal,null,"process timed out or was killed");
   return result;
