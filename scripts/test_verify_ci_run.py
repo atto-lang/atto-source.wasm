@@ -268,6 +268,23 @@ class RunContract(unittest.TestCase):
                         expected_run_attempt=1)
         self.assertEqual(self.validate()["run_attempt"], 2)
 
+    def test_result_is_machine_consumable_runner_executed_evidence(self):
+        result = self.validate()
+        self.assertEqual(result["schema"], "oreslang-parity-execution-evidence-v1")
+        self.assertEqual(result["claim_tier"], "RUNNER_EXECUTED")
+        self.assertEqual(result["workflow_id"], 991)
+        self.assertEqual(result["artifacts"], [])
+        self.assertEqual(len(result["jobs"]), 1)
+        job = result["jobs"][0]
+        self.assertEqual(job["job_id"], 31)
+        self.assertEqual(job["runner_id"], 1000002089)
+        self.assertEqual(job["runner_name"], "GitHub Actions 1")
+        self.assertEqual(job["conclusion"], "success")
+        self.assertEqual(
+            [step["name"] for step in job["meaningful_steps"]],
+            ["Execute test suite"])
+        self.assertEqual(job["meaningful_steps"][0]["category"], "indeterminate")
+
     def test_workflow_blob_pin_required(self):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch, self.backend, self.commit, self.tree,
