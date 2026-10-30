@@ -22,6 +22,26 @@ remains the same slot as `foo(self, int x)` and `foo(int x)`.
 `mut self` changes receiver borrowing rules, not overload selection;
 it never grants an actor direct state mutation or mailbox dispatch authority.
 
+The receiver-erased signatures below have the same selector and MUST conflict
+when declared together in the same owner, in either declaration order:
+
+```ores
+x(): void {}
+x(mut self)(): void {}              // duplicate instance x/0
+
+x(int n): void {}
+x(mut self, int n): void {}         // duplicate instance x/1
+```
+
+Both `y(mut self, int n)` and `y(mut self)(int n)` denote one mutable
+receiver plus **one** caller-supplied value argument. In contrast,
+`x(string a)` and `y(mut self, int n)` can coexist because their names
+differ. The preferred formatting is inline `y(mut self, int n)`.
+`self` always refers to the compiler-bound receiver, and any explicit
+`self` expression in a *call* argument list counts as a value argument.
+The method-call loan for `mut self` is exclusive; aliases and live borrows
+must still pass the ownership checker.
+
 Overloads are selected by owner, instance/static namespace, name and
 value-parameter count. Receiver spelling, generics, return type, effects,
 mutability and ordinary argument types are not distinguishing keys.
@@ -92,12 +112,15 @@ not substitute a scalar mutation or an unprotected callback.
 ## 5. Current rollout boundary
 
 * Java/GraalVM: implementation is on draft PR #1087, unverified CI.
-* LLVM: restricted scalar actor `on_message` supports optional receiver
-  marker on parity-gate branch; general class methods and lambda captures
-  remain unsupported.
-* .NET and Forge: scalar bootstrap; reject method and lambda policies.
-* Wasm: uses the real native LLVM compiler and its restrictions; no independent
-  source-language implementation of these features.
+* LLVM: synchronous scalar class methods and mutable receiver loans are
+  implemented for a restricted native class subset. General class/actor
+  inheritance, lambda capture and actor-method lowering remain incomplete.
+* .NET: scalar and structured source frontends reject class/actor methods
+  before CIL/Native AOT emission; nominal method slot contracts are not an
+  executable method implementation. Forge remains separately gated.
+* Wasm: delegates source compilation to the pinned real native LLVM compiler;
+  the wasm32 method/actor lowering gate remains fail-closed. There is no
+  independent JavaScript source parser claiming method semantics.
 
 This is a phased migration. Cross-backend parity is **NOT ACHIEVED** until
 all required positive code executes and negative cases reject as specified.
