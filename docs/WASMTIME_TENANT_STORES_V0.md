@@ -70,8 +70,11 @@ produces a pin-checked Wasmtime AOT module. The debug runner's
    legitimately owned compartment.
 3. Destroying A invalidates its old handle; recreating the same tenant ID
    starts with a fresh counter of `1`.
-4. Exhausting B's per-call fuel must trap and retire its entire Store. The old
-   handle must fail, and a fresh B incarnation must start with a counter of `1`.
+4. Exhausting B's per-call fuel must trap and retire only B's Store.
+   A distinct healthy tenant A remains running and continues from its prior
+   counter state (`1` → `2` → `3`), while B's old handle is rejected for
+   execution, shutdown and destruction. Fresh B starts with counter `1`
+   without changing A's state.
 5. All tenants are retired; a wrong AOT digest is refused before unsafe native
    deserialization.
 6. The separate production-release runner remains fail-closed.
