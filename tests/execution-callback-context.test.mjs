@@ -71,13 +71,22 @@ test("structured callback provenance survives explicit worker-message style copy
   const callback = captureExecutionCallbackContext(origin(), "ACTOR_MESSAGE");
   const copied = structuredClone(callback);
   assert.notEqual(copied, callback);
+  assert.equal(Object.isFrozen(copied), false);
   assert.equal(isExecutionCallbackContext(copied), true);
   assert.deepEqual(copied, callback);
 
+  let installed;
   runWithExecutionCallbackContext(copied, () => {
-    assert.equal(currentExecutionCallbackContext(), copied);
+    installed = currentExecutionCallbackContext();
+    assert.notEqual(installed, copied);
+    assert.equal(Object.isFrozen(installed), true);
+    assert.deepEqual(installed, callback);
   });
   assert.equal(currentExecutionCallbackContext(), null);
+
+  copied.execution = 999n;
+  assert.equal(installed.execution, 41n,
+    "installed provenance must not alias mutable worker-message input");
 });
 
 test("malformed and producer-ambient inputs fail closed", () => {
@@ -91,6 +100,17 @@ test("malformed and producer-ambient inputs fail closed", () => {
   );
   assert.throws(
     () => runWithExecutionCallbackContext({ kind: "ores.callback.v1" }, () => {}),
-    /invalid Ores callback boundary/,
+    /callback context contains unexpected fields|invalid Ores callback boundary/,
   );
+
+  const smuggled = {
+    ...structuredClone(captureExecutionCallbackContext(origin(), "IO")),
+    actor: { enterGuest: true },
+  };
+  assert.equal(isExecutionCallbackContext(smuggled), false);
+  assert.throws(
+    () => runWithExecutionCallbackContext(smuggled, () => {}),
+    /unexpected fields/,
+  );
+  assert.equal(currentExecutionCallbackContext(), null);
 });
