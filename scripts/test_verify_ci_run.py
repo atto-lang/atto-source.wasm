@@ -273,6 +273,7 @@ class RunContract(unittest.TestCase):
         self.assertEqual(result["schema"], "oreslang-parity-execution-evidence-v1")
         self.assertEqual(result["claim_tier"], "RUNNER_EXECUTED")
         self.assertEqual(result["workflow_id"], 991)
+        self.assertIs(result["artifacts_verified"], False)
         self.assertEqual(result["artifacts"], [])
         self.assertEqual(len(result["jobs"]), 1)
         job = result["jobs"][0]
