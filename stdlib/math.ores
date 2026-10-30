@@ -1,0 +1,25 @@
+// Native Oreslang math primitives.
+//
+// This module intentionally contains no Java/host interop. Fixed-width integer
+// overflow semantics are owned by Oreslang: unary negation is checked, so
+// abs(MIN_INT) and neg(MIN_INT) fail with the language arithmetic-overflow
+// behavior rather than wrapping.
+//
+// BigInt, Decimal, and floating-point APIs are deliberately NOT emulated here
+// until their native Oreslang types and shared cross-backend contracts land.
+
+define pub module Math as
+
+  pub fnc abs(int value): int {
+    if value < 0; do
+      return -value;
+    else
+      return value;
+    fi
+  }
+
+  pub fnc neg(int value): int {
+    return -value;
+  }
+
+end
