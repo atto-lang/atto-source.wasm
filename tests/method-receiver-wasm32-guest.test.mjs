@@ -8,6 +8,7 @@ import {join} from "node:path";
 import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
+import {assertWasm32IrTarget} from "../scripts/wasm32-ir-target.mjs";
 
 const required = process.env.ORESLANG_METHOD_PARITY_REQUIRED === "1";
 const ready = Boolean(process.env.ORESLANG_LLVM_COMPILER);
@@ -60,7 +61,11 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       // complete bounded guest, rather than silently pruning method roots.
       const built=run(pinned,["--target=wasm32",input]);
       assert.equal(built.status,0,name+": "+built.stderr);
-      assert.match(built.stdout,/target triple = "wasm32/);
+      // Match the production bridge: comments and source_filename strings
+      // must not impersonate a unique wasm32 target declaration.
+      assertWasm32IrTarget(built.stdout);
+      assert.match(built.stdout,/^\s*define\s+i64\s+@main\s*\(\s*\)/m,
+        name+": compiler must emit a zero-argument i64 main entry");
       const linked=run(process.env.CLANG||"clang",[
         "--target=wasm32","-x","ir","-Oz","-nostdlib",
         "-Wl,--no-entry","-Wl,--export=main","-Wl,--export-memory",
