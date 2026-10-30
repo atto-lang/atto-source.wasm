@@ -52,7 +52,11 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       ["distinct",`define class Foo as let int value=40;
         pub x(int n):int{return n;}
         pub y(mut self, int n):int{return self.value+n;}end
-        pub fnc main():int{let mut Foo f=new Foo();return f.x(1)+f.y(1);}`]
+        pub fnc main():int{let mut Foo f=new Foo();return f.x(1)+f.y(1);}`],
+      ["split-mut",`define class Foo as let int value=40;
+        pub y(mut self)(int n):void{self.value=self.value+n;return;}
+        pub x():int{return self.value;}end
+        pub fnc main():int{let mut Foo f=new Foo();f.y(2);return f.x();}`]
     ];
     for (const [name,source] of accepted) {
       const input=join(dir,name+".ores"),output=join(dir,name+".wasm");
