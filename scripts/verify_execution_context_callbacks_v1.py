@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "contracts/v1/CALLBACK_DISPATCH_AND_PREEMPTION_V1.md"
 VECTORS = ROOT / "contracts/v1/execution-context-callbacks-v1.json"
 
-EXPECTED_CONTRACT_BLOB = "58394012ae6c0c22c3a321443d8045ccc741c3e0"
-EXPECTED_VECTOR_BLOB = "249ef4d1e098f48c48dd1dfe05c662bee7ff53f8"
+EXPECTED_CONTRACT_BLOB = "8ba1a0d943ba5643207b0bf1a62b48d15945d7c7"
+EXPECTED_VECTOR_BLOB = "0351a4ffeb8bab41960b4ba526d01860aca6d1bc"
 
 EXPECTED_IDS = (
     "sync_resolve_registration",
@@ -27,8 +27,23 @@ EXPECTED_IDS = (
     "provenance_not_authority",
     "trace_boundary",
     "await_boundary",
+    "callback_trace_snapshot",
+    "nested_callback_trace",
+    "trace_snapshot_dedupe",
+    "boundary_vocabulary",
     "scope_cleanup",
     "bounded_retention",
+)
+
+REQUIRED_BOUNDARIES = (
+    "AWAIT",
+    "HOST_CALLBACK",
+    "TIMER",
+    "IO",
+    "ACTOR_MESSAGE",
+    "SUPERVISOR_CONTROL",
+    "TASK_JOIN",
+    "SPAWN",
 )
 
 
@@ -126,6 +141,30 @@ def main() -> None:
         by_id["await_boundary"].get("boundary") == "AWAIT"
         and by_id["await_boundary"].get("fresh_resume_dispatch") is True,
         "await boundary must preserve fresh dispatch semantics",
+    )
+    require(
+        by_id["callback_trace_snapshot"].get("snapshot_immutable") is True
+        and by_id["callback_trace_snapshot"].get("snapshot_bounded") is True
+        and by_id["callback_trace_snapshot"].get("mutable_trace_on_producer") is False
+        and by_id["callback_trace_snapshot"].get("attach_failure") is True,
+        "callback trace snapshot must be immutable/bounded and producer-safe",
+    )
+    require(
+        by_id["nested_callback_trace"].get("preserve_prior_boundaries") is True
+        and by_id["nested_callback_trace"].get("requires_producer_ambient_trace") is False
+        and by_id["nested_callback_trace"].get("mutable_trace_install") is False,
+        "nested callback trace must derive immutable lineage without ambient trace",
+    )
+    require(
+        by_id["trace_snapshot_dedupe"].get("same_snapshot_attachments") == 1
+        and by_id["trace_snapshot_dedupe"].get("bounded") is True
+        and by_id["trace_snapshot_dedupe"].get("unbounded_growth") is False,
+        "trace snapshot attachment must be idempotent and bounded",
+    )
+    require(
+        tuple(by_id["boundary_vocabulary"].get("required", ())) == REQUIRED_BOUNDARIES
+        and by_id["boundary_vocabulary"].get("relabeling") is False,
+        "callback trace boundary vocabulary drift",
     )
     require(
         by_id["scope_cleanup"].get("after_callback_current_context")
