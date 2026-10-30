@@ -1,0 +1,1 @@
+pub fnc main():int{return Math.neg(-9223372036854775808);}
