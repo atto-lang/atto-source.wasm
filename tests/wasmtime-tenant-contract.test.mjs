@@ -48,6 +48,12 @@ test("all post-admission execution errors reach Store retirement", () => {
 test("native AOT smoke covers independent memory, trap reincarnation and pin rejection", () => {
   assert.match(main, /--tenant-isolation-smoke/);
   assert.match(main, /observed != \[1,1,2,2\]/);
+  assert.match(main, /TenantRegistry::new\(engine\.clone\(\),module\.clone\(\),1\)/);
+  assert.match(main, /registry\.invoke\(&foreign_a,fuel\)\.is_ok\(\)/);
+  assert.match(main, /other_root\.invoke\(&a,fuel\)\.is_ok\(\)/);
+  assert.match(main, /registry\.begin_shutdown\(&foreign_a\)\.is_ok\(\)/);
+  assert.match(main, /registry\.invoke\(&a,0\)\.is_ok\(\)/);
+  assert.match(main, /other_root\.active_tenants\(\)!=0/);
   assert.match(main, /registry\.invoke\(&b,1\)\.is_ok\(\)/);
   assert.match(main, /registry\.invoke\(&b,fuel\)\.is_ok\(\)/);
   assert.match(main, /registry\.admit\("tenant-b"\)\?/);
