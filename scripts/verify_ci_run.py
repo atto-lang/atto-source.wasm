@@ -482,6 +482,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             "verified_jobs": len(jobs),
             "successful_non_housekeeping_steps": count,
             "jobs": verified_job_evidence,
+            "artifacts_verified": False,
             "artifacts": [],
             "statement": "GITHUB_RUN_EXECUTION_VERIFIED_NOT_GUEST_PARITY_CERTIFIED"}
 
