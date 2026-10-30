@@ -51,7 +51,11 @@ pub struct TenantRegistry {
 }
 
 fn valid_tenant_id(id: &str) -> bool {
-    (1..=128).contains(&id.len()) &&
+    // Dot path components must not be usable as tenant identities, even
+    // though this in-memory registry does not currently expose filesystem I/O.
+    // Reserving them avoids authority/path collisions in future durable hosts.
+    id != "." && id != ".." &&
+        (1..=128).contains(&id.len()) &&
         id.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
@@ -190,7 +194,7 @@ mod tests {
     #[test]
     fn tenant_ids_are_ascii_bounded_and_never_paths() {
         assert!(valid_tenant_id("customer-1.scope_2"));
-        for candidate in ["", "../x", "foo/bar", "a b", "a\n", "é"] {
+        for candidate in ["", ".", "..", "../x", "foo/bar", "a b", "a\n", "é"] {
             assert!(!valid_tenant_id(candidate), "{candidate:?}");
         }
         assert!(!valid_tenant_id(&"a".repeat(129)));
