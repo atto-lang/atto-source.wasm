@@ -26,12 +26,12 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
    while(i<text.length&&depth){
-    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
+    if(text[i]==="/"&&text[i+1]==="*"){if(++depth>128)throw Error("block comment nesting too deep at byte "+start);i+=2}
     else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
     else i++;
    }
@@ -39,13 +39,14 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+   const quote=c;const start=i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated source literal at byte "+start);
    continue;
   }
   if(idStart(c)){
