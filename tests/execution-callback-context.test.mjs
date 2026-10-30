@@ -5,6 +5,7 @@ import {
   captureExecutionCallbackContext,
   createExecutionContext,
   currentExecutionCallbackContext,
+  deriveExecutionCallbackContext,
   isExecutionCallbackContext,
   runWithExecutionCallbackContext,
 } from "../src/execution-callback-context.mjs";
@@ -87,6 +88,64 @@ test("structured callback provenance survives explicit worker-message style copy
   copied.execution = 999n;
   assert.equal(installed.execution, 41n,
     "installed provenance must not alias mutable worker-message input");
+});
+
+test("nested callback derivation preserves bounded immutable trace history", () => {
+  const original = captureExecutionCallbackContext(origin(), "HOST_CALLBACK");
+  const nested = deriveExecutionCallbackContext(original, "IO");
+
+  assert.deepEqual(original.traceBoundaries, ["HOST_CALLBACK"]);
+  assert.deepEqual(nested.traceBoundaries, ["HOST_CALLBACK", "IO"]);
+  assert.equal(Object.isFrozen(original.traceBoundaries), true);
+  assert.equal(Object.isFrozen(nested.traceBoundaries), true);
+  assert.equal(nested.traceElided, 0n);
+  assert.equal(nested.execution, original.execution);
+
+  let current = nested;
+  const sequence = [
+    "TIMER",
+    "AWAIT",
+    "ACTOR_MESSAGE",
+    "SUPERVISOR_CONTROL",
+    "TASK_JOIN",
+    "SPAWN",
+    "HOST_CALLBACK",
+    "IO",
+    "TIMER",
+    "AWAIT",
+    "ACTOR_MESSAGE",
+    "SPAWN",
+  ];
+  for (const boundary of sequence) {
+    current = deriveExecutionCallbackContext(current, boundary);
+  }
+
+  assert.equal(current.traceBoundaries.length, 8);
+  assert.equal(current.traceElided, 6n);
+  assert.deepEqual(
+    current.traceBoundaries,
+    ["TASK_JOIN", "SPAWN", "HOST_CALLBACK", "IO", "TIMER", "AWAIT", "ACTOR_MESSAGE", "SPAWN"],
+  );
+  assert.deepEqual(original.traceBoundaries, ["HOST_CALLBACK"],
+    "derivation must not mutate the parent snapshot");
+});
+
+test("all required callback boundaries remain distinct and accepted", () => {
+  const required = [
+    "AWAIT",
+    "HOST_CALLBACK",
+    "TIMER",
+    "IO",
+    "ACTOR_MESSAGE",
+    "SUPERVISOR_CONTROL",
+    "TASK_JOIN",
+    "SPAWN",
+  ];
+  for (const boundary of required) {
+    const callback = captureExecutionCallbackContext(origin(), boundary);
+    assert.equal(callback.boundary, boundary);
+    assert.deepEqual(callback.traceBoundaries, [boundary]);
+  }
 });
 
 test("malformed and producer-ambient inputs fail closed", () => {
