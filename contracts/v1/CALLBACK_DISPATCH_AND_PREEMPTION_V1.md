@@ -1,43 +1,63 @@
-# Callback dispatch and preemption — v1 (no Zalgo)
+# Callback dispatch, execution context, and tracing — v1
 
-Status: proposed normative cross-backend language contract; Java has partial executable coverage, native source lowering is incomplete. Host-runtime primitives alone do not constitute source-language parity.
+Status: normative cross-backend runtime contract. Backend substrate conformance is distinct from source-language async/await parity.
 
-## Core ordering guarantee
+## Identity model
 
-1. A guest-visible asynchronous operation may settle before its registration call returns, including a completed Future and foreign callback invoked synchronously by a host API. This *does not* authorize running its Oreslang continuation inline.
-2. An asynchronous guest continuation must never execute while its registering guest frame or currently admitted actor handler is still executing. A completion thread may only atomically settle an operation, release internal accounting, or enqueue a bounded scheduler/mailbox ticket. Completion and registration may perform host-only, synchronous bookkeeping.
-3. Every resumed guest continuation must enter through a fresh scheduler dispatch after the prior guest turn and its VM/Truffle/native execution boundary have unwound. It may reuse the same OS carrier after release, but must never reuse the prior dispatch identity, recursively invoke a guest callback, or replay committed source operations.
-4. Actor guest work (receive, timers, HTTP ingress, async continuations, CONTROL, cleanup, and FFI callbacks) always acquires the actor's one physical execution lease. Other actors may run concurrently. One actor may not execute on two carriers simultaneously.
-5. For a synchronous receive handler that internally yields solely for automatic CPU cooperation, the logical message remains admitted. No later user message for that actor may overtake its ready continuation. For a *genuinely pending* source await in a reentrant actor, other messages may run only according to its declared logical concurrency policy. A serial actor preserves logical exclusion across awaits.
-6. Live mutable state loans and no-yield guards may not cross any suspension, including automatic preemption. A scheduler checkpoint alone cannot pretend to suspend an unlowered synchronous call or FFI frame.
-7. Exactly one terminal outcome may win for each operation: success, error, timeout, cancellation, or close. Late callbacks cannot revive a stopped actor generation, repeat a continuation, or reclaim state before broker quiescence, guest cleanup and loan retirement. Rejected bounded admission must fail closed.
+1. **Active execution context is authority.** It identifies guest code currently admitted by an Ores scheduler/actor turn. It may carry actor/task allocation authority. It is never inferred from an OS thread.
+2. **Callback context is provenance only.** A callback registration may capture immutable logical ancestry and trace identifiers. Installing that snapshot around host completion bookkeeping does not grant actor state, heap, permission, scheduler, or guest-entry authority.
+3. **Physical carrier identity is not semantic identity.** Await/resume, actor delivery, timers, I/O, JNI/FFI, worker messages, and host Task/Promise completions may arrive on another thread/worker. Producer ambient context is ignored.
+4. **Lineage and execution segment are separate.** A logical task/actor lineage survives suspension. Every resumed guest segment enters through a fresh dispatch/turn identity after the prior guest boundary has unwound. Backends may represent lineage and segment identities differently, but must preserve this distinction.
+5. Allocation domains are independent from execution/callback identity. A callback snapshot can retain a lifetime pin needed for safe completion, but it cannot itself read or mutate actor-owned storage.
 
-## Terminology
+## Capture and restoration
 
-- A *guest callback* executes Oreslang source-owned logic, including transitive library and user handlers.
-- A *host notification* is runtime-internal bookkeeping (e.g. a Future CAS, wait-list drain or mailbox publication). It may run inline, even for an already-settled Future, but it must not call guest code.
-- *Physical preemption* releases a carrier at a continuation-safe point. This does not automatically permit a different message to enter the same actor.
-- *Logical actor reentrancy* permits other messages during a truly pending await according to actor policy, but does not permit simultaneous actor execution.
-- No global Node.js-style single-thread event loop is implied, nor does this guarantee callbacks from *different* actors are ordered by wall-clock return times.
+1. Capture occurs explicitly at callback/await registration or scheduler suspension. Never inherit arbitrary host thread-local / AsyncLocal / worker-global state by accident.
+2. Captured records are immutable values or generation-checked opaque handles. Native persisted records contain no native stack pointer.
+3. A callback may install its captured provenance only while performing host-only resolution/bookkeeping. Nested callback scopes restore the exact previous scope in LIFO order, including exception paths.
+4. Callback scope must be cleared before returning to an unrelated host event-loop turn, thread-pool item, reactor callback, or worker message.
+5. Reusing a stale generation, retired actor incarnation, released continuation, or already-consumed one-shot callback token fails closed.
 
-## Observable conformance cases
+## No-Zalgo completion and resume
 
-| Case | Required assertion |
-| --- | --- |
-| Completed Future awaited in an active task | resumed source segment has a new dispatch id and cannot enter while the first segment is still running |
-| Host registrar invokes resolve synchronously | the Future may already be settled on registrar return; guest continuation still runs in a fresh dispatch |
-| Producer settles while handler is executing | producer does not run guest code; callback is mailbox-admitted after the handler's physical boundary exits |
-| Completion between terminal fast-path inspection and waiter registration | at most one resume; no lost wakeup, no recursive guest execution |
-| Cooperative synchronous receive with queued second message | the second message cannot overtake the ready continuation; committed operations are not replayed |
-| Cancellation/timeout versus I/O success | one winner, no stale actor-generation execution and no premature frame retirement |
-| Host scheduler/turn executor invokes callback twice or off-carrier | reject/terminate rather than silently granting a second actor execution lease |
+1. A Future/Task/Promise/callback may settle synchronously before registration returns. Settlement may CAS terminal state, release accounting, and enqueue a bounded wake ticket; it may not run Oreslang guest code inline.
+2. Guest continuation code resumes only after the suspending guest turn has fully unwound and only through its owning scheduler/actor admission path.
+3. A completion thread must never impersonate the suspended execution by installing the active execution context. It may expose only callback provenance to tracing/runtime diagnostics.
+4. Completion races are exactly-once: success, failure, timeout, cancellation, or close has one winner. Duplicate producer callbacks are diagnosed; a first callback arriving after consumer cancellation may be dropped without reviving work.
+5. Waiter registration versus already-terminal observation must have no lost wakeup and at most one resume.
 
-## Source language/backend status
+## Trace semantics
 
-- Java/GraalVM: has scheduler-turn and actor-mailbox machinery and tests; these requirements still need adversarial integration and exact-tree CI for new changes.
-- LLVM/native: completion gate, pinned continuation primitives and native cooperative carrier are *host runtime substrates*. Compiler-generated await/select guest continuations are not certified. Unsupported source must continue to fail closed.
-- Wasm/.NET/Forge: bootstrap/scaffold/host prototypes do not claim source callback parity. New backends must implement this contract before advertising async actors.
+1. Logical traces compose active native/JVM/.NET/JS frames with bounded execution ancestry and continuation/callback boundaries.
+2. Required boundary kinds are `AWAIT`, `HOST_CALLBACK`, `TIMER`, `IO`, `ACTOR_MESSAGE`, `SUPERVISOR_CONTROL`, `TASK_JOIN`, and `SPAWN`. Unsupported backends may fail closed before source admission, but runtime substrate must not relabel one boundary as another.
+3. External tracing integration (for example OpenTelemetry) carries trace/span identifiers and flags by immutable value. Runtime callback context must not retain mutable tracer/span provider objects or use them as execution authority.
+4. Trace truncation is explicit. A zero rendering budget must not make the runtime claim that no logical ancestry exists.
+5. Failure rendering must preserve the originating logical lineage across carrier migration and must not attribute a producer I/O thread as the guest execution owner.
 
-## Required evidence to claim parity
+## Cancellation, teardown, and lifetime
 
-Use the same supported .ores fixtures for each compiler, and record toolchain versions, exact Git tree IDs, native sanitizer results, scheduler callback/interleaving tests, negative compile diagnostics, and emitted artifacts. A host-only callback gate test is not a source-language conformance pass.
+1. Cancellation detaches callback/waiter retention and revokes future guest resume authority, but physical FFI/I/O/worker completion may still retain a bounded lifetime pin until the host operation actually exits.
+2. Context/actor shutdown seals new callback admission before reclaim. Late callbacks may release pins and publish diagnostics, but cannot resurrect a retired context, actor generation, continuation, or allocation domain.
+3. Resource release and callback notification are separate obligations. A settled Future alone is not proof that a native descriptor, DMA/FFI loan, worker turn, or callback body has physically exited.
+4. Callback exceptions cannot skip mandatory accounting release. Fatal host signals keep backend-specific fatal semantics but do not authorize guest reentry.
+
+## Allocation discipline
+
+- LLVM/native and Forge callback-context records must be fixed-size/value or bounded-store entries and support allocation-free steady-state dispatch where the surrounding scheduler does.
+- Java/GraalVM should capture one immutable snapshot per genuinely escaping callback registration and reuse it for resolution; no wrapper allocation per waiter invocation is required.
+- .NET Native AOT should use value records and explicit scoped restoration; do not rely on ambient `ExecutionContext` flow as Oreslang authority.
+- WASM/JS uses explicit values carried in host/worker messages or closure state; browser support must not depend on Node-only ambient context APIs.
+
+## Minimum adversarial conformance
+
+Each backend substrate must cover: synchronous resolve during registration; cross-thread/worker resolve; nested callback scopes; callback throws; duplicate resolve; cancel-vs-resolve; terminal-before-waiter race; stale generation; actor/context retirement before late callback; callback context cannot grant active execution authority; fresh resume dispatch; trace boundary preservation; callback-scope cleanup; and bounded/no-leak waiter retirement.
+
+## Backend mapping
+
+- Java/GraalVM: `OresContext` + `OresScheduler` own guest admission; `ExecutionContext` is logical task/actor identity; callback provenance is separate from `CURRENT_EXECUTION_CONTEXT`.
+- LLVM: generation-checked `ExecutionContextStore` / `ContinuationStore` own persisted ancestry; resume may mint a fresh execution segment while retaining lineage through handles.
+- .NET: runtime-owned value context is explicit around host callback bookkeeping; CLR `ExecutionContext`/`AsyncLocal` flow is not sufficient evidence of Oreslang semantics.
+- WASM: host/Worker messages carry explicit callback provenance; worker-global ambient state cannot authorize a guest turn.
+- Forge: native value context/RAII scope carries provenance; actor turn/lifetime capabilities remain separate.
+
+Source-language parity additionally requires real compiler lowering for async/await/callbacks on the backend. Host-only substrate tests must not be reported as full guest parity.
