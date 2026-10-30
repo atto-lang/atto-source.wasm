@@ -57,11 +57,27 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  if tenant_smoke {
   // Compile the same AOT code once, but admit each tenant to a distinct
   // Store + Instance. A counter module must retain independent guest state.
+  // Two independently constructed OresVM roots can admit the same tenant
+  // label and generation. Neither may treat the other's opaque handle as
+  // authority, even though both roots share an approved compiled Module.
+  let mut other_root=tenant_isolation::TenantRegistry::new(engine.clone(),module.clone(),1)?;
+  let foreign_a=other_root.admit("tenant-a")?;
   let mut registry=tenant_isolation::TenantRegistry::new(engine,module,2)?;
   let a=registry.admit("tenant-a")?;
   let b=registry.admit("tenant-b")?;
-  if registry.admit("tenant-c").is_ok() || registry.admit("tenant-a").is_ok(){
-   return Err("tenant capacity or duplicate admission failed".into());
+  if registry.admit("tenant-c").is_ok() ||
+     registry.admit("tenant-a").is_ok() ||
+     registry.admit("../escaped").is_ok() ||
+     registry.invoke(&foreign_a,fuel).is_ok() ||
+     other_root.invoke(&a,fuel).is_ok() ||
+     registry.begin_shutdown(&foreign_a).is_ok() ||
+     registry.invoke(&a,0).is_ok() {
+   return Err("tenant admission, foreign authority, or invalid fuel was accepted".into());
+  }
+  other_root.begin_shutdown(&foreign_a)?;
+  other_root.destroy(&foreign_a)?;
+  if other_root.active_tenants()!=0 {
+   return Err("foreign root did not retire its own tenant".into());
   }
   let observed=[
    registry.invoke(&a,fuel)?, registry.invoke(&b,fuel)?,
