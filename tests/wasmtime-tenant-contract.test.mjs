@@ -27,6 +27,8 @@ test("tenant handles require private identity and generation fencing", () => {
   assert.match(tenant, /tenant\.generation != handle\.generation/);
   assert.match(tenant, /Arc::ptr_eq\(&tenant\.identity, &handle\.identity\)/);
   assert.match(tenant, /checked_add\(1\)/);
+  assert.match(tenant, /id != "\." && id != "\.\."/);
+  assert.match(tenant, /for candidate in \["", "\.", "\.\."/);
   assert.match(tenant, /Phase::Quiescing/);
   assert.match(tenant, /tenant\.phase != Phase::Quiescing/);
 });
@@ -53,6 +55,8 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   assert.match(main, /other_root\.invoke\(&a,fuel\)\.is_ok\(\)/);
   assert.match(main, /registry\.begin_shutdown\(&foreign_a\)\.is_ok\(\)/);
   assert.match(main, /registry\.invoke\(&a,0\)\.is_ok\(\)/);
+  assert.match(main, /registry\.admit\("\."\)\.is_ok\(\)/);
+  assert.match(main, /registry\.admit\("\.\."\)\.is_ok\(\)/);
   assert.match(main, /other_root\.active_tenants\(\)!=0/);
   assert.match(main, /registry\.invoke\(&b,1\)\.is_ok\(\)/);
   assert.match(main, /registry\.invoke\(&b,fuel\)\.is_ok\(\)/);
