@@ -63,7 +63,11 @@ produces a pin-checked Wasmtime AOT module. The debug runner's
 
 1. Tenant A and B return `1,1,2,2` in interleaved calls using one shared
    compiled Module but two independent native Wasmtime Stores.
-2. Duplicate/capacity admission fails and quiescing rejects new execution.
+2. Duplicate/capacity admission fails, malformed tenant IDs reject, and
+   quiescing rejects new execution. Two independent root registries deliberately
+   reuse the same tenant string and numeric generation: cross-root handles,
+   shutdown requests, and invalid fuel are rejected without damaging the
+   legitimately owned compartment.
 3. Destroying A invalidates its old handle; recreating the same tenant ID
    starts with a fresh counter of `1`.
 4. Exhausting B's per-call fuel must trap and retire its entire Store. The old
@@ -78,8 +82,10 @@ built with the pinned precompiler Cargo graph. It uses create-new file
 publication for the six valid-WebAssembly negative/admission cases. On Unix,
 AOT tamper testing rejects symlinks with `O_NOFOLLOW` and verifies the opened
 file's device, inode, and size against the pre-open metadata; the smoke suite
-also checks that a symlink's referent remains untouched. Unsupported platforms
-fail closed instead of performing an unchecked mutation. The prior Python generator and inline
+also checks that a symlink's referent remains untouched. The tamper helper
+requires exactly one hardlink both before and after opening a fixture to avoid
+mutating a shared inode; a separate shell regression verifies this rejection.
+Unsupported platforms fail closed instead of performing an unchecked mutation. The prior Python generator and inline
 Python mutation were removed from the AOT smoke.
 
 The shell smoke requires the pinned Rust toolchain, Clang/LLD and an executed
