@@ -1,5 +1,7 @@
-// Host/compiler metadata only. This object never grants guest access to
-// WebAssembly linear memory and must not be used as a runtime capability.
+// Concrete host/runtime-materialized provenance only. Compiler IR must use
+// state-region-requirement.mjs semantics instead of fabricating execution IDs.
+// This object never grants guest access to WebAssembly linear memory and must
+// not be used as a runtime capability.
 const fields = Object.freeze([
   "regionId", "regionGeneration", "runtimeDomain", "executionId",
   "executionSlot", "executionGeneration", "loanId"
