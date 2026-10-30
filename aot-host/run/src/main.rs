@@ -95,22 +95,29 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   if registry.invoke(&a,fuel).is_ok() || registry.invoke(&fresh_a,fuel)?!=1{
    return Err("stale handle or fresh tenant state failure".into());
   }
-  registry.begin_shutdown(&fresh_a)?;
-  registry.destroy(&fresh_a)?;
-  // A trapped guest must retire its entire Store/Instance. The same tenant
-  // ID can be re-admitted only with a fresh generation and fresh Wasm memory.
+  // Keep A alive during B's trap: a failed tenant may not poison a
+  // distinct Store or revoke another tenant's live execution authority.
+  // A currently holds state 1 and B holds state 2.
   if registry.invoke(&b,1).is_ok(){
    return Err("one-fuel guest unexpectedly completed".into());
   }
-  if registry.invoke(&b,fuel).is_ok(){
-   return Err("trapped tenant handle was not revoked".into());
+  if registry.invoke(&b,fuel).is_ok() ||
+     registry.begin_shutdown(&b).is_ok() ||
+     registry.destroy(&b).is_ok(){
+   return Err("trapped tenant handle retained authority".into());
+  }
+  if registry.active_tenants()!=1 || registry.invoke(&fresh_a,fuel)?!=2{
+   return Err("tenant B trap corrupted healthy tenant A".into());
   }
   let fresh_b=registry.admit("tenant-b")?;
-  if registry.invoke(&fresh_b,fuel)?!=1{
-   return Err("post-trap tenant retained old memory".into());
+  if registry.invoke(&fresh_b,fuel)?!=1 ||
+     registry.invoke(&fresh_a,fuel)?!=3 {
+   return Err("post-trap reincarnation leaked memory or disrupted healthy tenant".into());
   }
   registry.begin_shutdown(&fresh_b)?;
   registry.destroy(&fresh_b)?;
+  registry.begin_shutdown(&fresh_a)?;
+  registry.destroy(&fresh_a)?;
   if registry.active_tenants()!=0{
    return Err("tenant store reclamation failure".into());
   }
