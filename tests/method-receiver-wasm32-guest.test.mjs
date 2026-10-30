@@ -92,7 +92,11 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       ["one-forward",`define class Foo as x(int n):int{return n;}
          x(mut self, int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"],
       ["one-reverse",`define class Foo as x(mut self, int n):int{return n;}
-         x(int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"]
+         x(int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"],
+      ["zero-read-versus-mut",`define class Foo as x(self):int{return 1;}
+         x(mut self):int{return 2;}end pub fnc main():int{return 42;}`,"x/0"],
+      ["one-read-versus-mut",`define class Foo as x(self, int n):int{return n;}
+         x(mut self)(int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"]
     ];
     for (const [name,source,slot] of rejected) {
       const input=join(dir,name+".ores");
