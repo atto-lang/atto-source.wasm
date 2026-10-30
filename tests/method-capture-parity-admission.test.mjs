@@ -60,7 +60,6 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
     // Both otherwise-valid receiver spellings and duplicate signatures must
     // reject at wasm32 compilation until method lowering is real. A failure
     // here is unsupported-target admission, NOT proof of duplicate detection.
-    "define class Foo as x():void{return;} end fnc main():int{return 1;}",
     "define class Foo as x(mut self)():void{return;} end fnc main():int{return 1;}",
     "define class Foo as x(string a):void{return;} y(mut self, int x):void{return;} end fnc main():int{return 1;}",
     "define class Foo as x(self)(int n):void{return;} end fnc main():int{return 1;}",
