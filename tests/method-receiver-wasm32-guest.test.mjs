@@ -59,7 +59,7 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       assert.match(built.stdout,/target triple = "wasm32/);
       const linked=run(process.env.CLANG||"clang",[
         "--target=wasm32","-x","ir","-Oz","-nostdlib",
-        "-Wl,--no-entry","-Wl,--export=main",
+        "-Wl,--no-entry","-Wl,--export=main","-Wl,--export-memory",
         "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
         "-o",output,"-"
       ],{input:built.stdout});
