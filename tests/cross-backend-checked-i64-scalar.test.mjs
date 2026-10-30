@@ -18,8 +18,14 @@ async function compilerPin(){
     "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required Math parity");
   assert.match(process.env.ORESLANG_LLVM_COMPILER_SHA256||"",/^[0-9a-f]{64}$/,
     "required Math parity needs exact compiler binary SHA-256");
-  assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA||"",/^[0-9a-f]{40}$/,
-    "required Math parity needs exact LLVM source commit");
+  const declaredSource=process.env.ORESLANG_LLVM_SOURCE_SHA;
+  if(declaredSource!==undefined){
+    assert.match(declaredSource,/^[0-9a-f]{40}$/,
+      "optional declared LLVM source commit must be a 40-hex SHA");
+  }
+  // A caller-supplied source SHA is metadata only. It is intentionally NOT
+  // counted as source-to-binary provenance until a trusted build receipt binds
+  // that source tree to the exact compiler bytes checked below.
   if(!pinnedCompilerSha){
     const bytes=(await readBoundedRegularFile(resolve(compiler),256*1024*1024)).bytes;
     pinnedCompilerSha=createHash("sha256").update(bytes).digest("hex");
