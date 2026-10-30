@@ -78,7 +78,13 @@
     "concurrent_ancestor_rename_symlink_swap",
     "mutable_user_home_owner_spoof",
     "missing_secure_directory_stream_provider",
-    "no_anchored_directory_fsync"
+    "no_anchored_directory_fsync",
+    "unbound_login_tenant_with_valid_fence",
+    "concurrent_database_process_race",
+    "postgres_fsync_off",
+    "unknown_database_commit_without_retry",
+    "new_generation_old_dispatch_replay",
+    "postgres_unsafe_direct_table_privilege"
   ],
   "not_implemented": [
     "signed_capability_issuer",
@@ -106,5 +112,26 @@
     "native_llvm": "root-anchored openat walk with O_NOFOLLOW/O_DIRECTORY on every component; owner-only 0700 final directory; fsync file and directory",
     "java": "root-anchored SecureDirectoryStream with NOFOLLOW_LINKS on every path component, atomic CREATE_NEW relative to pinned directory, and FileChannel.force on the same pinned directory handle; verify POSIX owner with OS UnixSystem identity, never user.home. Reject non-SDS and non-FileChannel providers without fallback. Same-UID hostile initial directory substitution and independent provider/remote TOCTOU remain out of scope.",
     "cross_host_claims": "NOT_IMPLEMENTED"
+  },
+  "distributed_transactional_claim_v1": {
+    "status": "UNVERIFIED_REAL_DATABASE_AND_NATIVE_GUEST",
+    "scope": "HOST_ONLY PostgreSQL reference implemented in Java JDBC and LLVM libpq; WASM, .NET and Forge remain contract-only",
+    "invariant": "At most one committed admission for (tenant_id, stable_logical_actor_id, dispatch_id) across all actors, generations, payloads and revisions",
+    "server_authorization": "session_user bound to enabled tenant/actor row maintained by trusted administrator, locked FOR SHARE",
+    "actor_fence": "generation, activation_epoch and exact revision locked FOR SHARE at transaction admission",
+    "storage": "PRIMARY KEY tenant_id+actor_id+dispatch_id, INSERT ON CONFLICT DO NOTHING, no expiry deletion or automatic retry after unknown commit",
+    "durability": "function SET synchronous_commit=on; refuse server fsync=off; local service transaction success does NOT prove remote provider effects",
+    "provider": "Independent signed/verified capability checks, idempotency and authenticated outcome reconciliation REQUIRED before production",
+    "test_requirements": [
+      "real PostgreSQL migration success",
+      "runtime role cannot read or mutate tables",
+      "unauthorized tenant with valid fence denied",
+      "100 competing claims yield exactly one persistent row",
+      "12 separate OS processes yield exactly one persistent row",
+      "SIGKILL after commit denies replay",
+      "new actor generation cannot recycle an old dispatch",
+      "old actor generation denied after supervisor advances fence",
+      "real compiled Oreslang guest execution on each backend"
+    ]
   }
 }
