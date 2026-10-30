@@ -1,4 +1,5 @@
 import {Worker} from "node:worker_threads";
+import {admitSharedReactorOptions} from "./shared-reactor-policy.mjs";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
@@ -16,8 +17,10 @@ let activeGuestWorkers = 0;
  */
 export async function runIsolatedCoreGuest(input, {
   expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
+  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000,
+  schedulerMode = "host", schedulerWorkers = 0, schedulerWorkersMax = 0
 } = {}) {
+  admitSharedReactorOptions({schedulerMode, schedulerWorkers, schedulerWorkersMax});
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
