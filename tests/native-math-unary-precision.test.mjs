@@ -116,3 +116,27 @@ test("exact BigInt contract is pinned and remains outside JS Number", async () =
   assert.notEqual(BigInt(Number(inexact.operand)), BigInt(inexact.operand),
     "BigInt conversion must never happen implicitly through Number");
 });
+
+
+test("Decimal precision contract is pinned but never emulated with JS Number", async () => {
+  const url = new URL("../contracts/v1/decimal-precision-v1.json", import.meta.url);
+  const bytes = await readFile(url);
+  assert.equal(gitBlobSha(bytes), "3bbb44277f3816add53da40a1e161e466ab162b1");
+  const contract = JSON.parse(bytes.toString("utf8"));
+  assert.equal(contract.contract, "oreslang.decimal-precision.v1");
+  assert.equal(contract.status, "normative-reference-not-backend-proof");
+
+  const cancellation = contract.exact_cases.find(x => x.id === "sub-large-cancel");
+  assert.ok(cancellation.left.length > 29,
+    "fixture must retain precision beyond a host fixed decimal shortcut");
+
+  const backend = JSON.parse(await readFile(
+    new URL("../contracts/v1/numeric-parity/backend.json", import.meta.url), "utf8"));
+  for (const capability of [
+    "decimal_unary", "decimal_round_context",
+    "decimal_to_f64_exact", "decimal_to_f64_nearest"
+  ]) {
+    assert.equal(backend.capabilities[capability], "unsupported_explicit",
+      capability + " must remain fail-closed until guest Decimal lowering exists");
+  }
+});
