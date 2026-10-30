@@ -2,9 +2,10 @@
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_dir"
-cargo build --locked --manifest-path aot-host/precompile/Cargo.toml
+cargo build --locked --manifest-path aot-host/precompile/Cargo.toml --bin oreslang-aot-build --bin oreslang-aot-fixtures
 cargo build --locked --manifest-path aot-host/run/Cargo.toml
 builder="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-build"
+fixtures="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-fixtures"
 runner="$repo_dir/aot-host/run/target/debug/oreslang-aot-run"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -39,14 +40,7 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
    echo "incorrect digest admitted" >&2; exit 1
  fi
  cp "$tmp/$name.cwasm" "$tmp/$name-corrupt.cwasm"
- python3 - "$tmp/$name-corrupt.cwasm" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-data = bytearray(path.read_bytes())
-data[len(data)//2] ^= 1
-path.write_bytes(data)
-PY
+ "$fixtures" corrupt "$tmp/$name-corrupt.cwasm"
  if "$runner" "$tmp/$name-corrupt.cwasm" "$pin" > /dev/null 2>&1; then
    echo "tampered native artifact admitted" >&2; exit 1
  fi
@@ -80,7 +74,7 @@ if [[ "$build_status" -eq 0 || "$build_status" -eq 124 ||
 fi
 # These binaries are valid Wasm but violate the strict zero-capability
 # precompiler profile. Generic parser rejection would be insufficient proof.
-python3 aot-host/tests/make-negative-wasm.py "$tmp"
+"$fixtures" generate "$tmp"
 node --input-type=module - "$tmp" <<'JS'
 import {readFileSync} from 'node:fs';
 for (const name of ['valid','start','table','extra-memory','import','element']) {
