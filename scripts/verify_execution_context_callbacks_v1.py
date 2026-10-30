@@ -34,7 +34,8 @@ EXPECTED_IDS = (
 
 def git_blob_id(data: bytes) -> str:
     header = f"blob {len(data)}\0".encode()
-    return hashlib.sha1(header + data).hexdigest()
+    # Git blob identity is SHA-1 by protocol; this is not a security digest.
+    return hashlib.sha1(header + data, usedforsecurity=False).hexdigest()
 
 
 def require(condition: bool, message: str) -> None:
