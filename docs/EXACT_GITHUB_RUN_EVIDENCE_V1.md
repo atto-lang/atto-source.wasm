@@ -40,6 +40,9 @@ verified job's numeric job/runner identity and the actually executed
 non-housekeeping step names and timestamps. Step categories default to
 `indeterminate`; downstream parity tooling must not promote them to host-test,
 compiler-build, or compiled-guest execution tiers without separate evidence.
+The source verifier does not enumerate run artifacts, so it emits
+`artifacts_verified: false` and an empty artifact list. An empty list must not
+be interpreted as verified absence of artifacts.
 
 This is a **run execution and Git provenance check**, not proof that all
 expected tests executed, or a guest-runtime feature-parity certification.
