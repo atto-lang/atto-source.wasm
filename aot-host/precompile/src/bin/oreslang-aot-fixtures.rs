@@ -71,21 +71,39 @@ fn generate(root: &Path) -> Result<(), Failure> {
 }
 
 fn corrupt(path: &Path) -> Result<(), Failure> {
-    let meta = fs::symlink_metadata(path)?;
-    if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_AOT_BYTES {
-        return Err("corruption test input must be bounded nonempty regular file".into());
+    // This fixture deliberately mutates a PRIVATE temporary artifact.
+    // The path must not allow symlink replacement between metadata inspection
+    // and opening the file; Linux/macOS CI supports O_NOFOLLOW.
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        return Err("AOT tamper fixture requires Unix no-follow file admission".into());
     }
-    // This is an intentionally destructive mutation of the caller's private
-    // temporary fixture, not an artifact publication or deployment operation.
-    let mut file = OpenOptions::new().read(true).write(true).open(path)?;
-    let middle = meta.len() / 2;
-    file.seek(SeekFrom::Start(middle))?;
-    let mut byte = [0];
-    file.read_exact(&mut byte)?;
-    file.seek(SeekFrom::Start(middle))?;
-    file.write_all(&[byte[0] ^ 1])?;
-    file.sync_all()?;
-    Ok(())
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+        let meta = fs::symlink_metadata(path)?;
+        if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_AOT_BYTES {
+            return Err("corruption test input must be bounded nonempty regular file".into());
+        }
+        let mut file = OpenOptions::new().read(true).write(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
+        let opened = file.metadata()?;
+        if !opened.file_type().is_file() ||
+            opened.dev() != meta.dev() ||
+            opened.ino() != meta.ino() ||
+            opened.len() != meta.len() {
+            return Err("AOT tamper fixture identity changed during open".into());
+        }
+        let middle = opened.len() / 2;
+        file.seek(SeekFrom::Start(middle))?;
+        let mut byte = [0];
+        file.read_exact(&mut byte)?;
+        file.seek(SeekFrom::Start(middle))?;
+        file.write_all(&[byte[0] ^ 1])?;
+        file.sync_all()?;
+        Ok(())
+    }
 }
 
 fn main() -> Result<(), Failure> {
@@ -128,6 +146,20 @@ mod tests {
         let dir = tempfile::tempdir().expect("private test directory");
         generate(dir.path()).expect("first fixture generation");
         assert!(generate(dir.path()).is_err(), "second generation must fail");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_tamper_target_is_rejected_without_touching_referent() {
+        use std::os::unix::fs::symlink;
+        let dir = tempfile::tempdir().expect("private directory");
+        generate(dir.path()).expect("fixtures");
+        let real = dir.path().join("valid.wasm");
+        let linked = dir.path().join("linked.wasm");
+        let original = fs::read(&real).expect("original fixture");
+        symlink(&real, &linked).expect("create symlink");
+        assert!(corrupt(&linked).is_err(), "symlink was followed");
+        assert_eq!(fs::read(&real).expect("retained fixture"), original);
     }
 
     #[test]
