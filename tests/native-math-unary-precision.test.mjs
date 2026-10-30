@@ -90,3 +90,29 @@ test("Wasm bootstrap does not claim unsupported BigInt/Decimal Math lowering", a
       capability + " must remain fail-closed without real guest execution");
   }
 });
+
+
+test("exact BigInt contract is pinned and remains outside JS Number", async () => {
+  const url = new URL("../contracts/v1/bigint-exact-v1.json", import.meta.url);
+  const bytes = await readFile(url);
+  assert.equal(gitBlobSha(bytes), "b49c7a7d9395f7298e5534c4a6e5b90d4a2a518c");
+  const contract = JSON.parse(bytes.toString("utf8"));
+  assert.equal(contract.contract, "oreslang.bigint-exact.v1");
+
+  for (const item of contract.division_cases) {
+    const a = BigInt(item.left), b = BigInt(item.right);
+    if (item.error) {
+      assert.equal(b, 0n, item.id);
+      continue;
+    }
+    const q = a / b, r = a % b;
+    assert.equal(q.toString(), item.quot, item.id + " quotient");
+    assert.equal(r.toString(), item.rem, item.id + " remainder");
+    assert.equal(q * b + r, a, item.id + " identity");
+  }
+
+  const inexact = contract.conversion_cases.find(
+    x => x.id === "to-f64-exact-2pow53-plus1");
+  assert.notEqual(BigInt(Number(inexact.operand)), BigInt(inexact.operand),
+    "BigInt conversion must never happen implicitly through Number");
+});
