@@ -1,20 +1,44 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
+const requireReal=process.env.ORESLANG_REQUIRE_REAL_COMPILER==="1";
 const header="// oreslang:checked-i64-v1\n";
+let pinnedCompilerSha;
+
+async function compilerPin(){
+  if(!requireReal) return undefined;
+  assert.ok(compiler,
+    "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required Math parity");
+  assert.match(process.env.ORESLANG_LLVM_COMPILER_SHA256||"",/^[0-9a-f]{64}$/,
+    "required Math parity needs exact compiler binary SHA-256");
+  assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA||"",/^[0-9a-f]{40}$/,
+    "required Math parity needs exact LLVM source commit");
+  if(!pinnedCompilerSha){
+    const bytes=(await readBoundedRegularFile(resolve(compiler),256*1024*1024)).bytes;
+    pinnedCompilerSha=createHash("sha256").update(bytes).digest("hex");
+    assert.equal(pinnedCompilerSha,process.env.ORESLANG_LLVM_COMPILER_SHA256,
+      "required Math parity compiler bytes do not match the declared pin");
+  }
+  return pinnedCompilerSha;
+}
 
 async function compileMain(t,expression){
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return null;}
+  if(!compiler){
+    if(requireReal) assert.fail(
+      "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required Math parity");
+    t.skip("set ORESLANG_LLVM_COMPILER to run optional real cross-backend parity");return null;
+  }
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
   await writeFile(source,header+"define pub fnc main(): int { return "+expression+"; }\n");
-  await compileOresToWasm({compiler:resolve(compiler),source,output});
+  await compileOresToWasm({compiler:resolve(compiler),compilerSha256:await compilerPin(),source,output});
   const bytes=await readFile(output);
   const {instance}=await WebAssembly.instantiate(bytes,{});
   assert.equal(typeof instance.exports.main,"function");
@@ -55,7 +79,11 @@ for(const [name,expression] of [
 }
 
 test("int / int is not admitted as an i64 result",async t=>{
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return;}
+  if(!compiler){
+    if(requireReal) assert.fail(
+      "ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required Math parity");
+    t.skip("set ORESLANG_LLVM_COMPILER to run optional real cross-backend parity");return;
+  }
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
