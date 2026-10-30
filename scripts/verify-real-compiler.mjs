@@ -13,6 +13,15 @@ const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
   "../examples/unsupported-any-ternary.ores", import.meta.url));
+const callbackContextSource = fileURLToPath(new URL(
+  "../contracts/v1/execution-context-callbacks/v1/callback_sync_resolve.ores",
+  import.meta.url));
+const callbackContextGitBlob =
+  "83f7db76fd6437d7d4994210e78034b93a5bff26";
+const gitBlobId = bytes => createHash("sha1")
+  .update(Buffer.from("blob " + bytes.length + "\0", "ascii"))
+  .update(bytes)
+  .digest("hex");
 
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
@@ -52,6 +61,13 @@ export function assertSelectFrontendRejection(frontend) {
   if (!String(frontend.stderr || "").includes(
       "native async/channel/select boundary unsupported"))
     throw Error("select rejection did not come from the LLVM async/channel/select capability gate");
+  return true;
+}
+export function assertCallbackContextFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(
+      "native actor/async declaration requires actor frames, suspension-aware borrow checking and LLVM lowering"))
+    throw Error("callback source rejection did not come from the required async continuation gate");
   return true;
 }
 export async function verifyRealCompiler({
@@ -228,6 +244,43 @@ export async function verifyRealCompiler({
       "5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3";
     if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
       throw Error("shared scalar corpus digest differs from pinned parity contract");
+
+    // Canonical callback execution-context source. Wasm delegates parsing
+    // to the pinned LLVM compiler; until async/Future lowering exists this is
+    // an explicit EXPECTED_REJECT, never source-parity PASS.
+    const callbackBytes = await readFile(callbackContextSource);
+    if (gitBlobId(callbackBytes) !== callbackContextGitBlob)
+      throw Error("canonical callback source Git blob drift");
+    const callbackFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", callbackContextSource], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertCallbackContextFrontendRejection(callbackFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024,
+      "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+      throw Error("pinned compiler mutated during callback source rejection");
+
+    const callbackOutput = join(work, "callback-context.wasm");
+    let callbackBridgeRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:callbackContextSource, output:callbackOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      callbackBridgeRejected = true;
+    }
+    if (!callbackBridgeRejected)
+      throw Error("unsupported callback source reached Wasm artifact publication");
+    try {
+      await stat(callbackOutput + ".current.json");
+      throw Error("unsupported callback source published a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
 
     // +/ import graph linking is not implemented for the wasm32 compiler
     // target. A scalar guest or bridge must never silently discard imports.
@@ -505,6 +558,7 @@ export async function verifyRealCompiler({
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
+      callbackContextSourceRejected:true,
       tupleV2Rejected:true,
       invertedSourceRejected:true,
       staticSelectRejected:true,
