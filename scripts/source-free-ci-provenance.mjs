@@ -52,10 +52,12 @@ function git(argument) {
   return execFileSync("git",["rev-parse",argument],{encoding:"utf8"}).trim();
 }
 export function assertCleanGitStatus(status) {
-  assert.equal(status,"","source checkout is dirty (tracked, staged or untracked files)");
+  assert.equal(status,"","source checkout is dirty (tracked, staged, untracked or ignored files)");
 }
-function gitStatus() {
-  return execFileSync("git",["status","--porcelain=v1","--untracked-files=all"],{encoding:"utf8"});
+export function gitStatus(cwd=process.cwd()) {
+  // --ignored=matching detects injected bytes masked by candidate .gitignore.
+  return execFileSync("git",["status","--porcelain=v1","--untracked-files=all","--ignored=matching"],
+    {cwd,encoding:"utf8",timeout:10000});
 }
 export function runSourceFreeProof(expectedRepo,expectedHead) {
   assert.equal(process.env.GITHUB_REPOSITORY,expectedRepo,"wrong GitHub event repository");

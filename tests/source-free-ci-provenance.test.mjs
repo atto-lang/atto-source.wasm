@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {mkdtempSync,readFileSync,rmSync,writeFileSync} from "node:fs";
+import {execFileSync} from "node:child_process";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {test} from "node:test";
-import {assertCleanGitStatus,createEvidence,publicPayload,verifyEvidence} from "../scripts/source-free-ci-provenance.mjs";
+import {assertCleanGitStatus,createEvidence,gitStatus,publicPayload,verifyEvidence} from "../scripts/source-free-ci-provenance.mjs";
 const repo="ores-truffle-oreslang/oreslang-source.llvm";
 const head="a".repeat(40),tree="b".repeat(40);
 const payload=publicPayload(repo,head,tree);
@@ -60,4 +63,29 @@ test("workflow explicitly resets checkout to exact commit and never preserves cr
   assert.match(w,/clean: true/);
   assert.match(w,/actions\/checkout@[0-9a-f]{40}/);
   assert.match(w,/actions\/setup-node@[0-9a-f]{40}/);
+});
+
+test("actual git checkout admission rejects staged, modified, untracked and ignored files",()=>{
+  const cwd=mkdtempSync(join(tmpdir(),"oreslang-ci-clean-"));
+  const git=(...args)=>execFileSync("git",args,{cwd,encoding:"utf8",timeout:10000});
+  try {
+    git("init","-q");
+    writeFileSync(join(cwd,"tracked.txt"),"baseline\n");
+    writeFileSync(join(cwd,".gitignore"),"ignored.txt\n");
+    git("add","tracked.txt",".gitignore");
+    git("-c","user.name=CI Canary","-c","user.email=ci@example.invalid","commit","-qm","synthetic baseline");
+    assertCleanGitStatus(gitStatus(cwd));
+    writeFileSync(join(cwd,"tracked.txt"),"changed\n");
+    assert.throws(()=>assertCleanGitStatus(gitStatus(cwd)),/dirty/);
+    git("add","tracked.txt");
+    assert.throws(()=>assertCleanGitStatus(gitStatus(cwd)),/dirty/);
+    git("reset","-q","--hard","HEAD");
+    writeFileSync(join(cwd,"untracked.txt"),"injected\n");
+    assert.throws(()=>assertCleanGitStatus(gitStatus(cwd)),/dirty/);
+    rmSync(join(cwd,"untracked.txt"));
+    writeFileSync(join(cwd,"ignored.txt"),"injected but ignored\n");
+    const status=gitStatus(cwd);
+    assert.match(status,/!! ignored\.txt/);
+    assert.throws(()=>assertCleanGitStatus(status),/dirty/);
+  }finally{rmSync(cwd,{recursive:true,force:true})}
 });
