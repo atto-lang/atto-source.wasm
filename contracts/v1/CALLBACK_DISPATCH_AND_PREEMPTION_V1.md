@@ -30,9 +30,12 @@ Status: normative cross-backend runtime contract. Backend substrate conformance 
 
 1. Logical traces compose active native/JVM/.NET/JS frames with bounded execution ancestry and continuation/callback boundaries.
 2. Required boundary kinds are `AWAIT`, `HOST_CALLBACK`, `TIMER`, `IO`, `ACTOR_MESSAGE`, `SUPERVISOR_CONTROL`, `TASK_JOIN`, and `SPAWN`. Unsupported backends may fail closed before source admission, but runtime substrate must not relabel one boundary as another.
-3. External tracing integration (for example OpenTelemetry) carries trace/span identifiers and flags by immutable value. Runtime callback context must not retain mutable tracer/span provider objects or use them as execution authority.
-4. Trace truncation is explicit. A zero rendering budget must not make the runtime claim that no logical ancestry exists.
-5. Failure rendering must preserve the originating logical lineage across carrier migration and must not attribute a producer I/O thread as the guest execution owner.
+3. Callback registration under an active logical trace captures immutable, bounded trace evidence once. Foreign completion may attach or render that snapshot, but must not install, acquire, or mutate the guest execution's mutable trace object.
+4. Nested callback registration from an installed callback-provenance scope derives another immutable snapshot that preserves prior callback boundaries. It must not require ambient guest-trace state on the producer carrier.
+5. Reattaching the same immutable callback trace snapshot to the same failure is idempotent. Snapshot retention and rendered history remain bounded.
+6. External tracing integration (for example OpenTelemetry) carries trace/span identifiers and flags by immutable value. Runtime callback context must not retain mutable tracer/span provider objects or use them as execution authority.
+7. Trace truncation is explicit. A zero rendering budget must not make the runtime claim that no logical ancestry exists.
+8. Failure rendering must preserve the originating logical lineage across carrier migration and must not attribute a producer I/O thread as the guest execution owner.
 
 ## Cancellation, teardown, and lifetime
 
@@ -50,7 +53,7 @@ Status: normative cross-backend runtime contract. Backend substrate conformance 
 
 ## Minimum adversarial conformance
 
-Each backend substrate must cover: synchronous resolve during registration; cross-thread/worker resolve; nested callback scopes; callback throws; duplicate resolve; cancel-vs-resolve; terminal-before-waiter race; stale generation; actor/context retirement before late callback; callback context cannot grant active execution authority; fresh resume dispatch; trace boundary preservation; callback-scope cleanup; and bounded/no-leak waiter retirement.
+Each backend substrate must cover: synchronous resolve during registration; cross-thread/worker resolve; nested callback scopes; callback throws; duplicate resolve; cancel-vs-resolve; terminal-before-waiter race; stale generation; actor/context retirement before late callback; callback context cannot grant active execution authority; fresh resume dispatch; trace boundary preservation; immutable callback trace capture; nested callback trace inheritance; trace snapshot deduplication/bounds; exact boundary vocabulary; callback-scope cleanup; and bounded/no-leak waiter retirement.
 
 ## Backend mapping
 
