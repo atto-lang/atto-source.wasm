@@ -80,5 +80,5 @@ test("nested comment depth budget rejects adversarial input", () => {
 
 test("malformed UTF-8 rejects and does not call a compiler", () => {
   assert.throws(() => rejectUnsupportedInvertedLayoutSource(
-    Uint8Array.of(0xff,0xfe,0xfa)), /encoded|UTF-8|valid/i);
+    Uint8Array.of(0xff,0xfe,0xfa)), /encoded|UTF-8|valid|malformed/i);
 });
