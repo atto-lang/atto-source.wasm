@@ -44,5 +44,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang lld
       - name: Adversarial shared scalar runner self-tests
         run: python3 contracts/scalar/v1/selftest.py
+      - name: Verify byte-identical portable numeric guest blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object tests/fixtures/numeric-v1/math-i64-ok.ores)" = "6d02ef593be9888364cc6f64c1c42224dcebbdb9"
+          test "$(git hash-object tests/fixtures/numeric-v1/math-i64-abs-min.ores)" = "f9064fc2ee79a2356dc062841330466c3d0df9c7"
+          test "$(git hash-object tests/fixtures/numeric-v1/math-i64-neg-min.ores)" = "c1d1bff1971351814d8161c36c5a5e18d5ae9e26"
       - name: Test guest admission and compiler bridge
         run: npm test
