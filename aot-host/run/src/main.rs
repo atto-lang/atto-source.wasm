@@ -68,6 +68,7 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   if registry.admit("tenant-c").is_ok() ||
      registry.admit("tenant-a").is_ok() ||
      registry.admit("../escaped").is_ok() ||
+     registry.admit(".").is_ok() || registry.admit("..").is_ok() ||
      registry.invoke(&foreign_a,fuel).is_ok() ||
      other_root.invoke(&a,fuel).is_ok() ||
      registry.begin_shutdown(&foreign_a).is_ok() ||
