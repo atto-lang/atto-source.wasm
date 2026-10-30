@@ -1,0 +1,20 @@
+async fnc immediate_callback() => int {
+  stdio.println("before_callback");
+  val ready = Future.from_callback<int>(|completion| -> {
+    stdio.println("callback_enter");
+    completion.resolve(41);
+    stdio.println("callback_exit");
+    return;
+  });
+  stdio.println("after_callback");
+
+  val value = await ready;
+  stdio.println("after_await");
+  return value + 1;
+}
+
+pub async routine main() => void {
+  val value = await immediate_callback();
+  stdio.println(value);
+  return;
+}
