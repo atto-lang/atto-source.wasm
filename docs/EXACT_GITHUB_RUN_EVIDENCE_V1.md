@@ -2,7 +2,7 @@
 
 ## Strict runner ID typing
 
-The source-free regression suite now has 96 tests per round. Non-success
+The source-free regression suite now has 97 tests per round. Non-success
 classification accepts only null or an actual integer zero as an unallocated
 runner ID. Boolean and floating-point zero values are malformed and return
 ordinary rejection, never `NOT_EXECUTED`. Positive integer IDs indicate runner
@@ -32,6 +32,14 @@ teardown are **invalid proof requirements**, even when some unrelated command
 succeeded in the same job. A required step must belong to a named **required
 job**; an unrelated job cannot satisfy it. With multiple named jobs, explicit per-job step bindings are mandatory: a
 passing step in job A may not stand in for the required test step in job B.
+
+A successful verifier result is emitted as
+`oreslang-parity-execution-evidence-v1` with claim tier `RUNNER_EXECUTED`.
+The result includes the immutable run/attempt/workflow/source identity plus each
+verified job's numeric job/runner identity and the actually executed
+non-housekeeping step names and timestamps. Step categories default to
+`indeterminate`; downstream parity tooling must not promote them to host-test,
+compiler-build, or compiled-guest execution tiers without separate evidence.
 
 This is a **run execution and Git provenance check**, not proof that all
 expected tests executed, or a guest-runtime feature-parity certification.
