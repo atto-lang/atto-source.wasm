@@ -347,6 +347,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         _reject_non_success_run(jobs, run_id, commit, attempt)
     seen_ids, job_names, required_job_steps = set(), set(), set()
     steps_by_job = {}
+    verified_job_evidence = []
     count = 0
     for item in jobs:
         job = _object(item, "workflow job")
@@ -381,6 +382,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         if not isinstance(steps, list) or not steps:
             raise Denied("workflow job has zero executed steps")
         ran_useful_step = False
+        meaningful_step_evidence = []
         seen_step_names = set()
         last_number = 0
         previous_step_end = job_start
@@ -411,8 +413,25 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             if executable_step_name(step_name):
                 ran_useful_step = True
                 count += 1
+                meaningful_step_evidence.append({
+                    "name": step_name,
+                    "category": "indeterminate",
+                    "conclusion": step.get("conclusion"),
+                    "started_at": step.get("started_at"),
+                    "completed_at": step.get("completed_at"),
+                })
         if not ran_useful_step:
             raise Denied("workflow job only executed runner housekeeping")
+        verified_job_evidence.append({
+            "job_id": job_id,
+            "job_name": name,
+            "runner_id": job["runner_id"],
+            "runner_name": job["runner_name"],
+            "conclusion": job.get("conclusion"),
+            "started_at": job.get("started_at"),
+            "completed_at": job.get("completed_at"),
+            "meaningful_steps": meaningful_step_evidence,
+        })
     if not set(required_jobs).issubset(job_names):
         raise Denied("required workflow job is missing")
     if not set(required_steps).issubset(required_job_steps):
@@ -451,14 +470,19 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             or final_meta.get("archived") is not False
             or final_meta.get("disabled") is not False):
         raise Denied("source repository changed identity or privacy during evidence collection")
-    return {"backend": backend, "repository": repo, "repository_id": repo_id,
-            "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
+    return {"schema": "oreslang-parity-execution-evidence-v1",
+            "claim_tier": "RUNNER_EXECUTED",
+            "backend": backend, "repository": repo, "repository_id": repo_id,
+            "run_id": run_id, "run_attempt": attempt,
+            "workflow_id": workflow_id, "workflow_path": workflow_path,
             "workflow_run_path": expected_run_path,
             "event": expected_event,
             "head_commit": commit,
             "head_tree": tree, "workflow_blob_sha": workflow_blob_sha,
             "verified_jobs": len(jobs),
             "successful_non_housekeeping_steps": count,
+            "jobs": verified_job_evidence,
+            "artifacts": [],
             "statement": "GITHUB_RUN_EXECUTION_VERIFIED_NOT_GUEST_PARITY_CERTIFIED"}
 
 
