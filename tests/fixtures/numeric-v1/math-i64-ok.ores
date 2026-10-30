@@ -1,0 +1,1 @@
+pub fnc main():int{return Math.abs(-42)+Math.neg(-42);}
