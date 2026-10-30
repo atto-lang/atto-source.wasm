@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {admitSharedReactorOptions} from "./shared-reactor-policy.mjs";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
@@ -17,8 +18,12 @@ export function compileAdmittedCoreGuest(input, {
   guestNetworkIo = false,
   nioReactors = 0,
   actorPhysicalTurns = 0,
-  hardRealtime = false
+  hardRealtime = false,
+  schedulerMode = "host",
+  schedulerWorkers = 0,
+  schedulerWorkersMax = 0
 } = {}) {
+  admitSharedReactorOptions({schedulerMode, schedulerWorkers, schedulerWorkersMax});
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
@@ -79,3 +84,4 @@ export function compileAdmittedCoreGuest(input, {
 export function admitCoreGuest(input, options = {}) {
   return compileAdmittedCoreGuest(input, options).admission;
 }
+
