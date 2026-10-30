@@ -118,9 +118,12 @@ not substitute a scalar mutation or an unprotected callback.
 * .NET: scalar and structured source frontends reject class/actor methods
   before CIL/Native AOT emission; nominal method slot contracts are not an
   executable method implementation. Forge remains separately gated.
-* Wasm: delegates source compilation to the pinned real native LLVM compiler;
-  the wasm32 method/actor lowering gate remains fail-closed. There is no
-  independent JavaScript source parser claiming method semantics.
+* Wasm: delegates source compilation to a SHA-256-pinned real native LLVM
+  compiler. Restricted synchronous scalar class methods have an existing
+  wasm32 native-source lowering path; receiver-arity tests must compile and
+  execute import-free guests instead of treating generic rejection as evidence.
+  General actor methods, lexical capture and independent JavaScript method
+  parsing remain unsupported or unverified.
 
 This is a phased migration. Cross-backend parity is **NOT ACHIEVED** until
 all required positive code executes and negative cases reject as specified.
