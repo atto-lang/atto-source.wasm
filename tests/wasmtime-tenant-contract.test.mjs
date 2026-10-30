@@ -58,6 +58,11 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   assert.match(main, /registry\.invoke\(&b,fuel\)\.is_ok\(\)/);
   assert.match(main, /registry\.admit\("tenant-b"\)\?/);
   assert.match(main, /registry\.invoke\(&fresh_b,fuel\)\?!=1/);
+  assert.match(main, /registry\.active_tenants\(\)!=1 \|\| registry\.invoke\(&fresh_a,fuel\)\?!=2/);
+  assert.match(main, /registry\.begin_shutdown\(&b\)\.is_ok\(\)/);
+  assert.match(main, /registry\.destroy\(&b\)\.is_ok\(\)/);
+  assert.match(main, /registry\.invoke\(&fresh_a,fuel\)\?!=3/);
+  assert.match(main, /registry\.destroy\(&fresh_a\)\?/);
   assert.match(smoke, /tenant-counter\.wasm/);
   assert.match(smoke, /--tenant-isolation-smoke/);
   assert.match(smoke, /tenant smoke bypassed AOT digest check/);
