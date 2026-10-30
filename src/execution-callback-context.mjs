@@ -9,6 +9,18 @@ const BOUNDARIES = new Set([
   "SPAWN",
 ]);
 
+const CALLBACK_FIELDS = [
+  "kind",
+  "runtimeDomain",
+  "execution",
+  "dispatch",
+  "generation",
+  "parentExecution",
+  "continuation",
+  "boundary",
+];
+const CALLBACK_FIELD_SET = new Set(CALLBACK_FIELDS);
+
 let currentCallbackContext = null;
 
 function asPositiveBigInt(value, field) {
@@ -56,6 +68,15 @@ function validateCallback(value) {
   if (!value || value.kind !== "ores.callback.v1") {
     throw new TypeError("invalid Ores callback context");
   }
+
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length !== CALLBACK_FIELDS.length ||
+    keys.some((key) => typeof key !== "string" || !CALLBACK_FIELD_SET.has(key))
+  ) {
+    throw new TypeError("callback context contains unexpected fields");
+  }
+
   if (!BOUNDARIES.has(value.boundary)) {
     throw new TypeError("invalid Ores callback boundary");
   }
@@ -65,7 +86,18 @@ function validateCallback(value) {
   asPositiveBigInt(value.generation, "generation");
   asNonNegativeBigInt(value.parentExecution, "parentExecution");
   asNonNegativeBigInt(value.continuation, "continuation");
-  return value;
+
+  if (Object.isFrozen(value)) return value;
+  return Object.freeze({
+    kind: "ores.callback.v1",
+    runtimeDomain: value.runtimeDomain,
+    execution: value.execution,
+    dispatch: value.dispatch,
+    generation: value.generation,
+    parentExecution: value.parentExecution,
+    continuation: value.continuation,
+    boundary: value.boundary,
+  });
 }
 
 /**
