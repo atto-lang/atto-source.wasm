@@ -76,6 +76,42 @@
       "fresh_resume_dispatch": true
     },
     {
+      "id": "callback_trace_snapshot",
+      "capture": "active_trace",
+      "snapshot_immutable": true,
+      "snapshot_bounded": true,
+      "mutable_trace_on_producer": false,
+      "attach_failure": true
+    },
+    {
+      "id": "nested_callback_trace",
+      "capture": "callback_context",
+      "nested": true,
+      "preserve_prior_boundaries": true,
+      "requires_producer_ambient_trace": false,
+      "mutable_trace_install": false
+    },
+    {
+      "id": "trace_snapshot_dedupe",
+      "same_snapshot_attachments": 1,
+      "bounded": true,
+      "unbounded_growth": false
+    },
+    {
+      "id": "boundary_vocabulary",
+      "required": [
+        "AWAIT",
+        "HOST_CALLBACK",
+        "TIMER",
+        "IO",
+        "ACTOR_MESSAGE",
+        "SUPERVISOR_CONTROL",
+        "TASK_JOIN",
+        "SPAWN"
+      ],
+      "relabeling": false
+    },
+    {
       "id": "scope_cleanup",
       "nested": false,
       "after_callback_current_context": "previous_or_none"
