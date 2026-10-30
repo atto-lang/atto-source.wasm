@@ -83,13 +83,15 @@ fn corrupt(path: &Path) -> Result<(), Failure> {
     {
         use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
         let meta = fs::symlink_metadata(path)?;
-        if !meta.file_type().is_file() || meta.len() == 0 || meta.len() > MAX_AOT_BYTES {
+        if !meta.file_type().is_file() || meta.nlink() != 1 ||
+            meta.len() == 0 || meta.len() > MAX_AOT_BYTES {
             return Err("corruption test input must be bounded nonempty regular file".into());
         }
         let mut file = OpenOptions::new().read(true).write(true)
             .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
         let opened = file.metadata()?;
         if !opened.file_type().is_file() ||
+            opened.nlink() != 1 ||
             opened.dev() != meta.dev() ||
             opened.ino() != meta.ino() ||
             opened.len() != meta.len() {
@@ -160,6 +162,20 @@ mod tests {
         symlink(&real, &linked).expect("create symlink");
         assert!(corrupt(&linked).is_err(), "symlink was followed");
         assert_eq!(fs::read(&real).expect("retained fixture"), original);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hardlinked_tamper_target_is_rejected_without_mutating_shared_inode() {
+        let dir = tempfile::tempdir().expect("private directory");
+        generate(dir.path()).expect("fixtures");
+        let real = dir.path().join("valid.wasm");
+        let alias = dir.path().join("same-inode.wasm");
+        let original = fs::read(&real).expect("original fixture");
+        fs::hard_link(&real, &alias).expect("create hard link");
+        assert!(corrupt(&alias).is_err(), "multiply linked inode was mutated");
+        assert_eq!(fs::read(&real).expect("retained fixture"), original);
+        assert_eq!(fs::read(&alias).expect("alias fixture"), original);
     }
 
     #[test]
