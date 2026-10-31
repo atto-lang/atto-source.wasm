@@ -24,8 +24,8 @@ test("shared annotation corpus is enforced at the WASM source-snapshot admission
     const encoded = fields[6];
     const bytes = Buffer.from(encoded, "base64");
     assert.equal(bytes.toString("base64"), encoded, "noncanonical source base64 " + id);
-    assert.equal(new TextEncoder().encode(decoder.decode(bytes)).toString("hex"),
-                 bytes.toString("hex"), "invalid source UTF-8 " + id);
+    assert.deepEqual(Buffer.from(new TextEncoder().encode(decoder.decode(bytes))),
+                     bytes, "invalid source UTF-8 " + id);
     if (fields[3] === "reject") {
       rejected++;
       assert.throws(() => rejectUnsupportedActorThreadSource(bytes),
