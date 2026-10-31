@@ -21,13 +21,17 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_SOURCE_GRAPH_BYTES=2*1024*1024,
 const MAX_SOURCE_DEPENDENCIES=16;
 
 function dependencyRelativePath(value){
- if(typeof value!=="string"||!value||isAbsolute(value)||value.includes("\\"))
+ if(typeof value!=="string"||!value||value.length>512||
+    isAbsolute(value)||value.includes("\\"))
   throw Error("source dependency relativePath must be a portable relative path");
  const parts=value.split("/");
  if(parts.length>16||parts.some(part=>
-    !part||part==="."||part===".."||!/^[A-Za-z0-9_.-]+$/.test(part)))
+    !part||part.length>100||part==="."||part===".."||
+    !/^[A-Za-z0-9_.-]+$/.test(part)))
   throw Error("unsafe source dependency relativePath");
  if(!value.endsWith(".ores"))throw Error("source dependency must use .ores extension");
+ if(value==="source.ores"||parts.slice(0,-1).some(part=>part.endsWith(".ores")))
+  throw Error("source dependency relativePath collides with staged source layout");
  return parts.join("/");
 }
 function graphDigest(entries){
@@ -303,6 +307,9 @@ export async function compileOresToWasm({compiler,source,sourceDependencies=[],o
   bytes:dependencySnapshots[index].bytes,
   sourceSha256:sha(dependencySnapshots[index].bytes)
  }));
+ if(sourceBytes.length+dependencyEntries.reduce((n,x)=>n+x.bytes.length,0)>
+    MAX_SOURCE_GRAPH_BYTES)
+  throw Error("snapshotted source dependency graph exceeds 2 MiB budget");
  const sourceGraphSha256=graphDigest([
   {relativePath:"source.ores",bytes:sourceBytes},...dependencyEntries
  ]);
