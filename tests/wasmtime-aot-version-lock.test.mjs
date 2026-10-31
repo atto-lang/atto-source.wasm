@@ -22,7 +22,14 @@ function packages(lockfile) {
     if (!name) continue;
     const version = /^version = "([^"]+)"$/m.exec(stanza)?.[1];
     const checksum = /^checksum = "([^"]+)"$/m.exec(stanza)?.[1];
-    assert.ok(!found.has(name), `duplicate lockfile package: ${name}`);
+    // Cargo.lock can legitimately contain multiple versions of unrelated crates
+    // (e.g. syn or embedded-io). Security-sensitive runtime/compiler packages
+    // must remain unique so a stale second version cannot hide behind Map keys.
+    if (found.has(name)) {
+      assert.ok(!/^(?:wasmtime(?:-|$)|pulley-|cranelift-)/.test(name),
+        `duplicate pinned AOT dependency: ${name}`);
+      continue;
+    }
     found.set(name, { version, checksum });
   }
   return found;
