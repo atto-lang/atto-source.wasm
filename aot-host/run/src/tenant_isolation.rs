@@ -204,6 +204,24 @@ mod tests {
     }
 
     #[test]
+    fn denied_memory_growth_returns_a_trap_instead_of_a_guest_sentinel() {
+        // Exercise Wasmtime's real StoreLimits policy; this is not a
+        // substitute for executing a guest memory.grow in a native Store.
+        let mut policy = StoreLimitsBuilder::new()
+            .memory_size(GUEST_MEMORY_BYTES)
+            .memories(1)
+            .tables(0)
+            .instances(1)
+            .trap_on_grow_failure(true)
+            .build();
+        assert!(wasmtime::ResourceLimiter::memory_growing(
+            &mut policy, GUEST_MEMORY_BYTES,
+            GUEST_MEMORY_BYTES + 65536,
+            Some(GUEST_MEMORY_BYTES),
+        ).is_err(), "growth beyond tenant cap must fail by trap");
+    }
+
+    #[test]
     fn resource_policy_is_bounded() {
         assert_eq!(MAX_TENANTS, 32);
         assert_eq!(GUEST_MEMORY_BYTES, 131072);
