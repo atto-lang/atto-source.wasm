@@ -229,14 +229,13 @@ export async function verifyRealCompiler({
     if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
       throw Error("shared scalar corpus digest differs from pinned parity contract");
 
-    // +/ import graph linking is not implemented for the wasm32 compiler
-    // target. A scalar guest or bridge must never silently discard imports.
-    // This is an executable fail-closed guard, not a parity success claim.
+    // General/package import graph linking remains unavailable on wasm32.
+    // The reviewed LLVM slice admits only a root-relative pure-scalar leaf
+    // module; +/, retired @/, and pkg: resolution must remain fail-closed.
     for (const [name, imported] of [
       ["project-root", "+/src/lib/helper"],
       ["retired-root", "@/src/lib/helper"],
-      ["package", "pkg:math/src/helper"],
-      ["relative", "./helper"]
+      ["package", "pkg:math/src/helper"]
     ]) {
       const source = join(work, "deny-import-" + name + ".ores");
       await writeFile(source,
