@@ -97,6 +97,9 @@ impl TenantRegistry {
             .memories(1)
             .tables(0)
             .instances(1)
+            // A guest that exceeds the memory cap must trap, not continue
+            // after a failed memory.grow with a -1 sentinel.
+            .trap_on_grow_failure(true)
             .build();
         let mut store = Store::new(&self.engine, limits);
         store.limiter(|limits| limits);
