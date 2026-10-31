@@ -263,4 +263,57 @@ if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.
   exit 1
 fi
 
-echo 'AOT smoke: positive scalars, strict policy negatives, tenant store isolation and release-mode denial passed'
+
+# Real guest-memory-growth trap regression: a valid Wasm guest calls
+# memory.grow(1) after three successful turns. Its declared private memory is
+# already at 2 pages and cannot grow. Standard Wasm returns -1 and continues,
+# whereas this native host must trap, revoke only the offender and leave a
+# healthy tenant live in a separate Wasmtime Store.
+cat > "$tmp/tenant-memory-growth.c" <<'C'
+typedef unsigned long long u64;
+static volatile u64 counter;
+long long main(void) {
+    u64 current = ++counter;
+    if (current == 4) {
+        (void)__builtin_wasm_memory_grow(0, 1);
+    }
+    return (long long)current;
+}
+C
+clang --target=wasm32 -x c -Wno-main-return-type -O0 -nostdlib \
+  -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-memory-growth.wasm" "$tmp/tenant-memory-growth.c"
+node --input-type=module - "$tmp/tenant-memory-growth.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const bytes=readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(bytes), 'growth fixture must be valid Wasm');
+const module=new WebAssembly.Module(bytes);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'no host imports');
+assert.deepEqual(WebAssembly.Module.exports(module).map(({name,kind})=>[name,kind]).sort(),
+  [['main','function'],['memory','memory']].sort());
+const guest=new WebAssembly.Instance(module);
+assert.deepEqual([guest.exports.main(), guest.exports.main(),
+  guest.exports.main(), guest.exports.main()], [1n,2n,3n,4n],
+  'standard Wasm returns -1 from failed memory.grow and continues');
+assert.equal(guest.exports.memory.buffer.byteLength,131072);
+console.log('node_standard_wasm_growth_failure_returns_sentinel=ok');
+JS
+"$builder" "$tmp/tenant-memory-growth.wasm" \
+  "$(sha256sum "$tmp/tenant-memory-growth.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-memory-growth.cwasm" > "$tmp/tenant-memory-growth.meta"
+growth_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-memory-growth.meta")"
+[[ "$growth_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing growth AOT digest" >&2; exit 1; }
+growth_result="$("$runner" --tenant-memory-growth-smoke "$tmp/tenant-memory-growth.cwasm" "$growth_pin")"
+if [[ "$growth_result" != "wasmtime_tenant_memory_growth_trap=ok" ]]; then
+  echo "Wasmtime denied memory growth failed to trap/retire one tenant: $growth_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-memory-growth-smoke "$tmp/tenant-memory-growth.cwasm" \
+   "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "growth smoke accepted incorrect AOT digest" >&2
+  exit 1
+fi
+
+echo 'AOT smoke: positive scalars, strict policy negatives, tenant store/memory-growth isolation and release-mode denial passed'
