@@ -15,10 +15,11 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
   const tokens = [];
   for (let i = 0; i < source.length;) {
     const c = source[i];
-    if (/\s/.test(c)) {i++;continue;}
+    if (c === "\u0085" || /\s/.test(c)) {i++;continue;}
     if (source.startsWith("//", i)) {
-      const next = source.indexOf("\n", i + 2);
-      i = next < 0 ? source.length : next + 1;
+      let next = i + 2;
+      while (next < source.length && !/[\r\n\u0085\u2028\u2029]/.test(source[next])) next++;
+      i = next;
       continue;
     }
     if (source.startsWith("/*", i)) {
