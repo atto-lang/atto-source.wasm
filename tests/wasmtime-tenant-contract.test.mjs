@@ -75,6 +75,9 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   // it does not claim that native Wasmtime executed on this source head.
   assert.match(main, /--tenant-memory-growth-smoke/);
   assert.match(main, /denied guest memory\.grow returned instead of trapping/);
+  assert.match(main, /forcing trap when growing memory/);
+  assert.match(main, /forcing a memory growth failure to be a trap/);
+  assert.match(main, /guest failed without a Wasmtime memory-growth limiter cause/);
   assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=2/);
   assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=3/);
   assert.match(main, /registry\.invoke\(&offender,fuel\)\.is_ok\(\)/);
