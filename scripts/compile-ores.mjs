@@ -317,9 +317,15 @@ export async function compileOresToWasm({compiler,source,sourceDependencies=[],o
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
- // does not own the requested aggregate ABI yet.
+ // does not own the requested aggregate ABI yet. Apply the same bridge-owned
+ // capability policy to every dependency, not only the entry unit.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ for(const dependency of dependencyEntries){
+  rejectUnsupportedActorThreadSource(dependency.bytes);
+  rejectUnsupportedTupleV2Source(dependency.bytes);
+  rejectUnsupportedStructuralPatternSource(dependency.bytes);
+ }
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
