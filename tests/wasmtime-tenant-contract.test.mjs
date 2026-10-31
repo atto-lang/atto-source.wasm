@@ -13,7 +13,11 @@ const smoke = source("aot-host/tests/smoke.sh");
 test("tenants own separate Wasmtime Stores with bounded memories and no host imports", () => {
   assert.match(tenant, /Store::new\(&self\.engine, limits\)/);
   assert.match(tenant, /Instance::new\(&mut store, &self\.module, &\[\]\)/);
-  assert.match(tenant, /\.memory_size\(GUEST_MEMORY_BYTES\)/);
+  assert.match(tenant, /\.memory_size\(self\.memory_limit_bytes\)/);
+  assert.match(tenant, /Self::with_memory_limit\(engine, module, max_tenants, GUEST_MEMORY_BYTES\)/);
+  assert.match(tenant, /new_for_growth_smoke/);
+  assert.match(tenant, /Self::with_memory_limit\(engine, module, max_tenants, GUEST_MEMORY_BYTES \/ 2\)/);
+  assert.match(tenant, /host quota must deny guest-permitted growth/);
   assert.match(tenant, /\.memories\(1\)/);
   assert.match(tenant, /\.tables\(0\)/);
   assert.match(tenant, /\.instances\(1\)/);
@@ -84,7 +88,12 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   assert.match(main, /registry\.active_tenants\(\)!=1/);
   assert.match(main, /wasmtime_tenant_memory_growth_trap=ok/);
   assert.match(smoke, /__builtin_wasm_memory_grow\(0, 1\)/);
-  assert.match(smoke, /node_standard_wasm_growth_failure_returns_sentinel=ok/);
+  assert.match(smoke, /node_standard_wasm_growth_succeeds_under_module_max=ok/);
+  assert.match(smoke, /initial-memory=65536/);
+  assert.match(smoke, /max-memory=131072/);
+  assert.match(smoke, /guest must begin at one Wasm page/);
+  assert.match(smoke, /standard Wasm must have really grown one page/);
+  assert.match(main, /TenantRegistry::new_for_growth_smoke\(engine,module,2\)/);
   assert.match(smoke, /--tenant-memory-growth-smoke/);
   assert.match(smoke, /growth smoke accepted incorrect AOT digest/);
   assert.match(main, /#\[cfg\(not\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
