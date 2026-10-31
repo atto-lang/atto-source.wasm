@@ -4,10 +4,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-
-const root = fileURLToPath(new URL('../', import.meta.url));
-const read = (path) => readFileSync(new URL(path, `file://${root}`), 'utf8');
+// Resolve relative to the module URL, without constructing platform-specific
+// file:// strings (this test also runs on Windows CI).
+const read = (path) => readFileSync(new URL('../' + path, import.meta.url), 'utf8');
 const pin = '49.0.5';
 const craneliftPin = '0.136.5';
 const inputs = [
