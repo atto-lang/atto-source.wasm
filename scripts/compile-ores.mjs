@@ -16,7 +16,31 @@ import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
-const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+const MAX_SOURCE_BYTES=1024*1024,MAX_SOURCE_GRAPH_BYTES=2*1024*1024,
+ MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+const MAX_SOURCE_DEPENDENCIES=16;
+
+function dependencyRelativePath(value){
+ if(typeof value!=="string"||!value||isAbsolute(value)||value.includes("\\"))
+  throw Error("source dependency relativePath must be a portable relative path");
+ const parts=value.split("/");
+ if(parts.length>16||parts.some(part=>
+    !part||part==="."||part===".."||!/^[A-Za-z0-9_.-]+$/.test(part)))
+  throw Error("unsafe source dependency relativePath");
+ if(!value.endsWith(".ores"))throw Error("source dependency must use .ores extension");
+ return parts.join("/");
+}
+function graphDigest(entries){
+ const hash=createHash("sha256");
+ for(const entry of [...entries].sort((a,b)=>a.relativePath.localeCompare(b.relativePath))){
+  const name=Buffer.from(entry.relativePath,"utf8");
+  hash.update(Buffer.from(String(name.length)+":","ascii"));
+  hash.update(name);hash.update(Buffer.from([0]));
+  hash.update(Buffer.from(String(entry.bytes.length)+":","ascii"));
+  hash.update(entry.bytes);hash.update(Buffer.from([0]));
+ }
+ return hash.digest("hex");
+}
 
 function tupleV2Tokens(sourceBytes){
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
@@ -197,20 +221,37 @@ function run(command,args,{input}={}){
  if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,sourceDependencies=[],output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ if(!Array.isArray(sourceDependencies)||sourceDependencies.length>MAX_SOURCE_DEPENDENCIES)
+  throw Error("source dependency count exceeds 16");
+ const dependencySpecs=sourceDependencies.map((dependency,index)=>{
+  if(!dependency||typeof dependency!=="object"||Array.isArray(dependency))
+   throw Error("invalid source dependency at index "+index);
+  absolute(dependency.path,"source dependency");
+  return {path:dependency.path,relativePath:dependencyRelativePath(dependency.relativePath)};
+ });
+ if(new Set(dependencySpecs.map(x=>x.relativePath)).size!==dependencySpecs.length)
+  throw Error("duplicate source dependency relativePath");
  // Resolve directory symlinks ONCE and use that physical pathname for
  // publication, not the caller's possibly aliased directory spelling.
  // A lexical resolve() comparison alone can overwrite compiler/source
  // inputs through an alternate symlinked parent directory.
  await mkdir(dirname(output),{recursive:true});
- const [sourcePath,compilerPath,outputParent]=await Promise.all([
-  realpath(source),realpath(compiler),realpath(dirname(output))
+ const [sourcePath,compilerPath,outputParent,...dependencyPaths]=await Promise.all([
+  realpath(source),realpath(compiler),realpath(dirname(output)),
+  ...dependencySpecs.map(x=>realpath(x.path))
  ]);
+ const dependencies=dependencySpecs.map((spec,index)=>({
+  ...spec,path:dependencyPaths[index]
+ }));
+ if(new Set(dependencies.map(x=>x.path)).size!==dependencies.length ||
+    dependencies.some(x=>x.path===sourcePath||x.path===compilerPath))
+  throw Error("source dependency aliases another compiler input");
  const published=join(outputParent,basename(output));
- const protectedInputs=new Set([sourcePath,compilerPath]);
+ const protectedInputs=new Set([sourcePath,compilerPath,...dependencies.map(x=>x.path)]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases",published+".publication.lock"]){
   if(protectedInputs.has(destination))
@@ -219,34 +260,52 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(exportName))throw Error("unsupported export name");
  // Preflight before readFile() to avoid allocating attacker-sized compiler
  // binaries or source buffers, then check the lengths again after reading.
- const [sourceStat,compilerStat]=await Promise.all([stat(sourcePath),stat(compilerPath)]);
+ const [sourceStat,compilerStat,...dependencyStats]=await Promise.all([
+  stat(sourcePath),stat(compilerPath),...dependencies.map(x=>stat(x.path))
+ ]);
  if(!sourceStat.isFile()||sourceStat.size>MAX_SOURCE_BYTES)
   throw Error("source exceeds 1 MiB compiler bridge budget or is not a regular file");
  if(!compilerStat.isFile()||compilerStat.size>MAX_COMPILER_BYTES)
   throw Error("compiler exceeds 256 MiB executable budget or is not a regular file");
+ if(dependencyStats.some(x=>!x.isFile()||x.size>MAX_SOURCE_BYTES) ||
+    sourceStat.size+dependencyStats.reduce((n,x)=>n+x.size,0)>MAX_SOURCE_GRAPH_BYTES)
+  throw Error("source dependency graph exceeds bounded regular-file budget");
  // A destination that already exists might itself be a symlink or hard link
  // to an input. Reject by inode identity before publishing over the link.
  // Merely canonicalizing its parent directory does not catch this case.
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases"]){
   try{
    const existing=await stat(destination);
-   if([sourceStat,compilerStat].some(input=>
+   if([sourceStat,compilerStat,...dependencyStats].some(input=>
       input.dev===existing.dev&&input.ino===existing.ino))
     throw Error("output or artifact metadata path overlaps a compiler/source input");
   }catch(error){if(error?.code!=="ENOENT")throw error}
  }
  await rejectMixedPublication(published,publication);
- const [sourceSnapshot,compilerSnapshot]=await Promise.all([
+ const [sourceSnapshot,compilerSnapshot,...dependencySnapshots]=await Promise.all([
   readBoundedRegularFile(sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget"),
-  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")
+  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget"),
+  ...dependencies.map(x=>readBoundedRegularFile(
+    x.path,MAX_SOURCE_BYTES,"source dependency exceeds 1 MiB compiler bridge budget"))
  ]);
  // Input paths may have changed after the initial preflight/inode overlap
  // checks. Refuse a different input inode rather than pinning a new source
  // through a validated destination alias.
  if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino||
-    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
+    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino||
+    dependencySnapshots.some((snapshot,index)=>
+      snapshot.stat.dev!==dependencyStats[index].dev||
+      snapshot.stat.ino!==dependencyStats[index].ino))
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ const dependencyEntries=dependencies.map((dependency,index)=>({
+  relativePath:dependency.relativePath,
+  bytes:dependencySnapshots[index].bytes,
+  sourceSha256:sha(dependencySnapshots[index].bytes)
+ }));
+ const sourceGraphSha256=graphDigest([
+  {relativePath:"source.ores",bytes:sourceBytes},...dependencyEntries
+ ]);
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
@@ -258,15 +317,20 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
   throw Error("unsupported portable host environment");
- // Compile exactly the already-hashed source snapshot, not a mutable path.
- // The current scalar subset supports standalone source files; relative
- // source imports must be resolved and pinned by a future module graph gate.
+ // Compile exactly the already-hashed source graph, not mutable caller paths.
+ // Dependencies are opt-in, bounded and staged only at validated relative
+ // .ores paths inside the private scratch directory.
  const scratch=await mkdtemp(join(outputParent,".oreslang-wasm-"));
  const provisional=join(scratch,"guest.wasm");
  try{
  const stagedSource=join(scratch,"source.ores");
  const stagedCompiler=join(scratch,"compiler-exact");
  await writeFile(stagedSource,sourceBytes,{mode:0o400,flag:"wx"});
+ for(const dependency of dependencyEntries){
+  const staged=join(scratch,...dependency.relativePath.split("/"));
+  await mkdir(dirname(staged),{recursive:true,mode:0o700});
+  await writeFile(staged,dependency.bytes,{mode:0o400,flag:"wx"});
+ }
  // Execute the exact compiler bytes whose SHA-256 we pinned, not a mutable
  // caller-supplied pathname that may be replaced between hashing and exec.
  // The private scratch directory prevents pathname substitution by another
@@ -285,6 +349,20 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
+ for(const dependency of dependencyEntries){
+  const staged=join(scratch,...dependency.relativePath.split("/"));
+  if(sha((await readBoundedRegularFile(
+      staged,MAX_SOURCE_BYTES,"staged source dependency exceeds source budget")).bytes)!==
+      dependency.sourceSha256)
+   throw Error("staged source dependency changed during execution");
+ }
+ for(let index=0;index<dependencies.length;index++){
+  if(sha((await readBoundedRegularFile(
+      dependencies[index].path,MAX_SOURCE_BYTES,
+      "source dependency exceeds 1 MiB compiler bridge budget")).bytes)!==
+      dependencyEntries[index].sourceSha256)
+   throw Error("source dependency changed during execution; refusing stale provenance");
+ }
  // Require a genuine LLVM triple declaration, not a comment or string.
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
@@ -317,6 +395,10 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const record={
   schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
+  sourceGraphSha256,
+  sourceDependencies:dependencyEntries.map(x=>({
+    relativePath:x.relativePath,sourceSha256:x.sourceSha256
+  })),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
   clangVersion:run(clang,["--version"]).split("\n")[0],
