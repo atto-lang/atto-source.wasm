@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - ci/source-free-runner-reprobe-20261030
     paths:
       - .github/workflows/source-free-runner-canary.yml
 
