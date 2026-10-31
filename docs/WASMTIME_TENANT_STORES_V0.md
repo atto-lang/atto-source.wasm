@@ -96,10 +96,11 @@ Python mutation were removed from the AOT smoke.
 The shell smoke requires the pinned Rust toolchain, Clang/LLD and an executed
 CI runner. Separately, `node --test tests/wasm-guest-store-isolation.test.mjs`
 compiles the same counter fixture using Clang and runs a **real Node
-WebAssembly.Module/Instance** guest without Cargo. Its four TAP checks cover
+WebAssembly.Module/Instance** guest without Cargo. Its five TAP checks cover
 zero host imports / bounded exports, separate memory buffers and `1,1,2,2`,
-and fresh incarnation `1` while neighboring instances continue at `3`.
-The committed test file (Git blob `084545bf1382f893681e424c1cbe0e6fe03ab2ba`)
+rejection of growth beyond the per-instance two-page memory cap, and fresh
+incarnation `1` while neighboring instances continue at `3`.
+The committed test file (Git blob `ba7be4f40b4e3e9d1f0e675c54a8f50180e9fd9d`)
 passed under local Node 22; this is a **guest fixture proof only**, not an
 Oreslang-compiled guest or proof that Wasmtime's Rust Store registry or unsafe
 AOT deserialization executed. **A zero-step GitHub Actions failure is NOT_EXECUTED, not a test
