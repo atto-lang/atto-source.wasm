@@ -21,6 +21,20 @@ for manifest in aot-host/precompile/Cargo.toml aot-host/run/Cargo.toml; do
   fi
 done
 for lock in "${locks[@]}"; do
+  # Reject symlinks/hardlinks before using Cargo to update the tracked files.
+  if [[ ! -f "$lock" || -L "$lock" ]]; then
+    echo "refusing non-regular or symlink Cargo lockfile: $lock" >&2
+    exit 1
+  fi
+  lock_real="$(realpath -e -- "$lock")"
+  if [[ "$lock_real" != "$repo_dir/$lock" ]]; then
+    echo "refusing lockfile outside the repository's canonical path: $lock" >&2
+    exit 1
+  fi
+  if [[ "$(stat -c %h -- "$lock")" != 1 ]]; then
+    echo "refusing multiply-linked Cargo lockfile: $lock" >&2
+    exit 1
+  fi
   git ls-files --error-unmatch -- "$lock" >/dev/null
   if ! git diff --quiet -- "$lock" || ! git diff --cached --quiet -- "$lock"; then
     echo "refusing to replace pre-existing staged or unstaged edits to $lock" >&2
@@ -62,7 +76,7 @@ for crate in aot-host/precompile aot-host/run; do
       if ((name == "wasmtime" || name ~ /^wasmtime-/ || name ~ /^pulley-/) && version != "49.0.4") {
         print "unpatched Wasmtime/Pulley: " name " " version > "/dev/stderr"; bad=1
       }
-      if (name ~ /^cranelift-/ && version ~ /^0[.]136[.]/ && version != "0.136.4") {
+      if (name ~ /^cranelift-/ && version != "0.136.4") {
         print "unpatched Cranelift: " name " " version > "/dev/stderr"; bad=1
       }
     }
