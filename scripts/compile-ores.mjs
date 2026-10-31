@@ -43,16 +43,37 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
    if(depth!==0)continue; // malformed generics remain the compiler's diagnostic.
   }
   if(tokens[cursor]?.text!=="(")continue;
-  const first=tokens[cursor+1];
-  if(!first||first.text===")")continue;
-  if(first.text==="("){
-   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
-  }
-  if(first.id&&first.text==="structural"){
-   throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+first.offset);
-  }
-  if(first.id&&first.text==="tuple"&&tokens[cursor+2]?.text==="("){
-   throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  // Each parameter must be checked: the first-parameter-only probe allowed
+  // unlowered tuple ABI forms in later parameters to reach native LLVM.
+  let parens=0,angles=0,brackets=0;
+  let parameterStart=true;
+  for(let j=cursor+1;j<tokens.length;j++){
+   const token=tokens[j],value=token.text;
+   if(value===")"&&parens===0)break;
+   if(token.id&&value==="structural"&&
+      (parameterStart||["<",",","("].includes(tokens[j-1]?.text))){
+    throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+token.offset);
+   }
+   if(token.id&&value==="tuple"&&tokens[j+1]?.text==="("){
+    throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+token.offset);
+   }
+   if(value==="("){
+    // Inline tuple type in a parameter position or generic type slot.
+    if(parameterStart||(parens===0&&angles>0&&["<",","].includes(tokens[j-1]?.text))){
+     throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+token.offset);
+    }
+    parens++;
+   }else if(value===")"){
+    if(parens>0)parens--;
+   }else if(value==="<")angles++;
+   else if(value===">"&&angles>0)angles--;
+   else if(value==="[")brackets++;
+   else if(value==="]"&&brackets>0)brackets--;
+   if(value===","&&parens===0&&angles===0&&brackets===0){
+    parameterStart=true;
+    continue;
+   }
+   if(value!=="("||!parameterStart)parameterStart=false;
   }
  }
 }
