@@ -1,0 +1,459 @@
+// Pure-Oreslang arbitrary-precision integer reference foundation.
+//
+// This deliberately does NOT define the reserved primitive `bigint` type yet.
+// The compiler rejects that spelling until every backend has a distinct
+// arbitrary-precision representation. BigIntValue is the executable semantic
+// reference used to develop that future primitive without host BigInteger.
+//
+// Representation: sign {-1,0,1} plus little-endian base-2^16 limbs.
+// Bounds are explicit so parse/compute work cannot grow without policy.
+define module bigint_math as
+
+  pub define class BigIntValue as
+    val int sign;
+    val int used;
+    val List<int> limbs;
+
+    pub constructor(int sign, int used, List<int> source) {
+      if used < 0 || used > 1024 || source.size < used; do
+        rt fail("bigint: limb count outside bounded domain");
+      fi
+
+      if used == 0; do
+        if sign != 0; do
+          rt fail("bigint: zero must have sign 0");
+        fi
+      else
+        if sign != 1 && sign != -1; do
+          rt fail("bigint: nonzero sign must be -1 or 1");
+        fi
+      fi
+
+      let List<int> copy = new List<int>();
+      for (let int i = 0; i < used; i = i + 1) {
+        val int limb = source.get(i);
+        if limb < 0 || limb > 65535; do
+          rt fail("bigint: limb outside base-2^16 range");
+        fi
+        copy.add(limb);
+      }
+
+      if used > 0 && copy.get(used - 1) == 0; do
+        rt fail("bigint: nonzero value must be canonically trimmed");
+      fi
+
+      self.sign = sign;
+      self.used = used;
+      self.limbs = copy;
+    }
+
+    pub fnc signum(): int {
+      return self.sign;
+    }
+
+    pub fnc limb_count(): int {
+      return self.used;
+    }
+
+    pub fnc limb_at(int index): int {
+      if index < 0 || index >= self.used; do
+        rt fail("bigint: limb index outside canonical value");
+      fi
+      return self.limbs.get(index);
+    }
+  end
+
+  pub define class BigIntDivRem as
+    pub val BigIntValue quotient;
+    pub val BigIntValue remainder;
+
+    pub constructor(BigIntValue quotient, BigIntValue remainder) {
+      self.quotient = quotient;
+      self.remainder = remainder;
+    }
+  end
+
+
+  fnc trimmed_used(&List<int> limbs): int {
+    let int used = limbs.size;
+    for (let int i = used - 1; i >= 0; i = i - 1) {
+      if limbs.get(i) != 0; do
+        return i + 1;
+      fi
+    }
+    return 0;
+  }
+
+  fnc copied_limbs(&BigIntValue value): List<int> {
+    let List<int> copy = new List<int>();
+    for (let int i = 0; i < value.limb_count(); i = i + 1) {
+      copy.add(value.limb_at(i));
+    }
+    return copy;
+  }
+
+  pub fnc zero(): BigIntValue {
+    let List<int> limbs = new List<int>();
+    return new BigIntValue(0, 0, limbs);
+  }
+
+  pub fnc from_int(int value): BigIntValue {
+    if value == 0; do
+      return zero();
+    fi
+
+    let int sign = 1;
+    let int remaining = value;
+    if value < 0; do
+      sign = -1;
+      // Avoid negating signed MIN in the fixed-width domain.
+      if value == (-9223372036854775807 - 1); do
+        let List<int> minimum = new List<int>();
+        minimum.add(0);
+        minimum.add(0);
+        minimum.add(0);
+        minimum.add(32768);
+        return new BigIntValue(-1, 4, minimum);
+      fi
+      remaining = Math.neg(value);
+    fi
+
+    let List<int> limbs = new List<int>();
+    for (let int i = 0; i < 4; i = i + 1) {
+      limbs.add(remaining & 65535);
+      remaining = remaining >>> 16;
+      if remaining == 0; do
+        break;
+      fi
+    }
+    return new BigIntValue(sign, limbs.size, limbs);
+  }
+
+  pub fnc abs(&BigIntValue value): BigIntValue {
+    if value.signum() == 0; do
+      return zero();
+    fi
+    return new BigIntValue(1, value.limb_count(), copied_limbs(&value));
+  }
+
+  pub fnc neg(&BigIntValue value): BigIntValue {
+    if value.signum() == 0; do
+      return zero();
+    fi
+    return new BigIntValue(Math.neg(value.signum()), value.limb_count(), copied_limbs(&value));
+  }
+
+  // Returns -1, 0, 1.
+  pub fnc compare(&BigIntValue left, &BigIntValue right): int {
+    if left.signum() < right.signum(); do
+      return -1;
+    fi
+    if left.signum() > right.signum(); do
+      return 1;
+    fi
+    if left.signum() == 0; do
+      return 0;
+    fi
+
+    let int magnitude = 0;
+    if left.limb_count() < right.limb_count(); do
+      magnitude = -1;
+    else
+      if left.limb_count() > right.limb_count(); do
+        magnitude = 1;
+      else
+        for (let int i = left.limb_count() - 1; i >= 0; i = i - 1) {
+          if left.limb_at(i) < right.limb_at(i); do
+            magnitude = -1;
+            break;
+          fi
+          if left.limb_at(i) > right.limb_at(i); do
+            magnitude = 1;
+            break;
+          fi
+        }
+      fi
+    fi
+
+    if left.signum() < 0; do
+      return Math.neg(magnitude);
+    fi
+    return magnitude;
+  }
+
+  pub fnc equal(&BigIntValue left, &BigIntValue right): bool {
+    return compare(&left, &right) == 0;
+  }
+
+  pub fnc add(&BigIntValue left, &BigIntValue right): BigIntValue {
+    if left.signum() == 0; do
+      return new BigIntValue(right.signum(), right.limb_count(), copied_limbs(&right));
+    fi
+    if right.signum() == 0; do
+      return new BigIntValue(left.signum(), left.limb_count(), copied_limbs(&left));
+    fi
+
+    // Same sign: magnitude addition. With base 2^16 the carry is at most one.
+    if left.signum() == right.signum(); do
+      let List<int> out = new List<int>();
+      let int carry = 0;
+      let int count = left.limb_count();
+      if right.limb_count() > count; do
+        count = right.limb_count();
+      fi
+
+      for (let int i = 0; i < count; i = i + 1) {
+        let int total = carry;
+        if i < left.limb_count(); do
+          total = total + left.limb_at(i);
+        fi
+        if i < right.limb_count(); do
+          total = total + right.limb_at(i);
+        fi
+        if total >= 65536; do
+          total = total - 65536;
+          carry = 1;
+        else
+          carry = 0;
+        fi
+        out.add(total);
+      }
+      if carry != 0; do
+        if out.size >= 1024; do
+          rt fail("bigint: addition exceeds bounded limb policy");
+        fi
+        out.add(carry);
+      fi
+      return new BigIntValue(left.signum(), out.size, out);
+    fi
+
+    // Different signs: compare magnitudes and subtract the smaller.
+    let int order = 0;
+    if left.limb_count() < right.limb_count(); do
+      order = -1;
+    else
+      if left.limb_count() > right.limb_count(); do
+        order = 1;
+      else
+        for (let int i = left.limb_count() - 1; i >= 0; i = i - 1) {
+          if left.limb_at(i) < right.limb_at(i); do
+            order = -1;
+            break;
+          fi
+          if left.limb_at(i) > right.limb_at(i); do
+            order = 1;
+            break;
+          fi
+        }
+      fi
+    fi
+
+    if order == 0; do
+      return zero();
+    fi
+
+    let bool left_is_larger = order > 0;
+    let int larger_count = right.limb_count();
+    let int result_sign = right.signum();
+    if left_is_larger; do
+      larger_count = left.limb_count();
+      result_sign = left.signum();
+    fi
+
+    let List<int> out = new List<int>();
+    let int borrow = 0;
+    for (let int i = 0; i < larger_count; i = i + 1) {
+      let int larger = 0;
+      let int smaller = 0;
+      if left_is_larger; do
+        larger = left.limb_at(i);
+        if i < right.limb_count(); do
+          smaller = right.limb_at(i);
+        fi
+      else
+        larger = right.limb_at(i);
+        if i < left.limb_count(); do
+          smaller = left.limb_at(i);
+        fi
+      fi
+
+      let int digit = larger - smaller - borrow;
+      if digit < 0; do
+        digit = digit + 65536;
+        borrow = 1;
+      else
+        borrow = 0;
+      fi
+      out.add(digit);
+    }
+
+    if borrow != 0; do
+      rt fail("bigint: internal subtraction borrow escaped magnitude");
+    fi
+    let int used = trimmed_used(&out);
+    if used == 0; do
+      return zero();
+    fi
+    return new BigIntValue(result_sign, used, out);
+  }
+
+  pub fnc sub(&BigIntValue left, &BigIntValue right): BigIntValue {
+    val BigIntValue opposite = neg(&right);
+    return add(&left, &opposite);
+  }
+
+  pub fnc mul(&BigIntValue left, &BigIntValue right): BigIntValue {
+    if left.signum() == 0 || right.signum() == 0; do
+      return zero();
+    fi
+
+    // Schoolbook multiplication is explicitly bounded to cap CPU work.
+    if left.limb_count() > 256 || right.limb_count() > 256; do
+      rt fail("bigint: multiplication exceeds bounded operation policy");
+    fi
+
+    let int capacity = left.limb_count() + right.limb_count();
+    if capacity > 1024; do
+      rt fail("bigint: multiplication exceeds bounded limb policy");
+    fi
+
+    let List<int> out = new List<int>();
+    for (let int i = 0; i < capacity; i = i + 1) {
+      out.add(0);
+    }
+
+    for (let int i = 0; i < left.limb_count(); i = i + 1) {
+      let int carry = 0;
+      for (let int j = 0; j < right.limb_count(); j = j + 1) {
+        val int index = i + j;
+        // 65535^2 + 65535 + 65535 < 2^32, safely inside checked i64.
+        val int total = out.get(index)
+          + (left.limb_at(i) * right.limb_at(j))
+          + carry;
+        out.set(index, total & 65535);
+        carry = total >>> 16;
+      }
+      out.set(i + right.limb_count(), carry);
+    }
+
+    let int used = trimmed_used(&out);
+    let int sign = 1;
+    if left.signum() != right.signum(); do
+      sign = -1;
+    fi
+    return new BigIntValue(sign, used, out);
+  }
+
+
+  fnc bit_length(&BigIntValue value): int {
+    if value.signum() == 0; do
+      return 0;
+    fi
+    val int high = value.limb_at(value.limb_count() - 1);
+    for (let int bit = 15; bit >= 0; bit = bit - 1) {
+      if ((high & (1 << bit)) != 0); do
+        return ((value.limb_count() - 1) * 16) + bit + 1;
+      fi
+    }
+    rt fail("bigint: canonical nonzero high limb has no set bit");
+    return 0;
+  }
+
+  fnc bit_at(&BigIntValue value, int bit_index): int {
+    if bit_index < 0; do
+      rt fail("bigint: negative bit index");
+    fi
+    val int limb_index = bit_index >>> 4;
+    if limb_index >= value.limb_count(); do
+      return 0;
+    fi
+    val int offset = bit_index & 15;
+    return (value.limb_at(limb_index) >>> offset) & 1;
+  }
+
+  fnc shift_left_one(&BigIntValue value): BigIntValue {
+    if value.signum() == 0; do
+      return zero();
+    fi
+    let List<int> out = new List<int>();
+    let int carry = 0;
+    for (let int i = 0; i < value.limb_count(); i = i + 1) {
+      let int total = (value.limb_at(i) * 2) + carry;
+      if total >= 65536; do
+        total = total - 65536;
+        carry = 1;
+      else
+        carry = 0;
+      fi
+      out.add(total);
+    }
+    if carry != 0; do
+      if out.size >= 1024; do
+        rt fail("bigint: shift exceeds bounded limb policy");
+      fi
+      out.add(carry);
+    fi
+    return new BigIntValue(value.signum(), out.size, out);
+  }
+
+  // Binary long division over canonical magnitudes. This intentionally has a
+  // tighter bound than add/sub so runtime work remains reviewable; 128 limbs
+  // caps binary long-division bit iterations and repeated bounded allocations.
+  pub fnc div_rem(
+    &BigIntValue dividend,
+    &BigIntValue divisor
+  ): BigIntDivRem {
+    if divisor.signum() == 0; do
+      rt fail("bigint: division by zero");
+    fi
+    if dividend.signum() == 0; do
+      return new BigIntDivRem(zero(), zero());
+    fi
+    if dividend.limb_count() > 128 || divisor.limb_count() > 128; do
+      rt fail("bigint: division exceeds bounded 128-limb operation policy");
+    fi
+
+    val BigIntValue dividend_magnitude = abs(&dividend);
+    val BigIntValue divisor_magnitude = abs(&divisor);
+    val BigIntValue one = from_int(1);
+    let BigIntValue quotient = zero();
+    let BigIntValue remainder = zero();
+
+    val int bits = bit_length(&dividend_magnitude);
+    for (let int bit = bits - 1; bit >= 0; bit = bit - 1) {
+      quotient = shift_left_one(&quotient);
+      remainder = shift_left_one(&remainder);
+
+      if bit_at(&dividend_magnitude, bit) != 0; do
+        remainder = add(&remainder, &one);
+      fi
+
+      if compare(&remainder, &divisor_magnitude) >= 0; do
+        remainder = sub(&remainder, &divisor_magnitude);
+        quotient = add(&quotient, &one);
+      fi
+    }
+
+    // Oreslang integer division contract: truncate toward zero and give the
+    // remainder the dividend's sign.
+    if quotient.signum() != 0 && dividend.signum() != divisor.signum(); do
+      quotient = neg(&quotient);
+    fi
+    if remainder.signum() != 0 && dividend.signum() < 0; do
+      remainder = neg(&remainder);
+    fi
+
+    return new BigIntDivRem(quotient, remainder);
+  }
+
+  pub fnc div(&BigIntValue dividend, &BigIntValue divisor): BigIntValue {
+    val BigIntDivRem result = div_rem(&dividend, &divisor);
+    return result.quotient;
+  }
+
+  pub fnc rem(&BigIntValue dividend, &BigIntValue divisor): BigIntValue {
+    val BigIntDivRem result = div_rem(&dividend, &divisor);
+    return result.remainder;
+  }
+
+end
