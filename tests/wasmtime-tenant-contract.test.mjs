@@ -70,6 +70,20 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   assert.match(smoke, /tenant-counter\.wasm/);
   assert.match(smoke, /--tenant-isolation-smoke/);
   assert.match(smoke, /tenant smoke bypassed AOT digest check/);
+  // Real guest memory.grow must trap via the pinned StoreLimits policy.
+  // This checks that native AOT smoke exercises the intended runtime path;
+  // it does not claim that native Wasmtime executed on this source head.
+  assert.match(main, /--tenant-memory-growth-smoke/);
+  assert.match(main, /denied guest memory\.grow returned instead of trapping/);
+  assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=2/);
+  assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=3/);
+  assert.match(main, /registry\.invoke\(&offender,fuel\)\.is_ok\(\)/);
+  assert.match(main, /registry\.active_tenants\(\)!=1/);
+  assert.match(main, /wasmtime_tenant_memory_growth_trap=ok/);
+  assert.match(smoke, /__builtin_wasm_memory_grow\(0, 1\)/);
+  assert.match(smoke, /node_standard_wasm_growth_failure_returns_sentinel=ok/);
+  assert.match(smoke, /--tenant-memory-growth-smoke/);
+  assert.match(smoke, /growth smoke accepted incorrect AOT digest/);
   assert.match(main, /#\[cfg\(not\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
   assert.match(main, /AOT execution is disabled unless/);
 });
