@@ -126,7 +126,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   return Ok(());
  }
  let limits=StoreLimitsBuilder::new()
-  .memory_size(131072).memories(1).tables(0).instances(1).build();
+  .memory_size(131072).memories(1).tables(0).instances(1)
+  .trap_on_grow_failure(true).build();
  let mut store=Store::new(&engine,limits);
  store.limiter(|limits|limits);
  store.set_fuel(fuel)?;
