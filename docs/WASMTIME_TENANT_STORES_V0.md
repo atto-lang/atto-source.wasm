@@ -27,6 +27,12 @@ compromise of the Rust host or Wasmtime's native code.
   memory, one memory, one instance, and zero tables per Store.
 - Calls reset a strictly positive fuel budget (maximum 100 million), and a
   guest trap retires the Store/Instance rather than reusing mutable guest state.
+  Both the tenant registry and the debug-only scalar runner explicitly enable
+  Wasmtime `StoreLimitsBuilder::trap_on_grow_failure(true)`: denied resource
+  growth must not silently return a `-1` sentinel that guest code could ignore.
+  This is an intentional, potentially non-spec-compliant **host policy**.
+  A direct `ResourceLimiter::memory_growing` Rust unit regression is included,
+  but native tests must execute on a real runner before claiming runtime proof.
 - Shutdown first fences new calls, then drops the tenant Store and Instance.
   The v0 synchronous `&mut self` registry serializes host operations; a
   future asynchronous broker must prove drain/termination before destroying
