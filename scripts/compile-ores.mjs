@@ -51,7 +51,7 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
    const token=tokens[j],value=token.text;
    if(value===")"&&parens===0)break;
    if(token.id&&value==="structural"&&
-      (parameterStart||["<",",","("].includes(tokens[j-1]?.text))){
+      (parameterStart||(angles>0&&["<",",","("].includes(tokens[j-1]?.text)))){
     throw Error("wasm structural tuple v2 readonly-view ABI unsupported at byte "+token.offset);
    }
    if(token.id&&value==="tuple"&&tokens[j+1]?.text==="("){
