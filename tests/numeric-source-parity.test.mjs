@@ -227,6 +227,40 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       assert.match(compiled.sourceGraphSha256,/^[0-9a-f]{64}$/);
     }
 
+    // Cross-frame positive: the ordinary numeric effect must propagate
+    // through an actual compiled guest call before the caller catches it.
+    // A host trap or synthetic reference result must not satisfy this gate.
+    for (const [name,helper,call] of [
+      ["add", "pub fnc checked(int value):int{return value+1;}",
+        "checked(9223372036854775807)"],
+      ["math-neg", "pub fnc checked(int value):int{return Math.neg(value);}",
+        "checked((-9223372036854775807 - 1))"]
+    ]) {
+      const guest = [
+        'import module Math from "./math";', helper,
+        'pub fnc main():int {',
+        '  try { return '+call+'; } catch(err) {',
+        '    if err is type ArithmeticOverflowError { return 42; }',
+        '    else { return 1; } fi',
+        '  } finally { }',
+        '}'
+      ].join("\n")+"\n";
+      const target=join(dir,"typed-cross-frame-"+name+".wasm");
+      await writeFile(mathEntry,guest);
+      const compiled=await compileOresToWasm({
+        compiler,compilerSha256:expectedCompilerSha,source:mathEntry,
+        output:target,sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+        environment:"browser",publication:"atomic"
+      });
+      const released=await readAtomicRelease(target);
+      const observed=await runIsolatedCoreGuest(released.wasm,{
+        expectedSha256:compiled.wasmSha256,timeoutMs:5000
+      });
+      assert.equal(observed.value,42n,
+        "cross-function ArithmeticOverflowError catch was not preserved: "+name);
+      assert.equal(observed.admission.hostCapabilities,0);
+    }
+
     await writeFile(mathEntry,
       'import module Math from "./math";\n'+
       'pub fnc main():int{\n'+
