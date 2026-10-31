@@ -73,7 +73,9 @@ fn generate(root: &Path) -> Result<(), Failure> {
 fn corrupt(path: &Path) -> Result<(), Failure> {
     // This fixture deliberately mutates a PRIVATE temporary artifact.
     // The path must not allow symlink replacement between metadata inspection
-    // and opening the file; Linux/macOS CI supports O_NOFOLLOW.
+    // and opening the file; Linux/macOS CI supports O_NOFOLLOW. A racing
+    // FIFO/device replacement must also not block or attach a controlling TTY
+    // before the opened file descriptor is checked for regular-file identity.
     #[cfg(not(unix))]
     {
         let _ = path;
@@ -88,7 +90,8 @@ fn corrupt(path: &Path) -> Result<(), Failure> {
             return Err("corruption test input must be bounded nonempty regular file".into());
         }
         let mut file = OpenOptions::new().read(true).write(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)?;
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC |
+                libc::O_NONBLOCK | libc::O_NOCTTY).open(path)?;
         let opened = file.metadata()?;
         if !opened.file_type().is_file() ||
             opened.nlink() != 1 ||
