@@ -101,5 +101,10 @@ test("bounded source graph is privately staged, hashed and order-independent",as
      {path:math,relativePath:"other.ores"}
     ]
    }),/aliases another compiler input/);
+  await assert.rejects(
+   compileOresToWasm({
+    compiler,source,output:join(dir,"entry-collision.wasm"),
+    sourceDependencies:[{path:math,relativePath:"source.ores"}]
+   }),/collides with staged source layout/);
  }finally{await rm(dir,{recursive:true,force:true})}
 });
