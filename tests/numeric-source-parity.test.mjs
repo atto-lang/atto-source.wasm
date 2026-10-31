@@ -28,8 +28,8 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
   assert.match(declaredLlvmSourceSha || "", /^[a-f0-9]{40}$/,
     "real numeric conformance requires independently reviewed LLVM source SHA");
   assert.equal(declaredLlvmSourceSha,
-    "c157ded685419f674657219fa1cbe82a1c447b50",
-    "numeric module parity requires the reviewed LLVM leaf-module compiler head");
+    "b90d147a964fd7864a8f7ea02f5719213b04ece7",
+    "numeric module parity requires the reviewed LLVM typed ErrorSlot compiler head");
   // Snapshot the compiler through the same no-follow, regular-file and
   // 256 MiB admission boundary as the production Wasm bridge.
   const compilerSnapshot = await readBoundedRegularFile(
@@ -118,9 +118,9 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
         "failed numeric compilation must not publish a release pointer");
     }
 
-    // These are valid i64 programs whose arithmetic result overflows. The
-    // current LLVM/Wasm ABI is a checked runtime trap, not wrapping and not
-    // yet a typed guest ArithmeticOverflowError.
+    // These standalone programs have no catch/ErrorSlot continuation. They
+    // remain checked runtime traps: never wrapping, and never counted as
+    // typed guest-error evidence merely because the engine traps.
     for (let i=0;i<overflowNegatives.length;i++) {
       const target=join(dir,"overflow-"+i+".wasm");
       await writeFile(input,overflowNegatives[i]+"\n");
@@ -184,6 +184,107 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       error=>/guest rejected or failed/.test(String(error?.message ?? "")),
       "Math.neg(INT64_MIN) must trap in current Wasm ABI, never wrap"
     );
+
+
+    const typedOverflowCases=[
+      ["add","9223372036854775807 + 1"],
+      ["sub","(-9223372036854775807 - 1) - 1"],
+      ["mul","3037000500 * 3037000500"],
+      ["unary-neg","-(-9223372036854775807 - 1)"],
+      ["math-abs","Math.abs((-9223372036854775807 - 1))"],
+      ["math-neg","Math.neg((-9223372036854775807 - 1))"]
+    ];
+    for(const [name,expression] of typedOverflowCases){
+      const target=join(dir,"typed-"+name+".wasm");
+      await writeFile(mathEntry,
+        'import module Math from "./math";\n'+
+        'pub fnc main():int{\n'+
+        '  try { return '+expression+'; } catch (err) {\n'+
+        '    if err is type ArithmeticOverflowError { return 42; } '+
+        'else { return 1; } fi\n'+
+        '  } finally { }\n'+
+        '}\n');
+      const compiled=await compileOresToWasm({
+        compiler,compilerSha256:expectedCompilerSha,source:mathEntry,output:target,
+        sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+        environment:"browser",publication:"atomic"
+      });
+      const release=await readAtomicRelease(target);
+      const observed=await runIsolatedCoreGuest(release.wasm,{
+        expectedSha256:compiled.wasmSha256,timeoutMs:5000
+      });
+      assert.equal(observed.value,42n,
+        "typed ArithmeticOverflowError catch failed for "+name);
+      assert.equal(observed.admission.hostCapabilities,0);
+      assert.match(compiled.sourceGraphSha256,/^[0-9a-f]{64}$/);
+    }
+
+    await writeFile(mathEntry,
+      'import module Math from "./math";\n'+
+      'pub fnc main():int{\n'+
+      '  try { return Math.neg((-9223372036854775807 - 1)); } catch (err) {\n'+
+      '    if err is type Error { return 42; } else { return 1; } fi\n'+
+      '  } finally { }\n'+
+      '}\n');
+    const rootErrorTarget=join(dir,"typed-error-root.wasm");
+    const rootErrorCompiled=await compileOresToWasm({
+      compiler,compilerSha256:expectedCompilerSha,source:mathEntry,
+      output:rootErrorTarget,
+      sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+      environment:"browser",publication:"atomic"
+    });
+    const rootErrorRelease=await readAtomicRelease(rootErrorTarget);
+    const rootErrorObserved=await runIsolatedCoreGuest(rootErrorRelease.wasm,{
+      expectedSha256:rootErrorCompiled.wasmSha256,timeoutMs:5000
+    });
+    assert.equal(rootErrorObserved.value,42n,
+      "ArithmeticOverflowError must satisfy builtin Error root in Wasm guest");
+
+    await writeFile(mathEntry,
+      'import module Math from "./math";\n'+
+      'pub fnc main():int{\n'+
+      '  try { return Math.neg(-42); } catch (err) { return 7; } finally { }\n'+
+      '}\n');
+    const catchNotTakenTarget=join(dir,"catch-not-taken.wasm");
+    const catchNotTakenCompiled=await compileOresToWasm({
+      compiler,compilerSha256:expectedCompilerSha,source:mathEntry,
+      output:catchNotTakenTarget,
+      sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+      environment:"browser",publication:"atomic"
+    });
+    const catchNotTakenRelease=await readAtomicRelease(catchNotTakenTarget);
+    const catchNotTakenObserved=await runIsolatedCoreGuest(catchNotTakenRelease.wasm,{
+      expectedSha256:catchNotTakenCompiled.wasmSha256,timeoutMs:5000
+    });
+    assert.equal(catchNotTakenObserved.value,42n,
+      "nonoverflowing Math path must not enter ErrorSlot catch");
+
+    for(const [name,source,diagnostic] of [
+      ["host-type",
+       'import module Math from "./math"; pub fnc main():int{'+
+       'try{return Math.neg((-9223372036854775807 - 1));}catch(err){'+
+       'if err is type ArithmeticException{return 42;}else{return 1;}fi}finally{}}',
+       "native ErrorSlot type test supports only ArithmeticOverflowError or Error"],
+      ["opaque-binding",
+       'import module Math from "./math"; pub fnc main():int{'+
+       'try{return Math.neg((-9223372036854775807 - 1));}catch(err){return err;}finally{}}',
+       "native ErrorSlot catch v1 requires an integer literal handler result"]
+    ]){
+      const target=join(dir,"reject-"+name+".wasm");
+      await writeFile(mathEntry,source+"\n");
+      await assert.rejects(
+        compileOresToWasm({
+          compiler,compilerSha256:expectedCompilerSha,source:mathEntry,
+          output:target,
+          sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+          environment:"browser",publication:"atomic"
+        }),
+        error=>String(error?.message ?? "").includes(diagnostic),
+        "Wasm bridge must preserve compiler-owned ErrorSlot fail-closed diagnostic: "+name
+      );
+      await assert.rejects(stat(target+".current.json"),{code:"ENOENT"},
+        "rejected typed Error source must not publish an atomic release");
+    }
   } finally {
     await rm(dir,{recursive:true,force:true});
   }
