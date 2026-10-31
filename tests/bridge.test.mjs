@@ -83,7 +83,8 @@ test("bounded source graph is privately staged, hashed and order-independent",as
   assert.equal(first.sourceGraphSha256,second.sourceGraphSha256,
     "dependency ordering must not change graph identity");
   assert.deepEqual(first.sourceDependencies.map(x=>x.relativePath),
-    ["math.ores","lib/helper.ores"]);
+    ["lib/helper.ores","math.ores"],
+    "dependency provenance must be canonical by staged path");
   assert.equal((new WebAssembly.Instance(
     new WebAssembly.Module(await readFile(outputA)))).exports.main(),42n);
 
