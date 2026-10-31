@@ -14,48 +14,13 @@ import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
+import {lexSourceAdmission} from "../src/source-admission-lexer.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
-function tupleV2Tokens(sourceBytes){
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
- const tokens=[];
- const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
- for(let i=0;i<text.length;){
-  const c=text[i];
-  if(/\s/.test(c)){i++;continue}
-  if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
-  }
-  if(c==="/"&&text[i+1]==="*"){
-   const start=i;i+=2;let depth=1;
-   while(i<text.length&&depth){
-    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
-    else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
-    else i++;
-   }
-   if(depth)throw Error("unterminated block comment at byte "+start);
-   continue;
-  }
-  if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
-   while(i<text.length){
-    const q=text[i++];
-    if(escaped){escaped=false;continue}
-    if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
-   }
-   continue;
-  }
-  if(idStart(c)){
-   const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
-  }
-  tokens.push({text:c,offset:i,id:false});i++;
- }
- return tokens;
-}
+// Identical comment, string, Unicode and token-budget semantics for all source gates.
+const tupleV2Tokens = lexSourceAdmission;
 
 /**
  * Wasm source bridge capability gate. This backend has no tuple-value ABI,
