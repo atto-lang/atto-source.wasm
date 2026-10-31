@@ -5,6 +5,7 @@
  * quoted strings; it does not substitute for a full Oreslang source parser.
  */
 import {lexSourceAdmission} from "./source-admission-lexer.mjs";
+const declarationModifiers = new Set(["pub", "serial", "http", "tcp", "ws"]);
 
 export function rejectUnsupportedActorThreadSource(snapshot) {
   const tokens = lexSourceAdmission(snapshot).map(token => token.text);
@@ -17,10 +18,18 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // an artifact. Comments, quoted strings and templates were skipped above.
     if (tokens[i] === "@")
       throw Error("WASM source annotation unsupported: no validated guest annotation lowering");
-    if (tokens[i] === "define" && tokens[i+1] === "enum"
-        && tokens[i+2] === "MaxActorThreads")
-      throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
-    if (tokens[i] === "define" && tokens[i+1] === "actor")
-      throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    if (tokens[i] === "define") {
+      // Actor variants desugar to actors, including public, serial and
+      // transport-specific shorthands. A scanner checking only `define actor`
+      // would silently skip the other spellings before native compilation.
+      let declaration = i + 1;
+      for (let seen = 0; seen < 5 && declarationModifiers.has(tokens[declaration]); seen++)
+        declaration++;
+      if (tokens[declaration] === "actor")
+        throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+      if (tokens[declaration] === "enum"
+          && tokens[declaration + 1] === "MaxActorThreads")
+        throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+    }
   }
 }
