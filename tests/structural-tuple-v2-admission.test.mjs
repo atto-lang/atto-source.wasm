@@ -71,3 +71,29 @@ test("shared token budget and malformed-source gates apply to tuple admission", 
   assert.throws(() => rejectUnsupportedTupleV2Source(bytes(";".repeat(100_001))),
                 /source token budget exceeded/);
 });
+
+
+test("later parameters cannot bypass unsupported tuple and structural ABIs",()=>{
+ for(const source of [
+  "fnc take(int a, tuple (int,int) value):int{return 1;}",
+  "fnc take(int a, (int,int) value):int{return 1;}",
+  "fnc take(int a, bool b, structural Point value):int{return 1;}",
+  "fnc take(int a, Option<tuple (int,int)> value):int{return 1;}",
+  "fnc take(int a, Option<(int,int)> value):int{return 1;}",
+  "fnc take(int a, Option<structural Point> value):int{return 1;}",
+  "routine take(int a, tuple (int,int) value):int{return 1;}",
+  "fnc take<T,U>(T a, structural Point value):int{return 1;}",
+  "fnc take(int a, // inert\n tuple (int,int) value):int{return 1;}"
+ ]) assert.throws(()=>rejectUnsupportedTupleV2Source(bytes(source)),
+                   /wasm structural tuple v2/,source);
+});
+
+test("contextual identifiers and ordinary later parameters remain valid",()=>{
+ for(const source of [
+  "fnc take(int a, bool b):int{return 1;}",
+  "fnc take(int structural):int{return structural;}",
+  "fnc take<T,U>(Option<T> a, Map<T,U> b):int{return 1;}",
+  "fnc tuple():int{return 42;} fnc main():int{return tuple();}",
+  "// fnc fake(int a,tuple (int,int) b)\nfnc main():int{return 42;}"
+ ]) assert.doesNotThrow(()=>rejectUnsupportedTupleV2Source(bytes(source)),source);
+});
