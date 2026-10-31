@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
-const script = resolve(dirname(fileURLToPath(import.meta.url)), '../../verify-wasm-pr-exact.sh');
+const script = resolve(dirname(fileURLToPath(import.meta.url)), '../scripts/verify-wasm-pr-exact.sh');
 const exec=(cwd,cmd,args)=>{
  const env={...process.env}; delete env.NODE_TEST_CONTEXT;
  return spawnSync(cmd,args,{cwd,env,encoding:'utf8',timeout:30000,maxBuffer:4*1024*1024});
