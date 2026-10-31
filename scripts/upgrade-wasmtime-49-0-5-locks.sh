@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerate BOTH separate Cargo locks for the reviewed Wasmtime 49.0.4 patch.
+# Regenerate BOTH separate Cargo locks for the reviewed Wasmtime 49.0.5 patch.
 # Must run on an authorized Rust-equipped checkout of the stacked draft branch.
 # Never treat this local step as a native-CI or security-approval receipt.
 set -euo pipefail
@@ -15,8 +15,8 @@ if [[ "$(git rev-parse --show-toplevel)" != "$repo_dir" ]]; then
 fi
 locks=(aot-host/precompile/Cargo.lock aot-host/run/Cargo.lock)
 for manifest in aot-host/precompile/Cargo.toml aot-host/run/Cargo.toml; do
-  if ! grep -Eq 'wasmtime=\{version="=49\.0\.4"' "$manifest"; then
-    echo "$manifest does not pin Wasmtime =49.0.4" >&2
+  if ! grep -Eq 'wasmtime=\{version="=49\.0\.5"' "$manifest"; then
+    echo "$manifest does not pin Wasmtime =49.0.5" >&2
     exit 1
   fi
 done
@@ -62,21 +62,21 @@ trap 'exit 143' TERM
 for crate in aot-host/precompile aot-host/run; do
   manifest="$crate/Cargo.toml"
   lock="$crate/Cargo.lock"
-  echo "Regenerating $lock with pinned Wasmtime 49.0.4"
-  cargo update --manifest-path "$manifest" -p wasmtime --precise 49.0.4
+  echo "Regenerating $lock with pinned Wasmtime 49.0.5"
+  cargo update --manifest-path "$manifest" -p wasmtime --precise 49.0.5
   cargo metadata --manifest-path "$manifest" --locked --format-version=1 --no-deps >/dev/null
-  if ! grep -A 2 -m 1 '^name = "wasmtime"$' "$lock" | grep -qx 'version = "49.0.4"'; then
-    echo "$lock did not resolve the patched Wasmtime 49.0.4" >&2
+  if ! grep -A 2 -m 1 '^name = "wasmtime"$' "$lock" | grep -qx 'version = "49.0.5"'; then
+    echo "$lock did not resolve the patched Wasmtime 49.0.5" >&2
     exit 1
   fi
   # All Wasmtime/Pulley packages in this pinned engine line must patch together.
   # Check every resolved package stanza, not merely the top-level crate.
   awk -F '"' '
     function check() {
-      if ((name == "wasmtime" || name ~ /^wasmtime-/ || name ~ /^pulley-/) && version != "49.0.4") {
+      if ((name == "wasmtime" || name ~ /^wasmtime-/ || name ~ /^pulley-/) && version != "49.0.5") {
         print "unpatched Wasmtime/Pulley: " name " " version > "/dev/stderr"; bad=1
       }
-      if (name ~ /^cranelift-/ && version != "0.136.4") {
+      if (name ~ /^cranelift-/ && version != "0.136.5") {
         print "unpatched Cranelift: " name " " version > "/dev/stderr"; bad=1
       }
     }
@@ -95,8 +95,8 @@ if grep -E 'wasmtime(-internal)?-(cranelift|winch)' "$rtree"; then
   exit 1
 fi
 if ! grep -A 2 -m 1 '^name = "cranelift-codegen"$' \
-    aot-host/precompile/Cargo.lock | grep -qx 'version = "0.136.4"'; then
-  echo "trusted AOT precompiler did not resolve patched Cranelift 0.136.4" >&2
+    aot-host/precompile/Cargo.lock | grep -qx 'version = "0.136.5"'; then
+  echo "trusted AOT precompiler did not resolve patched Cranelift 0.136.5" >&2
   exit 1
 fi
 verified=1

@@ -10,11 +10,11 @@ import {execFileSync, spawnSync} from 'node:child_process';
 // Cargo is deliberately mocked; these tests are NOT Rust dependency resolution,
 // package authenticity, guest execution, or native Wasmtime security evidence.
 const scriptSource = resolve(process.env.ORE_WASMTIME_UPGRADE_SCRIPT ??
-  fileURLToPath(new URL('../scripts/upgrade-wasmtime-49-0-4-locks.sh', import.meta.url)));
+  fileURLToPath(new URL('../scripts/upgrade-wasmtime-49-0-5-locks.sh', import.meta.url)));
 const oldPre = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.3"\n\n[[package]]\nname = "cranelift-codegen"\nversion = "0.136.3"\n`;
 const oldRun = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.3"\n`;
-const newPre = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.4"\n\n[[package]]\nname = "pulley-interpreter"\nversion = "49.0.4"\n\n[[package]]\nname = "wasmtime-internal-cranelift"\nversion = "49.0.4"\n\n[[package]]\nname = "cranelift-codegen"\nversion = "0.136.4"\n`;
-const newRun = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.4"\n\n[[package]]\nname = "wasmtime-environ"\nversion = "49.0.4"\n`;
+const newPre = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.5"\n\n[[package]]\nname = "pulley-interpreter"\nversion = "49.0.5"\n\n[[package]]\nname = "wasmtime-internal-cranelift"\nversion = "49.0.5"\n\n[[package]]\nname = "cranelift-codegen"\nversion = "0.136.5"\n`;
+const newRun = `version = 4\n\n[[package]]\nname = "wasmtime"\nversion = "49.0.5"\n\n[[package]]\nname = "wasmtime-environ"\nversion = "49.0.5"\n`;
 const mockCargo = `#!/usr/bin/env bash
 set -eu
 case "\${1:-}" in
@@ -24,6 +24,9 @@ update)
   elif [[ " $* " == *" aot-host/run/Cargo.toml "* ]]; then
     if [[ "\${MOCK_FAIL_RUNNER:-}" == yes ]]; then exit 89; fi
     printf '%s' "$MOCK_NEW_RUN" > aot-host/run/Cargo.lock
+    if [[ "\${MOCK_PREVIOUS_PATCH:-}" == yes ]]; then
+      printf '\\n[[package]]\\nname = "wasmtime-internal-core"\\nversion = "49.0.4"\\n' >> aot-host/run/Cargo.lock
+    fi
     if [[ "\${MOCK_OLD_TRANSITIVE:-}" == yes ]]; then
       printf '\\n[[package]]\\nname = "wasmtime-internal-core"\\nversion = "49.0.3"\\n' >> aot-host/run/Cargo.lock
     fi
@@ -39,9 +42,9 @@ metadata)
 tree)
   if [[ "\${MOCK_FAIL_TREE:-}" == yes ]]; then exit 87; fi
   if [[ "\${MOCK_COMPILER_LEAK:-}" == yes ]]; then
-    printf 'wasmtime-internal-cranelift v49.0.4\\n'
+    printf 'wasmtime-internal-cranelift v49.0.5\\n'
   else
-    printf 'wasmtime v49.0.4\\n'
+    printf 'wasmtime v49.0.5\\n'
   fi
   ;;
 *) exit 79 ;;
@@ -53,9 +56,9 @@ function fixture(t) {
   t.after(() => rmSync(dir, {recursive: true, force: true}));
   for (const sub of ['scripts', 'aot-host/precompile', 'aot-host/run', 'mockbin'])
     mkdirSync(join(dir, sub), {recursive: true});
-  copyFileSync(scriptSource, join(dir, 'scripts/upgrade-wasmtime-49-0-4-locks.sh'));
-  writeFileSync(join(dir, 'aot-host/precompile/Cargo.toml'), '[dependencies]\nwasmtime={version="=49.0.4"}\n');
-  writeFileSync(join(dir, 'aot-host/run/Cargo.toml'), '[dependencies]\nwasmtime={version="=49.0.4"}\n');
+  copyFileSync(scriptSource, join(dir, 'scripts/upgrade-wasmtime-49-0-5-locks.sh'));
+  writeFileSync(join(dir, 'aot-host/precompile/Cargo.toml'), '[dependencies]\nwasmtime={version="=49.0.5"}\n');
+  writeFileSync(join(dir, 'aot-host/run/Cargo.toml'), '[dependencies]\nwasmtime={version="=49.0.5"}\n');
   writeFileSync(join(dir, 'aot-host/precompile/Cargo.lock'), oldPre);
   writeFileSync(join(dir, 'aot-host/run/Cargo.lock'), oldRun);
   writeFileSync(join(dir, 'mockbin/cargo'), mockCargo, {mode: 0o755});
@@ -65,7 +68,7 @@ function fixture(t) {
   const locks = () => [readFileSync(join(dir,'aot-host/precompile/Cargo.lock'),'utf8'),
     readFileSync(join(dir,'aot-host/run/Cargo.lock'),'utf8')];
   const run = (opts={}) => spawnSync('/bin/bash',
-    [join(dir,'scripts/upgrade-wasmtime-49-0-4-locks.sh')],
+    [join(dir,'scripts/upgrade-wasmtime-49-0-5-locks.sh')],
     {cwd:dir, encoding:'utf8', env:{...process.env,
       PATH:join(dir,'mockbin')+':'+process.env.PATH,
       MOCK_NEW_PRE:newPre, MOCK_NEW_RUN:newRun, ...opts}});
@@ -120,7 +123,7 @@ test('manifest missing exact patched pin aborts before touching either lock',t =
   const f=fixture(t);
   writeFileSync(join(f.dir,'aot-host/run/Cargo.toml'),'[dependencies]\nwasmtime={version="=49.0.3"}\n');
   const p=f.run();assert.equal(p.status,1,p.stderr);
-  assert.match(p.stderr,/does not pin Wasmtime =49.0.4/);
+  assert.match(p.stderr,/does not pin Wasmtime =49.0.5/);
   assert.deepEqual(f.locks(),[oldPre,oldRun]);
 });
 
@@ -151,5 +154,13 @@ test('Cranelift from an unexpected version family is rejected',t => {
   const p=f.run({MOCK_WRONG_CRANELIFT:'yes'});
   assert.equal(p.status,1,p.stderr);
   assert.match(p.stderr,/unpatched Cranelift/);
+  assert.deepEqual(f.locks(),[oldPre,oldRun]);
+});
+
+test('previously patched 49.0.4 transitive is rejected by 49.0.5 security gate',t => {
+  const f=fixture(t);
+  const p=f.run({MOCK_PREVIOUS_PATCH:'yes'});
+  assert.equal(p.status,1,p.stderr);
+  assert.match(p.stderr,/unpatched Wasmtime\/Pulley/);
   assert.deepEqual(f.locks(),[oldPre,oldRun]);
 });
