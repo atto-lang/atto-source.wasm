@@ -1,0 +1,50 @@
+{
+  "schema": "oreslang.numeric-error-abi.v1",
+  "status": "proposed",
+  "code_width_bits": 32,
+  "success_code": 0,
+  "root_type": "Error",
+  "ranges": [
+    {
+      "name": "numeric_arithmetic",
+      "start": 65536,
+      "end": 131071,
+      "hex_start": "0x00010000",
+      "hex_end": "0x0001ffff"
+    }
+  ],
+  "errors": [
+    {
+      "type": "ArithmeticOverflowError",
+      "code": 65537,
+      "hex": "0x00010001",
+      "parent": "Error",
+      "default_checked": true,
+      "operations": [
+        "i64.add",
+        "i64.sub",
+        "i64.mul",
+        "i64.neg",
+        "Math.abs",
+        "Math.neg"
+      ]
+    }
+  ],
+  "rules": {
+    "code_is_stable_language_identity": true,
+    "type_name_is_stable_language_identity": true,
+    "message_text_is_normative": false,
+    "host_exception_type_is_normative": false,
+    "process_exit_code_is_language_identity": false,
+    "native_signal_is_language_identity": false,
+    "wasm_trap_is_language_identity": false,
+    "backend_must_not_map_unknown_code_to_another_known_error": true,
+    "typed_catch_requires_language_error_object_or_equivalent_checked_effect": true,
+    "trap_or_abort_alone_does_not_satisfy_typed_catch": true
+  },
+  "notes": [
+    "This registry defines cross-backend error identity only. It does not standardize a stack-unwinding implementation.",
+    "Backends without a verified guest Error/effect ABI may retain a fail-closed trap for overflow, but must not claim typed ArithmeticOverflowError parity until catch/trap/effect behavior is proven.",
+    "The 65537 assignment preserves the existing Java/Graal branch identity and prevents other backends from inventing incompatible numeric error codes."
+  ]
+}
