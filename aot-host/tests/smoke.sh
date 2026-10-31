@@ -162,6 +162,51 @@ for bad_fuel in 0 100000001 not-a-number; do
   exit 1
  fi
 done
+# End-to-end Wasmtime resource-limiter trap: this valid zero-import Wasm
+# guest attempts memory.grow after its declared two-page maximum. By normal
+# WebAssembly semantics memory.grow returns -1 and the guest returns 7;
+# the deliberately strict native Store policy must instead TRAP. Direct
+# ResourceLimiter unit tests do not prove that the guest execution path traps.
+cat > "$tmp/growth-denial.c" <<'C'
+long long main(void) {
+  int previous = __builtin_wasm_memory_grow(0, 1);
+  return previous == -1 ? 7LL : 8LL;
+}
+C
+clang --target=wasm32 -x c -O1 -nostdlib -Wno-main-return-type \
+  -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/growth-denial.wasm" "$tmp/growth-denial.c"
+node --input-type=module - "$tmp/growth-denial.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const bytes = readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(bytes), 'growth-denial fixture must be valid Wasm');
+const module = new WebAssembly.Module(bytes);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'growth-denial fixture has no host imports');
+const guest = new WebAssembly.Instance(module);
+assert.equal(guest.exports.main(), 7n, 'spec-compliant growth failure must return sentinel');
+JS
+"$builder" "$tmp/growth-denial.wasm" "$(sha256sum "$tmp/growth-denial.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/growth-denial.cwasm" > "$tmp/growth-denial.meta"
+growth_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/growth-denial.meta")"
+[[ "$growth_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing growth-denial AOT digest" >&2; exit 1; }
+set +e
+timeout 5s "$runner" "$tmp/growth-denial.cwasm" "$growth_pin" \
+  > "$tmp/growth-denial.stdout" 2> "$tmp/growth-denial.stderr"
+growth_status=$?
+set -e
+if [[ "$growth_status" -eq 0 || "$growth_status" -eq 124 || "$growth_status" -eq 137 ]]; then
+  echo "Wasmtime memory.grow did not promptly trap under strict StoreLimits policy" >&2
+  cat "$tmp/growth-denial.stdout" "$tmp/growth-denial.stderr" >&2
+  exit 1
+fi
+if ! grep -Eqi 'trap|error while executing|growth failed|failed to grow|memory growth' "$tmp/growth-denial.stderr"; then
+  echo "memory.grow runner failed without guest execution/trap evidence" >&2
+  cat "$tmp/growth-denial.stderr" >&2
+  exit 1
+fi
+
 # Production artifacts may not use the caller-supplied SHA as approval, even
 # when somebody forces debug assertions on in a release build.
 # Prove the production runner refuses an otherwise authentic native artifact.
