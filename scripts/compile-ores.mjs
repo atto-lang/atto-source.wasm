@@ -395,10 +395,12 @@ export async function compileOresToWasm({compiler,source,sourceDependencies=[],o
  const record={
   schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
-  sourceGraphSha256,
-  sourceDependencies:dependencyEntries.map(x=>({
-    relativePath:x.relativePath,sourceSha256:x.sourceSha256
-  })),
+  ...(dependencyEntries.length ? {
+   sourceGraphSha256,
+   sourceDependencies:[...dependencyEntries]
+    .sort((a,b)=>a.relativePath.localeCompare(b.relativePath))
+    .map(x=>({relativePath:x.relativePath,sourceSha256:x.sourceSha256}))
+  } : {}),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
   clangVersion:run(clang,["--version"]).split("\n")[0],
