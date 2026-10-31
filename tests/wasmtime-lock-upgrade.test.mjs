@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, rmSync, linkSync, symlinkSync, renameSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -26,6 +26,9 @@ update)
     printf '%s' "$MOCK_NEW_RUN" > aot-host/run/Cargo.lock
     if [[ "\${MOCK_OLD_TRANSITIVE:-}" == yes ]]; then
       printf '\\n[[package]]\\nname = "wasmtime-internal-core"\\nversion = "49.0.3"\\n' >> aot-host/run/Cargo.lock
+    fi
+    if [[ "\${MOCK_WRONG_CRANELIFT:-}" == yes ]]; then
+      printf '\\n[[package]]\\nname = "cranelift-stale-family"\\nversion = "0.137.0"\\n' >> aot-host/run/Cargo.lock
     fi
   else exit 78; fi
   ;;
@@ -118,5 +121,35 @@ test('manifest missing exact patched pin aborts before touching either lock',t =
   writeFileSync(join(f.dir,'aot-host/run/Cargo.toml'),'[dependencies]\nwasmtime={version="=49.0.3"}\n');
   const p=f.run();assert.equal(p.status,1,p.stderr);
   assert.match(p.stderr,/does not pin Wasmtime =49.0.4/);
+  assert.deepEqual(f.locks(),[oldPre,oldRun]);
+});
+
+test('hard-linked lockfile is rejected before any mutation',t => {
+  const f=fixture(t);
+  const sentinel=join(f.dir,'external-sentinel.lock');
+  linkSync(join(f.dir,'aot-host/precompile/Cargo.lock'),sentinel);
+  const before=f.locks();
+  const p=f.run();
+  assert.equal(p.status,1,p.stderr);
+  assert.match(p.stderr,/refusing multiply-linked Cargo lockfile/);
+  assert.deepEqual(f.locks(),before);
+  assert.equal(readFileSync(sentinel,'utf8'),oldPre);
+});
+test('symlink lockfile is explicitly rejected, without overwriting target',t => {
+  const f=fixture(t);
+  const lock=join(f.dir,'aot-host/precompile/Cargo.lock');
+  const sentinel=join(f.dir,'external-sentinel.lock');
+  renameSync(lock,sentinel);
+  symlinkSync(sentinel,lock);
+  const p=f.run();
+  assert.equal(p.status,1,p.stderr);
+  assert.match(p.stderr,/refusing non-regular or symlink Cargo lockfile/);
+  assert.equal(readFileSync(sentinel,'utf8'),oldPre);
+});
+test('Cranelift from an unexpected version family is rejected',t => {
+  const f=fixture(t);
+  const p=f.run({MOCK_WRONG_CRANELIFT:'yes'});
+  assert.equal(p.status,1,p.stderr);
+  assert.match(p.stderr,/unpatched Cranelift/);
   assert.deepEqual(f.locks(),[oldPre,oldRun]);
 });
