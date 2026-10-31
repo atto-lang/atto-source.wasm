@@ -58,10 +58,10 @@ test("native runtime has guest resource limits and finite fuel",()=>{
   assert.match(runner,/100_000_000/);
   // A memory.grow denial must trap and reach the invoke retirement path,
   // not be silently delivered as a -1 sentinel to the guest.
-  assert.match(runner,/\\.trap_on_grow_failure\\(true\\)/);
+  assert.match(runner,/\.trap_on_grow_failure\(true\)/);
   const tenant=source("aot-host/run/src/tenant_isolation.rs");
-  assert.match(tenant,/\\.trap_on_grow_failure\\(true\\)/);
-  assert.match(tenant,/ResourceLimiter::memory_growing\\(/);
+  assert.match(tenant,/\.trap_on_grow_failure\(true\)/);
+  assert.match(tenant,/ResourceLimiter::memory_growing\(/);
   assert.match(tenant,/growth beyond tenant cap must fail by trap/);
   assert.match(smoke,/loop\.wasm/);
   assert.match(smoke,/loop_status/);
