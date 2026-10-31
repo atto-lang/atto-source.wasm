@@ -264,11 +264,11 @@ if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.
 fi
 
 
-# Real guest-memory-growth trap regression: a valid Wasm guest calls
-# memory.grow(1) after three successful turns. Its declared private memory is
-# already at 2 pages and cannot grow. Standard Wasm returns -1 and continues,
-# whereas this native host must trap, revoke only the offender and leave a
-# healthy tenant live in a separate Wasmtime Store.
+# Real guest-memory-growth trap regression: the declared private memory is
+# 1..2 pages. On turn 4 the guest requests one additional page: standard Wasm
+# ALLOWS this growth. Only the native test-only Store cap of 1 page denies it.
+# This isolates the host limiter, not a wasm module maximum. That refusal
+# must trap, revoke only the offender, and preserve healthy tenant progress.
 cat > "$tmp/tenant-memory-growth.c" <<'C'
 typedef unsigned long long u64;
 static volatile u64 counter;
@@ -281,8 +281,8 @@ long long main(void) {
 }
 C
 clang --target=wasm32 -x c -Wno-main-return-type -O0 -nostdlib \
-  -Wl,--no-entry -Wl,--export=main \
-  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -Wl,--no-entry -Wl,--export=main -Wl,-z,stack-size=16384 \
+  -Wl,--initial-memory=65536 -Wl,--max-memory=131072 \
   -o "$tmp/tenant-memory-growth.wasm" "$tmp/tenant-memory-growth.c"
 node --input-type=module - "$tmp/tenant-memory-growth.wasm" <<'JS'
 import assert from 'node:assert/strict';
@@ -294,11 +294,14 @@ assert.deepEqual(WebAssembly.Module.imports(module), [], 'no host imports');
 assert.deepEqual(WebAssembly.Module.exports(module).map(({name,kind})=>[name,kind]).sort(),
   [['main','function'],['memory','memory']].sort());
 const guest=new WebAssembly.Instance(module);
+assert.equal(guest.exports.memory.buffer.byteLength,65536,
+  'guest must begin at one Wasm page');
 assert.deepEqual([guest.exports.main(), guest.exports.main(),
   guest.exports.main(), guest.exports.main()], [1n,2n,3n,4n],
-  'standard Wasm returns -1 from failed memory.grow and continues');
-assert.equal(guest.exports.memory.buffer.byteLength,131072);
-console.log('node_standard_wasm_growth_failure_returns_sentinel=ok');
+  'normal Wasm must succeed at permitted memory.grow and continue');
+assert.equal(guest.exports.memory.buffer.byteLength,131072,
+  'standard Wasm must have really grown one page');
+console.log('node_standard_wasm_growth_succeeds_under_module_max=ok');
 JS
 "$builder" "$tmp/tenant-memory-growth.wasm" \
   "$(sha256sum "$tmp/tenant-memory-growth.wasm" | cut -d ' ' -f 1)" \
