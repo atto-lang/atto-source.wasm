@@ -5,10 +5,10 @@ if [[ $# -lt 2 || $# -gt 3 ]]; then
   echo 'Usage: verify-wasm-pr-exact.sh EXPECTED_COMMIT_SHA EXPECTED_TREE_SHA [--node-only|--require-real]' >&2
   exit 64
 fi
-expected_head="$1"; expected_tree="$2"; mode="\${3:---node-only}"
+expected_head="$1"; expected_tree="$2"; mode="${3:---node-only}"
 [[ "$expected_head" =~ ^[0-9a-f]{40}$ && "$expected_tree" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected hashes must be 40 lower-case hex characters' >&2; exit 64; }
 [[ "$mode" == '--node-only' || "$mode" == '--require-real' ]] || { echo 'Unsupported mode' >&2; exit 64; }
-cd "$(dirname "\${BASH_SOURCE[0]}")/.."
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ "$(git rev-parse --is-inside-work-tree)" == 'true' ]] || { echo 'Not a Git worktree' >&2; exit 65; }
 actual_head="$(git rev-parse HEAD)"; actual_tree="$(git rev-parse 'HEAD^{tree}')"
 [[ "$actual_head" == "$expected_head" && "$actual_tree" == "$expected_tree" ]] || {
@@ -23,10 +23,10 @@ if [[ "$mode" == '--require-real' ]]; then
   for var in ORESLANG_LLVM_COMPILER ORESLANG_LLVM_COMPILER_SHA256 ORESLANG_LLVM_SOURCE_SHA \
              ORESLANG_AOT_BUILDER ORESLANG_AOT_BUILDER_SHA256 \
              ORESLANG_AOT_DEV_RUNNER ORESLANG_AOT_DEV_RUNNER_SHA256; do
-    [[ -n "\${!var:-}" ]] || { echo "Required compiler/AOT tool identity missing: $var" >&2; exit 69; }
+    [[ -n "${!var:-}" ]] || { echo "Required compiler/AOT tool identity missing: $var" >&2; exit 69; }
   done
 fi
-results="$(mktemp -d "\${TMPDIR:-/tmp}/oreslang-wasm-exact.XXXXXXXX")"
+results="$(mktemp -d "${TMPDIR:-/tmp}/oreslang-wasm-exact.XXXXXXXX")"
 node_status='NOT_EXECUTED'; compiler_status='NOT_EXECUTED'; aot_status='NOT_EXECUTED'
 finish() {
   local original_exit=$?
