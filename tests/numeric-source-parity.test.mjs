@@ -122,6 +122,8 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       );
       await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
         "failed numeric compilation must not publish a release pointer");
+      await assert.rejects(stat(target),{code:"ENOENT"},
+        "failed numeric compilation must not retain an unverified Wasm artifact");
     }
 
     // These standalone programs have no catch/ErrorSlot continuation. They
