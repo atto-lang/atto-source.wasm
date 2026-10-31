@@ -48,6 +48,7 @@ pub struct TenantRegistry {
     tenants: HashMap<String, Tenant>,
     next_generation: u64,
     max_tenants: usize,
+    memory_limit_bytes: usize,
 }
 
 fn valid_tenant_id(id: &str) -> bool {
@@ -61,8 +62,22 @@ fn valid_tenant_id(id: &str) -> bool {
 
 impl TenantRegistry {
     pub fn new(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
+        Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES)
+    }
+
+    // Debug-only regression: guest may grow to two pages but its Store is
+    // restricted to one. Do not expose a custom Store cap in production.
+    #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
+    pub fn new_for_growth_smoke(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
+        Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES / 2)
+    }
+
+    fn with_memory_limit(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize) -> Result<Self, Failure> {
         if !(1..=MAX_TENANTS).contains(&max_tenants) {
             return Err("invalid tenant admission capacity".into());
+        }
+        if memory_limit_bytes != GUEST_MEMORY_BYTES && memory_limit_bytes != GUEST_MEMORY_BYTES / 2 {
+            return Err("invalid tenant memory limit".into());
         }
         // In addition to trusted precompile-time byte admission, refuse host
         // imports, shared exported memory and unexpected exported capabilities.
@@ -73,6 +88,7 @@ impl TenantRegistry {
             tenants: HashMap::new(),
             next_generation: 1,
             max_tenants,
+            memory_limit_bytes,
         })
     }
 
@@ -93,7 +109,7 @@ impl TenantRegistry {
         // Prepare the entire compartment BEFORE publishing the handle.
         // Each tenant gets a distinct Store and a distinct Wasm Instance.
         let limits = StoreLimitsBuilder::new()
-            .memory_size(GUEST_MEMORY_BYTES)
+            .memory_size(self.memory_limit_bytes)
             .memories(1)
             .tables(0)
             .instances(1)
@@ -219,6 +235,22 @@ mod tests {
             GUEST_MEMORY_BYTES + 65536,
             Some(GUEST_MEMORY_BYTES),
         ).is_err(), "growth beyond tenant cap must fail by trap");
+    }
+
+    #[test]
+    fn store_limit_denial_is_distinct_from_module_declared_maximum() {
+        // Guest declares a two-page maximum and requests growth from one
+        // to two pages. Only the host-imposed Store cap denies this request.
+        let mut policy = StoreLimitsBuilder::new()
+            .memory_size(GUEST_MEMORY_BYTES / 2)
+            .trap_on_grow_failure(true)
+            .build();
+        let result = wasmtime::ResourceLimiter::memory_growing(
+            &mut policy, GUEST_MEMORY_BYTES / 2,
+            GUEST_MEMORY_BYTES, Some(GUEST_MEMORY_BYTES),
+        );
+        let error = result.expect_err("host quota must deny guest-permitted growth");
+        assert!(error.to_string().contains("forcing trap when growing memory"));
     }
 
     #[test]
