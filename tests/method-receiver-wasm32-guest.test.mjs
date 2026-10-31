@@ -46,6 +46,12 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       ["read",`define class Foo as let int value=40;
         pub x(self, int n):int{return self.value+n;}end
         pub fnc main():int{let Foo f=new Foo();return f.x(2);}`],
+      ["zero-read",`define class Foo as let int value=40;
+        pub x(self):int{return self.value+2;}end
+        pub fnc main():int{let Foo f=new Foo();return f.x();}`],
+      ["zero-split-mut",`define class Foo as let int value=40;
+        pub x(mut self)():int{return self.value+2;}end
+        pub fnc main():int{let mut Foo f=new Foo();return f.x();}`],
       ["mut",`define class Foo as let int value=40;
         pub y(mut self, int n):void{self.value=self.value+n;return;}
         pub x():int{return self.value;}end
