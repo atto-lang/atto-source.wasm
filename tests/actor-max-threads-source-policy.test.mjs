@@ -63,6 +63,25 @@ test("template interpolations cannot hide executable annotation syntax", () => {
   );
 });
 
+test("Unicode line separators terminate comments before active annotations", () => {
+  for (const separator of ["\r", "\r\n", "\n", "\u0085", "\u2028", "\u2029"]) {
+    const active = "fnc main():int{return 42;} // inert" + separator + "@Critical(1)";
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(active)),
+                  /source annotation unsupported/, JSON.stringify(separator));
+    const commentOnly = "fnc main():int{return 42;} // @Critical(1)" + separator;
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(commentOnly)),
+                        JSON.stringify(separator));
+  }
+});
+
+test("U+0085 separates unsupported actor and scheduler enum declarations", () => {
+  assert.throws(() => rejectUnsupportedActorThreadSource(
+    bytes("define\u0085actor Worker as end")), /source actor execution unsupported/);
+  assert.throws(() => rejectUnsupportedActorThreadSource(
+    bytes("define\u0085enum MaxActorThreads as LOW int = 1 end")),
+    /built-in MaxActorThreads enum unsupported/);
+});
+
 test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource("not bytes"), TypeError);
   assert.throws(() => rejectUnsupportedActorThreadSource(new Uint8Array([0xff])),
