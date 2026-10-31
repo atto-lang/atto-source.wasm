@@ -52,7 +52,29 @@ finish() {
 }
 trap finish EXIT
 if npm test 2>&1 | tee "$results/npm-test.log"; then
-  if node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8"); const n=Object.fromEntries([...s.matchAll(/^# (tests|pass|fail|skipped|todo) (\d+)$/gm)].map(m=>[m[1],Number(m[2])])); if(!(n.tests>0) || n.fail!==0 || n.pass+n.skipped+(n.todo||0)!==n.tests) process.exit(1)' "$results/npm-test.log"; then
+  # Node's TAP summary can be all-skipped and still report exit 0. Also check
+  # specific high-risk admission tests actually ran, not merely appeared as
+  # skipped or commented-out test names. A source-local receipt is not valid
+  # proof if the source-to-compiler publication guard never executed.
+  if node - "$results/npm-test.log" <<'NODE'
+const s = require("node:fs").readFileSync(process.argv[2],"utf8");
+const m = [...s.matchAll(/^# (tests|pass|fail|skipped|todo) (\d+)\r?$/gm)];
+const n = Object.fromEntries(m.map(v => [v[1],Number(v[2])]));
+const required = [
+  "source admission rejects unsupported declarations before compiler launch or artifact publication",
+  "later parameters cannot bypass unsupported tuple and structural ABIs",
+  "shared annotation corpus is enforced at the WASM source-snapshot admission boundary"
+];
+const ok = new Set([...s.matchAll(/^ok \d+ - (.+?)\r?$/gm)].map(v => v[1]));
+if (!(n.tests>0 && n.pass>0 && n.fail===0 &&
+      n.pass+(n.skipped||0)+(n.todo||0)===n.tests &&
+      required.every(name => ok.has(name)))) {
+  console.error("Missing executed security tests or invalid TAP totals:",
+                JSON.stringify({counts:n,missing:required.filter(x=>!ok.has(x))}));
+  process.exit(1);
+}
+NODE
+  then
     node_status='PASS'
   else
     node_status='INVALID_TEST_SUMMARY'; exit 1
