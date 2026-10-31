@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      ORESLANG_LLVM_SOURCE_SHA: 8e2bc48e77e51eff06f811b451a69b2f7c77055f
+      ORESLANG_LLVM_SOURCE_SHA: b90d147a964fd7864a8f7ea02f5719213b04ece7
     steps:
       - name: Require authorized private LLVM read access
         shell: bash
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: ores-truffle-oreslang/oreslang-source.llvm
-          ref: 8e2bc48e77e51eff06f811b451a69b2f7c77055f
+          ref: b90d147a964fd7864a8f7ea02f5719213b04ece7
           path: llvm-source
           token: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
           persist-credentials: false
@@ -43,6 +43,15 @@ jobs:
         run: |
           test "$(git -C llvm-source rev-parse HEAD)" = "$ORESLANG_LLVM_SOURCE_SHA"
           test -z "$(git -C llvm-source status --porcelain)"
+      - name: Verify native compiler SHA matches the checked-in numerical ABI oracle
+        shell: bash
+        env:
+          PINNED_NUMERIC_SHA: ${{ env.ORESLANG_LLVM_SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          test "$PINNED_NUMERIC_SHA" = "b90d147a964fd7864a8f7ea02f5719213b04ece7"
+          grep -Fq '"b90d147a964fd7864a8f7ea02f5719213b04ece7"' tests/numeric-source-parity.test.mjs
+          test "$(git -C llvm-source rev-parse HEAD)" = "$PINNED_NUMERIC_SHA"
       - name: Install required build tools
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang lld llvm-dev python3
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
