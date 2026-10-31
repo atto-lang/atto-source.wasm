@@ -76,7 +76,14 @@ test("portable numeric guest blob: Math i64 success",async t=>{
   assert.equal(main(),84n);
 });
 
-for(const name of ["math-i64-abs-min.ores","math-i64-neg-min.ores"]){
+for(const name of [
+  "math-i64-abs-min.ores",
+  "math-i64-neg-min.ores",
+  "i64-add-overflow.ores",
+  "i64-sub-overflow.ores",
+  "i64-mul-overflow.ores",
+  "i64-neg-overflow.ores",
+]){
   test("portable numeric guest blob traps: "+name,async t=>{
     const main=await compilePortableFixture(t,name); if(!main)return;
     assert.throws(()=>main(),WebAssembly.RuntimeError);
