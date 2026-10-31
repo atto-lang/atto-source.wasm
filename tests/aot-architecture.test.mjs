@@ -11,7 +11,7 @@ const smoke=source("aot-host/tests/smoke.sh");
 
 test("native precompiler and runner use separate identically pinned Wasmtime graphs",()=>{
   for(const contents of [builderManifest,runnerManifest]){
-    assert.match(contents,/wasmtime\s*=\s*\{[^\n]*version\s*=\s*"=49\.0\.3"/);
+    assert.match(contents,/wasmtime\s*=\s*\{[^\n]*version\s*=\s*"=49\.0\.4"/);
     assert.match(contents,/default-features\s*=\s*false/);
   }
   assert.match(builderManifest,/["']cranelift["']/);
@@ -72,10 +72,11 @@ test("committed independent Cargo locks pin Wasmtime without native runtime comp
   const precompileLock=source("aot-host/precompile/Cargo.lock");
   const runtimeLock=source("aot-host/run/Cargo.lock");
   for(const contents of [precompileLock,runtimeLock]){
-    assert.match(contents,/name = "wasmtime"\nversion = "49\.0\.3"/);
+    assert.match(contents,/name = "wasmtime"\nversion = "49\.0\.4"/);
     assert.match(contents,/version = 4/);
   }
   assert.match(precompileLock,/name = "wasmtime-internal-cranelift"/);
+  assert.match(precompileLock,/name = "cranelift-codegen"\nversion = "0\.136\.4"/);
   assert.doesNotMatch(runtimeLock,/name = "wasmtime-internal-cranelift"/);
   assert.doesNotMatch(runtimeLock,/name = "wasmtime-winch"/);
   const workflow=source(".github/workflows/aot-host.yml");
