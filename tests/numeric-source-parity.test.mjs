@@ -100,7 +100,13 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       "pub fnc main():bigint{return 1;}",
       "pub fnc main():decimal{return 1;}",
       // A bare out-of-range literal must always be rejected too.
-      "pub fnc main():int{return 9223372036854775808;}"
+      "pub fnc main():int{return 9223372036854775808;}",
+      // These operators were removed from Oreslang. The Wasm bridge must
+      // obtain rejection from the pinned real compiler and publish no Wasm
+      // artifact; it cannot implement a hidden host-side fallback.
+      "pub fnc main():int{return 7 % 3;}",
+      "pub fnc main():int{return 2 ^ 3;}",
+      "pub fnc main():int{return 2 ^^ 3;}"
     ];
     for (let i=0;i<compileRejects.length;i++) {
       const source=compileRejects[i];
