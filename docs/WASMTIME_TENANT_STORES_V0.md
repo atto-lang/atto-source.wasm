@@ -93,7 +93,8 @@ two 64-KiB pages, already at the declared maximum. The standard Node
 WebAssembly control checks that calls 1–4 return `1,2,3,4`, since failed
 `memory.grow` returns a sentinel that this deliberately careless guest ignores.
 The native Wasmtime AOT gate instead requires the fourth call to **trap** under
-`StoreLimitsBuilder::trap_on_grow_failure(true)`. Only the offending Store
+`StoreLimitsBuilder::trap_on_grow_failure(true)`, with an actual memory-growth
+limiter error in the causal chain (not an unrelated fuel/ABI trap). Only the offending Store
 may be retired: the healthy tenant must continue from `1` to `2` and `3`;
 the stale offender handle must remain denied; a new offender starts from `1`;
 and a wrong AOT digest must be refused. The same registry hosts both tenants,
