@@ -4,64 +4,10 @@
  * This lexes only enough to distinguish executable tokens from comments and
  * quoted strings; it does not substitute for a full Oreslang source parser.
  */
-const decoder = new TextDecoder("utf-8", {fatal:true});
-const wordStart = c => /[A-Za-z_]/.test(c);
-const wordRest = c => /[A-Za-z_0-9]/.test(c);
+import {lexSourceAdmission} from "./source-admission-lexer.mjs";
 
 export function rejectUnsupportedActorThreadSource(snapshot) {
-  if (!(snapshot instanceof Uint8Array))
-    throw new TypeError("source preflight requires immutable snapshot bytes");
-  const source = decoder.decode(snapshot);
-  const tokens = [];
-  for (let i = 0; i < source.length;) {
-    const c = source[i];
-    if (c === "\u0085" || /\s/.test(c)) {i++;continue;}
-    if (source.startsWith("//", i)) {
-      let next = i + 2;
-      while (next < source.length && !/[\r\n\u0085\u2028\u2029]/.test(source[next])) next++;
-      i = next;
-      continue;
-    }
-    if (source.startsWith("/*", i)) {
-      let depth = 1;
-      i += 2;
-      while (i < source.length && depth > 0) {
-        if (source.startsWith("/*", i)) {depth++;i+=2;}
-        else if (source.startsWith("*/", i)) {depth--;i+=2;}
-        else i++;
-        if (depth > 128) throw Error("source comment nesting exceeded");
-      }
-      if (depth) throw Error("unterminated source comment");
-      continue;
-    }
-    if (c === '"' || c === "'" || c === "`") {
-      const quote = c;
-      i++;
-      let closed = false;
-      while (i < source.length) {
-        if (source[i] === "\\") {i += 2;continue;}
-        // Template interpolation is executable source, not inert text.
-        // This bridge has no template-expression annotation AST/ABI gate.
-        // Reject it rather than missing an active @directive inside ${...}.
-        if (quote === "`" && source.startsWith("${", i))
-          throw Error("WASM source template interpolation unsupported until checked annotation and expression lowering");
-        if (source[i++] === quote) {closed=true;break;}
-      }
-      if (!closed) throw Error("unterminated source string");
-      continue;
-    }
-    if (wordStart(c)) {
-      const start = i++;
-      while (i < source.length && wordRest(source[i])) i++;
-      tokens.push(source.slice(start, i));
-    } else {
-      // Punctuation is emitted as its own token. The real compiler still
-      // validates all non-policy tokens and source grammar.
-      tokens.push(c);
-      i++;
-    }
-    if (tokens.length > 100_000) throw Error("source token budget exceeded");
-  }
+  const tokens = lexSourceAdmission(snapshot).map(token => token.text);
 
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
