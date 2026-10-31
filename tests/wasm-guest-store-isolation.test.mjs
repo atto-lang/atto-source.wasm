@@ -54,6 +54,14 @@ test('compiled wasm32 counter isolates independent instances', async t => {
       first.exports.main(), second.exports.main(),
     ], [1n, 1n, 2n, 2n]);
   });
+  await t.test('memory growth is bounded at two Wasm pages per instance', () => {
+    assert.equal(first.exports.memory.buffer.byteLength, 2 * 65536);
+    assert.equal(second.exports.memory.buffer.byteLength, 2 * 65536);
+    assert.throws(() => first.exports.memory.grow(1), RangeError);
+    assert.throws(() => second.exports.memory.grow(1), RangeError);
+    assert.equal(first.exports.memory.buffer.byteLength, 2 * 65536);
+    assert.equal(second.exports.memory.buffer.byteLength, 2 * 65536);
+  });
   await t.test('fresh incarnation resets without poisoning either neighbor', () => {
     const fresh = new WebAssembly.Instance(module);
     assert.equal(fresh.exports.main(), 1n);
