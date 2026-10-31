@@ -27,8 +27,11 @@ for crate in aot-host/precompile aot-host/run; do
   fi
 done
 # Compiler-free runtime dependency invariant, independently of Wasmtime version.
-if cargo tree --locked --manifest-path aot-host/run/Cargo.toml \
-    --features insecure-dev-caller-pin | grep -E 'wasmtime(-internal)?-(cranelift|winch)'; then
+runtime_tree="$(mktemp)"
+trap 'rm -f "$runtime_tree"' EXIT
+cargo tree --locked --manifest-path aot-host/run/Cargo.toml \
+    --features insecure-dev-caller-pin > "$runtime_tree"
+if grep -E 'wasmtime(-internal)?-(cranelift|winch)' "$runtime_tree"; then
   echo "AOT runtime unexpectedly gained an embedded compiler" >&2
   exit 1
 fi
