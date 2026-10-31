@@ -1,0 +1,482 @@
+import module bigint_math from './bigint';
+import class BigIntValue, BigIntDivRem from './bigint';
+
+// Pure-Oreslang exact decimal reference foundation.
+//
+// The reserved primitive `decimal` remains compiler-rejected until every
+// backend has a distinct exact base-10 representation. DecimalValue is the
+// executable semantic reference: arbitrary-precision integer coefficient plus
+// a nonnegative decimal scale. No binary float conversion is used.
+define module decimal_math as
+
+  pub define class DecimalContext as
+    pub val int precision;
+    pub val String rounding;
+    pub val int max_scale;
+
+    pub constructor(int precision, String rounding, int max_scale) {
+      if precision < 1 || precision > 1024; do
+        rt fail("decimal: precision outside bounded context");
+      fi
+      if max_scale < 0 || max_scale > 256; do
+        rt fail("decimal: max_scale outside bounded context");
+      fi
+      if rounding != "HALF_EVEN"
+          && rounding != "HALF_UP"
+          && rounding != "HALF_DOWN"
+          && rounding != "UP"
+          && rounding != "DOWN"
+          && rounding != "CEILING"
+          && rounding != "FLOOR"
+          && rounding != "UNNECESSARY"; do
+        rt fail("decimal: unsupported rounding mode");
+      fi
+      self.precision = precision;
+      self.rounding = rounding;
+      self.max_scale = max_scale;
+    }
+  end
+
+  pub define class DecimalValue as
+    pub val BigIntValue coefficient;
+    pub val int scale;
+
+    pub constructor(BigIntValue coefficient, int scale) {
+      if scale < -256 || scale > 256; do
+        rt fail("decimal: signed scale outside bounded domain");
+      fi
+      // Keep every DecimalValue inside the coefficient width that all current
+      // exact add/sub/mul/scale-alignment algorithms can process predictably.
+      // The future primitive may expose larger profiles explicitly.
+      if coefficient.limb_count() > 256; do
+        rt fail("decimal: coefficient exceeds bounded limb policy");
+      fi
+      self.coefficient = coefficient;
+      self.scale = scale;
+    }
+  end
+
+  fnc ten_power(int exponent): BigIntValue {
+    if exponent < 0 || exponent > 768; do
+      rt fail("decimal: power-of-ten exponent outside bounded domain");
+    fi
+    let BigIntValue value = bigint_math.from_int(1);
+    val BigIntValue ten = bigint_math.from_int(10);
+    for (let int i = 0; i < exponent; i = i + 1) {
+      value = bigint_math.mul(&value, &ten);
+    }
+    return value;
+  }
+
+  fnc coefficient_at_scale(
+    &DecimalValue value,
+    int target_scale
+  ): BigIntValue {
+    if target_scale < value.scale; do
+      rt fail("decimal: target scale cannot discard precision");
+    fi
+    if target_scale == value.scale; do
+      val BigIntValue zero = bigint_math.from_int(0);
+      return bigint_math.add(&value.coefficient, &zero);
+    fi
+
+    val BigIntValue factor = ten_power(target_scale - value.scale);
+    if value.coefficient.limb_count() + factor.limb_count() > 257; do
+      rt fail("decimal: scale alignment exceeds bounded coefficient policy");
+    fi
+    return bigint_math.mul(&value.coefficient, &factor);
+  }
+
+  pub fnc from_int(int value): DecimalValue {
+    return new DecimalValue(bigint_math.from_int(value), 0);
+  }
+
+  // Construct coefficient * 10^-scale exactly. The coefficient is copied
+  // through BigInt arithmetic by callers; no binary floating conversion exists.
+  pub fnc from_scaled_int(int coefficient, int scale): DecimalValue {
+    return new DecimalValue(bigint_math.from_int(coefficient), scale);
+  }
+
+  pub fnc abs(&DecimalValue value): DecimalValue {
+    return new DecimalValue(bigint_math.abs(&value.coefficient), value.scale);
+  }
+
+  pub fnc neg(&DecimalValue value): DecimalValue {
+    return new DecimalValue(bigint_math.neg(&value.coefficient), value.scale);
+  }
+
+  pub fnc add(&DecimalValue left, &DecimalValue right): DecimalValue {
+    let int target_scale = left.scale;
+    if right.scale > target_scale; do
+      target_scale = right.scale;
+    fi
+
+    val BigIntValue left_coefficient =
+      coefficient_at_scale(&left, target_scale);
+    val BigIntValue right_coefficient =
+      coefficient_at_scale(&right, target_scale);
+    return new DecimalValue(
+      bigint_math.add(&left_coefficient, &right_coefficient),
+      target_scale
+    );
+  }
+
+  pub fnc sub(&DecimalValue left, &DecimalValue right): DecimalValue {
+    let int target_scale = left.scale;
+    if right.scale > target_scale; do
+      target_scale = right.scale;
+    fi
+
+    val BigIntValue left_coefficient =
+      coefficient_at_scale(&left, target_scale);
+    val BigIntValue right_coefficient =
+      coefficient_at_scale(&right, target_scale);
+    return new DecimalValue(
+      bigint_math.sub(&left_coefficient, &right_coefficient),
+      target_scale
+    );
+  }
+
+  pub fnc mul(&DecimalValue left, &DecimalValue right): DecimalValue {
+    val int result_scale = left.scale + right.scale;
+    if result_scale < -256 || result_scale > 256; do
+      rt fail("decimal: multiplication exceeds bounded signed-scale policy");
+    fi
+    // An n-limb by m-limb nonzero product needs at least n+m-1 limbs.
+    // Reject before schoolbook work when the result cannot fit this profile.
+    if left.coefficient.limb_count() + right.coefficient.limb_count() > 257; do
+      rt fail("decimal: multiplication exceeds bounded coefficient policy");
+    fi
+    return new DecimalValue(
+      bigint_math.mul(&left.coefficient, &right.coefficient),
+      result_scale
+    );
+  }
+
+  pub fnc equal(&DecimalValue left, &DecimalValue right): bool {
+    let int target_scale = left.scale;
+    if right.scale > target_scale; do
+      target_scale = right.scale;
+    fi
+
+    val BigIntValue left_coefficient =
+      coefficient_at_scale(&left, target_scale);
+    val BigIntValue right_coefficient =
+      coefficient_at_scale(&right, target_scale);
+    return bigint_math.equal(&left_coefficient, &right_coefficient);
+  }
+
+  pub fnc compare(&DecimalValue left, &DecimalValue right): int {
+    let int target_scale = left.scale;
+    if right.scale > target_scale; do
+      target_scale = right.scale;
+    fi
+
+    val BigIntValue left_coefficient =
+      coefficient_at_scale(&left, target_scale);
+    val BigIntValue right_coefficient =
+      coefficient_at_scale(&right, target_scale);
+    return bigint_math.compare(&left_coefficient, &right_coefficient);
+  }
+
+  fnc gcd_magnitude(
+    &BigIntValue left,
+    &BigIntValue right
+  ): BigIntValue {
+    let BigIntValue x = bigint_math.abs(&left);
+    let BigIntValue y = bigint_math.abs(&right);
+    // Euclid is bounded independently from the BigInt value-size bound so an
+    // adversarial pair cannot turn exact Decimal division into unbounded work.
+    for (let int i = 0; i < 512; i = i + 1) {
+      if y.signum() == 0; do
+        return x;
+      fi
+      val BigIntDivRem step = bigint_math.div_rem(&x, &y);
+      x = y;
+      y = bigint_math.abs(&step.remainder);
+    }
+    rt fail("decimal: gcd exceeds bounded operation policy");
+    return bigint_math.from_int(1);
+  }
+
+  pub fnc div_exact(
+    &DecimalValue left,
+    &DecimalValue right
+  ): DecimalValue {
+    if right.coefficient.signum() == 0; do
+      rt fail("decimal: division by zero");
+    fi
+    if left.coefficient.signum() == 0; do
+      return new DecimalValue(bigint_math.from_int(0), 0);
+    fi
+    if left.coefficient.limb_count() > 96
+        || right.coefficient.limb_count() > 96; do
+      rt fail("decimal: exact division exceeds bounded coefficient policy");
+    fi
+
+    val BigIntValue left_magnitude = bigint_math.abs(&left.coefficient);
+    val BigIntValue right_magnitude = bigint_math.abs(&right.coefficient);
+    val BigIntValue gcd = gcd_magnitude(&left_magnitude, &right_magnitude);
+    let BigIntValue numerator = bigint_math.div(&left_magnitude, &gcd);
+    let BigIntValue denominator = bigint_math.div(&right_magnitude, &gcd);
+
+    val BigIntValue one = bigint_math.from_int(1);
+    val BigIntValue two = bigint_math.from_int(2);
+    val BigIntValue five = bigint_math.from_int(5);
+    let int powers_of_two = 0;
+    let int powers_of_five = 0;
+
+    for (let int i = 0; i < 512; i = i + 1) {
+      val BigIntDivRem step = bigint_math.div_rem(&denominator, &two);
+      if step.remainder.signum() != 0; do
+        break;
+      fi
+      denominator = step.quotient;
+      powers_of_two = powers_of_two + 1;
+    }
+    val BigIntDivRem extra_two =
+      bigint_math.div_rem(&denominator, &two);
+    if extra_two.remainder.signum() == 0; do
+      rt fail("decimal: factorization exceeds bounded operation policy");
+    fi
+
+    for (let int i = 0; i < 512; i = i + 1) {
+      val BigIntDivRem step = bigint_math.div_rem(&denominator, &five);
+      if step.remainder.signum() != 0; do
+        break;
+      fi
+      denominator = step.quotient;
+      powers_of_five = powers_of_five + 1;
+    }
+    val BigIntDivRem extra_five =
+      bigint_math.div_rem(&denominator, &five);
+    if extra_five.remainder.signum() == 0; do
+      rt fail("decimal: factorization exceeds bounded operation policy");
+    fi
+
+    if !bigint_math.equal(&denominator, &one); do
+      rt fail("decimal: nonterminating exact division requires context");
+    fi
+
+    let int decimal_places = powers_of_two;
+    if powers_of_five > decimal_places; do
+      decimal_places = powers_of_five;
+    fi
+    let int result_scale = left.scale - right.scale + decimal_places;
+    if result_scale < -256 || result_scale > 256; do
+      rt fail("decimal: exact quotient exceeds bounded signed-scale policy");
+    fi
+
+    if powers_of_two > powers_of_five; do
+      for (let int i = powers_of_five; i < powers_of_two; i = i + 1) {
+        numerator = bigint_math.mul(&numerator, &five);
+      }
+    else
+      for (let int i = powers_of_two; i < powers_of_five; i = i + 1) {
+        numerator = bigint_math.mul(&numerator, &two);
+      }
+    fi
+
+    if numerator.signum() != 0
+        && left.coefficient.signum() != right.coefficient.signum(); do
+      numerator = bigint_math.neg(&numerator);
+    fi
+    return new DecimalValue(numerator, result_scale);
+  }
+
+  fnc decimal_digits(&BigIntValue value): int {
+    val BigIntValue magnitude = bigint_math.abs(&value);
+    if magnitude.signum() == 0; do
+      return 1;
+    fi
+    if magnitude.limb_count() > 96; do
+      rt fail("decimal: digit counting exceeds bounded division domain");
+    fi
+
+    val BigIntValue ten = bigint_math.from_int(10);
+    let BigIntValue remaining = magnitude;
+    let int digits = 0;
+    for (let int i = 0; i < 512; i = i + 1) {
+      if remaining.signum() == 0; do
+        break;
+      fi
+      val BigIntDivRem step = bigint_math.div_rem(&remaining, &ten);
+      remaining = step.quotient;
+      digits = digits + 1;
+    }
+    if remaining.signum() != 0; do
+      rt fail("decimal: digit counting exceeded bounded precision");
+    fi
+    return digits;
+  }
+
+  fnc floor_decimal_exponent(
+    &DecimalValue left,
+    &DecimalValue right
+  ): int {
+    val BigIntValue left_magnitude = bigint_math.abs(&left.coefficient);
+    val BigIntValue right_magnitude = bigint_math.abs(&right.coefficient);
+    val int left_digits = decimal_digits(&left_magnitude);
+    val int right_digits = decimal_digits(&right_magnitude);
+    val int difference = left_digits - right_digits;
+
+    let bool at_least_power = false;
+    if difference >= 0; do
+      val BigIntValue factor = ten_power(difference);
+      val BigIntValue scaled_right = bigint_math.mul(&right_magnitude, &factor);
+      at_least_power = bigint_math.compare(&left_magnitude, &scaled_right) >= 0;
+    else
+      val BigIntValue factor = ten_power(Math.neg(difference));
+      val BigIntValue scaled_left = bigint_math.mul(&left_magnitude, &factor);
+      at_least_power = bigint_math.compare(&scaled_left, &right_magnitude) >= 0;
+    fi
+
+    let int ratio_exponent = difference;
+    if !at_least_power; do
+      ratio_exponent = ratio_exponent - 1;
+    fi
+    return ratio_exponent + right.scale - left.scale;
+  }
+
+  fnc rounded_quotient(
+    &BigIntValue numerator,
+    &BigIntValue denominator,
+    String rounding,
+    bool negative_result
+  ): BigIntValue {
+    val BigIntDivRem division = bigint_math.div_rem(&numerator, &denominator);
+    if division.remainder.signum() == 0; do
+      val BigIntValue zero = bigint_math.from_int(0);
+      return bigint_math.add(&division.quotient, &zero);
+    fi
+
+    if rounding == "UNNECESSARY"; do
+      rt fail("decimal: rounding required under UNNECESSARY context");
+    fi
+
+    let bool increment = false;
+    if rounding == "UP"; do
+      // Away from zero: magnitude always increases for an inexact result.
+      increment = true;
+    else
+      if rounding == "DOWN"; do
+        // Toward zero: truncated positive magnitude is already correct.
+        increment = false;
+      else
+        if rounding == "CEILING"; do
+          // Toward +infinity increases positive results only.
+          increment = !negative_result;
+        else
+          if rounding == "FLOOR"; do
+            // Toward -infinity increases the magnitude of negative results.
+            increment = negative_result;
+          else
+            val BigIntValue two = bigint_math.from_int(2);
+            val BigIntValue doubled_remainder =
+              bigint_math.mul(&division.remainder, &two);
+            val int halfway =
+              bigint_math.compare(&doubled_remainder, &denominator);
+
+            if halfway > 0; do
+              increment = true;
+            else
+              if halfway == 0; do
+                if rounding == "HALF_UP"; do
+                  increment = true;
+                else
+                  if rounding == "HALF_DOWN"; do
+                    increment = false;
+                  else
+                    if rounding == "HALF_EVEN"; do
+                      if division.quotient.signum() != 0
+                          && (division.quotient.limb_at(0) & 1) != 0; do
+                        increment = true;
+                      fi
+                    else
+                      rt fail("decimal: internal unsupported rounding mode");
+                    fi
+                  fi
+                fi
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+
+    if !increment; do
+      val BigIntValue zero = bigint_math.from_int(0);
+      return bigint_math.add(&division.quotient, &zero);
+    fi
+    val BigIntValue one = bigint_math.from_int(1);
+    return bigint_math.add(&division.quotient, &one);
+  }
+
+  // Context-aware significant-digit division. The result is coefficient *
+  // 10^-scale, rounded in magnitude and then given the mathematical sign.
+  pub fnc div(
+    &DecimalValue left,
+    &DecimalValue right,
+    &DecimalContext context
+  ): DecimalValue {
+    if right.coefficient.signum() == 0; do
+      rt fail("decimal: division by zero");
+    fi
+    if left.coefficient.signum() == 0; do
+      return new DecimalValue(bigint_math.from_int(0), 0);
+    fi
+    if left.coefficient.limb_count() > 96
+        || right.coefficient.limb_count() > 96; do
+      rt fail("decimal: division exceeds bounded coefficient policy");
+    fi
+
+    val int exponent = floor_decimal_exponent(&left, &right);
+    val int result_scale = context.precision - 1 - exponent;
+    if result_scale < Math.neg(context.max_scale)
+        || result_scale > context.max_scale
+        || result_scale < -256
+        || result_scale > 256; do
+      rt fail("decimal: required result scale exceeds context bound");
+    fi
+
+    val BigIntValue left_magnitude = bigint_math.abs(&left.coefficient);
+    val BigIntValue right_magnitude = bigint_math.abs(&right.coefficient);
+    val int shift = right.scale - left.scale + result_scale;
+
+    let BigIntValue numerator = left_magnitude;
+    let BigIntValue denominator = right_magnitude;
+    if shift > 0; do
+      val BigIntValue factor = ten_power(shift);
+      numerator = bigint_math.mul(&numerator, &factor);
+    else
+      if shift < 0; do
+        val BigIntValue factor = ten_power(Math.neg(shift));
+        denominator = bigint_math.mul(&denominator, &factor);
+      fi
+    fi
+
+    val bool negative_result =
+      left.coefficient.signum() != right.coefficient.signum();
+    let BigIntValue coefficient =
+      rounded_quotient(
+        &numerator,
+        &denominator,
+        context.rounding,
+        negative_result
+      );
+    if coefficient.signum() != 0 && negative_result; do
+      coefficient = bigint_math.neg(&coefficient);
+    fi
+
+    return new DecimalValue(coefficient, result_scale);
+  }
+
+  pub fnc round(
+    &DecimalValue value,
+    &DecimalContext context
+  ): DecimalValue {
+    val DecimalValue one = from_int(1);
+    return div(&value, &one, &context);
+  }
+
+end
