@@ -4,6 +4,7 @@ import {createHash} from "node:crypto";
 import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
@@ -26,6 +27,9 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
     "real numeric conformance requires pinned compiler SHA-256");
   assert.match(declaredLlvmSourceSha || "", /^[a-f0-9]{40}$/,
     "real numeric conformance requires independently reviewed LLVM source SHA");
+  assert.equal(declaredLlvmSourceSha,
+    "c157ded685419f674657219fa1cbe82a1c447b50",
+    "numeric module parity requires the reviewed LLVM leaf-module compiler head");
   // Snapshot the compiler through the same no-follow, regular-file and
   // 256 MiB admission boundary as the production Wasm bridge.
   const compilerSnapshot = await readBoundedRegularFile(
@@ -90,18 +94,16 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       assert.equal(observed.value,expected,"numeric source-i64 "+expression);
       assert.equal(observed.admission.hostCapabilities,0);
     }
-    const negatives=[
+    const compileRejects=[
       "pub fnc main():int{return 3/2;}",
       "pub fnc main():int{return 1.25;}",
       "pub fnc main():bigint{return 1;}",
       "pub fnc main():decimal{return 1;}",
       // A bare out-of-range literal must always be rejected too.
-      "pub fnc main():int{return 9223372036854775808;}",
-      ...overflowNegatives
+      "pub fnc main():int{return 9223372036854775808;}"
     ];
-    const firstCheckedOverflow=negatives.length-overflowNegatives.length;
-    for (let i=0;i<negatives.length;i++) {
-      const source=negatives[i];
+    for (let i=0;i<compileRejects.length;i++) {
+      const source=compileRejects[i];
       const target=join(dir,"invalid-"+i+".wasm");
       await writeFile(input,source);
       await assert.rejects(
@@ -109,19 +111,79 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
           compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
           environment:"browser",publication:"atomic"
         }),
-        error=>{
-          const diagnostic=String(error?.message ?? "");
-          if (!/oreslang-llvmc:/.test(diagnostic)) return false;
-          // Pure source signed-overflow cases have valid grammar. A generic
-          // parser/bridge/IO failure cannot count as a negative numeric pass.
-          return i<firstCheckedOverflow ||
-            /overflow|out.of.range|out.of.bounds|invalid i64|integer literal/i.test(diagnostic);
-        },
-        "invalid source must be rejected for its expected numeric reason"
+        error=>/oreslang-llvmc:/.test(String(error?.message ?? "")),
+        "unsupported numeric source must fail in the real compiler"
       );
       await assert.rejects(stat(target + ".current.json"),{code:"ENOENT"},
         "failed numeric compilation must not publish a release pointer");
     }
+
+    // These are valid i64 programs whose arithmetic result overflows. The
+    // current LLVM/Wasm ABI is a checked runtime trap, not wrapping and not
+    // yet a typed guest ArithmeticOverflowError.
+    for (let i=0;i<overflowNegatives.length;i++) {
+      const target=join(dir,"overflow-"+i+".wasm");
+      await writeFile(input,overflowNegatives[i]+"\n");
+      const compiled=await compileOresToWasm({
+        compiler,compilerSha256:expectedCompilerSha,source:input,output:target,
+        environment:"browser",publication:"atomic"
+      });
+      const released=await readAtomicRelease(target);
+      await assert.rejects(
+        runIsolatedCoreGuest(released.wasm,{
+          expectedSha256:compiled.wasmSha256,timeoutMs:5000
+        }),
+        error=>/guest rejected or failed/.test(String(error?.message ?? "")),
+        "checked i64 overflow must fail during isolated Wasm execution"
+      );
+    }
+
+    const mathPath=fileURLToPath(new URL("../stdlib/math.ores",import.meta.url));
+    const mathBytes=await readFile(mathPath);
+    const mathBlobSha=createHash("sha1")
+      .update(Buffer.from("blob "+mathBytes.length+"\0","ascii"))
+      .update(mathBytes).digest("hex");
+    assert.equal(mathBlobSha,"725309eb0edae4d32ffbfe159b05fc7d4091bcc1",
+      "Wasm canonical Math source differs from the five-backend Git blob");
+
+    const mathEntry=join(dir,"math-entry.ores");
+    await writeFile(mathEntry,
+      'import module Math from "./math"; pub fnc main():int{return Math.abs(Math.neg(-42));}\n');
+    const mathOutput=join(dir,"math.wasm");
+    const mathCompiled=await compileOresToWasm({
+      compiler,compilerSha256:expectedCompilerSha,source:mathEntry,output:mathOutput,
+      sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+      environment:"browser",publication:"atomic"
+    });
+    assert.match(mathCompiled.sourceGraphSha256,/^[0-9a-f]{64}$/);
+    assert.deepEqual(mathCompiled.sourceDependencies,[{
+      relativePath:"math.ores",
+      sourceSha256:createHash("sha256").update(mathBytes).digest("hex")
+    }]);
+    const mathRelease=await readAtomicRelease(mathOutput);
+    const mathObserved=await runIsolatedCoreGuest(mathRelease.wasm,{
+      expectedSha256:mathCompiled.wasmSha256,timeoutMs:5000
+    });
+    assert.equal(mathObserved.value,42n,
+      "exact canonical stdlib Math must execute as a real wasm32 guest");
+
+    await writeFile(mathEntry,
+      'import module Math from "./math"; pub fnc main():int{return Math.neg((-9223372036854775807 - 1));}\n');
+    const mathOverflowOutput=join(dir,"math-overflow.wasm");
+    const mathOverflow=await compileOresToWasm({
+      compiler,compilerSha256:expectedCompilerSha,source:mathEntry,
+      output:mathOverflowOutput,
+      sourceDependencies:[{path:mathPath,relativePath:"math.ores"}],
+      environment:"browser",publication:"atomic"
+    });
+    const mathOverflowRelease=await readAtomicRelease(mathOverflowOutput);
+    await assert.rejects(
+      runIsolatedCoreGuest(mathOverflowRelease.wasm,{
+        expectedSha256:mathOverflow.wasmSha256,timeoutMs:5000
+      }),
+      error=>/guest rejected or failed/.test(String(error?.message ?? "")),
+      "Math.neg(INT64_MIN) must trap in current Wasm ABI, never wrap"
+    );
   } finally {
     await rm(dir,{recursive:true,force:true});
   }
