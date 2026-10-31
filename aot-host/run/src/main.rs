@@ -69,8 +69,25 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
      registry.invoke(&offender,fuel)?!=3 {
    return Err("memory growth fixture failed before its expected trap".into());
   }
-  if registry.invoke(&offender,fuel).is_ok() {
-   return Err("denied guest memory.grow returned instead of trapping".into());
+  // Require the Wasmtime resource limiter's actual growth-denial cause;
+  // a fuel exhaustion or unrelated trap must not falsely satisfy this test.
+  let growth_error=registry.invoke(&offender,fuel);
+  let mut source=match &growth_error {
+   Ok(_) => return Err("denied guest memory.grow returned instead of trapping".into()),
+   Err(error) => Some(error.as_ref() as &(dyn std::error::Error + 'static)),
+  };
+  let mut denied_growth=false;
+  while let Some(cause)=source {
+   let message=cause.to_string();
+   if message.contains("forcing trap when growing memory") ||
+      message.contains("forcing a memory growth failure to be a trap") {
+    denied_growth=true;
+    break;
+   }
+   source=cause.source();
+  }
+  if !denied_growth {
+   return Err("guest failed without a Wasmtime memory-growth limiter cause".into());
   }
   if registry.active_tenants()!=1 ||
      registry.invoke(&offender,fuel).is_ok() ||
