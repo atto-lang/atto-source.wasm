@@ -92,6 +92,7 @@ test("contextual identifiers and ordinary later parameters remain valid",()=>{
  for(const source of [
   "fnc take(int a, bool b):int{return 1;}",
   "fnc take(int structural):int{return structural;}",
+  "fnc take(int a = helper(structural)):int{return a;}",
   "fnc take<T,U>(Option<T> a, Map<T,U> b):int{return 1;}",
   "fnc tuple():int{return 42;} fnc main():int{return tuple();}",
   "// fnc fake(int a,tuple (int,int) b)\nfnc main():int{return 42;}"
