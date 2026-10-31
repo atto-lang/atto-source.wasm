@@ -23,3 +23,21 @@ test('quotes, nested comments and contextual structural identifier are not patte
 test('malformed UTF-8 is rejected rather than parsed permissively',()=>{
  assert.throws(()=>rejectUnsupportedStructuralPatternSource(Uint8Array.from([0xc0,0xaf])),/encoded data was not valid/i);
 });
+
+
+test('all Unicode line boundaries separate comments from live structural match patterns',()=>{
+ for(const sep of ['\r','\r\n','\n','\u0085','\u2028','\u2029']){
+  const active='// inert'+sep+'match x over on structural Shape x -> { return 1; } end';
+  assert.throws(()=>rejectUnsupportedStructuralPatternSource(bytes(active)),
+    /wasm structural pattern lowering unsupported/,JSON.stringify(sep));
+  const inert='// on structural Shape x'+sep+'fnc main():int{return 1;}';
+  assert.doesNotThrow(()=>rejectUnsupportedStructuralPatternSource(bytes(inert)),JSON.stringify(sep));
+ }
+});
+
+test('shared lexer fails closed on malformed pattern-bearing source',()=>{
+ assert.throws(()=>rejectUnsupportedStructuralPatternSource(bytes('/*'.repeat(129)+'*/'.repeat(129))),
+   /source comment nesting exceeded/);
+ assert.throws(()=>rejectUnsupportedStructuralPatternSource(bytes('match 1 over "unterminated')),
+   /unterminated source string/);
+});
