@@ -56,11 +56,12 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
  if growth_smoke {
-  // This compiled guest increments a private counter, then attempts a
-  // forbidden memory.grow on its fourth call. Wasm's default failure
-  // sentinel would let that fourth call return 4; the native host must
-  // trap, retire ONLY the offender, and preserve healthy tenant progress.
-  let mut registry=tenant_isolation::TenantRegistry::new(engine,module,2)?;
+  // The guest declares memory 1..2 pages: memory.grow(1) is allowed
+  // by the Wasm module. The STRICTER debug-only host Store limit of 1
+  // page must deny it on the fourth call. A failure solely due to the
+  // module maximum is not accepted as proof of host-limiter enforcement.
+  // After this Store-originated trap, retire ONLY the offender.
+  let mut registry=tenant_isolation::TenantRegistry::new_for_growth_smoke(engine,module,2)?;
   let healthy=registry.admit("healthy")?;
   let offender=registry.admit("offender")?;
   if registry.invoke(&healthy,fuel)?!=1 ||
