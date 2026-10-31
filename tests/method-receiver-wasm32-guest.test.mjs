@@ -8,6 +8,7 @@ import {join} from "node:path";
 import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
+import {assertPrimaryReceiverSlotRejection} from "./receiver-slot-diagnostic.mjs";
 import {assertWasm32IrTarget} from "../scripts/wasm32-ir-target.mjs";
 
 const required = process.env.ORESLANG_METHOD_PARITY_REQUIRED === "1";
@@ -103,8 +104,8 @@ test("real wasm32 receiver execution and exact duplicate diagnostics",{
       writeFileSync(input,source,{mode:0o600,flag:"wx"});
       const result=run(pinned,["--target=wasm32",input]);
       assertNativeFrontendRejection(result);
-      assert.ok(result.stderr.includes("duplicate native method name/arity '"+slot+"'"),
-        "rejection must identify exact receiver-erased "+slot);
+      assert.equal(assertPrimaryReceiverSlotRejection(result,slot,name+".ores"),true,
+        "rejection must originate at exact receiver-erased method slot");
     }
     assert.equal(sha((await readBoundedRegularFile(pinned,256*1024*1024,
       "pinned compiler size")).bytes),digest);
