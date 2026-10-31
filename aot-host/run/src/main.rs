@@ -23,7 +23,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let all_args=env::args().skip(1).collect::<Vec<_>>();
  // This is a debug-only regression path, NEVER a tenant security-service API.
  let tenant_smoke=all_args.first().map(String::as_str)==Some("--tenant-isolation-smoke");
- let args=if tenant_smoke {&all_args[1..]} else {&all_args[..]};
+ let growth_smoke=all_args.first().map(String::as_str)==Some("--tenant-memory-growth-smoke");
+ let args=if tenant_smoke || growth_smoke {&all_args[1..]} else {&all_args[..]};
  if args.len()!=2 && args.len()!=3{
   return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256 [FUEL]".into());
  }
@@ -54,6 +55,48 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // A guest-supplied pin or self-reported manifest is never sufficient.
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
+ if growth_smoke {
+  // This compiled guest increments a private counter, then attempts a
+  // forbidden memory.grow on its fourth call. Wasm's default failure
+  // sentinel would let that fourth call return 4; the native host must
+  // trap, retire ONLY the offender, and preserve healthy tenant progress.
+  let mut registry=tenant_isolation::TenantRegistry::new(engine,module,2)?;
+  let healthy=registry.admit("healthy")?;
+  let offender=registry.admit("offender")?;
+  if registry.invoke(&healthy,fuel)?!=1 ||
+     registry.invoke(&offender,fuel)?!=1 ||
+     registry.invoke(&offender,fuel)?!=2 ||
+     registry.invoke(&offender,fuel)?!=3 {
+   return Err("memory growth fixture failed before its expected trap".into());
+  }
+  if registry.invoke(&offender,fuel).is_ok() {
+   return Err("denied guest memory.grow returned instead of trapping".into());
+  }
+  if registry.active_tenants()!=1 ||
+     registry.invoke(&offender,fuel).is_ok() ||
+     registry.begin_shutdown(&offender).is_ok() ||
+     registry.destroy(&offender).is_ok() {
+   return Err("memory-growth-trapped tenant retained authority".into());
+  }
+  if registry.invoke(&healthy,fuel)?!=2 {
+   return Err("healthy tenant lost state after neighbor growth trap".into());
+  }
+  let reincarnated=registry.admit("offender")?;
+  if registry.invoke(&reincarnated,fuel)?!=1 ||
+     registry.invoke(&healthy,fuel)?!=3 ||
+     registry.invoke(&offender,fuel).is_ok() {
+   return Err("growth-trapped tenant reincarnation leaked state or authority".into());
+  }
+  registry.begin_shutdown(&reincarnated)?;
+  registry.destroy(&reincarnated)?;
+  registry.begin_shutdown(&healthy)?;
+  registry.destroy(&healthy)?;
+  if registry.active_tenants()!=0 {
+   return Err("memory-growth smoke leaked guest compartments".into());
+  }
+  println!("wasmtime_tenant_memory_growth_trap=ok");
+  return Ok(());
+ }
  if tenant_smoke {
   // Compile the same AOT code once, but admit each tenant to a distinct
   // Store + Instance. A counter module must retain independent guest state.
