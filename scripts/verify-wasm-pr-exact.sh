@@ -37,20 +37,26 @@ finish() {
   fi
   RESULT_HEAD="$actual_head" RESULT_TREE="$actual_tree" RESULT_NODE="$node_status" \
     RESULT_COMPILER="$compiler_status" RESULT_AOT="$aot_status" \
-    RESULT_MODE="$mode" RESULT_CODE="$original_exit" node -e '
+    RESULT_MODE="$mode" RESULT_CODE="$original_exit" RESULT_LOG="$results/npm-test.log" node -e '
       const fs = require("node:fs");
       const e = process.env;
+      const output = fs.existsSync(e.RESULT_LOG) ? fs.readFileSync(e.RESULT_LOG,"utf8") : "";
+      const counts = Object.fromEntries([...output.matchAll(/^# (tests|pass|fail|skipped|todo) (\d+)$/gm)].map(m => [m[1],Number(m[2])]));
       console.log(JSON.stringify({schema:1,commit:e.RESULT_HEAD,root_tree:e.RESULT_TREE,
         node_tests:e.RESULT_NODE,real_compiler:e.RESULT_COMPILER,
         real_aot:e.RESULT_AOT,mode:e.RESULT_MODE,exit_code:Number(e.RESULT_CODE),
-        node_version:process.version},null,2));
+        node_version:process.version,test_counts:counts},null,2));
     ' > "$results/manifest.json"
   printf '\nVerification records: %s\n' "$results"
   exit "$original_exit"
 }
 trap finish EXIT
 if npm test 2>&1 | tee "$results/npm-test.log"; then
-  node_status='PASS'
+  if node -e 'const s=require("node:fs").readFileSync(process.argv[1],"utf8"); const n=Object.fromEntries([...s.matchAll(/^# (tests|pass|fail|skipped|todo) (\d+)$/gm)].map(m=>[m[1],Number(m[2])])); if(!(n.tests>0) || n.fail!==0 || n.pass+n.skipped+(n.todo||0)!==n.tests) process.exit(1)' "$results/npm-test.log"; then
+    node_status='PASS'
+  else
+    node_status='INVALID_TEST_SUMMARY'; exit 1
+  fi
 else
   node_status='FAIL'
   exit 1
