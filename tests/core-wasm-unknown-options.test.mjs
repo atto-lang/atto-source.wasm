@@ -49,3 +49,72 @@ test("malformed options fail before byte admission", async () => {
       /options must be an object/);
   }
 });
+
+test("mixed supported and forbidden options fail before visiting bytes", async () => {
+  for (const forbidden of unsupported) {
+    const options = {entry: "main", timeoutMs: 100, [forbidden]: null};
+    assert.throws(() => compileAdmittedCoreGuest(null, options),
+      /unsupported core Wasm guest admission option/, forbidden);
+    await assert.rejects(runIsolatedCoreGuest(null, options),
+      /unsupported core Wasm isolated runner option/, forbidden);
+  }
+});
+
+test("only data descriptors are allowed: getters must not run", async () => {
+  let invoked = 0;
+  const getter = {};
+  Object.defineProperty(getter, "entry", {
+    enumerable: true,
+    get() { invoked++; throw new Error("executed forbidden option getter"); }
+  });
+  assert.throws(() => compileAdmittedCoreGuest(null, getter),
+    /option must be a data property: entry/);
+  await assert.rejects(runIsolatedCoreGuest(null, getter),
+    /option must be a data property: entry/);
+  assert.equal(invoked, 0, "admission must not evaluate a getter");
+
+  const setter = {};
+  Object.defineProperty(setter, "timeoutMs", {
+    enumerable: true,
+    set(_) { invoked++; }
+  });
+  assert.throws(() => compileAdmittedCoreGuest(null, setter),
+    /unsupported core Wasm guest admission option: timeoutMs/);
+  await assert.rejects(runIsolatedCoreGuest(null, setter),
+    /option must be a data property: timeoutMs/);
+  assert.equal(invoked, 0);
+});
+
+test("malicious option prototypes are denied without inherited authority", async () => {
+  const inherited = Object.create({tenantId: "other-tenant"});
+  inherited.entry = "main";
+  assert.throws(() => compileAdmittedCoreGuest(null, inherited),
+    /plain data object/);
+  await assert.rejects(runIsolatedCoreGuest(null, inherited),
+    /plain data object/);
+  const nullPrototype = Object.assign(Object.create(null), {entry: "main"});
+  assert.throws(() => compileAdmittedCoreGuest(null, nullPrototype),
+    /expected core WebAssembly bytes/);
+  await assert.rejects(runIsolatedCoreGuest(null, nullPrototype),
+    /expected core WebAssembly bytes/);
+});
+
+test("prototype-key spoofing and forbidden symbols cannot be smuggled", async () => {
+  const spoof = {entry: "main"};
+  Object.defineProperty(spoof, "__proto__", {
+    configurable: true, enumerable: false, value: {tenantId: "spoof"}
+  });
+  for (const options of [spoof, {entry: "main", [Symbol.toStringTag]: "Tenant"}]) {
+    assert.throws(() => compileAdmittedCoreGuest(null, options),
+      /unsupported core Wasm guest admission option/);
+    await assert.rejects(runIsolatedCoreGuest(null, options),
+      /unsupported core Wasm isolated runner option/);
+  }
+});
+
+test("supported descriptor values still require ordinary scalar validation", async () => {
+  assert.throws(() => compileAdmittedCoreGuest(null, {ioMode: "blocking"}),
+    /refuses legacy\/blocking host I\/O/);
+  await assert.rejects(runIsolatedCoreGuest(null, {timeoutMs: 0}),
+    /timeoutMs must be between 1 and 30000/);
+});
