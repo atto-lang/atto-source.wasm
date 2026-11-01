@@ -46,12 +46,14 @@ export function compileAdmittedCoreGuest(input, options = {}) {
   // untrusted Wasm. Never hash one buffer and execute another.
   if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
       maxModuleBytes > 16 * 1024 * 1024) throw new TypeError("invalid maximum module size");
+  // Validate the caller's pin before inspecting bytes. A malformed authority
+  // claim must not reach the untrusted-input snapshot or hashing path.
+  if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256))
+    throw new TypeError("invalid pinned SHA-256");
   const snapshot = snapshotGuestBytes(input, maxModuleBytes);
   const sha256 = createHash("sha256").update(snapshot).digest("hex");
-  if (expectedSha256 !== undefined) {
-    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
-    if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
-  }
+  if (expectedSha256 !== undefined && sha256 !== expectedSha256)
+    throw Error("guest artifact SHA-256 mismatch");
   const inspected = inspectWasmBytes(snapshot, {maxModuleBytes, maxMemoryPages});
   const {bytes, memoryCount, memoryInitial, memoryMaximum, hasMemoryMaximum} = inspected;
   if (memoryCount !== 1 || !hasMemoryMaximum) {
