@@ -49,6 +49,37 @@ test("malformed or unsafe numeric provenance is rejected", () => {
   }
 });
 
+test("inherited and getter-backed state-region fields are not valid receipts", () => {
+  const inherited = Object.create(vectors.borrow);
+  assert.throws(() => stateRegionProvenance(inherited), /missing own/);
+  const getterBacked = {...vectors.borrow};
+  Object.defineProperty(getterBacked, "executionId", {
+    enumerable: true,
+    get() { return vectors.borrow.executionId; }
+  });
+  assert.throws(() => stateRegionProvenance(getterBacked), /accessor forbidden/);
+
+  const validRequirement = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "read",
+    action: "borrow"
+  };
+  assert.throws(() => stateRegionRequirement(Object.create(validRequirement)),
+    /missing own/);
+  const getterRequirement = {...validRequirement};
+  Object.defineProperty(getterRequirement, "loanId", {
+    enumerable: true,
+    get() { return 501; }
+  });
+  assert.throws(() => stateRegionRequirement(getterRequirement),
+    /accessor forbidden/);
+});
+
 test("schema additionalProperties=false rejects smuggled runtime memory authority", () => {
   for (const [name, value] of [
     ["memory", new ArrayBuffer(8)],
