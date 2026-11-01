@@ -17,6 +17,9 @@ export function compileAdmittedCoreGuest(input, {
   guestNetworkIo = false,
   nioReactors = 0,
   actorPhysicalTurns = 0,
+  criticalGateCount = 0,
+  asyncGeneratorFrames = 0,
+  suspendingCriticalBodies = false,
   hardRealtime = false
 } = {}) {
   // This core-wasm.i64-v1 implementation has no guest network host imports,
@@ -32,6 +35,15 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM reactor threads are unsupported in core-wasm.i64-v1");
   if (actorPhysicalTurns !== 0)
     throw new TypeError("WASM physical source actor execution is unsupported");
+  // This core-wasm.i64-v1 scalar profile has neither source critical-section
+  // lowering nor a task continuation queue. Never accept advertised logical
+  // gates or asynchronous iterator frames as if zero-import Wasm supplied them.
+  if (criticalGateCount !== 0)
+    throw new TypeError("E_CRITICAL_UNLOWERED: Wasm scheduler-owned critical gates unsupported");
+  if (asyncGeneratorFrames !== 0)
+    throw new TypeError("E_ASYNC_GENERATOR_UNLOWERED: Wasm async iterator frames unsupported");
+  if (suspendingCriticalBodies !== false)
+    throw new TypeError("E_CRITICAL_SUSPENSION: suspension in critical bodies is forbidden");
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
