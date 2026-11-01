@@ -35,6 +35,9 @@ while IFS= read -r -d '' entry; do
     done
   fi
   [[ -f "$path" && ! -L "$path" ]] || fail "missing or symlinked tracked file: $path"
+  # Git does not record hardlink identity; an external alias can mutate a verified file.
+  link_count="$(stat -c %h -- "$path" 2>/dev/null || stat -f %l "$path" 2>/dev/null)" || fail "cannot inspect tracked file link count: $path"
+  [[ "$link_count" == "1" ]] || fail "tracked file has an unexpected hardlink: $path"
   actual_blob="$(git hash-object --no-filters -- "$path")" || fail "cannot hash tracked file: $path"
   [[ "$actual_blob" == "$blob" ]] || fail "physical file contents differ from pinned blob: $path"
   if [[ "$mode" == '100755' ]]; then
