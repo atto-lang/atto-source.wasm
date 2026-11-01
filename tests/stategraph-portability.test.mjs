@@ -20,6 +20,21 @@ async function withArtifact(t,name,fn){
   return fn({source,target});
 }
 
+test("Canonical shared StateGraph scalar executes byte-identically on wasm32",async t=>{
+  if(!compiler){t.skip("NO_NATIVE_EVIDENCE: ORESLANG_LLVM_COMPILER missing");return;}
+  const source=join(root,"contracts","stategraph-portability","shared-scalar.ores");
+  const sourceBytes=await readFile(source);
+  assert.equal(sourceBytes.toString("utf8"),"fnc main():int{return 6*7;}\n");
+  const dir=await mkdtemp(join(tmpdir(),"sg-wasm-shared-"));
+  t.after(()=>rm(dir,{recursive:true,force:true}));
+  const output=join(dir,"shared.wasm");
+  await compileOresToWasm({compiler:resolve(compiler),source,output});
+  const bytes=await readFile(output);
+  const {instance}=await WebAssembly.instantiate(bytes,{});
+  assert.equal(typeof instance.exports.main,"function");
+  assert.equal(instance.exports.main(),42n);
+});
+
 test("StateGraph scalar guest compiles and executes as real wasm i64",async t=>{
   if(!compiler){t.skip("NO_NATIVE_EVIDENCE: ORESLANG_LLVM_COMPILER missing");return;}
   await withArtifact(t,"scalar",async({source,target})=>{
