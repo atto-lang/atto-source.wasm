@@ -13,73 +13,67 @@ export function stateRegionRequirement(record) {
     "contractVersion", "regionBinding", "executionBinding", "generationFence",
     "loanId", "place", "kind", "action"
   ];
-  for (const name of allowedFields) {
-    if (!Object.hasOwn(record, name)) {
-      throw new TypeError("missing own state-region requirement field: " + name);
-    }
-    const descriptor = Object.getOwnPropertyDescriptor(record, name);
-    if (!descriptor || !Object.hasOwn(descriptor, "value")) {
-      throw new TypeError("state-region requirement accessor forbidden: " + name);
-    }
-  }
-  if (record.contractVersion !== "1.0") {
-    throw new TypeError("unsupported state-region requirement version");
-  }
-  if (typeof record.regionBinding !== "string" ||
-      record.regionBinding.trim().length === 0) {
-    throw new TypeError("state-region requirement needs a region binding");
-  }
-  if (record.executionBinding !== "current-logical-execution") {
-    throw new TypeError("state-region requirement must bind current logical execution");
-  }
-  if (record.generationFence !== true) {
-    throw new TypeError("state-region requirement must be generation fenced");
-  }
-  if (!Number.isSafeInteger(record.loanId) || record.loanId <= 0) {
-    throw new TypeError("state-region requirement loanId must be positive");
-  }
-  if (typeof record.place !== "string" || record.place.trim().length === 0) {
-    throw new TypeError("state-region requirement needs a nonblank place");
-  }
-  if (record.kind !== "read" && record.kind !== "write") {
-    throw new TypeError("invalid state-region requirement access kind");
-  }
-  if (record.action !== "borrow" && record.action !== "release") {
-    throw new TypeError("invalid state-region requirement action");
-  }
-
-  const allowed = new Set([
-    "contractVersion", "regionBinding", "executionBinding", "generationFence",
-    "loanId", "place", "kind", "action"
+  const forbidden = new Set([
+    "regionId", "regionGeneration", "runtimeDomain", "executionId",
+    "executionSlot", "executionGeneration"
   ]);
-  for (const name of Reflect.ownKeys(record)) {
-    if (!allowed.has(name) && ![
-      "regionId", "regionGeneration", "runtimeDomain", "executionId",
-      "executionSlot", "executionGeneration"
-    ].includes(name)) {
+  // One atomic-looking descriptor snapshot avoids re-reading guest-facing
+  // objects through Proxy get traps between validation and normalization.
+  // It is a validated receipt, never a capability granting heap access.
+  const descriptors = Object.getOwnPropertyDescriptors(record);
+  for (const name of Reflect.ownKeys(descriptors)) {
+    if (forbidden.has(name)) {
+      throw new TypeError("compile-time requirement must not contain " + name);
+    }
+    if (!allowedFields.includes(name)) {
       throw new TypeError("unknown state-region requirement field: " + String(name));
     }
   }
-
-  const forbidden = [
-    "regionId", "regionGeneration", "runtimeDomain", "executionId",
-    "executionSlot", "executionGeneration"
-  ];
-  for (const name of forbidden) {
-    if (Object.hasOwn(record, name)) {
-      throw new TypeError("compile-time requirement must not contain " + name);
+  for (const name of allowedFields) {
+    const descriptor = descriptors[name];
+    if (!descriptor) {
+      throw new TypeError("missing own state-region requirement field: " + name);
     }
+    if (!Object.hasOwn(descriptor, "value")) {
+      throw new TypeError("state-region requirement accessor forbidden: " + name);
+    }
+  }
+  const value = name => descriptors[name].value;
+  if (value("contractVersion") !== "1.0") {
+    throw new TypeError("unsupported state-region requirement version");
+  }
+  if (typeof value("regionBinding") !== "string" ||
+      value("regionBinding").trim().length === 0) {
+    throw new TypeError("state-region requirement needs a region binding");
+  }
+  if (value("executionBinding") !== "current-logical-execution") {
+    throw new TypeError("state-region requirement must bind current logical execution");
+  }
+  if (value("generationFence") !== true) {
+    throw new TypeError("state-region requirement must be generation fenced");
+  }
+  if (!Number.isSafeInteger(value("loanId")) || value("loanId") <= 0) {
+    throw new TypeError("state-region requirement loanId must be positive");
+  }
+  if (typeof value("place") !== "string" || value("place").trim().length === 0) {
+    throw new TypeError("state-region requirement needs a nonblank place");
+  }
+  if (value("kind") !== "read" && value("kind") !== "write") {
+    throw new TypeError("invalid state-region requirement access kind");
+  }
+  if (value("action") !== "borrow" && value("action") !== "release") {
+    throw new TypeError("invalid state-region requirement action");
   }
 
   return Object.freeze({
     contractVersion: "1.0",
-    regionBinding: record.regionBinding,
+    regionBinding: value("regionBinding"),
     executionBinding: "current-logical-execution",
     generationFence: true,
-    loanId: record.loanId,
-    place: record.place,
-    kind: record.kind,
-    action: record.action
+    loanId: value("loanId"),
+    place: value("place"),
+    kind: value("kind"),
+    action: value("action")
   });
 }
 
