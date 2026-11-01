@@ -1,0 +1,10 @@
+// Cross-backend immutable-by-default smoke fixture.
+// Same bytes must be compiled by Java, LLVM, WASM, and .NET.
+// This is authored source, not evidence of execution.
+pub fnc main(): int {
+  int x = 7;
+  const y = 7;
+  const int z = 7;
+  if (x == y && y == z) { return 42; }
+  return 1;
+}
