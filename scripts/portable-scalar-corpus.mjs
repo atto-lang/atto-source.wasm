@@ -39,7 +39,7 @@ export function verifyPortableScalarCorpusBytes(bytes,{expectedBlob=PORTABLE_SCA
         throw Error("portable scalar unsafe or duplicate expression");
       expressions.add(row.expression);
       if(kind==="positive"){
-        if(typeof row.expected!=="string"||!(/^-?(?:0|[1-9][0-9]*)$/).test(row.expected))
+        if(typeof row.expected!=="string"||row.expected==="-0"||!(/^-?(?:0|[1-9][0-9]*)$/).test(row.expected))
           throw Error("portable scalar malformed expected i64");
         const value=BigInt(row.expected);
         if(value<minNegative||value>=maxPositive)
