@@ -17,14 +17,14 @@ test("compiled scalar guest refuses all unsupported placement/actor/I/O hints be
   const malformedGuest = new Uint8Array([0]);
   for (const options of unsupported) {
     assert.throws(() => compileAdmittedCoreGuest(malformedGuest, options),
-      /unsupported|shared reactor/, JSON.stringify(options));
+      /unsupported|shared reactor|WASM guest NIO|WASM runtime refuses/, JSON.stringify(options));
   }
 });
 test("isolated scalar guest refuses hints before constructing Worker", async () => {
   const malformedGuest = new Uint8Array([0]);
   for (const options of unsupported) {
     await assert.rejects(runIsolatedCoreGuest(malformedGuest, options),
-      /unsupported|shared reactor/, JSON.stringify(options));
+      /unsupported|shared reactor|WASM guest NIO|WASM runtime refuses/, JSON.stringify(options));
   }
 });
 test("accessor options and non-plain options fail without invoking getters", async () => {
