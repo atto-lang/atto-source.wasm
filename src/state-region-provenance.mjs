@@ -10,20 +10,26 @@ const fields = Object.freeze([
 // JSON Schema declares additionalProperties=false. Copying a known subset
 // must not silently bless a record carrying arbitrary guest memory authority.
 const allowedFields = new Set(["contractVersion", ...fields, "place", "kind", "action"]);
-function rejectUnknownFields(record) {
-  // Accessors, proxy-like descriptors and inherited properties are not
-  // transport records. Read only ordinary own data properties.
-  for (const name of allowedFields) {
-    const descriptor = Object.getOwnPropertyDescriptor(record, name);
-    if (descriptor && !Object.hasOwn(descriptor, "value")) {
-      throw new TypeError("state-region provenance accessor forbidden: " + name);
-    }
-  }
-  for (const name of Reflect.ownKeys(record)) {
+function snapshotProvenance(record) {
+  // Own-property descriptors are the validated data, not record[field].
+  // A Proxy can return honest descriptors while trapping later property gets.
+  // The receipt never performs those later gets.
+  const descriptors = Object.getOwnPropertyDescriptors(record);
+  for (const name of Reflect.ownKeys(descriptors)) {
     if (!allowedFields.has(name)) {
       throw new TypeError("unknown state-region provenance field: " + String(name));
     }
   }
+  for (const name of allowedFields) {
+    const descriptor = Object.getOwnPropertyDescriptor(descriptors, name)?.value;
+    if (!descriptor) {
+      throw new TypeError("missing own state-region provenance field: " + name);
+    }
+    if (!Object.hasOwn(descriptor, "value")) {
+      throw new TypeError("state-region provenance accessor forbidden: " + name);
+    }
+  }
+  return descriptors;
 }
 
 function positiveSafeInteger(value, name) {
@@ -43,31 +49,27 @@ export function stateRegionProvenance(record) {
   if (prototype !== Object.prototype && prototype !== null) {
     throw new TypeError("plain state-region provenance record required");
   }
-  for (const name of allowedFields) {
-    if (!Object.hasOwn(record, name)) {
-      throw new TypeError("missing own state-region provenance field: " + name);
-    }
-  }
-  // Validate all descriptors before reading any field: even a rejected
-  // contractVersion getter must never execute at this trust boundary.
-  rejectUnknownFields(record);
-  if (record.contractVersion !== "1.0") {
+  // Take a single descriptor snapshot. Never use record[field] afterward:
+  // Proxy get traps are NOT ownership authority, and may run guest code.
+  const descriptors = snapshotProvenance(record);
+  const value = name => descriptors[name].value;
+  if (value("contractVersion") !== "1.0") {
     throw new TypeError("unsupported state-region provenance version");
   }
   const out = {contractVersion: "1.0"};
-  for (const name of fields) out[name] = positiveSafeInteger(record[name], name);
-  if (typeof record.place !== "string" || record.place.trim().length === 0) {
+  for (const name of fields) out[name] = positiveSafeInteger(value(name), name);
+  if (typeof value("place") !== "string" || value("place").trim().length === 0) {
     throw new TypeError("state-region provenance requires a nonblank place");
   }
-  if (record.kind !== "read" && record.kind !== "write") {
+  if (value("kind") !== "read" && value("kind") !== "write") {
     throw new TypeError("invalid state-region access kind");
   }
-  if (record.action !== "borrow" && record.action !== "release") {
+  if (value("action") !== "borrow" && value("action") !== "release") {
     throw new TypeError("invalid state-region loan action");
   }
-  out.place = record.place;
-  out.kind = record.kind;
-  out.action = record.action;
+  out.place = value("place");
+  out.kind = value("kind");
+  out.action = value("action");
   return Object.freeze(out);
 }
 
