@@ -126,7 +126,9 @@ test("Proxy option containers fail before invoking hostile traps", async () => {
     ownKeys() { traps++; throw Error("proxy ownKeys invoked"); },
     get() { traps++; throw Error("proxy get invoked"); }
   });
-  for (const options of [attack, Proxy.revocable({}, {}).proxy]) {
+  const revoked = Proxy.revocable({}, {});
+  revoked.revoke();
+  for (const options of [attack, revoked.proxy]) {
     assert.throws(() => compileAdmittedCoreGuest(null, options),
       /options cannot be Proxy objects/);
     await assert.rejects(runIsolatedCoreGuest(null, options),
