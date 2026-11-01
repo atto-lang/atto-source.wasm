@@ -60,3 +60,40 @@ test('PB02, PB03, PB04 portable peer vectors', () => {
     assert.equal(slab.freed, true);
   }
 });
+
+test('release of final pin after retirement clears storage while retaining size metadata', () => {
+  const slab = new FrozenTcpSlab([11, 22, 33]);
+  const a = slab.pin(), b = slab.pin();
+  slab.retire();
+  assert.equal(slab.freed, false);
+  assert.equal(slab.readByte(b, 2), 33);
+  assert.equal(slab.releasePin(a), true);
+  assert.equal(slab.freed, false);
+  assert.equal(slab.readByte(b, 0), 11);
+  assert.equal(slab.releasePin(b), true);
+  assert.equal(slab.freed, true);
+  assert.equal(slab.size, 3);
+  assert.throws(() => slab.readByte(b, 0), /invalid TCP slab pin/);
+});
+
+test('retire without a live reader releases private storage immediately and is idempotent', () => {
+  const slab = new FrozenTcpSlab([1, 2]);
+  slab.retire();
+  assert.equal(slab.freed, true);
+  slab.retire();
+  assert.equal(slab.freed, true);
+  assert.throws(() => slab.pin(), /slab retired/);
+});
+
+test('pin release before retire does not prematurely free backing storage', () => {
+  const slab = new FrozenTcpSlab([89]);
+  const receipt = slab.pin();
+  assert.equal(slab.releasePin(receipt), true);
+  assert.equal(slab.freed, false);
+  const second = slab.pin();
+  assert.equal(slab.readByte(second, 0), 89);
+  slab.retire();
+  assert.equal(slab.freed, false);
+  slab.releasePin(second);
+  assert.equal(slab.freed, true);
+});
