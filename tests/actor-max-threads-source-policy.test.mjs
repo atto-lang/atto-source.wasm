@@ -69,6 +69,8 @@ test("critical/suspends v1 rejects unsupported lowering before compiler invocati
 });
 
 test("critical/suspends policy ignores comments and literals", () => {
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(
+    "fnc main():int { let int critical=7; return critical; }")));
   assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(`
     fnc main():int {
       const message = "critical suspends fnc async";
