@@ -65,5 +65,24 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    // The scalar-only source bridge has no state-region loan lowering, typed
+    // model graph, keyed grain lifecycle or supervisor CONTROL semantics.
+    // These remain contextual identifiers in unrelated source locations:
+    // only a tokenized declaration introducer is rejected.
+    if (tokens[i] === "define") {
+      const first = tokens[i+1] === "pub" ? i+2 : i+1;
+      const kind = tokens[first];
+      const pair = kind === "state" && tokens[first+1] === "container"
+        ? "state container" : kind === "proxy" && tokens[first+1] === "actor"
+        ? "proxy actor" : null;
+      const unsupported = pair ?? ([
+        "grain", "supervisor", "scheduler", "mailman",
+        "model", "protocol", "service"
+      ].includes(kind) ? kind : null);
+      if (unsupported) {
+        throw Error("WASM DECL_KIND_UNSUPPORTED: " + unsupported
+          + " requires verified nominal identity/ownership lowering");
+      }
+    }
   }
 }
