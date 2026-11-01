@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 
 const bytes = source => new TextEncoder().encode(source);
@@ -59,5 +61,16 @@ test("malformed UTF-8 and unterminated comments fail before compilation", () => 
   assert.throws(
     () => rejectUnsupportedActorThreadSource(bytes("/* define actor A1 as")),
     /unterminated source comment/
+  );
+});
+
+test("exact conformance lifecycle source fails closed before Wasm scalar compilation", () => {
+  const guest = readFileSync(new URL("./fixtures/actor-execution-v1.ores", import.meta.url));
+  const sha = createHash("sha1")
+    .update("blob " + guest.length + "\0").update(guest).digest("hex");
+  assert.equal(sha, "7b358d4871f931f21d1a874a15802ac3dd32ba64");
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(guest),
+    /WASM source actor execution unsupported: no guest actor scheduler/
   );
 });
