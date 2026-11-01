@@ -105,6 +105,29 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/**
+ * Source-only capability admission. The core Wasm i64 bridge cannot preserve
+ * a queued critical continuation, an actor turn, or a typed suspends ABI.
+ * Use lexed tokens rather than a string regex: comments and string literals
+ * must not masquerade as capabilities or hide executable keywords.
+ * This is NOT positive compiler acceptance of critical or suspends.
+ */
+export function rejectUnsupportedCriticalSuspendsSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i],next=tokens[i+1];
+  if(!token.id)continue;
+  if(token.text==="async" && next?.id && next.text==="fnc")
+   throw Error("E_CALLABLE_MODIFIERS: async fnc is removed; use suspends at byte "+token.offset);
+  if((token.text==="critical" && next?.text==="suspends") ||
+     (token.text==="suspends" && next?.text==="critical"))
+   throw Error("E_CALLABLE_MODIFIERS: critical suspends fnc is forbidden at byte "+token.offset);
+  if(token.text==="critical")
+   throw Error("E_CRITICAL_UNSUPPORTED: core Wasm bridge has no owned critical guard or FIFO continuation admission at byte "+token.offset);
+  if(token.text==="suspends" || token.text==="await")
+   throw Error("E_SUSPENDS_UNSUPPORTED: core Wasm bridge lacks typed suspension/continuation lowering at byte "+token.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -254,6 +277,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedCriticalSuspendsSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
