@@ -58,6 +58,15 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
   }
 
   for (let i = 0; i < tokens.length; i++) {
+    // This byte-snapshot preflight runs before the scalar LLVM/Wasm compiler.
+    // Fail closed: no critical ticket/guard lowering or continuation frames
+    // exist here, and legacy async must not silently alias suspends.
+    if (tokens[i] === "async")
+      throw Error("WASM Oreslang 'async' modifier removed: use suspends");
+    if (tokens[i] === "suspends" || tokens[i] === "suspend")
+      throw Error("WASM Oreslang suspends requires continuation lowering");
+    if (tokens[i] === "critical")
+      throw Error("WASM Oreslang critical requires scheduler-owned guard lowering");
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "enum"
