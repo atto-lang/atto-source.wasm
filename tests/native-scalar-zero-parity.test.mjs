@@ -85,6 +85,20 @@ test("actual LLVM-to-WASM guest executes five zero assertions and rejects a remo
       }
       completed++;
     }
+    // Valid Oreslang with a deliberately wrong expected value must not pass.
+    const mutantSource=join(dir,"wrong-expected.ores");
+    const mutantOutput=join(dir,"wrong-expected.wasm");
+    const mutantText="pub fnc main():int{return (2 + 3 * 4) - 13;}\\n";
+    await writeFile(mutantSource,mutantText,{flag:"wx",mode:0o400});
+    const mutantBuild=await compileOresToWasm({compiler,compilerSha256,
+      source:mutantSource,output:mutantOutput,environment:"browser",publication:"atomic"});
+    const mutantRelease=await readAtomicRelease(mutantOutput);
+    assert.equal(mutantBuild.wasmSha256,sha256(mutantRelease.wasm));
+    const mutantObserved=await runIsolatedCoreGuest(mutantRelease.wasm,{
+      expectedSha256:mutantBuild.wasmSha256,timeoutMs:5000
+    });
+    assert.equal(mutantObserved.value,1n,"mutant must execute with nonzero result");
+    assert.notEqual(mutantObserved.value,0n,"wrong Oreslang assertion cannot be green");
     assert.equal(completed,6,"all five guests and negative control must run");
   }finally{await rm(dir,{recursive:true,force:true});}
 });
