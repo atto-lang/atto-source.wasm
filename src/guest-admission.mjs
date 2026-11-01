@@ -2,23 +2,30 @@ import {createHash} from "node:crypto";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {assertKnownCoreWasmOptions} from "./core-wasm-options.mjs";
 
 /**
  * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
-  expectedSha256,
-  entry = "main",
-  maxModuleBytes = 16 * 1024 * 1024,
-  maxMemoryPages = 2,
-  ioMode = "nio-only",
-  guestNetworkIo = false,
-  nioReactors = 0,
-  actorPhysicalTurns = 0,
-  hardRealtime = false
-} = {}) {
+export function compileAdmittedCoreGuest(input, options = {}) {
+  assertKnownCoreWasmOptions(options, [
+    "expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages",
+    "ioMode", "guestNetworkIo", "nioReactors", "actorPhysicalTurns",
+    "hardRealtime"
+  ], "guest admission");
+  const {
+    expectedSha256,
+    entry = "main",
+    maxModuleBytes = 16 * 1024 * 1024,
+    maxMemoryPages = 2,
+    ioMode = "nio-only",
+    guestNetworkIo = false,
+    nioReactors = 0,
+    actorPhysicalTurns = 0,
+    hardRealtime = false
+  } = options;
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
