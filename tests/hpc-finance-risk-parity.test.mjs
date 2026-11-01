@@ -107,7 +107,7 @@ test("hpc finance 11-guest contract is pinned but explicitly UNEXECUTED",()=>{
   const manifestBytes=readFileSync(
     new URL("../contracts/v1/hpc-finance/guest-manifest.json",import.meta.url));
   const blob=createHash("sha1").update(
-    Buffer.from("blob "+manifestBytes.length+"\\0","ascii"))
+    Buffer.from("blob "+manifestBytes.length+"\0","ascii"))
     .update(manifestBytes).digest("hex");
   assert.equal(blob,"062cff056919708b2cc9e6f9a6f4cb6ec00661e8");
   const manifest=JSON.parse(manifestBytes.toString("utf8"));
