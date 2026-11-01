@@ -9,7 +9,12 @@ const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const header="// oreslang:checked-i64-v1\n";
 
 async function compileMain(t,expression){
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return null;}
+  if(!compiler){
+    assert.notEqual(process.env.ORESLANG_REQUIRE_REAL_COMPILER,"1",
+      "required real-compiler parity must not silently skip without ORESLANG_LLVM_COMPILER");
+    t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");
+    return null;
+  }
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
@@ -29,6 +34,10 @@ for(const [name,expression,expected] of [
   ["min","-9223372036854775808",-9223372036854775808n],
   ["zero","0",0n],
   ["signed multiplication","-7 * -6",42n],
+  ["shared precedence","4 + 6 * (5 - 1)",28n],
+  ["shared nested parentheses","7 * (4 + 2)",42n],
+  ["shared left associativity","42 - 10 - 2",30n],
+  ["shared parenthesized precedence","(2 + 3) * 8",40n],
 ]){
   test("checked-i64 cross-backend scalar: "+name,async t=>{
     const main=await compileMain(t,expression); if(!main)return;
@@ -41,6 +50,8 @@ for(const [name,expression] of [
   ["subtract overflow","-9223372036854775808 - 1"],
   ["multiply overflow","9223372036854775807 * 2"],
   ["unary negate minimum","-(-9223372036854775808)"],
+  ["multiply min by negative one","-9223372036854775808 * -1"],
+  ["nested multiply overflow","7 * (9223372036854775807 - 1)"],
 ]){
   test("checked-i64 cross-backend overflow traps: "+name,async t=>{
     const main=await compileMain(t,expression); if(!main)return;
@@ -49,7 +60,12 @@ for(const [name,expression] of [
 }
 
 test("int / int is not admitted as an i64 result",async t=>{
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return;}
+  if(!compiler){
+    assert.notEqual(process.env.ORESLANG_REQUIRE_REAL_COMPILER,"1",
+      "required division-rejection parity cannot skip without ORESLANG_LLVM_COMPILER");
+    t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");
+    return;
+  }
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
