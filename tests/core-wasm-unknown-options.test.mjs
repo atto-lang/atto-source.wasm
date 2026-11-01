@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {compileAdmittedCoreGuest} from "../src/guest-admission.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {assertKnownCoreWasmOptions} from "../src/core-wasm-options.mjs";
 
 const unsupported = [
   "tenantId", "tenant", "isolateId", "actorId", "permissions",
@@ -214,4 +215,51 @@ test("unsupported authority cannot hide behind an accepted value", async () => {
     await assert.rejects(runIsolatedCoreGuest(null, {entry: "main", [key]: false}),
       new RegExp("unsupported core Wasm isolated runner option: " + key));
   }
+});
+
+test("approved options are copied to a null-prototype, own-data-only record", () => {
+  const source = Object.create(null);
+  Object.defineProperty(source, "entry", {
+    enumerable: false, writable: true, value: "main"
+  });
+  source.maxMemoryPages = 2;
+  const normalized = assertKnownCoreWasmOptions(source,
+    ["entry", "maxMemoryPages"], "guest admission");
+  assert.notEqual(normalized, source);
+  assert.equal(Object.getPrototypeOf(normalized), null);
+  assert.deepEqual(Reflect.ownKeys(normalized), ["entry", "maxMemoryPages"]);
+  assert.equal(normalized.entry, "main");
+  assert.equal(normalized.maxMemoryPages, 2);
+  source.entry = "mutated";
+  assert.equal(normalized.entry, "main",
+    "caller mutations cannot change already-admitted option values");
+});
+
+test("inherited Object.prototype option getters cannot execute after admission", async () => {
+  // The original own-key validator still allowed this: destructuring an
+  // approved {} would run Object.prototype.entry's inherited getter.
+  const prior = Object.getOwnPropertyDescriptor(Object.prototype, "entry");
+  let calls = 0;
+  Object.defineProperty(Object.prototype, "entry", {
+    configurable: true,
+    get() { calls++; throw new Error("inherited option getter executed"); }
+  });
+  try {
+    assert.throws(() => compileAdmittedCoreGuest(null, {}),
+      /expected core WebAssembly bytes/);
+    await assert.rejects(runIsolatedCoreGuest(null, {}),
+      /expected core WebAssembly bytes/);
+    assert.equal(calls, 0, "the worker and compiler must not read inherited entry");
+  } finally {
+    if (prior) Object.defineProperty(Object.prototype, "entry", prior);
+    else delete Object.prototype.entry;
+  }
+});
+
+test("normalized unknown-attribute keys never read inherited tenant authority", () => {
+  const options = {entry: "main"};
+  const normalized = assertKnownCoreWasmOptions(options, ["entry"], "guest admission");
+  assert.equal(Object.hasOwn(normalized, "tenantId"), false);
+  assert.equal("tenantId" in normalized, false);
+  assert.equal(Object.getPrototypeOf(normalized), null);
 });
