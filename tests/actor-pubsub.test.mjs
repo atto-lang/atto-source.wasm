@@ -108,3 +108,26 @@ test("pub-sub payloads and topic definitions fail closed", () => {
   group.defineTopic("latest", "latest", 1);
   assert.throws(() => group.defineTopic("third", "lossy", 1), /topic capacity exceeded/);
 });
+
+test("ordinary Wasm topic handles cannot impersonate system publications", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  const member = bus.registerActor({actorId: 9, incarnation: 1, kind: "shared"});
+  const topic = group.defineTopic("audit", "latest", 1);
+
+  assert.equal(topic.publishSystem, undefined,
+    "system publication must not be part of the public topic surface");
+  assert.equal(bus._publishSystem, undefined,
+    "registry must not leak a callable unguarded system-publication bypass");
+  assert.throws(() => topic.publish(member, "not-joined"),
+    /publication requires live ActorGroup membership/);
+
+  assert.equal(group.join(member), true);
+  assert.equal(topic.publish(member, "joined").accepted, 0);
+  assert.equal(group.leave(member), true);
+  assert.throws(() => topic.publish(member, "revoked"),
+    /publication requires live ActorGroup membership/,
+    "a cached topic handle cannot publish after departure");
+  assert.equal(group.close(), true);
+  assert.throws(() => topic.publish(member, "closed"), /unknown or closed ActorGroup/);
+});
