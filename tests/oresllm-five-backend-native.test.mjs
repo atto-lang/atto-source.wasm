@@ -48,3 +48,17 @@ test('WASM native parity cannot be silently certified without compiler',t=>{
   if(compiler){t.skip('compiler path provided; actual guest suite is active');return;}
   assert.equal(required,false,'required WASM guest proof missing pinned compiler');
 });
+
+for(const [id,expression,expected] of [
+  ['zero-product','-7 * 0','0'],
+  ['nested-arithmetic','(2 + 3) * (10 - 2)','40'],
+  ['subtract-self','9223372036854775807 - 9223372036854775807','0']
+]){
+  test('WASM supplemental compiled guest '+id,async t=>
+    withFixture(t,expression,async({source,output,compiler})=>{
+      await compileOresToWasm({compiler,source,output});
+      const {instance}=await WebAssembly.instantiate(await readFile(output),{});
+      assert.equal(typeof instance.exports.main,'function');
+      assert.equal(instance.exports.main(),BigInt(expected));
+    }));
+}
