@@ -30,6 +30,19 @@ export function stateRegionRequirement(record) {
     throw new TypeError("invalid state-region requirement action");
   }
 
+  const allowed = new Set([
+    "contractVersion", "regionBinding", "executionBinding", "generationFence",
+    "loanId", "place", "kind", "action"
+  ]);
+  for (const name of Object.keys(record)) {
+    if (!allowed.has(name) && ![
+      "regionId", "regionGeneration", "runtimeDomain", "executionId",
+      "executionSlot", "executionGeneration"
+    ].includes(name)) {
+      throw new TypeError("unknown state-region requirement field: " + name);
+    }
+  }
+
   const forbidden = [
     "regionId", "regionGeneration", "runtimeDomain", "executionId",
     "executionSlot", "executionGeneration"
