@@ -161,7 +161,7 @@ positive.push([
   fiveBackendFixtureBytes.toString("utf8")
 ]);
 
-const REQUIRED_LLVM_SOURCE_SHA = "b84427d652d905e0a53913b62baeef151f78526c";
+const REQUIRED_LLVM_SOURCE_SHA = "7926b879fd98cf8ffcffa646007fa4d05c9221aa";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
