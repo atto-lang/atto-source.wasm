@@ -50,4 +50,15 @@ test("actual isolated Wasm guest executes proxy LB signed-i64 scalar corpus",asy
     });
     assert.equal(observed.value,expected,"Wasm guest mismatch: "+name);
   }
+  // This backend's zero-import core host cannot forward packets or serve
+  // an Oreslang actor module. A compiler that merely emits a stub would be
+  // a dangerous false-positive: require outright rejection and no artifact.
+  const unsupportedSource=join(dir,"unsupported-proxy.ores");
+  const unsupportedWasm=join(dir,"unsupported-proxy.wasm");
+  await writeFile(unsupportedSource,"define module proxy_lb as end\\n",
+    {flag:"wx",mode:0o400});
+  await assert.rejects(()=>compileOresToWasm({
+    compiler,compilerSha256,source:unsupportedSource,output:unsupportedWasm
+  }));
+  await assert.rejects(()=>readFile(unsupportedWasm));
 });
