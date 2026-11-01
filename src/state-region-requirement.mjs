@@ -4,6 +4,11 @@ export function stateRegionRequirement(record) {
   if (record === null || typeof record !== "object") {
     throw new TypeError("state-region requirement record required");
   }
+  // No prototype-mediated or class-backed authority at compile time.
+  const prototype = Object.getPrototypeOf(record);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("plain state-region requirement record required");
+  }
   const allowedFields = [
     "contractVersion", "regionBinding", "executionBinding", "generationFence",
     "loanId", "place", "kind", "action"
@@ -47,7 +52,7 @@ export function stateRegionRequirement(record) {
     "contractVersion", "regionBinding", "executionBinding", "generationFence",
     "loanId", "place", "kind", "action"
   ]);
-  for (const name of Object.keys(record)) {
+  for (const name of Reflect.ownKeys(record)) {
     if (!allowed.has(name) && ![
       "regionId", "regionGeneration", "runtimeDomain", "executionId",
       "executionSlot", "executionGeneration"
