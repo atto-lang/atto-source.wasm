@@ -69,7 +69,7 @@ test("Wasm bridge never executes compiler or publishes artifact for unlowered de
     const source=join(dir,"guest.ores"),compiler=join(dir,"compiler.sh");
     const output=join(dir,"guest.wasm"),invoked=join(dir,"compiler-invoked");
     await writeFile(compiler,
-      '#!/bin/sh\\nprintf invoked > "'+invoked+'"\\nexit 41\\n',
+      '#!/bin/sh\nprintf invoked > "'+invoked+'"\nexit 41\n',
       {mode:0o700});
     for(const kind of [
       "define state container Guard as end",
@@ -79,7 +79,7 @@ test("Wasm bridge never executes compiler or publishes artifact for unlowered de
       "define untrusted actor Worker as end",
       "define pub enum Variant as end"
     ]){
-      await writeFile(source,kind+"\\n");
+      await writeFile(source,kind+"\n");
       await assert.rejects(compileOresToWasm({compiler,source,output}),
         /WASM DECL_KIND_UNSUPPORTED|source actor execution unsupported/,kind);
       await assert.rejects(stat(invoked),/ENOENT/,
