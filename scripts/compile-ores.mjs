@@ -105,6 +105,29 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+
+/** Capability fence, NOT a semantic ADT rejection or parity claim.
+ * Lexer ignores comments and string literals. ADT types, tag dispatch and
+ * ownership remain unimplemented on the scalar Wasm bridge.
+ */
+export function rejectUnsupportedAdtSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i],next=tokens[i+1]?.text;
+  if(token.id&&token.text==="enum")
+   throw Error("wasm nominal ADT source lowering unsupported at byte "+token.offset);
+  if(token.id&&token.text==="define"&&(
+      next==="pattern"||(next==="match"&&tokens[i+2]?.text==="pattern")||
+      (next==="pub"&&tokens[i+2]?.text==="pattern")))
+   throw Error("wasm type-only ADT pattern lowering unsupported at byte "+token.offset);
+  if(token.id&&(token.text==="Option"||token.text==="Result")&&next==="<")
+   throw Error("wasm Option/Result payload ADT lowering unsupported at byte "+token.offset);
+  if(token.id&&token.text==="on"&&tokens[i+1]?.id&&(
+      ["Some","None","Ok","Err"].includes(next)||
+      (tokens[i+2]?.text==="."&&tokens[i+3]?.id)))
+   throw Error("wasm ADT match lowering unsupported at byte "+token.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -254,6 +277,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedAdtSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
