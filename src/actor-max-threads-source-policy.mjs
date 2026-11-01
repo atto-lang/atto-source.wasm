@@ -11,6 +11,10 @@ const wordRest = c => /[A-Za-z_0-9]/.test(c);
 export function rejectUnsupportedActorThreadSource(snapshot) {
   if (!(snapshot instanceof Uint8Array))
     throw new TypeError("source preflight requires immutable snapshot bytes");
+  // Mirror the 1 MiB compiler-bridge budget even when called directly.
+  // Oversized all-comment/all-string files must not bypass the token cap.
+  if (snapshot.byteLength > 1024 * 1024)
+    throw Error("source exceeds 1 MiB actor admission budget");
   const source = decoder.decode(snapshot);
   const tokens = [];
   for (let i = 0; i < source.length;) {
