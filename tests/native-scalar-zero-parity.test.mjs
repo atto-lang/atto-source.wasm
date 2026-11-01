@@ -88,7 +88,7 @@ test("actual LLVM-to-WASM guest executes five zero assertions and rejects a remo
     // Valid Oreslang with a deliberately wrong expected value must not pass.
     const mutantSource=join(dir,"wrong-expected.ores");
     const mutantOutput=join(dir,"wrong-expected.wasm");
-    const mutantText="pub fnc main():int{return (2 + 3 * 4) - 13;}\\n";
+    const mutantText="pub fnc main():int{return (2 + 3 * 4) - 13;}\n";
     await writeFile(mutantSource,mutantText,{flag:"wx",mode:0o400});
     const mutantBuild=await compileOresToWasm({compiler,compilerSha256,
       source:mutantSource,output:mutantOutput,environment:"browser",publication:"atomic"});
