@@ -11,7 +11,7 @@ export function semanticCompilerRejection(error) {
   // This is specifically the snapshotted compiler-exact child returning
   // nonzero with a diagnostic. A failed clang/linker, nonexistent compiler,
   // EACCES, digest mismatch or timeout is infrastructure failure.
-  const matched=/^command failed \([^\r\n)]*compiler-exact\): (.+)$/i.exec(message);
+  const matched=/^command failed \([^\r\n)]*compiler-exact\): ([\s\S]+)$/i.exec(message);
   if (!matched) return false;
   const diagnostics=matched[1];
   if (/\b(?:ENOENT|EACCES|ETIMEDOUT|spawn|timed out|killed|not found|permission denied)\b/i.test(diagnostics)) {
