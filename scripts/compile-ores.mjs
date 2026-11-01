@@ -26,7 +26,10 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   // CR, NEL, LS and PS are source line separators too. Treating only
+   // LF as a comment terminator can hide executable guard tokens.
+   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;
+   continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
@@ -38,14 +41,17 @@ function tupleV2Tokens(sourceBytes){
    if(depth)throw Error("unterminated block comment at byte "+start);
    continue;
   }
+  if(c==="\x60")
+   throw Error("core Wasm bridge does not support template literal source at byte "+i);
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+   const quote=c,start=i;i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated source literal at byte "+start);
    continue;
   }
   if(idStart(c)){
