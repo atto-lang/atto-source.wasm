@@ -2,12 +2,25 @@ import test from "node:test";
 import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
 import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
+import {createReadStream} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const parityRequired=process.env.ORESLANG_SCALAR_PARITY_REQUIRED==="1";
+async function requirePinnedCompilerInParityMode(){
+  if(!parityRequired)return;
+  const expected=process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  assert.match(expected??"",/^[0-9a-f]{64}$/,
+    "strict wasm32 scalar parity requires a lowercase 64-byte-hex SHA-256 pin");
+  assert(compiler,"strict scalar parity requires an actual LLVM compiler");
+  const actual=createHash("sha256");
+  for await(const chunk of createReadStream(resolve(compiler)))actual.update(chunk);
+  assert.equal(actual.digest("hex"),expected,
+    "LLVM compiler executable changed without reviewed source identity");
+}
+
 function unavailable(t){
   if(compiler)return false;
   if(parityRequired)assert.fail("real LLVM-to-Wasm compiler required for scalar parity; skipping forbidden");
@@ -29,6 +42,7 @@ const waveSourceSha256={
 
 async function compileMain(t,expression,name){
   if(unavailable(t))return null;
+  await requirePinnedCompilerInParityMode();
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
