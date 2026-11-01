@@ -27,7 +27,7 @@ async function compileMain(t,expression){
   // the Oreslang main implementation or a hidden host arithmetic oracle.
   const module=new WebAssembly.Module(bytes);
   assert.deepEqual(WebAssembly.Module.imports(module),[],"unexpected host import in scalar guest");
-  const {instance}=await WebAssembly.instantiate(module,{});
+  const instance=await WebAssembly.instantiate(module,{});
   assert.equal(typeof instance.exports.main,"function");
   return instance.exports.main;
 }
