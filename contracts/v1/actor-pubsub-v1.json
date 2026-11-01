@@ -1,0 +1,63 @@
+{
+  "contract": "oreslang.actor-pubsub.v1",
+  "status": "source-and-runtime-conformance",
+  "scope": "in-memory",
+  "abstractions": {
+    "actor_group": "many-to-many cooperation membership; never lifecycle ownership",
+    "topic": "typed ephemeral event stream scoped to one actor group or runtime namespace",
+    "subscription": "explicit revocable per-actor registration",
+    "publisher": "capability of an authorized member to publish; not a distinct actor kind"
+  },
+  "source_surface": {
+    "types": ["ActorGroup<T>", "Topic<T>", "Subscription<T>", "PublishReceipt"],
+    "new_actor_keywords": [],
+    "publisher_keyword": false,
+    "subscriber_keyword": false
+  },
+  "semantics": {
+    "membership": "an actor may belong to multiple groups concurrently; duplicate join is idempotent",
+    "group_leave": "leaving one group revokes only that group's subscriptions and authority",
+    "publish_without_subscribe": true,
+    "subscribe_requires_membership": true,
+    "delivery": "at-most-once per accepted subscription publication",
+    "ordering": "FIFO per publisher-to-subscription pair; no cross-topic total order",
+    "bounded": true,
+    "durable": false,
+    "replay": false,
+    "success_means": "delivery admission, not handler completion or business acknowledgement",
+    "cross_tenant": "deny by default",
+    "actor_termination": "automatically revoke memberships and subscriptions",
+    "critical_body_may_suspend": false
+  },
+  "delivery_policies": {
+    "RELIABLE": "bounded asynchronous backpressure; no unbounded pending writer queue",
+    "LATEST": "capacity one; coalesce unread older value",
+    "LOSSY": "never wait; drop new value when subscriber queue is full"
+  },
+  "transport": {
+    "in_memory": "normative v1 semantics",
+    "redis": "future adapter; must not silently claim stronger delivery semantics than provider supplies"
+  },
+  "conformance_cases": [
+    "single-publisher-single-subscriber",
+    "multiple-subscribers",
+    "multiple-publishers",
+    "publisher-without-subscription",
+    "multiple-subscriptions-per-actor",
+    "multiple-groups-per-actor",
+    "duplicate-group-join-idempotent",
+    "leave-one-group-preserves-other-memberships",
+    "subscription-close",
+    "resubscribe-after-close",
+    "publish-racing-with-unsubscribe",
+    "actor-termination-cleanup",
+    "supervisor-restart-resubscription",
+    "stale-actor-generation-rejection",
+    "subscriber-queue-full",
+    "bounded-reliable-backpressure",
+    "cancellation-during-publication",
+    "critical-suspension-rejection",
+    "cross-tenant-publication-rejection",
+    "fifo-per-publisher-subscription"
+  ]
+}
