@@ -7,9 +7,8 @@ import {join, isAbsolute} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {loadPortableScalarCorpus} from "../scripts/portable-scalar-corpus.mjs";
 
-const manifestUrl=new URL("../contracts/parity/portable-scalar-v1-20261101.json",import.meta.url);
-const reviewedBlobSha="001e8894cbeb87509878a4de36263a1a327805b1";
 const sha256=bytes=>createHash("sha256").update(bytes).digest("hex");
 const sourceFor=expression=>"pub fnc main():int{return "+expression+";}\n";
 const required=process.env.ORESLANG_SCALAR_PARITY_REQUIRED==="1";
@@ -23,31 +22,7 @@ function admitCompiler(env){
     throw Error("portable scalar parity requires independently reviewed ORESLANG_LLVM_SOURCE_SHA");
   return {compiler:env.ORESLANG_LLVM_COMPILER,compilerSha256:env.ORESLANG_LLVM_COMPILER_SHA256};
 }
-async function corpus(){
-  const bytes=await readFile(manifestUrl);
-  const actualBlob=createHash("sha1").update(Buffer.from("blob "+bytes.length+"\0","ascii"))
-    .update(bytes).digest("hex");
-  assert.equal(actualBlob,reviewedBlobSha,"shared corpus Git blob changed without reviewed pin");
-  const data=JSON.parse(bytes.toString("utf8"));
-  assert.equal(data.schema_version,"2026-11-01.scalar-v1");
-  assert.equal(data.scope,"import-free-pure-i64");
-  assert.equal(data.positive.length,16);
-  assert.equal(data.negative.length,6);
-  const ids=new Set();
-  for(const item of [...data.positive,...data.negative]){
-    assert.match(item.id,/^[a-z][a-z0-9-]{1,79}$/);
-    assert.equal(ids.has(item.id),false,"duplicate corpus ID");
-    ids.add(item.id);
-    assert.match(item.expression,/^[0-9_()+*%^\/ -]{1,128}$/,"unreviewed source grammar");
-  }
-  for(const item of data.positive){
-    assert.match(item.expression,/^[0-9_()+* -]{1,128}$/,"positive case has forbidden operator");
-    assert.match(item.expected,/^-?(?:0|[1-9][0-9]*)$/);
-    const value=BigInt(item.expected);
-    assert.ok(value>=-(1n<<63n)&&value<1n<<63n);
-  }
-  return data;
-}
+const corpus=loadPortableScalarCorpus;
 
 test("portable source corpus is pinned and contains 16 positive and 6 negative controls",async()=>{
   await corpus(); // This is only a host-side source contract, not native execution.
