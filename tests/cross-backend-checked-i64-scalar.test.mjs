@@ -10,7 +10,7 @@ const header="// oreslang:checked-i64-v1\n";
 
 async function compileMain(t,expression){
   if(!compiler){
-    assert.notEqual(process.env.ORESLANG_REQUIRE_REAL_COMPILER,"1",
+    assert.equal(process.env.ORESLANG_REQUIRE_REAL_COMPILER,undefined,
       "required real-compiler parity must not silently skip without ORESLANG_LLVM_COMPILER");
     t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");
     return null;
@@ -61,7 +61,7 @@ for(const [name,expression] of [
 
 test("int / int is not admitted as an i64 result",async t=>{
   if(!compiler){
-    assert.notEqual(process.env.ORESLANG_REQUIRE_REAL_COMPILER,"1",
+    assert.equal(process.env.ORESLANG_REQUIRE_REAL_COMPILER,undefined,
       "required division-rejection parity cannot skip without ORESLANG_LLVM_COMPILER");
     t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");
     return;
