@@ -17,7 +17,9 @@ export function compileAdmittedCoreGuest(input, {
   guestNetworkIo = false,
   nioReactors = 0,
   actorPhysicalTurns = 0,
-  hardRealtime = false
+  hardRealtime = false,
+  websocketMode = "disabled",
+  liveviewUpdates = false
 } = {}) {
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
@@ -34,6 +36,13 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM physical source actor execution is unsupported");
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
+  // Zero-import core-Wasm guests cannot own an HTTP upgrade, network socket,
+  // browser WebSocket or persistent LiveView actor. Deny capability requests
+  // BEFORE decoding guest bytes. Browser host WebSockets are not guest imports.
+  if (websocketMode !== "disabled")
+    throw new TypeError("WASM guest WebSocket client/server transport unsupported");
+  if (liveviewUpdates !== false)
+    throw new TypeError("WASM LiveView session/update actors unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.

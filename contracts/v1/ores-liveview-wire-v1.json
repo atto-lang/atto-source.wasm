@@ -1,0 +1,320 @@
+{
+  "schema": "ores-liveview-wire-v1",
+  "purpose": "Cross-backend raw RFC6455 client-frame conformance; host reference execution only",
+  "cases": [
+    {
+      "id": "masked-hello",
+      "frames_hex": "81850102030469676f686e",
+      "expected": [
+        {
+          "type": "text",
+          "data": "hello"
+        }
+      ]
+    },
+    {
+      "id": "masked-unicode",
+      "frames_hex": "818701020304696b23f49e8e93",
+      "expected": [
+        {
+          "type": "text",
+          "data": "hi 🌐"
+        }
+      ]
+    },
+    {
+      "id": "fragmented-unicode",
+      "frames_hex": "018201020304f19d8082010203048d92",
+      "expected": [
+        {
+          "type": "text",
+          "data": "🌐"
+        }
+      ]
+    },
+    {
+      "id": "interleaved-control",
+      "frames_hex": "0183010203046e6c668981010203042080830102030475756c",
+      "expected": [
+        {
+          "type": "ping",
+          "data_hex": "21"
+        },
+        {
+          "type": "text",
+          "data": "onetwo"
+        }
+      ]
+    },
+    {
+      "id": "ping-and-pong",
+      "frames_hex": "898201020304696b8a8301020304637b66",
+      "expected": [
+        {
+          "type": "ping",
+          "data_hex": "6869"
+        },
+        {
+          "type": "pong",
+          "data_hex": "627965"
+        }
+      ]
+    },
+    {
+      "id": "masked-close",
+      "frames_hex": "88820102030402ea",
+      "expected": [
+        {
+          "type": "close",
+          "data_hex": "03e8"
+        }
+      ]
+    },
+    {
+      "id": "coalesced-text",
+      "frames_hex": "8181010203044081810102030443",
+      "expected": [
+        {
+          "type": "text",
+          "data": "A"
+        },
+        {
+          "type": "text",
+          "data": "B"
+        }
+      ]
+    },
+    {
+      "id": "unmasked-rejected",
+      "frames_hex": "810141",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "rsv-rejected",
+      "frames_hex": "c18001020304",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "binary-rejected",
+      "frames_hex": "828601020304636b6d65737b",
+      "expected": null,
+      "error_code": 1003
+    },
+    {
+      "id": "invalid-utf8-rejected",
+      "frames_hex": "818101020304fe",
+      "expected": null,
+      "error_code": 1007
+    },
+    {
+      "id": "invalid-close-rejected",
+      "frames_hex": "88820102030402ef",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "orphan-continuation-rejected",
+      "frames_hex": "8082010203046f6d",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "non-minimal-length-rejected",
+      "frames_hex": "81fe00010102030400",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "empty-masked-text",
+      "frames_hex": "818001020304",
+      "expected": [
+        {
+          "type": "text",
+          "data": ""
+        }
+      ]
+    },
+    {
+      "id": "empty-masked-ping",
+      "frames_hex": "898001020304",
+      "expected": [
+        {
+          "type": "ping",
+          "data_hex": ""
+        }
+      ]
+    },
+    {
+      "id": "empty-masked-pong",
+      "frames_hex": "8a8001020304",
+      "expected": [
+        {
+          "type": "pong",
+          "data_hex": ""
+        }
+      ]
+    },
+    {
+      "id": "fragmented-euro-utf8",
+      "frames_hex": "018201020304e380808101020304ad",
+      "expected": [
+        {
+          "type": "text",
+          "data": "€"
+        }
+      ]
+    },
+    {
+      "id": "valid-close-reason",
+      "frames_hex": "88850102030402ea617d64",
+      "expected": [
+        {
+          "type": "close",
+          "data_hex": "03e8627965"
+        }
+      ]
+    },
+    {
+      "id": "fragment-empty-then-text",
+      "frames_hex": "01800102030480810102030440",
+      "expected": [
+        {
+          "type": "text",
+          "data": "A"
+        }
+      ]
+    },
+    {
+      "id": "large-masked-control",
+      "frames_hex": "89fd010203045b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b58595e5b",
+      "expected": [
+        {
+          "type": "ping",
+          "data_hex": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a"
+        }
+      ]
+    },
+    {
+      "id": "unmasked-ping-rejected",
+      "frames_hex": "8900",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "reserved-opcode-rejected",
+      "frames_hex": "83810102030440",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "fragmented-ping-rejected",
+      "frames_hex": "09810102030440",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "fragmented-close-rejected",
+      "frames_hex": "08820102030402ea",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-one-byte-rejected",
+      "frames_hex": "88810102030402",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-code-1005-rejected",
+      "frames_hex": "88820102030402ef",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-code-1006-rejected",
+      "frames_hex": "88820102030402ec",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-code-1015-rejected",
+      "frames_hex": "88820102030402f5",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-code-2000-rejected",
+      "frames_hex": "88820102030406d2",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "close-code-999-rejected",
+      "frames_hex": "88820102030402e5",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "invalid-close-reason-utf8",
+      "frames_hex": "88830102030402eac0",
+      "expected": null,
+      "error_code": 1007
+    },
+    {
+      "id": "invalid-text-overlong-utf8",
+      "frames_hex": "818201020304c182",
+      "expected": null,
+      "error_code": 1007
+    },
+    {
+      "id": "invalid-text-surrogate-utf8",
+      "frames_hex": "818301020304eca283",
+      "expected": null,
+      "error_code": 1007
+    },
+    {
+      "id": "invalid-text-incomplete-utf8",
+      "frames_hex": "818201020304e380",
+      "expected": null,
+      "error_code": 1007
+    },
+    {
+      "id": "unexpected-new-text-during-fragment",
+      "frames_hex": "0181010203044081810102030443",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "invalid-control-length-126",
+      "frames_hex": "89fe007e01020304",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "nonminimal-length-126",
+      "frames_hex": "81fe007d01020304",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "nonminimal-length-127",
+      "frames_hex": "81ff000000000000ffff01020304",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "high-bit-64bit-length",
+      "frames_hex": "81ff800000000000000001020304",
+      "expected": null,
+      "error_code": 1002
+    },
+    {
+      "id": "oversized-64bit-length",
+      "frames_hex": "81ff000000000001000101020304",
+      "expected": null,
+      "error_code": 1009
+    }
+  ]
+}
