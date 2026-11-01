@@ -10,6 +10,7 @@ test("bounded pub-sub preserves multi-group membership and delivery policy", () 
   const left = bus.registerActor({actorId: 2, incarnation: 1, kind: "shared"});
   const right = bus.registerActor({actorId: 3, incarnation: 1, kind: "shared"});
   const privateActor = bus.registerActor({actorId: 4, incarnation: 1, kind: "private"});
+  const outsider = bus.registerActor({actorId: 5, incarnation: 1, kind: "shared"});
 
   assert.equal(a.join(publisher), true);
   assert.equal(a.join(left), true);
@@ -52,11 +53,15 @@ test("bounded pub-sub preserves multi-group membership and delivery policy", () 
 
   a.join(privateActor);
   assert.throws(() => reliable.subscribe(privateActor), /requires shared actor/);
-  assert.throws(() => reliable.publish(privateActor, "bad"), /publication requires/);
+  // Private actors may publish immutable data-only events after membership;
+  // zero-copy subscription is the isolation-sensitive operation.
+  assert.equal(reliable.publish(privateActor, "private-publish").backpressured, true);
+  assert.throws(() => reliable.publish(outsider, "bad"), /publication requires/);
 
   assert.equal(bus.retireActor(left), true);
   assert.equal(b.contains(left), false);
   assert.equal(bus.retireActor(left), false);
+  bus.retireActor(outsider);
   assert.equal(a.close(), true);
   assert.equal(b.close(), true);
 });
@@ -66,6 +71,9 @@ test("opaque actor references reject cross-isolate numeric identity collisions",
   const second = new WasmActorPubSub();
   const a = first.registerActor({actorId: 7, incarnation: 9, kind: "shared"});
   const sameNumbers = second.registerActor({actorId: 7, incarnation: 9, kind: "shared"});
+  assert.throws(
+    () => second.registerActor({actorId: 7, incarnation: 10, kind: "shared"}),
+    /still belongs to a live incarnation/);
   const group = second.createGroup();
 
   assert.throws(() => group.join(a), /cross-isolate ActorRef/);
@@ -75,6 +83,11 @@ test("opaque actor references reject cross-isolate numeric identity collisions",
   topic.subscribe(sameNumbers);
   assert.throws(() => topic.publish(a, "x"), /cross-isolate ActorRef/);
   assert.equal(topic.publish(sameNumbers, "x").accepted, 1);
+
+  assert.equal(second.retireActor(sameNumbers), true);
+  const replacement = second.registerActor({actorId: 7, incarnation: 10, kind: "shared"});
+  assert.equal(group.join(replacement), true);
+  assert.throws(() => topic.tryRead(sameNumbers), /stale or cross-isolate/);
 });
 
 test("pub-sub payloads and topic definitions fail closed", () => {
