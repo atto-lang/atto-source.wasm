@@ -1,0 +1,79 @@
+{
+  "schema_version": "2026-11-01.scalar-v2",
+  "scope": "import-free-pure-i64",
+  "semantics": "Additional checked signed i64 arithmetic and removed-operator/compiler-admission cases. Authoring/shared bytes alone do not prove backend execution.",
+  "positive": [
+    {
+      "id": "max-plus-negative-one",
+      "expression": "9223372036854775807 + (-1)",
+      "expected": "9223372036854775806"
+    },
+    {
+      "id": "min-minus-negative-one",
+      "expression": "-9223372036854775808 - (-1)",
+      "expected": "-9223372036854775807"
+    },
+    {
+      "id": "large-roundtrip",
+      "expression": "(9007199254740993 + 7) - 9007199254740993",
+      "expected": "7"
+    },
+    {
+      "id": "large-negative-roundtrip",
+      "expression": "(-9007199254740993 - 7) - (-9007199254740993)",
+      "expected": "-7"
+    },
+    {
+      "id": "right-nested-subtraction",
+      "expression": "100 - (50 - (20 - 7))",
+      "expected": "63"
+    },
+    {
+      "id": "left-nested-subtraction",
+      "expression": "((100 - 50) - 20) - 7",
+      "expected": "23"
+    },
+    {
+      "id": "mul-near-max",
+      "expression": "3037000499 * 3037000499",
+      "expected": "9223372030926249001"
+    },
+    {
+      "id": "mul-near-min",
+      "expression": "(-3037000499) * 3037000499",
+      "expected": "-9223372030926249001"
+    },
+    {
+      "id": "triple-negative",
+      "expression": "-(-(-42))",
+      "expected": "-42"
+    },
+    {
+      "id": "signed-underscore",
+      "expression": "-9_223_372_036_854_775_807 + 8",
+      "expected": "-9223372036854775799"
+    }
+  ],
+  "negative": [
+    {
+      "id": "removed-percent",
+      "expression": "7 % 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "removed-caret",
+      "expression": "7 ^ 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "removed-double-caret",
+      "expression": "7 ^^ 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "out-of-range-positive",
+      "expression": "9223372036854775808",
+      "reason": "literal-out-of-range"
+    }
+  ]
+}
