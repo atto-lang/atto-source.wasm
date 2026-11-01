@@ -14,7 +14,7 @@ export function semanticCompilerRejection(error) {
   const matched=/^command failed \([^\r\n)]*compiler-exact\): ([\s\S]+)$/i.exec(message);
   if (!matched) return false;
   const diagnostics=matched[1];
-  if (/\b(?:ENOENT|EACCES|ETIMEDOUT|spawn|timed out|killed|not found|permission denied)\b/i.test(diagnostics)) {
+  if (/\b(?:ENOENT|EACCES|ETIMEDOUT|spawn|timed out|killed|not found|permission denied|no such file|segmentation fault|signal|out of memory|digest mismatch|sha-256 mismatch|exit 12[467]|exit 13[079]|exit 143)\b/i.test(diagnostics)) {
     return false;
   }
   return /\b(?:syntax|unexpected|unknown|unbound|unsupported|invalid|expected|literal|identifier|parse|operator|division|separator)\b/i.test(diagnostics);
