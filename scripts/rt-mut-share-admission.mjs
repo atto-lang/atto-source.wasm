@@ -10,7 +10,7 @@ export function assertNativeMutShareDenial(error) {
     /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof/,
     "expected the exact staged native compiler and guarded-sharing diagnostic");
   assert.doesNotMatch(error.message,
-    /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL|SIGSEGV|SIGABRT|fatal error|compiler crashed/,
+    /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL|SIGSEGV|SIGABRT|fatal error|compiler crashed|segmentation fault|aborted|core dumped|panicked at|stack overflow|command not found|LLVM ERROR/i,
     "runtime/host/compiler crash cannot satisfy source admission");
   assert.doesNotMatch(error.message,
     /(?:^|\n)\s*(?:define\s+[^\n]*@|; ModuleID\s*=|target triple\s*=|source_filename\s*=|declare\s+[^\n]*@|attributes\s+#\d+\s*=)/m,
