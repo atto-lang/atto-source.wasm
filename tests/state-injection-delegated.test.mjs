@@ -48,6 +48,16 @@ test("wrong injection annotation cannot be laundered as proof of another source"
     assert.throws(() => assertStateInjectionFrontendRejection(nativeDenied, wrong),
       /annotation must be explicitly named/);
   }
+  for (const malformed of [
+    nativeDenied.stderr.replace("@Inject requires", "@InjectX requires"),
+    nativeDenied.stderr + "\n" + nativeDenied.stderr,
+    nativeDenied.stderr.replace("native typed region and borrow lowering",
+                                "generic parser failure")
+  ]) {
+    assert.throws(
+      () => assertStateInjectionFrontendRejection({...nativeDenied, stderr: malformed}, "Inject"),
+      /matching native compiler-owned capability gate/);
+  }
   const fakeIr = {
     ...nativeDenied,
     stderr: nativeDenied.stderr + "\ndefine i64 @main() { ret i64 42 }"
