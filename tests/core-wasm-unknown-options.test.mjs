@@ -267,3 +267,27 @@ test("normalized unknown-attribute keys never read inherited tenant authority", 
   assert.equal("tenantId" in normalized, false);
   assert.equal(Object.getPrototypeOf(normalized), null);
 });
+
+test("malformed SHA pin fails before evaluating hostile guest input", async () => {
+  let touched = 0;
+  const hostile = new Proxy({}, {
+    getPrototypeOf() { touched++; throw Error("untrusted input visited"); },
+    get() { touched++; throw Error("untrusted input visited"); },
+    ownKeys() { touched++; throw Error("untrusted input visited"); }
+  });
+  for (const invalid of ["", "deadbeef", "F".repeat(64), "z".repeat(64), "a".repeat(65)]) {
+    assert.throws(() => compileAdmittedCoreGuest(hostile, {
+      entry: "main", expectedSha256: invalid
+    }), /invalid pinned SHA-256/);
+    await assert.rejects(runIsolatedCoreGuest(hostile, {
+      entry: "main", expectedSha256: invalid
+    }), /invalid pinned SHA-256/);
+  }
+  assert.equal(touched, 0, "malformed artifact identity must not touch guest bytes");
+});
+
+test("valid SHA pin proceeds to canonical input validation", () => {
+  assert.throws(() => compileAdmittedCoreGuest(null, {
+    expectedSha256: "a".repeat(64)
+  }), /expected core WebAssembly bytes/);
+});
