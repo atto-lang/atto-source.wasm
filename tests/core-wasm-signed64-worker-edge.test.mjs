@@ -18,7 +18,15 @@ const cases = [
   ["min/max Euclidean modulus",
     "(INT64_MIN % INT64_MAX) + INT64_MAX", 9223372036854775806n],
   ["min divisor Euclidean modulus",
-    "(-1 % INT64_MIN) - INT64_MIN", 9223372036854775807n]
+    "(-1 % INT64_MIN) - INT64_MIN", 9223372036854775807n],
+  // Reference-only C arithmetic expressions corresponding to composed
+  // Integer.* guest-source vectors shared by Java/.NET/Cranelift.
+  ["xor(mod(-9,4), pow(2,3))",
+    "(((-9 % 4) + 4) ^ (2 * 2 * 2))", 11n],
+  ["rem(xor(5,3), pow(2,2))", "((5 ^ 3) % (2 * 2))", 2n],
+  ["pow(rem(-9,4)+3,3)",
+    "(((-9 % 4) + 3) * ((-9 % 4) + 3) * ((-9 % 4) + 3))", 8n],
+  ["mod(pow(-2,3),5)", "((-2 * -2 * -2) % 5) + 5", 2n]
 ];
 
 test("real Clang wasm32 signed64 ABI edge cases execute in disposable worker", async () => {
