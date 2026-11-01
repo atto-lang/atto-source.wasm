@@ -34,6 +34,7 @@ function freezePayload(value) {
 
 export class WasmActorPubSub {
   #actors = new Map();
+  #actorIds = new Map();
   #groups = new Map();
   #topics = new Map();
   #nextGroupId = 0;
@@ -60,12 +61,16 @@ export class WasmActorPubSub {
     positiveSafeInt(incarnation, "incarnation");
     if (!actorKinds.has(kind)) throw new TypeError("invalid actor kind");
 
+    if (this.#actorIds.has(actorId))
+      throw new Error("actor ID still belongs to a live incarnation");
+
     const ref = Object.freeze({});
     this.#actors.set(ref, {
       actorId, incarnation, kind,
       groups: new Set(),
       subscriptions: 0
     });
+    this.#actorIds.set(actorId, ref);
     return ref;
   }
 
@@ -78,6 +83,8 @@ export class WasmActorPubSub {
     for (const topic of this.#topics.values())
       topic.subscribers.delete(ref);
     this.#actors.delete(ref);
+    if (this.#actorIds.get(actor.actorId) === ref)
+      this.#actorIds.delete(actor.actorId);
     return true;
   }
 
