@@ -17,7 +17,7 @@ export function stateRegionRequirement(record) {
     "regionId", "regionGeneration", "runtimeDomain", "executionId",
     "executionSlot", "executionGeneration"
   ]);
-  // One atomic-looking descriptor snapshot avoids re-reading guest-facing
+  // One descriptor snapshot avoids re-reading guest-facing
   // objects through Proxy get traps between validation and normalization.
   // It is a validated receipt, never a capability granting heap access.
   const descriptors = Object.getOwnPropertyDescriptors(record);
