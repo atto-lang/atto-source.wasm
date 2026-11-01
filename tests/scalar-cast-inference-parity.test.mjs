@@ -79,7 +79,7 @@ const negative = [
   ["bool-cast-then-int", main("const x=true as bool as int;return 0;"), /impossible native cast: bool as int/],
   ["cast-int-as-bool-from-variable", main("const x=7;const y=x as bool;return 0;"), /impossible native cast: int as bool/]
 ];
-const REQUIRED_LLVM_SOURCE_SHA = "b12be4751b1633f45fed2a2e1986ebd2230032c2";
+const REQUIRED_LLVM_SOURCE_SHA = "042c7ba7ecbfe237dd67eba560814d25405b0ecd";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
