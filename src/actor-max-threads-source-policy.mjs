@@ -63,6 +63,14 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define" && tokens[i+1] === "enum"
         && tokens[i+2] === "MaxActorThreads")
       throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+    // A source supervisor is an independent CONTROL process, not a scalar
+    // class or a guest actor that can be delegated to the LLVM compiler.
+    // Recognize both visibility orders without matching text in comments
+    // or string literals, and reject before any Wasm artifact is staged.
+    if (tokens[i] === "define" &&
+        (tokens[i+1] === "supervisor" ||
+         (tokens[i+1] === "pub" && tokens[i+2] === "supervisor")))
+      throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
   }
