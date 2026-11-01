@@ -44,3 +44,13 @@ test("wasm ADT preflight refuses malformed UTF-8",()=>{
 test("wasm ADT preflight refuses unterminated nested comment",()=>{
  assert.throws(()=>rejectUnsupportedAdtSource(bytes("/* outer /* inner */")),/unterminated block comment/i);
 });
+
+test("unterminated ADT-trivia quotes fail closed before native compiler",()=>{
+ for(const source of [
+  'fnc main():int { const x = "missing',
+  "fnc main():int { const x = 'missing",
+  'fnc main():int { const x = "escaped \\"'
+ ]){
+  assert.throws(()=>rejectUnsupportedAdtSource(bytes(source)),/unterminated source string/);
+ }
+});
