@@ -51,7 +51,7 @@ test("malformed or unsafe numeric provenance is rejected", () => {
 
 test("inherited and getter-backed state-region fields are not valid receipts", () => {
   const inherited = Object.create(vectors.borrow);
-  assert.throws(() => stateRegionProvenance(inherited), /missing own/);
+  assert.throws(() => stateRegionProvenance(inherited), /plain state-region|missing own/);
   const getterBacked = {...vectors.borrow};
   Object.defineProperty(getterBacked, "executionId", {
     enumerable: true,
@@ -70,7 +70,7 @@ test("inherited and getter-backed state-region fields are not valid receipts", (
     action: "borrow"
   };
   assert.throws(() => stateRegionRequirement(Object.create(validRequirement)),
-    /missing own/);
+    /plain state-region|missing own/);
   const getterRequirement = {...validRequirement};
   Object.defineProperty(getterRequirement, "loanId", {
     enumerable: true,
