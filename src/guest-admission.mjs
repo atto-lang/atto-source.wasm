@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {admitSharedReactorOptions} from "./shared-reactor-policy.mjs";
+import {admitSharedReactorOptions, rejectUnknownCoreGuestOptions} from "./shared-reactor-policy.mjs";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
@@ -9,7 +9,15 @@ import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
+const ACCEPTED_COMPILE_OPTIONS = new Set([
+  "expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages",
+  "ioMode", "guestNetworkIo", "nioReactors", "actorPhysicalTurns",
+  "hardRealtime", "schedulerMode", "schedulerWorkers", "schedulerWorkersMax"
+]);
+
+export function compileAdmittedCoreGuest(input, options = {}) {
+  rejectUnknownCoreGuestOptions(options, ACCEPTED_COMPILE_OPTIONS);
+  const {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
@@ -22,7 +30,7 @@ export function compileAdmittedCoreGuest(input, {
   schedulerMode = "host",
   schedulerWorkers = 0,
   schedulerWorkersMax = 0
-} = {}) {
+} = options;
   admitSharedReactorOptions({schedulerMode, schedulerWorkers, schedulerWorkersMax});
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
