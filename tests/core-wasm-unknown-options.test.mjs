@@ -244,16 +244,20 @@ test("inherited Object.prototype option getters cannot execute after admission",
     configurable: true,
     get() { calls++; throw new Error("inherited option getter executed"); }
   });
+  let runnerRejection;
   try {
     assert.throws(() => compileAdmittedCoreGuest(null, {}),
       /expected core WebAssembly bytes/);
-    await assert.rejects(runIsolatedCoreGuest(null, {}),
-      /expected core WebAssembly bytes/);
+    // Keep the global-prototype change strictly synchronous. The async
+    // function starts admission immediately; restore Object.prototype before
+    // yielding to Node's test runner to avoid test-harness interference.
+    runnerRejection = runIsolatedCoreGuest(null, {});
     assert.equal(calls, 0, "the worker and compiler must not read inherited entry");
   } finally {
     if (prior) Object.defineProperty(Object.prototype, "entry", prior);
     else delete Object.prototype.entry;
   }
+  await assert.rejects(runnerRejection, /expected core WebAssembly bytes/);
 });
 
 test("normalized unknown-attribute keys never read inherited tenant authority", () => {
