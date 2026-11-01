@@ -65,7 +65,7 @@ test("unsupported TCP pooling and shared pointers reject before decoding any Was
   for (const options of readonlySlabOptions) {
     assert.throws(
       () => compileAdmittedCoreGuest(neverAdmitted, options),
-      /shared TCP pool\\/lease\\/pointer capability is unsupported/,
+      /shared TCP pool\/lease\/pointer capability is unsupported/,
       Object.keys(options).join(',')
     );
   }
