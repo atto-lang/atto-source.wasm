@@ -46,7 +46,7 @@ export class SupervisorStopLedger {
       supervisor: this.#supervisor,
       group: this.#group,
       actorId, incarnation, phase: "active", ticket: null,
-      receipt: null, invoked: false
+      turnGeneration: 0, receipt: null, invoked: false
     });
     return child;
   }
@@ -90,6 +90,7 @@ export class SupervisorStopLedger {
     state.phase = "stopping";
     state.receipt = "pending";
     state.ticket = ticket;
+    state.turnGeneration = this.#nextTurn;
     this.#activeTicket = ticket;
     this.#tickets.set(ticket, state);
     this.#nextTurn++;
@@ -121,6 +122,14 @@ export class SupervisorStopLedger {
 
   receipt(ticket) {
     return this.#requireTicket(ticket).receipt;
+  }
+
+  // Data-only audit snapshot. The opaque ticket remains a distinct reference;
+  // serializing this snapshot cannot authorize a host lifecycle effect.
+  receipt_snapshot(ticket) {
+    const {actorId, incarnation, turnGeneration, receipt} =
+      this.#requireTicket(ticket);
+    return Object.freeze({actorId, incarnation, turnGeneration, receipt});
   }
 
   #finish(ticket, state) {
