@@ -47,8 +47,34 @@ function validate(input){
     assert.match(x.expected_i64,/^(?:0|-?[1-9][0-9]*)$/);
     checked(BigInt(x.expected_i64));
   }
-  assert.equal(input.known_drift.some(x=>x.id==='legacy-percent-operator'&&
-    x.required_language_policy==='reject-percent-operator'),true);
+  // Semantic validation: a manifest shape cannot launder incorrect host results.
+  const expressions=new Set();
+  for(const [kind,entries] of [
+    ['positive',input.positive],
+    ['checked_overflow',input.checked_overflow],
+    ['compile_reject',input.compile_reject]
+  ]){
+    for(const x of entries){
+      const allowed=kind==='positive'?['expression','expected_i64','id']:['expression','id'];
+      assert.deepEqual(Object.keys(x).sort(),allowed,'unexpected/missing '+kind+' fields');
+      assert.equal(x.expression.trim(),x.expression,'expression must be canonical');
+      assert.ok(!expressions.has(x.expression),'duplicate expression '+x.expression);
+      expressions.add(x.expression);
+    }
+  }
+  for(const x of input.positive)
+    assert.equal(evaluate(x.expression),BigInt(x.expected_i64),'incorrect expected result: '+x.id);
+  for(const x of input.checked_overflow)
+    assert.throws(()=>evaluate(x.expression),/signed 64 overflow/,'not numeric overflow: '+x.id);
+  for(const x of input.compile_reject)
+    assert.throws(()=>evaluate(x.expression),'valid scalar misclassified as reject: '+x.id);
+  assert.equal(input.known_drift.length,1,'drift inventory cannot silently change');
+  assert.deepEqual(input.known_drift[0],{
+    id:'legacy-percent-operator',
+    expression:'7 % 3',
+    required_language_policy:'reject-percent-operator',
+    observed_older_backends:'some still accept literal-divisor signed remainder; not a parity pass'
+  });
   return ids.size;
 }
 test('versioned manifest retains five backends, unique cases, and explicit drift',()=>{
@@ -66,4 +92,53 @@ test('adversarial manifest mutations fail closed',()=>{
   const range=copy();range.positive[0].expected_i64='9223372036854775808';assert.throws(()=>validate(range));
   const missing=copy();missing.required_backends=['java','llvm'];assert.throws(()=>validate(missing));
   const drift=copy();drift.known_drift=[];assert.throws(()=>validate(drift));
+});
+
+test('mutated expected result cannot masquerade as a positive case',()=>{
+  const m=structuredClone(c);m.positive[0].expected_i64='1';
+  assert.throws(()=>validate(m),/incorrect expected result/);
+});
+test('valid expression cannot masquerade as checked overflow',()=>{
+  const m=structuredClone(c);m.checked_overflow[0].expression='1 + 2';
+  assert.throws(()=>validate(m),/not numeric overflow/);
+});
+test('invalid syntax cannot masquerade as checked overflow',()=>{
+  const m=structuredClone(c);m.checked_overflow[0].expression='1 + )';
+  assert.throws(()=>validate(m),/not numeric overflow/);
+});
+test('checked overflow cannot masquerade as a positive case',()=>{
+  const m=structuredClone(c);m.positive[0].expression='9223372036854775807 + 1';
+  assert.throws(()=>validate(m));
+});
+test('valid scalar cannot masquerade as a compile rejection',()=>{
+  const m=structuredClone(c);m.compile_reject[0].expression='1 + 2';
+  assert.throws(()=>validate(m),/valid scalar misclassified/);
+});
+test('a duplicate source with a fresh ID cannot inflate vector coverage',()=>{
+  const m=structuredClone(c);m.positive[1].expression=m.positive[0].expression;
+  assert.throws(()=>validate(m),/duplicate expression/);
+});
+test('hidden positive-case fields are rejected',()=>{
+  const m=structuredClone(c);m.positive[0].certified_backend='native-executed';
+  assert.throws(()=>validate(m),/unexpected\/missing/);
+});
+test('missing expected value is rejected instead of deriving one silently',()=>{
+  const m=structuredClone(c);delete m.positive[0].expected_i64;
+  assert.throws(()=>validate(m));
+});
+test('noncanonical leading/trailing whitespace is rejected',()=>{
+  const m=structuredClone(c);m.positive[0].expression=' '+m.positive[0].expression;
+  assert.throws(()=>validate(m),/expression must be canonical/);
+});
+test('manifest cannot erase the percent-operator drift gate',()=>{
+  const m=structuredClone(c);m.known_drift[0].expression='7 + 3';
+  assert.throws(()=>validate(m));
+});
+test('manifest cannot claim unchecked wraparound as positive',()=>{
+  const m=structuredClone(c);m.positive[0].expression='-9223372036854775808 - 1';
+  assert.throws(()=>validate(m));
+});
+test('manifest cannot hide an extra backend inside the required set',()=>{
+  const m=structuredClone(c);m.required_backends.push('host-oracle');
+  assert.throws(()=>validate(m));
 });
