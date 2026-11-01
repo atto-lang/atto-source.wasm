@@ -7,6 +7,7 @@ const bytes=text=>Buffer.from(text,"utf8");
 test("wasm32 rejects unsupported nominal model declarations",()=>{
  for(const source of [
   "define model PriceEstimate() as AddTax(10) end",
+  "define model x as Identity() end",
   "define pub model PriceEstimate() as AddTax(10) end",
   "pub define model PriceEstimate() as AddTax(10) end",
   "define /* bounded comment */ model PriceEstimate() as AddTax(10) end",
