@@ -85,7 +85,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     const bareActor = actorToken && (
       tokens[i] === "isoactor" ||
       (tokens[i-1] === "shared" || tokens[i-1] === "untrusted") ||
-      (next && /^[A-Z_][A-Za-z0-9_]*$/.test(next) &&
+      (next && /^[A-Za-z_][A-Za-z0-9_]*$/.test(next) &&
        (["as","{","extends","implements","impl","<"].includes(afterNext))) ||
       actorCallable);
     if (bareActor ||
