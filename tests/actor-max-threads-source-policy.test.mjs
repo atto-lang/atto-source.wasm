@@ -41,3 +41,39 @@ test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource(bytes('"unterminated')),
     /unterminated source string/);
 });
+
+test("critical/suspends v1 rejects unsupported lowering before compiler invocation", () => {
+  for (const source of [
+    "async fnc foo(): int { return 1; }",
+    "pub async routine foo(): int { return 1; }",
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /'async' modifier removed/);
+  }
+  for (const source of [
+    "suspends fnc foo(): int { return 1; }",
+    "suspend fnc foo(): int { return 1; }",
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /suspends requires continuation lowering/);
+  }
+  for (const source of [
+    "critical fnc foo(): void { return; }",
+    "suspends fnc foo(): void { critical { return; } }",
+    "fnc foo(): void { try critical { return; } }",
+    "critical suspends fnc foo(): void { return; }",
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /critical requires scheduler-owned guard lowering/);
+  }
+});
+
+test("critical/suspends policy ignores comments and literals", () => {
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(`
+    fnc main():int {
+      const message = "critical suspends fnc async";
+      /* outer /* critical async */ suspends */
+      // critical { await readch ch }
+      return 1;
+    }`)));
+});
