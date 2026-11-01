@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "contract": "oresllm-scalar-budget-extension-v1",
+  "classification": "candidate-not-compiler-execution",
+  "required_backends": [
+    "java",
+    "llvm",
+    "wasm",
+    "cranelift",
+    "net"
+  ],
+  "positive": [
+    {
+      "id": "budget-headroom",
+      "expression": "100 - (32 + 16)",
+      "expected_i64": "52"
+    },
+    {
+      "id": "near-max-budget",
+      "expression": "9223372036854775807 - (2 * 64)",
+      "expected_i64": "9223372036854775679"
+    },
+    {
+      "id": "staged-subtractions",
+      "expression": "17 - 8 - 3",
+      "expected_i64": "6"
+    },
+    {
+      "id": "negative-product",
+      "expression": "(-3) * (-7)",
+      "expected_i64": "21"
+    },
+    {
+      "id": "min-plus-zero",
+      "expression": "-9223372036854775808 + 0",
+      "expected_i64": "-9223372036854775808"
+    }
+  ],
+  "checked_overflow": [
+    {
+      "id": "max-minus-negative-one",
+      "expression": "9223372036854775807 - (-1)"
+    },
+    {
+      "id": "min-times-negative-one",
+      "expression": "-9223372036854775808 * -1"
+    },
+    {
+      "id": "eager-zero-product-overflow",
+      "expression": "0 * (9223372036854775807 + 1)"
+    }
+  ],
+  "compile_reject": [
+    {
+      "id": "unexpected-closing-paren",
+      "expression": "1 + )"
+    },
+    {
+      "id": "missing-closing-paren",
+      "expression": "(1 + 2"
+    },
+    {
+      "id": "adjacent-integers",
+      "expression": "1 2"
+    }
+  ]
+}
