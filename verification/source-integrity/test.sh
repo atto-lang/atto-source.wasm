@@ -81,4 +81,10 @@ ln -s "$outside" nested
 reject 'tracked directory symlink escape'
 rm nested
 rm -rf "$outside"
+git reset -q --hard HEAD
+# Physical hardlinks can hide an external writable alias without changing Git status.
+outside="$(mktemp -d)"
+ln tracked.txt "$outside/alias.txt"
+reject 'tracked physical hardlink escape'
+rm -rf "$outside"
 printf 'PASS: %s source-integrity self-checks (1 positive, %s negative)\n' "$pass" "$((pass-1))"
