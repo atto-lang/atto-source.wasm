@@ -207,3 +207,47 @@ test("state-region version getters cannot execute before descriptor refusal", ()
   assert.throws(() => stateRegionRequirement(requirement), /accessor forbidden/);
   assert.equal(getterCalls, 0, "untrusted requirement getter executed");
 });
+
+
+test("JSON/WASM loan IDs accept the exact-number ceiling and fail closed above it", () => {
+  const max = Number.MAX_SAFE_INTEGER;
+  const upper = stateRegionProvenance({
+    ...vectors.borrow,
+    regionId: max,
+    regionGeneration: max,
+    runtimeDomain: max,
+    executionId: max,
+    executionSlot: max,
+    executionGeneration: max,
+    loanId: max
+  });
+  assert.equal(stateRegionAuthorizesRelease(upper, stateRegionReleaseRecord(upper)), true);
+
+  for (const field of [
+    "regionId", "regionGeneration", "runtimeDomain", "executionId",
+    "executionSlot", "executionGeneration", "loanId"
+  ]) {
+    for (const invalid of [max + 1, Infinity, NaN, -0, 1.5, -1, 0, 1n]) {
+      assert.throws(
+        () => stateRegionProvenance({...vectors.borrow, [field]: invalid}),
+        undefined,
+        `unsafe or non-numeric identity accepted: ${field}=${String(invalid)}`
+      );
+    }
+  }
+
+  const symbolic = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: max,
+    place: "inventory.stock",
+    kind: "write",
+    action: "borrow"
+  };
+  assert.equal(stateRegionRequirement(symbolic).loanId, max);
+  for (const invalid of [max + 1, Infinity, NaN, 0, -1, 1.5, 1n]) {
+    assert.throws(() => stateRegionRequirement({...symbolic, loanId: invalid}));
+  }
+});
