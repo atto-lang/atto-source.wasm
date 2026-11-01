@@ -19,7 +19,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   // A disposable Node worker is not a tenant-isolated OresVM. In particular,
   // silently ignoring tenantId/isolateId/actorId or permissions would falsely
   // imply those authority boundaries were enforced.
-  assertKnownCoreWasmOptions(options, [
+  options = assertKnownCoreWasmOptions(options, [
     "expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes", "timeoutMs"
   ], "isolated runner");
   const {
