@@ -105,6 +105,23 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/**
+ * The scalar wasm32 bridge does not yet establish nominal ModelGraph ABI,
+ * configured graph identity, or .run lowering. Native compiler support
+ * must not implicitly enable model execution on this target.
+ */
+export function rejectUnsupportedModelSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!(tokens[i].id&&tokens[i].text==="define") &&
+     !(tokens[i].id&&tokens[i].text==="pub"&&tokens[i+1]?.text==="define"))continue;
+  let cursor=i+(tokens[i].text==="pub"?2:1);
+  if(tokens[cursor]?.text==="pub")cursor++;
+  if(tokens[cursor]?.id&&tokens[cursor].text==="model"){
+   throw Error("MODEL_LOWERING_UNSUPPORTED: wasm32 requires verified nominal ModelGraph ABI at byte "+tokens[cursor].offset);
+  }
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -254,6 +271,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedModelSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
