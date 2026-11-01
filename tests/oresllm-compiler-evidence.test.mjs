@@ -22,6 +22,16 @@ for(const [label,s] of [
 ]){
  test('semantic compiler reject '+label,()=>assert.equal(semanticCompilerRejection(new Error(s)),true));
 }
+test('real multiline native compiler syntax diagnostics remain semantic rejects',()=>{
+ assert.equal(semanticCompilerRejection(new Error(
+   'command failed (/tmp/compiler-exact): invalid token at byte 13\\n' +
+   '  at parser line 1\\n')),true);
+});
+test('late-line infrastructure failure cannot be laundered by first-line syntax',()=>{
+ assert.equal(semanticCompilerRejection(new Error(
+   'command failed (/tmp/compiler-exact): invalid token\\n' +
+   'spawn EACCES on nested helper')),false);
+});
 for(const [label,s] of [
  ['missing compiler','ENOENT: compiler not found'],
  ['missing clang','command failed (clang): invalid wasm object'],
