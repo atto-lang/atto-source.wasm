@@ -57,7 +57,7 @@ export function stateRegionRequirement(record) {
       "regionId", "regionGeneration", "runtimeDomain", "executionId",
       "executionSlot", "executionGeneration"
     ].includes(name)) {
-      throw new TypeError("unknown state-region requirement field: " + name);
+      throw new TypeError("unknown state-region requirement field: " + String(name));
     }
   }
 
