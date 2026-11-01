@@ -20,7 +20,7 @@ for(const [label,sourceText] of samples){
    const source=join(dir,"source.ores"),compiler=join(dir,"fake-compiler"),
     output=join(dir,"out.wasm"),sentinel=join(dir,"compiler-invoked");
    await writeFile(source,sourceText,{mode:0o600});
-   await writeFile(compiler,"#!/bin/sh\nprintf '%s' invoked > '"+sentinel+"'\nexit 0\n",{mode:0o700});
+   await writeFile(compiler,"#!/bin/sh\nprintf invoked > \"$(dirname \"$0\")/compiler-invoked\"\nexit 0\n",{mode:0o700});
    await assert.rejects(
     ()=>compileOresToWasm({compiler,source,output}),
     /wasm .*ADT .*unsupported|wasm Option\/Result payload ADT lowering unsupported/i);
