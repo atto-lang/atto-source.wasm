@@ -8,6 +8,7 @@ import {readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {semanticCompilerRejection} from "../src/oresllm-compiler-evidence.mjs";
 
 const corpus=JSON.parse(readFileSync(new URL("../contracts/parity/portable-scalar-v3-20261101.json",import.meta.url),"utf8"));
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
@@ -44,7 +45,14 @@ async function guest(t,x,kind){
   await writeFile(source,bytes,{flag:"wx",mode:0o400});
   const go=()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256,source,output});
   if(kind==="compile_reject"){
-    await assert.rejects(go(),"compiler must reject "+x.id);
+    // A missing compiler, digest failure, timeout, or linker crash is NOT an
+    // expected language rejection. Require the pinned compiler's source-stage
+    // diagnostic before granting this negative Oreslang guest assertion.
+    await assert.rejects(go(),error=>{
+      assert.equal(semanticCompilerRejection(error),true,
+        "infrastructure failure misclassified as source rejection: "+x.id);
+      return true;
+    });
     await assert.rejects(stat(output),{code:"ENOENT"},"rejected source must not publish an artifact");
     return;
   }
