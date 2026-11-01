@@ -2,7 +2,7 @@
 // Without a pinned compiler this suite skips, NEVER claims parity.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,rm,stat} from 'node:fs/promises';
 import {readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -51,6 +51,8 @@ for(const x of c.compile_reject){
         'missing compiler, linker, I/O failure or ambiguous message is NOT source rejection');
       return true;
     });
+    await assert.rejects(stat(output),{code:'ENOENT'},
+      'compiler-rejected Oreslang must not leave a guest Wasm artifact');
   }));
 }
 test('WASM native parity cannot be silently certified without compiler or digest',t=>{
