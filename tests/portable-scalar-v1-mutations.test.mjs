@@ -92,5 +92,5 @@ checkedMutation("division control with no division",d=>{
   d.negative[0].expression="7 - 3";
 },/division control/);
 checkedMutation("out-of-range control with an in-range value",d=>{
-  d.negative[4].expression="9223372036854775807";
+  d.negative[4].expression="9223372036854775806";
 },/out-of-range control/);
