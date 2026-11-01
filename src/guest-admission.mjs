@@ -45,7 +45,7 @@ export function compileAdmittedCoreGuest(input, {
   if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
       tcpPoolPointerSharing !== false ||
       Object.keys(additionalOptions).some(key =>
-        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy/i.test(key)))
+        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i.test(key)))
     throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
