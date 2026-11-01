@@ -14,6 +14,11 @@ test("host STOP requires child finalization and exactly one applied receipt", ()
   assert.throws(() => lane.assert_physically_finalized(child), /duplicate or stale/);
   const ticket = lane.reserve_stop(child);
   assert.equal(lane.receipt(ticket), "pending");
+  assert.deepEqual(lane.receipt_snapshot(ticket), {
+    actorId: "physical-1", incarnation: 1, turnGeneration: 1, receipt: "pending"
+  });
+  assert.throws(() => lane.receipt_snapshot(structuredClone(ticket)), /foreign/);
+  assert.throws(() => lane.receipt_snapshot(JSON.parse(JSON.stringify(ticket))), /foreign/);
   assert.throws(() => lane.reserve_stop(child), /already active/);
   assert.throws(() => lane.mark_applied(ticket), /not invoked/);
   lane.claim_host_invocation(ticket);
@@ -44,6 +49,9 @@ test("uncertain host STOP fences second turn and cannot be reissued", () => {
   lane.reconcile_verified_stop(ticket);
   assert.equal(lane.snapshot(first).phase, "stopped");
   const secondTicket = lane.reserve_stop(second);
+  assert.deepEqual(lane.receipt_snapshot(secondTicket), {
+    actorId: "physical-2", incarnation: 1, turnGeneration: 2, receipt: "pending"
+  });
   lane.claim_host_invocation(secondTicket);
   lane.mark_applied(secondTicket);
   lane.acknowledge_applied(secondTicket);
