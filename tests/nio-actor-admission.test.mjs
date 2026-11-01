@@ -69,6 +69,19 @@ test("unsupported TCP pooling and shared pointers reject before decoding any Was
       Object.keys(options).join(',')
     );
   }
+  // Even a false-valued unknown capability or Symbol option must never be
+  // silently interpreted as supported by the scalar guest profile.
+  for (const options of [
+    {unsupportedHostFeature: true},
+    {unsupportedHostFeature: false},
+    {shared_readonly_payload: false},
+    {[Symbol('pin')]: true}
+  ]) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /rejects unknown core-guest admission options/
+    );
+  }
   // Explicitly inactive capabilities must not change core scalar admission.
   assert.throws(
     () => compileAdmittedCoreGuest(neverAdmitted, {
