@@ -52,6 +52,23 @@ test("unsupported TCP pooling and shared pointers reject before decoding any Was
       JSON.stringify(options)
     );
   }
+  const readonlySlabOptions = [
+    {sharedReadonlyBuffer: true}, {sharedReadonlyBuffer: false},
+    {frozenSlab: true}, {frozenSlab: 0},
+    {pinnedSlabCount: 4}, {sharedMemory: true},
+    {sharedArrayBuffer: true}, {zeroCopyTransport: true},
+    {immutableBufferPins: 2}, {bufferPinLease: 1},
+    {borrowedSlabPointer: true}, {readonlyBuffer: true},
+    {pinnedBytes: 4096}, {slabPointer: 2},
+    {zero_copy: true}, {sharedBuffer: new Uint8Array([1, 2])}
+  ];
+  for (const options of readonlySlabOptions) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /shared TCP pool\\/lease\\/pointer capability is unsupported/,
+      Object.keys(options).join(',')
+    );
+  }
   // Explicitly inactive capabilities must not change core scalar admission.
   assert.throws(
     () => compileAdmittedCoreGuest(neverAdmitted, {
