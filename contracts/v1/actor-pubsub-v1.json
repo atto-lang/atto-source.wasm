@@ -9,7 +9,7 @@
     "publisher": "capability of an authorized member to publish; not a distinct actor kind"
   },
   "source_surface": {
-    "types": ["ActorGroup<T>", "Topic<T>", "Subscription<T>", "PublishReceipt"],
+    "types": ["ActorGroup", "Topic<T>", "Subscription<T>", "PublishReceipt"],
     "new_actor_keywords": [],
     "publisher_keyword": false,
     "subscriber_keyword": false
@@ -38,6 +38,7 @@
     "in_memory": "normative v1 semantics",
     "redis": "future adapter; must not silently claim stronger delivery semantics than provider supplies"
   },
+  "golden_fixture": "contracts/v1/fixtures/actor-pubsub-v1.ores",
   "conformance_cases": [
     "single-publisher-single-subscriber",
     "multiple-subscribers",
