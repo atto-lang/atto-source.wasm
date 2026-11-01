@@ -217,6 +217,12 @@ mod tests {
             assert!(!valid_tenant_id(candidate), "{candidate:?}");
         }
         assert!(!valid_tenant_id(&"a".repeat(129)));
+        assert!(valid_tenant_id(&"a".repeat(128)));
+        // Keep the exact same host-identity grammar as Java, LLVM,
+        // Cranelift and Native AOT. Never consume tenant slots on these.
+        for candidate in ["tenant:other", "tenant\\other", "bad\\0name", "a%", "ténant"] {
+            assert!(!valid_tenant_id(candidate), "{candidate:?}");
+        }
     }
 
     #[test]

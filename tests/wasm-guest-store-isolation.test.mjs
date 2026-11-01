@@ -62,6 +62,36 @@ test('compiled wasm32 counter isolates independent instances', async t => {
     assert.equal(first.exports.memory.buffer.byteLength, 2 * 65536);
     assert.equal(second.exports.memory.buffer.byteLength, 2 * 65536);
   });
+
+  await t.test('host-visible mutable memory remains private to each live instance', () => {
+    // Wasm pages are independently owned even when the immutable compiled
+    // Module is shared. This only proves WebAssembly.Instance isolation;
+    // native Wasmtime Store residency and host RSS need separate evidence.
+    const firstBytes = new Uint8Array(first.exports.memory.buffer);
+    const secondBytes = new Uint8Array(second.exports.memory.buffer);
+    const scratchOffset = 4096;
+    assert.equal(firstBytes[scratchOffset], 0);
+    assert.equal(secondBytes[scratchOffset], 0);
+    firstBytes[scratchOffset] = 0xa5;
+    assert.equal(firstBytes[scratchOffset], 0xa5);
+    assert.equal(secondBytes[scratchOffset], 0,
+      'one tenant must not observe another tenant host memory write');
+    secondBytes[scratchOffset] = 0x5a;
+    assert.equal(firstBytes[scratchOffset], 0xa5);
+    assert.equal(secondBytes[scratchOffset], 0x5a);
+    assert.equal(first.exports.main(), 3n);
+    assert.equal(second.exports.main(), 3n);
+  });
+
+  await t.test('fresh instance rejects stale mutable state from both tenants', () => {
+    const replacement = new WebAssembly.Instance(module);
+    const bytes = new Uint8Array(replacement.exports.memory.buffer);
+    assert.equal(bytes[4096], 0, 'replacement must not inherit tenant scratch');
+    assert.equal(replacement.exports.main(), 1n);
+    bytes[4096] = 0x11;
+    assert.equal(new Uint8Array(first.exports.memory.buffer)[4096], 0xa5);
+    assert.equal(new Uint8Array(second.exports.memory.buffer)[4096], 0x5a);
+  });
   await t.test('fresh incarnation resets without poisoning either neighbor', () => {
     const fresh = new WebAssembly.Instance(module);
     assert.equal(fresh.exports.main(), 1n);
