@@ -35,6 +35,7 @@ function freezePayload(value) {
 export class WasmActorPubSub {
   #actors = new Map();
   #actorIds = new Map();
+  #lastIncarnation = new Map();
   #groups = new Map();
   #topics = new Map();
   #nextGroupId = 0;
@@ -63,6 +64,9 @@ export class WasmActorPubSub {
 
     if (this.#actorIds.has(actorId))
       throw new Error("actor ID still belongs to a live incarnation");
+    const previousIncarnation = this.#lastIncarnation.get(actorId) ?? 0;
+    if (incarnation <= previousIncarnation)
+      throw new Error("actor incarnation must increase monotonically");
 
     const ref = Object.freeze({});
     this.#actors.set(ref, {
@@ -71,6 +75,7 @@ export class WasmActorPubSub {
       subscriptions: 0
     });
     this.#actorIds.set(actorId, ref);
+    this.#lastIncarnation.set(actorId, incarnation);
     return ref;
   }
 
