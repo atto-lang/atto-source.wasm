@@ -83,11 +83,20 @@ export function runScalar(){
      '--compiler='+compiler,'--compiler-sha256='+compilerSha,
      '--source='+source,'--output='+artifact
    ],false);
-   if(!diagnostic.test(denial.stderr)||/segmentation fault|panicked at|stack backtrace/i.test(denial.stderr))
+   // Inspect only the actual native frontend's diagnostic payload. Looking
+   // for "unknown" in the whole stack could match the source filename and
+   // falsely admit a Clang, runner, or artifact-publication failure.
+   const native=/command failed \\(([^)]+)\\): ([^\\r\\n]+)/.exec(denial.stderr);
+   if(!native||!native[1].endsWith('/compiler-exact')||
+      !diagnostic.test(native[2])||
+      /segmentation fault|panicked at|stack backtrace|internal compiler error|fatal error/i.test(denial.stderr))
      throw Error('wrong native compiler denial reason: '+name);
-   for(const suffix of ['','.provenance.json','.artifact.json','.release.json']){
+   for(const suffix of ['','.provenance.json','.artifact.json','.release.json',
+                        '.current.json','.publication.lock']){
     if(existsSync(artifact+suffix))throw Error('rejected source published Wasm artifacts: '+name);
    }
+   if(existsSync(artifact+'.releases'))
+    throw Error('rejected source created a Wasm release directory: '+name);
   }
   console.log('WASM_CLIENT_SCALAR_6_GUEST_RESULTS_3_COMPILER_DENIALS');
  }finally{rmSync(working,{recursive:true,force:true})}
