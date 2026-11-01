@@ -49,7 +49,11 @@ const positive = [
   ["cast-min-i64", main("const x=(-9223372036854775808) as int;if(x<0){return 42;}fi return 0;")],
   ["cast-max-i64", main("const x=9223372036854775807 as int;if(x>0){return 42;}fi return 0;")],
   ["bool-conditional-cast", main("const x=(true?true:false) as bool;if(x){return 42;}fi return 0;")],
-  ["bool-to-bool-annotation", main("const x:bool=true as bool;if(x){return 42;}fi return 0;")]
+  ["bool-to-bool-annotation", main("const x:bool=true as bool;if(x){return 42;}fi return 0;")],
+  ["dual-identity-operands", main("return (7 as int)+(35 as int);")],
+  ["grouped-identity-multiplication", main("return ((2+5) as int)*6;")],
+  ["chained-identity-multiplication", main("return (7 as int as int)*6;")],
+  ["identity-through-const-reference", main("const x=7 as int;const y=x as int;return y*6;")]
 ];
 const negative = [
   ["int-to-bool", main("const x=7 as bool;return 0;"), /impossible native cast: int as bool/],
@@ -80,7 +84,11 @@ const negative = [
   ["inferred-bool-let-int-write", main("let x=true;x=7;return 0;"), /native scalar assignment requires bool, got int/],
   ["inferred-int-let-bool-write", main("let x=7;x=false;return 0;"), /native scalar assignment requires int, got bool/],
   ["bool-cast-then-int", main("const x=true as bool as int;return 0;"), /impossible native cast: bool as int/],
-  ["cast-int-as-bool-from-variable", main("const x=7;const y=x as bool;return 0;"), /impossible native cast: int as bool/]
+  ["cast-int-as-bool-from-variable", main("const x=7;const y=x as bool;return 0;"), /impossible native cast: int as bool/],
+  ["nested-identity-then-bool", main("return (7 as int) as bool;"), /impossible native cast: int as bool/],
+  ["nested-bool-then-int", main("return (false as bool) as int;"), /impossible native cast: bool as int/],
+  ["identity-then-optional", main("return (7 as int) as? int;"), /native as\? requires Option/],
+  ["identity-then-bool-arithmetic", main("return (7 as int)+true;"), /arithmetic requires int, got bool/]
 ];
 const REQUIRED_LLVM_SOURCE_SHA = "042c7ba7ecbfe237dd67eba560814d25405b0ecd";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -88,8 +96,8 @@ const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
-  assert.equal(positive.length, 36);
-  assert.equal(negative.length, 28);
+  assert.equal(positive.length, 40);
+  assert.equal(negative.length, 32);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
