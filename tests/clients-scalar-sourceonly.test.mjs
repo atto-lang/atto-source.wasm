@@ -7,7 +7,7 @@ import {readFileSync,mkdtempSync,writeFileSync,rmSync,symlinkSync} from 'node:fs
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {validateCompiler} from '../scripts/run-client-scalar-native.mjs';
+import {validateCompiler,compilerOwnedDenial} from '../scripts/run-client-scalar-native.mjs';
 
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 const script=join(root,'scripts/run-client-scalar-native.mjs');
@@ -48,4 +48,14 @@ test('compiler admission rejects relative, unpinned and spoofed executable bytes
   assert.throws(()=>validateCompiler(executable,'0'.repeat(64)),/wrong SHA-256/);
   assert.throws(()=>validateCompiler(link,'0'.repeat(64)),/regular file/);
  }finally{rmSync(tmp,{recursive:true,force:true})}
+});
+
+test('compiler-owned negative diagnostic cannot be spoofed by source path or Clang failure',()=>{
+ const category=/unknown|unbound|undefined|identifier/i;
+ assert.equal(compilerOwnedDenial('Error: command failed (/tmp/xx/compiler-exact): unbound or unsupported identifier: value',category),true);
+ assert.equal(compilerOwnedDenial('Error: command failed (clang): unknown argument --target=wasm32',category),false);
+ assert.equal(compilerOwnedDenial('Error: ENOENT /tmp/07-unknown-reject.ores',category),false);
+ assert.equal(compilerOwnedDenial('Error: command failed (/tmp/xx/compiler-exact): cannot open /tmp/07-unknown-reject.ores',category),false);
+ assert.equal(compilerOwnedDenial('Error: command failed (/tmp/xx/compiler-exact): unbound identifier\nstack backtrace',category),false);
+ assert.equal(compilerOwnedDenial('Error: command failed (/tmp/xx/compiler-exact): internal compiler error: unknown thing',category),false);
 });
