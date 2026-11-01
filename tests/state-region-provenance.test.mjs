@@ -179,3 +179,31 @@ test("nonenumerable, symbol, and custom-prototype metadata cannot smuggle author
     assert.doesNotThrow(() => validate(Object.assign(Object.create(null), good)));
   }
 });
+
+test("state-region version getters cannot execute before descriptor refusal", () => {
+  let getterCalls = 0;
+  const forged = {...vectors.borrow};
+  Object.defineProperty(forged, "contractVersion", {
+    enumerable: true,
+    get() { getterCalls++; throw new Error("guest getter executed"); }
+  });
+  assert.throws(() => stateRegionProvenance(forged), /accessor forbidden/);
+  assert.equal(getterCalls, 0, "untrusted provenance getter executed");
+
+  const requirement = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "read",
+    action: "borrow"
+  };
+  Object.defineProperty(requirement, "contractVersion", {
+    enumerable: true,
+    get() { getterCalls++; throw new Error("guest requirement getter executed"); }
+  });
+  assert.throws(() => stateRegionRequirement(requirement), /accessor forbidden/);
+  assert.equal(getterCalls, 0, "untrusted requirement getter executed");
+});
