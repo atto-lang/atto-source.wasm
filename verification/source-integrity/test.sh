@@ -58,4 +58,27 @@ git add alias.txt
 git commit -qm 'tracked symlink negative fixture'
 head="$(git rev-parse HEAD)"
 reject 'tracked symlink'
+# A clean text normalization can conceal modified working bytes from git diff
+# and from git hash-object --path. The physical-byte gate must reject it.
+git reset -q --hard HEAD^
+printf '*.txt text\n' > .gitattributes
+git add .gitattributes
+git commit -qm 'CRLF normalization adversarial fixture'
+head="$(git rev-parse HEAD)"
+printf 'tracked\r\n' > tracked.txt
+reject 'CRLF text-normalization laundering'
+git reset -q --hard HEAD
+# Directory symlinks may escape the source checkout even if the leaf is regular.
+mkdir -p nested
+printf 'nested source\n' > nested/child.txt
+git add nested/child.txt
+git commit -qm 'nested tracked-file fixture'
+head="$(git rev-parse HEAD)"
+outside="$(mktemp -d)"
+cp nested/child.txt "$outside/child.txt"
+rm -rf nested
+ln -s "$outside" nested
+reject 'tracked directory symlink escape'
+rm nested
+rm -rf "$outside"
 printf 'PASS: %s source-integrity self-checks (1 positive, %s negative)\n' "$pass" "$((pass-1))"
