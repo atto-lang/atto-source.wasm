@@ -129,7 +129,7 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
   }
   if(token.text!=="rt")continue;
   const a=tokens[i+1],b=tokens[i+2];
-  if(a?.id&&["borrow","take","share"].includes(a.text) ||
+  if(a?.id&&["borrow","take"].includes(a.text) ||
      a?.text==="mut"&&b?.id&&["borrow","share"].includes(b.text)){
    throw Error("wasm heap loan/transfer lowering unsupported at byte "+
       token.offset);
