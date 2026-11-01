@@ -9,16 +9,18 @@ import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const parityRequired=process.env.ORESLANG_SCALAR_PARITY_REQUIRED==="1";
-async function requirePinnedCompilerInParityMode(){
-  if(!parityRequired)return;
-  const expected=process.env.ORESLANG_LLVM_COMPILER_SHA256;
+async function verifyCompilerSha256(path,expected){
   assert.match(expected??"",/^[0-9a-f]{64}$/,
     "strict wasm32 scalar parity requires a lowercase 64-byte-hex SHA-256 pin");
-  assert(compiler,"strict scalar parity requires an actual LLVM compiler");
   const actual=createHash("sha256");
-  for await(const chunk of createReadStream(resolve(compiler)))actual.update(chunk);
+  for await(const chunk of createReadStream(resolve(path)))actual.update(chunk);
   assert.equal(actual.digest("hex"),expected,
     "LLVM compiler executable changed without reviewed source identity");
+}
+async function requirePinnedCompilerInParityMode(){
+  if(!parityRequired)return;
+  assert(compiler,"strict scalar parity requires an actual LLVM compiler");
+  await verifyCompilerSha256(compiler,process.env.ORESLANG_LLVM_COMPILER_SHA256);
 }
 
 function unavailable(t){
@@ -134,3 +136,16 @@ for(const [name,expression] of [
     await assert.rejects(()=>readFile(output),"rejected compiler must not publish Wasm");
   });
 }
+
+test("LLVM binary pin rejects altered bytes and absent or malformed digests",async t=>{
+  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-compiler-pin-"));
+  t.after(()=>rm(dir,{recursive:true,force:true}));
+  const binary=join(dir,"compiler.bin");
+  await writeFile(binary,"reviewed-compiler-v1");
+  const reviewed=createHash("sha256").update("reviewed-compiler-v1").digest("hex");
+  await verifyCompilerSha256(binary,reviewed);
+  await writeFile(binary,"modified-compiler-v2");
+  await assert.rejects(()=>verifyCompilerSha256(binary,reviewed),/changed without reviewed/);
+  await assert.rejects(()=>verifyCompilerSha256(binary,""),/lowercase 64-byte-hex/);
+  await assert.rejects(()=>verifyCompilerSha256(binary,"A".repeat(64)),/lowercase 64-byte-hex/);
+});
