@@ -10,7 +10,7 @@ import {assertKnownCoreWasmOptions} from "./core-wasm-options.mjs";
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
 export function compileAdmittedCoreGuest(input, options = {}) {
-  assertKnownCoreWasmOptions(options, [
+  options = assertKnownCoreWasmOptions(options, [
     "expectedSha256", "entry", "maxModuleBytes", "maxMemoryPages",
     "ioMode", "guestNetworkIo", "nioReactors", "actorPhysicalTurns",
     "hardRealtime"
