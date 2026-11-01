@@ -38,10 +38,10 @@ async function compileMain(t,expression,name){
      "i64 min plus max","nested grouping"].indexOf(name.slice(5))+34
   ):null;
   const guestSource=waveId&&Object.hasOwn(waveSourceSha256,waveId)
-    ? "// "+waveId+": candidate source-identical checked-i64 scalar program.\\n"
-      + "// Expected integer result 42; guest execution on each backend is unverified.\\n"
-      + "pub fnc main(): int { return "+expression+"; }\\n"
-    : header+"define pub fnc main(): int { return "+expression+"; }\\n";
+    ? "// "+waveId+": candidate source-identical checked-i64 scalar program.\n"
+      + "// Expected integer result 42; guest execution on each backend is unverified.\n"
+      + "pub fnc main(): int { return "+expression+"; }\n"
+    : header+"define pub fnc main(): int { return "+expression+"; }\n";
   if(waveId){
     assert.equal(createHash("sha256").update(guestSource,"utf8").digest("hex"),
       waveSourceSha256[waveId],"Wasm guest source bytes differ from shared Oreslang corpus");
