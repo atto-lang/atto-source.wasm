@@ -33,6 +33,11 @@ pub routine main(): void {
   check(w.acked_until() == 0, "initial-acked");
   check(w.retained_from() == 0, "initial-floor");
   check(w.unacked_bytes() == 0, "initial-unacked");
+  val initial = w.checkpoint();
+  check(initial.generation == 7, "checkpoint-generation");
+  check(initial.capacity_bytes == 4, "checkpoint-capacity");
+  check(initial.retained_from == 0, "checkpoint-initial-floor");
+  check(initial.acked_until == 0, "checkpoint-initial-ack");
   check(w.append(6, two(1, 2)).is_err(), "stale-append");
   check(w.produced_until() == 0, "stale-append-atomic");
   check(w.append(7, new Array<int>()).is_err(), "empty-append");
@@ -72,6 +77,12 @@ pub routine main(): void {
   check(w.mark_sent(7, 5), "mark-sent-after-wrap");
   check(w.acknowledge(7, 5), "ack-all");
   check(w.unacked_bytes() == 0, "fully-acked");
+  val completed = w.checkpoint();
+  check(completed.retained_from == 1, "checkpoint-retained");
+  check(completed.produced_until == 5, "checkpoint-produced");
+  check(completed.sent_until == 5, "checkpoint-sent");
+  check(completed.acked_until == 5, "checkpoint-acked");
+  check(initial.produced_until == 0, "checkpoint-immutable");
   check(w.append(7, two(6, 7)).expect("second wrap") == 7, "second-wrap");
   check(w.retained_from() == 3, "second-floor");
   let Array<int> second = w.replay_from(7, 3, 4).expect("second replay");
