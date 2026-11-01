@@ -64,6 +64,7 @@ test('WASM native parity cannot be silently certified without compiler or digest
 
 for(const [id,expression,expected] of [
   ['zero-product','-7 * 0','0'],
+  ['oresllm-integer-gradient','2 * ((5 * 3 + 1) - 9) * 3','42'],
   ['nested-arithmetic','(2 + 3) * (10 - 2)','40'],
   ['subtract-self','9223372036854775807 - 9223372036854775807','0']
 ]){
