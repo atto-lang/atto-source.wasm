@@ -1,5 +1,5 @@
 import {Worker} from "node:worker_threads";
-import {admitSharedReactorOptions} from "./shared-reactor-policy.mjs";
+import {admitSharedReactorOptions, rejectUnknownCoreGuestOptions} from "./shared-reactor-policy.mjs";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
@@ -15,11 +15,18 @@ let activeGuestWorkers = 0;
  * Resolves only after the guest worker has terminated.
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
-export async function runIsolatedCoreGuest(input, {
+const ACCEPTED_ISOLATED_OPTIONS = new Set([
+  "expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes",
+  "timeoutMs", "schedulerMode", "schedulerWorkers", "schedulerWorkersMax"
+]);
+
+export async function runIsolatedCoreGuest(input, options = {}) {
+  rejectUnknownCoreGuestOptions(options, ACCEPTED_ISOLATED_OPTIONS);
+  const {
   expectedSha256, entry = "main", maxMemoryPages = 2,
   maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000,
   schedulerMode = "host", schedulerWorkers = 0, schedulerWorkersMax = 0
-} = {}) {
+} = options;
   admitSharedReactorOptions({schedulerMode, schedulerWorkers, schedulerWorkersMax});
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
