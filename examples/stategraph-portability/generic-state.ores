@@ -1,0 +1,8 @@
+// Deliberate unsupported feature probe: typed generic immutable graph state.
+define pub class GraphValue<T> as
+  pub val T payload;
+end
+pub fnc main(): int {
+  val GraphValue<int> state = new GraphValue<int>(42);
+  return state.payload;
+}
