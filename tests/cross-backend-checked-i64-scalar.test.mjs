@@ -172,3 +172,24 @@ test("LLVM binary pin rejects altered bytes and absent or malformed digests",asy
   await assert.rejects(()=>verifyCompilerSha256(binary,""),/lowercase 64-byte-hex/);
   await assert.rejects(()=>verifyCompilerSha256(binary,"A".repeat(64)),/lowercase 64-byte-hex/);
 });
+
+
+// Oreslana's arithmetic-only S0 admission. This crosses the real LLVM
+// compiler -> wasm32 artifact -> no-import WebAssembly guest boundary.
+// The unchanged Array/Option/class ledger is NOT supported by this host.
+for (const [name, expression, expected] of [
+  ["capacity-zero", "(4096 - 64) + (32 * 2) - 4096", 0n],
+  ["nonzero-execution", "73", 73n],
+  ["i64-upper-bound", "(9223372036854775807 - 9223372036854775800) * 6", 42n],
+]) {
+  test("Oreslana compiled Wasm scalar guest: "+name, async t=>{
+    const main=await compileMain(t, expression);
+    if(!main)return;
+    assert.equal(main(),expected,"real wasm32 guest numeric mismatch");
+  });
+}
+test("Oreslana checked overflow cannot be hidden by multiplication by zero",async t=>{
+  const main=await compileMain(t,"(9223372036854775807 + 1) * 0");
+  if(!main)return;
+  assert.throws(()=>main(),WebAssembly.RuntimeError);
+});
