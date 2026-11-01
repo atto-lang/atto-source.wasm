@@ -23,13 +23,16 @@ const OPTION_TYPES = Object.freeze({
 });
 
 export function assertKnownCoreWasmOptions(options, allowedNames, boundary) {
-  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+  if (options === null || typeof options !== "object") {
     throw new TypeError("core Wasm " + boundary + " options must be an object");
   }
-  // A Proxy can run arbitrary traps for [[GetPrototypeOf]], OwnKeys and
-  // descriptor queries. Reject it before touching any of those hooks.
+  // Check this BEFORE Array.isArray(): it throws on revoked Proxies. Reject
+  // every Proxy without running its object-level traps or coercion hooks.
   if (types.isProxy(options)) {
     throw new TypeError("core Wasm " + boundary + " options cannot be Proxy objects");
+  }
+  if (Array.isArray(options)) {
+    throw new TypeError("core Wasm " + boundary + " options must be an object");
   }
   // Do not inherit authority requests from arbitrary prototypes, or invoke
   // accessor functions while preparing security-relevant worker options.
