@@ -40,12 +40,12 @@ export function compileAdmittedCoreGuest(input, {
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
   // Do not allow a misspelled/forward-compat TCP capability switch to be
-  // silently ignored. No guest sockets, immutable shared-slab imports, or
+  // silently ignored. No guest sockets, pinned readonly slabs, or immutable shared-slab imports, or
   // transport lease ABI exist in this scalar-only profile.
   if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
       tcpPoolPointerSharing !== false ||
       Object.keys(additionalOptions).some(key =>
-        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)/i.test(key)))
+        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy/i.test(key)))
     throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
