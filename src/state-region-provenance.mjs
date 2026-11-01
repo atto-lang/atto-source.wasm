@@ -19,7 +19,7 @@ function rejectUnknownFields(record) {
       throw new TypeError("state-region provenance accessor forbidden: " + name);
     }
   }
-  for (const name of Object.keys(record)) {
+  for (const name of Reflect.ownKeys(record)) {
     if (!allowedFields.has(name)) {
       throw new TypeError("unknown state-region provenance field: " + name);
     }
@@ -36,6 +36,12 @@ function positiveSafeInteger(value, name) {
 export function stateRegionProvenance(record) {
   if (record === null || typeof record !== "object") {
     throw new TypeError("state-region provenance record required");
+  }
+  // Only JSON-style plain records, never class instances or inherited
+  // capability-bearing views, may cross this host provenance boundary.
+  const prototype = Object.getPrototypeOf(record);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new TypeError("plain state-region provenance record required");
   }
   for (const name of allowedFields) {
     if (!Object.hasOwn(record, name)) {
