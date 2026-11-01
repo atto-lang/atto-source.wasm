@@ -99,3 +99,40 @@ test("API rejects invalid budget and byte types", async () => {
   await assert.rejects(runIsolatedCoreGuest("not wasm"), /expected core WebAssembly bytes/);
   await assert.rejects(runIsolatedCoreGuest(Buffer.from([]), {timeoutMs: 0}), /timeoutMs/);
 });
+
+test("four simultaneous guest Workers never share scalar mutable state", async () => {
+  const wasm = compile('target triple = "wasm32-unknown-unknown"\n' +
+    '@counter = internal global i64 0\n' +
+    'define i64 @main() {\nentry:\n' +
+    ' %old = load i64, ptr @counter\n %next = add i64 %old, 1\n' +
+    ' store i64 %next, ptr @counter\n ret i64 %next\n}\n');
+  for (let round = 0; round < 3; ++round) {
+    const results = await Promise.all(Array.from({length: 4}, () =>
+      runIsolatedCoreGuest(wasm, {timeoutMs: 15000})));
+    assert.deepEqual(results.map(r => r.value), [1n, 1n, 1n, 1n],
+      "a guest Worker reused or shared mutable memory across tenant calls");
+    assert.ok(results.every(r => r.admission.hostCapabilities === 0));
+    assert.equal(new Set(results.map(r => r.admission.sha256)).size, 1,
+      "all isolated instances must execute the exact same input artifact");
+  }
+});
+
+test("concurrent worker limit fails closed and is released only after termination", async () => {
+  const looping = compile('target triple = "wasm32-unknown-unknown"\n' +
+    'define i64 @main() {\nentry:\n br label %spin\nspin:\n br label %spin\n}\n',
+    {optimize: "-O0"});
+  // Four calls synchronously reserve the full worker budget before any
+  // timeout handlers can finish. A fifth cannot bypass the quota.
+  const running = Array.from({length: 4}, () =>
+    runIsolatedCoreGuest(looping, {timeoutMs: 600}));
+  await assert.rejects(runIsolatedCoreGuest(looping, {timeoutMs: 600}),
+    /guest worker concurrency quota exceeded/);
+  const outcomes = await Promise.allSettled(running);
+  assert.equal(outcomes.length, 4);
+  assert.ok(outcomes.every(r => r.status === "rejected" &&
+    /execution deadline exceeded/.test(r.reason.message)),
+    "all running loops must terminate by the worker deadline");
+  // A subsequent valid guest must be admitted after all four terminations.
+  const fresh = await runIsolatedCoreGuest(compile(simple), {timeoutMs: 15000});
+  assert.equal(fresh.value, 42n);
+});
