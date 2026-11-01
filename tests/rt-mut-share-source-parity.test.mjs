@@ -45,7 +45,7 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
     for (const [index, expression] of expressions.entries()) {
       const source = join(root, `case-${index}.ores`);
       const output = join(root, `case-${index}.wasm`);
-      const sourceBytes = `pub fnc main():int{return ${expression};}\\n`;
+      const sourceBytes = `pub fnc main():int{return ${expression};}\n`;
       await writeFile(source, sourceBytes);
       const entriesBefore = (await readdir(root)).sort();
       await assert.rejects(
