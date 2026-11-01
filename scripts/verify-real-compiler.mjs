@@ -60,11 +60,13 @@ export function assertStateInjectionFrontendRejection(frontend, expectedAnnotati
   if (!supportedNames.has(expectedAnnotation))
     throw Error("expected state-injection annotation must be explicitly named");
   const stderr = String(frontend.stderr || "");
-  const marker = "STATE_INJECTION_UNSUPPORTED: @" + expectedAnnotation;
+  const marker = "STATE_INJECTION_UNSUPPORTED: @" + expectedAnnotation +
+    " requires native typed region and borrow lowering";
+  const matches = stderr.match(/STATE_INJECTION_UNSUPPORTED:/g) || [];
   // The LLVM parser reports one compiler-owned diagnostic per source. Requiring
   // a precise annotation identity prevents @Inject rejection from being used
   // as apparent proof that @StateBacked was ever parsed.
-  if (!stderr.includes(marker) ||
+  if (!stderr.includes(marker) || matches.length !== 1 ||
       !stderr.startsWith("oreslang-llvmc: ") ||
       /\n\s*(?:define |target |; ModuleID|\[IR\])/.test(stderr))
     throw Error("injected state was not rejected by the matching native compiler-owned capability gate");
