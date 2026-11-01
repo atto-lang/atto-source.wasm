@@ -85,6 +85,9 @@ test("opaque actor references reject cross-isolate numeric identity collisions",
   assert.equal(topic.publish(sameNumbers, "x").accepted, 1);
 
   assert.equal(second.retireActor(sameNumbers), true);
+  assert.throws(
+    () => second.registerActor({actorId: 7, incarnation: 9, kind: "shared"}),
+    /incarnation must increase monotonically/);
   const replacement = second.registerActor({actorId: 7, incarnation: 10, kind: "shared"});
   assert.equal(group.join(replacement), true);
   assert.throws(() => topic.tryRead(sameNumbers), /stale or cross-isolate/);
