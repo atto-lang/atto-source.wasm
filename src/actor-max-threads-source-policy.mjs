@@ -63,7 +63,32 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define" && tokens[i+1] === "enum"
         && tokens[i+2] === "MaxActorThreads")
       throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
-    if (tokens[i] === "define" && tokens[i+1] === "actor")
+    // All declared actor spellings normalize to an actor execution domain.
+    // In particular, a source preflight limited to "define actor" would let
+    // shared/iso/untrusted forms and the class-extends-Actor alias bypass the
+    // early scheduler capability denial. The real compiler still owns syntax.
+    if (tokens[i] === "define") {
+      let j = i + 1;
+      if (tokens[j] === "pub" || tokens[j] === "private") j++;
+      if (tokens[j] === "shared" || tokens[j] === "untrusted") j++;
+      if (tokens[j] === "actor" || tokens[j] === "isoactor" ||
+          tokens[j] === "supervisor") {
+        throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+      }
+      if (tokens[j] === "class") {
+        // Detect the intrinsic actor root without treating ordinary classes,
+        // comments or string contents as capability-bearing actor syntax.
+        const declaredName = tokens[j+1];
+        let cursor = j + 2;
+        if (declaredName && tokens[cursor] === "extends" &&
+            ["Actor","IsoActor","UntrustedActor"].includes(tokens[cursor+1])) {
+          throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+        }
+      }
+    }
+    if (tokens[i] === "actor" && (tokens[i+1] === "fnc" || tokens[i+1] === "routine"))
+      throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    if (tokens[i] === "spawn")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
   }
 }
