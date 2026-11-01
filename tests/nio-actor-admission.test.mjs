@@ -32,3 +32,30 @@ test("WASM default remains scalar-only and does not fake network/actors", () => 
   assert.throws(() => compileAdmittedCoreGuest(neverAdmitted),
     error => !/NIO|reactor threads|physical source actor|hard-real-time|legacy/.test(error.message));
 });
+
+
+test("unsupported TCP pooling and shared pointers reject before decoding any Wasm", () => {
+  const forbidden = [
+    {sharedTcpPool: true}, {sharedTcpPool: 1}, {sharedTcpPool: null},
+    {tcpPoolLeaseCount: 1}, {tcpPoolLeaseCount: -1},
+    {tcpPoolLeaseCount: "0"}, {tcpPoolLeaseCount: Number.NaN},
+    {tcpPoolPointerSharing: true}, {tcpPoolPointerSharing: "false"},
+    {sharedTcpPool: false, tcpPoolLeaseCount: 1},
+    {tcpSocketPool: true}, {tcpPoolLeases: 4},
+    {socketPool: 2}, {sharedTcpLease: true},
+    {connectionPoolPointer: "unsafe"}
+  ];
+  for (const options of forbidden) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /shared TCP pool\/lease\/pointer capability is unsupported/,
+      JSON.stringify(options)
+    );
+  }
+  // Explicitly inactive capabilities must not change core scalar admission.
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, {
+      sharedTcpPool: false, tcpPoolLeaseCount: 0, tcpPoolPointerSharing: false
+    }),
+    error => !/shared TCP pool\/lease\/pointer/.test(error.message));
+});
