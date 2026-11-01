@@ -34,6 +34,31 @@ test("model rejection offset counts UTF-8 bytes after Unicode comments",()=>{
    error.message.endsWith("at byte "+expected));
 });
 
+test("line comments end at CR and Unicode newlines before a model declaration",()=>{
+ for (const ending of ["\r","\r\n","\n","\u0085","\u2028","\u2029"]) {
+  const source="// comment"+ending+"define model x as Identity() end";
+  assert.throws(()=>rejectUnsupportedModelSource(bytes(source)),
+   /MODEL_LOWERING_UNSUPPORTED: wasm32/,"newline "+JSON.stringify(ending));
+ }
+});
+
+test("comment and quote tokenization fails closed on malformed delimiters",()=>{
+ for(const source of [
+   "/* unterminated define model x as Identity() end",
+   "/* ".repeat(129)+" */".repeat(129)+"define model x as Identity() end",
+   '"unterminated define model x as Identity() end',
+   "'unterminated define model x as Identity() end",
+   '"literal with newline\ndefine model x as Identity() end"'
+ ]) assert.throws(()=>rejectUnsupportedModelSource(bytes(source)),
+  /unterminated|nesting exceeds/);
+});
+
+test("nested comments cannot conceal a real model declaration",()=>{
+ assert.throws(()=>rejectUnsupportedModelSource(bytes(
+  "/* ignored /* define model Fake as Identity() end */ */ define model x as Identity() end"
+ )),/MODEL_LOWERING_UNSUPPORTED: wasm32/);
+});
+
 test("invalid UTF-8 rejects before source model scanning",()=>{
  assert.throws(()=>rejectUnsupportedModelSource(Uint8Array.from([0xc0,0xaf])),
    /encoded data was not valid/i);
