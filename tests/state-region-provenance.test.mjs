@@ -207,3 +207,81 @@ test("state-region version getters cannot execute before descriptor refusal", ()
   assert.throws(() => stateRegionRequirement(requirement), /accessor forbidden/);
   assert.equal(getterCalls, 0, "untrusted requirement getter executed");
 });
+
+
+test("proxy property get traps cannot run during provenance normalization", () => {
+  const base = {...vectors.borrow};
+  let getCalls = 0;
+  const proxy = new Proxy(base, {
+    get() {
+      getCalls++;
+      throw new Error("untrusted runtime provenance getter executed");
+    }
+  });
+  const frozen = stateRegionProvenance(proxy);
+  assert.equal(getCalls, 0);
+  assert.equal(frozen.executionId, base.executionId);
+  assert.equal(Object.isFrozen(frozen), true);
+  assert.equal(stateRegionAuthorizesRelease(frozen, vectors.validRelease), true);
+  assert.equal(getCalls, 0);
+
+  const requirement = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "write",
+    action: "borrow"
+  };
+  const symbolic = new Proxy(requirement, {
+    get() {
+      getCalls++;
+      throw new Error("untrusted compiler requirement getter executed");
+    }
+  });
+  const checked = stateRegionRequirement(symbolic);
+  assert.equal(getCalls, 0);
+  assert.equal(checked.loanId, requirement.loanId);
+  assert.equal(Object.isFrozen(checked), true);
+  assert.equal(stateRegionRequirementAuthorizesRelease(
+    checked, {...checked, action: "release"}), true);
+  assert.equal(getCalls, 0);
+});
+
+test("descriptor snapshot refuses hidden authority without invoking value reads", () => {
+  let getCalls = 0;
+  const target = {...vectors.borrow};
+  Object.defineProperty(target, "hostMemory", {
+    value: new ArrayBuffer(16), enumerable: false, configurable: true
+  });
+  const proxy = new Proxy(target, {
+    get() {
+      getCalls++;
+      throw new Error("provenance get trap executed");
+    }
+  });
+  assert.throws(() => stateRegionProvenance(proxy),
+    /unknown state-region provenance field/);
+  assert.equal(getCalls, 0);
+
+  const req = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "read",
+    action: "borrow",
+    executionId: 42
+  };
+  assert.throws(() => stateRegionRequirement(new Proxy(req, {
+    get() {
+      getCalls++;
+      throw new Error("requirement get trap executed");
+    }
+  })), /must not contain executionId/);
+  assert.equal(getCalls, 0);
+});
