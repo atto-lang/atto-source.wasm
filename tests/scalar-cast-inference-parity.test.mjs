@@ -142,7 +142,7 @@ for (const [id, filename, expectedGitBlob, isPositive] of [
   }
 }
 
-const REQUIRED_LLVM_SOURCE_SHA = "042c7ba7ecbfe237dd67eba560814d25405b0ecd";
+const REQUIRED_LLVM_SOURCE_SHA = "710dd9383214ad410224ccd5755649fd90ca1eb9";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
