@@ -28,4 +28,4 @@ jobs:
         with:
           node-version: '22'
       - name: Execute shared host reference and mutation suite (NOT Oreslang execution)
-        run: node --test tests/oresllm-scalar-contract.test.mjs
+        run: node --test tests/oresllm-scalar-contract.test.mjs tests/oresllm-backend-binding.test.mjs
