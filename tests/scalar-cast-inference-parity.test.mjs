@@ -167,8 +167,8 @@ const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
-  assert.equal(positive.length, 52);
-  assert.equal(negative.length, 34);
+  assert.equal(positive.length, 53);
+  assert.equal(negative.length, 36);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
