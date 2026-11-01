@@ -50,7 +50,7 @@ test("wrong injection annotation cannot be laundered as proof of another source"
   }
   const fakeIr = {
     ...nativeDenied,
-    stderr: nativeDenied.stderr + "\\ndefine i64 @main() { ret i64 42 }"
+    stderr: nativeDenied.stderr + "\ndefine i64 @main() { ret i64 42 }"
   };
   assert.throws(
     () => assertStateInjectionFrontendRejection(fakeIr, "Inject"),
