@@ -1,6 +1,7 @@
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {assertKnownCoreWasmOptions} from "./core-wasm-options.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
 // also enforce an aggregate per-tenant/process-level limit at its broker.
@@ -14,10 +15,17 @@ let activeGuestWorkers = 0;
  * Resolves only after the guest worker has terminated.
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
-export async function runIsolatedCoreGuest(input, {
-  expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
-} = {}) {
+export async function runIsolatedCoreGuest(input, options = {}) {
+  // A disposable Node worker is not a tenant-isolated OresVM. In particular,
+  // silently ignoring tenantId/isolateId/actorId or permissions would falsely
+  // imply those authority boundaries were enforced.
+  assertKnownCoreWasmOptions(options, [
+    "expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes", "timeoutMs"
+  ], "isolated runner");
+  const {
+    expectedSha256, entry = "main", maxMemoryPages = 2,
+    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
+  } = options;
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
