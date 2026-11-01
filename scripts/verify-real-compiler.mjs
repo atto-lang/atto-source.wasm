@@ -318,6 +318,15 @@ export async function verifyRealCompiler({
     // capability diagnostic for every canonical visibility/module spelling.
     for (const [name, body] of [
       ["root", "define singleton Settings as end\n"],
+      ["trait-injected",
+       "define singleton StateBank implements Stateful<BankState> as\n"
+       + "    @Inject\n"
+       + "    state: MutableStateContainer<BankState>\n"
+       + "end\n"],
+      ["inline-state",
+       "define singleton StateBank as\n"
+       + "    state { let count: int = 0 }\n"
+       + "end\n"],
       ["define-pub", "define pub singleton Settings as end\n"],
       ["pub-define", "pub define singleton Settings as end\n"],
       ["module", "define module app as\n define singleton Settings as end\n pub fnc main(): int { return 0; }\nend\n"]
