@@ -57,7 +57,24 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens.length > 100_000) throw Error("source token budget exceeded");
   }
 
+  // Modifiers are part of the actor declaration, not an alternate way
+  // around the missing Wasm guest scheduler. Reject all declaration prefixes
+  // while leaving identifier uses, comments and quoted examples untouched.
+  const actorModifiers = new Set([
+    "pub", "private", "shared", "untrusted", "serial", "http", "tcp",
+    "websocket", "unary", "stream", "abstract", "transform", "pipe"
+  ]);
   for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] === "define") {
+      let j = i + 1;
+      while (j < tokens.length && j < i + 12 && actorModifiers.has(tokens[j])) j++;
+      if (tokens[j] === "actor" || tokens[j] === "isoactor")
+        throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    }
+    if (tokens[i] === "isoactor"
+        || (tokens[i] === "actor"
+            && (tokens[i-1] === "shared" || tokens[i-1] === "untrusted")))
+      throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "enum"
