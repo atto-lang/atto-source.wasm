@@ -54,6 +54,26 @@ test('compiled wasm32 counter isolates independent instances', async t => {
       first.exports.main(), second.exports.main(),
     ], [1n, 1n, 2n, 2n]);
   });
+  await t.test('two actor-like instances cannot alias guest memory at equal offsets', () => {
+    // Same immutable Module, independent linear memories, no imported host
+    // memory. This is WebAssembly instance storage only; it does NOT prove
+    // Wasmtime actor-per-heap scheduling, IsolateVM, or source .ores lowering.
+    const a = new Uint8Array(first.exports.memory.buffer);
+    const b = new Uint8Array(second.exports.memory.buffer);
+    const address = 1024;
+    assert.equal(a[address], 0);
+    assert.equal(b[address], 0);
+    a[address] = 91;
+    assert.equal(b[address], 0, 'A offset must not alias B offset');
+    b[address] = 73;
+    assert.equal(a[address], 91, 'B write must not change A private memory');
+    const reincarnated = new WebAssembly.Instance(module);
+    const fresh = new Uint8Array(reincarnated.exports.memory.buffer);
+    assert.equal(fresh[address], 0, 'fresh instance memory must be zero-filled');
+    fresh[address] = 17;
+    assert.equal(a[address], 91);
+    assert.equal(b[address], 73);
+  });
   await t.test('memory growth is bounded at two Wasm pages per instance', () => {
     assert.equal(first.exports.memory.buffer.byteLength, 2 * 65536);
     assert.equal(second.exports.memory.buffer.byteLength, 2 * 65536);
