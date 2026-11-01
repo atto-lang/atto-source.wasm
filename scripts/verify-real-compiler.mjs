@@ -54,10 +54,20 @@ export function assertSelectFrontendRejection(frontend) {
     throw Error("select rejection did not come from the LLVM async/channel/select capability gate");
   return true;
 }
-export function assertStateInjectionFrontendRejection(frontend) {
+export function assertStateInjectionFrontendRejection(frontend, expectedAnnotation) {
   assertNativeFrontendRejection(frontend);
-  if (!String(frontend.stderr || "").includes("STATE_INJECTION_UNSUPPORTED: @"))
-    throw Error("injected state was not rejected by the native compiler-owned capability gate");
+  const supportedNames = new Set(["Inject", "StateBacked", "StateContainer", "MutableStateContainer"]);
+  if (!supportedNames.has(expectedAnnotation))
+    throw Error("expected state-injection annotation must be explicitly named");
+  const stderr = String(frontend.stderr || "");
+  const marker = "STATE_INJECTION_UNSUPPORTED: @" + expectedAnnotation;
+  // The LLVM parser reports one compiler-owned diagnostic per source. Requiring
+  // a precise annotation identity prevents @Inject rejection from being used
+  // as apparent proof that @StateBacked was ever parsed.
+  if (!stderr.includes(marker) ||
+      !stderr.startsWith("oreslang-llvmc: ") ||
+      /\n\s*(?:define |target |; ModuleID|\[IR\])/.test(stderr))
+    throw Error("injected state was not rejected by the matching native compiler-owned capability gate");
   return true;
 }
 export async function verifyRealCompiler({
@@ -88,19 +98,19 @@ export async function verifyRealCompiler({
     // All injected-state source must be refused by the real, SHA-pinned LLVM
     // frontend until typed region ownership/borrow lowering exists.
     const injectionSources = [
-      ["backed", "@StateBacked(MutableStateContainer(scope = #instance))\ndefine class Foo as\nstate {}\nend\n"],
-      ["injected", "@Inject(MutableStateContainer())\ndefine class Foo as\nstate {}\nend\n"],
-      ["provider", "@Inject(SessionState)\ndefine class Manager as\nend\n"]
+      ["backed", "StateBacked", "@StateBacked(MutableStateContainer(scope = #instance))\ndefine class Foo as\nstate {}\nend\n"],
+      ["injected", "Inject", "@Inject(MutableStateContainer())\ndefine class Foo as\nstate {}\nend\n"],
+      ["provider", "Inject", "@Inject(SessionState)\ndefine class Manager as\nend\n"]
     ];
     let firstInjectionSource;
-    for (const [name, body] of injectionSources) {
+    for (const [name, annotation, body] of injectionSources) {
       const source = join(work, "deny-state-injection-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
       if (!firstInjectionSource) firstInjectionSource = source;
       const denied = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      assertStateInjectionFrontendRejection(denied);
+      assertStateInjectionFrontendRejection(denied, annotation);
       if (sha256((await readBoundedRegularFile(pinnedCompiler, 256 * 1024 * 1024,
           "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
         throw Error("pinned compiler mutated during state-injection rejection test");
