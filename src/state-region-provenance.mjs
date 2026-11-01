@@ -7,6 +7,17 @@ const fields = Object.freeze([
   "executionSlot", "executionGeneration", "loanId"
 ]);
 
+// JSON Schema declares additionalProperties=false. Copying a known subset
+// must not silently bless a record carrying arbitrary guest memory authority.
+const allowedFields = new Set(["contractVersion", ...fields, "place", "kind", "action"]);
+function rejectUnknownFields(record) {
+  for (const name of Object.keys(record)) {
+    if (!allowedFields.has(name)) {
+      throw new TypeError("unknown state-region provenance field: " + name);
+    }
+  }
+}
+
 function positiveSafeInteger(value, name) {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(name + " must be a positive safe integer");
@@ -21,6 +32,7 @@ export function stateRegionProvenance(record) {
   if (record.contractVersion !== "1.0") {
     throw new TypeError("unsupported state-region provenance version");
   }
+  rejectUnknownFields(record);
   const out = {contractVersion: "1.0"};
   for (const name of fields) out[name] = positiveSafeInteger(record[name], name);
   if (typeof record.place !== "string" || record.place.trim().length === 0) {
