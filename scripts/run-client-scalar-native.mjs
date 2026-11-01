@@ -51,6 +51,16 @@ export function validateCompiler(path,pin){
  if(sha(readFileSync(path))!==pin)throw Error('compiler binary has wrong SHA-256');
  return true;
 }
+export function compilerOwnedDenial(stderr, expectedCategory) {
+ if(typeof stderr!=='string'||!(expectedCategory instanceof RegExp))return false;
+ // The compiler bridge wraps the real native compiler's stderr in this
+ // form. Other tool failures can mention the source name, so matching the
+ // whole JS stack (or stderr filename) is never enough.
+ const owned=/command failed \\(([^)]+)\\): ([^\\r\\n]+)/.exec(stderr);
+ return Boolean(owned&&owned[1].endsWith('/compiler-exact')&&
+   expectedCategory.test(owned[2])&&
+   !/segmentation fault|panicked at|stack backtrace|internal compiler error|fatal error/i.test(stderr));
+}
 export function runScalar(){
  const compiler=process.env.ORESLANG_LLVM_COMPILER;
  const compilerSha=process.env.ORESLANG_LLVM_COMPILER_SHA256;
@@ -86,10 +96,7 @@ export function runScalar(){
    // Inspect only the actual native frontend's diagnostic payload. Looking
    // for "unknown" in the whole stack could match the source filename and
    // falsely admit a Clang, runner, or artifact-publication failure.
-   const native=/command failed \\(([^)]+)\\): ([^\\r\\n]+)/.exec(denial.stderr);
-   if(!native||!native[1].endsWith('/compiler-exact')||
-      !diagnostic.test(native[2])||
-      /segmentation fault|panicked at|stack backtrace|internal compiler error|fatal error/i.test(denial.stderr))
+   if(!compilerOwnedDenial(denial.stderr,diagnostic))
      throw Error('wrong native compiler denial reason: '+name);
    for(const suffix of ['','.provenance.json','.artifact.json','.release.json',
                         '.current.json','.publication.lock']){
