@@ -51,3 +51,23 @@ test("shared scanner preserves token shape and identifier source offset", () => 
     {text:"(",offset:5,id:false}
   ]);
 });
+
+test("source scanner treats the precise 128 nesting limit as valid, 129 as invalid",()=>{
+  const valid="/*".repeat(128)+"*/".repeat(128)+"@Critical(1)";
+  assert.deepEqual(words(valid), ["@", "Critical", "(", "1", ")"]);
+  assert.throws(()=>words("/*".repeat(129)+"*/".repeat(129)),
+                /source comment nesting exceeded/);
+});
+
+test("truncated, overlong and surrogate-invalid UTF-8 cannot enter policy lexer",()=>{
+  for(const malformed of [
+    [0xe2,0x82], [0xc0,0xaf], [0xed,0xa0,0x80], [0xf4,0x90,0x80,0x80]
+  ]) assert.throws(()=>lexSourceAdmission(new Uint8Array(malformed)),
+                     /encoded|valid/i);
+});
+
+test("exact token ceiling is admitted but the first excess token is rejected",()=>{
+  assert.equal(lexSourceAdmission(bytes(";".repeat(100_000))).length,100_000);
+  assert.throws(()=>lexSourceAdmission(bytes(";".repeat(100_001))),
+                /source token budget exceeded/);
+});
