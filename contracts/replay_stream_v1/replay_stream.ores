@@ -2,6 +2,27 @@
 // Pure Oreslang policy; no sockets, codecs, persistence, timers, or FFI.
 // An authenticated transport adapter MUST validate ACK/stream identity.
 define module replay_stream as
+  // Coherent metadata snapshot; not the replay bytes and not a durable write.
+  // Stream/session identity and ACK authority belong to the trusted adapter.
+  pub define class ReplayCheckpoint as
+    pub val int generation;
+    pub val int capacity_bytes;
+    pub val int retained_from;
+    pub val int produced_until;
+    pub val int sent_until;
+    pub val int acked_until;
+
+    pub constructor(int generation, int capacity_bytes, int retained_from,
+                    int produced_until, int sent_until, int acked_until) {
+      self.generation = generation;
+      self.capacity_bytes = capacity_bytes;
+      self.retained_from = retained_from;
+      self.produced_until = produced_until;
+      self.sent_until = sent_until;
+      self.acked_until = acked_until;
+    }
+  end
+
   pub define class ReplayWindow as
     let int generation;
     let int capacity;
@@ -111,6 +132,12 @@ define module replay_stream as
         result.add(self.slots.get((offset + i) % self.capacity));
       }
       return Ok(result);
+    }
+
+    pub checkpoint(): ReplayCheckpoint {
+      return new ReplayCheckpoint(self.generation, self.capacity,
+                                  self.floor_offset, self.next_offset,
+                                  self.sent_offset, self.acked_offset);
     }
 
     pub retained_from(): int { return self.floor_offset; }
