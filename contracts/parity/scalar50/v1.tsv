@@ -1,0 +1,52 @@
+# oreslang-scalar-50-v1 | exact same source bytes across Java, LLVM, WASM, Cranelift, .NET
+# id<TAB>expected_signed_i64<TAB>complete_Oreslang_source
+scalar-001	7	pub fnc main(): int { return 1 + 2 * 3; }
+scalar-002	8	pub fnc main(): int { return 2 + 2 * 3; }
+scalar-003	9	pub fnc main(): int { return 3 + 2 * 3; }
+scalar-004	10	pub fnc main(): int { return 4 + 2 * 3; }
+scalar-005	11	pub fnc main(): int { return 5 + 2 * 3; }
+scalar-006	12	pub fnc main(): int { return 6 + 2 * 3; }
+scalar-007	13	pub fnc main(): int { return 7 + 2 * 3; }
+scalar-008	14	pub fnc main(): int { return 8 + 2 * 3; }
+scalar-009	15	pub fnc main(): int { return 9 + 2 * 3; }
+scalar-010	16	pub fnc main(): int { return 10 + 2 * 3; }
+scalar-011	9	pub fnc main(): int { return (1 + 2) * 3; }
+scalar-012	12	pub fnc main(): int { return (2 + 2) * 3; }
+scalar-013	15	pub fnc main(): int { return (3 + 2) * 3; }
+scalar-014	18	pub fnc main(): int { return (4 + 2) * 3; }
+scalar-015	21	pub fnc main(): int { return (5 + 2) * 3; }
+scalar-016	24	pub fnc main(): int { return (6 + 2) * 3; }
+scalar-017	27	pub fnc main(): int { return (7 + 2) * 3; }
+scalar-018	30	pub fnc main(): int { return (8 + 2) * 3; }
+scalar-019	33	pub fnc main(): int { return (9 + 2) * 3; }
+scalar-020	36	pub fnc main(): int { return (10 + 2) * 3; }
+scalar-021	78	pub fnc main(): int { return 80 - 1 * 2; }
+scalar-022	76	pub fnc main(): int { return 80 - 2 * 2; }
+scalar-023	74	pub fnc main(): int { return 80 - 3 * 2; }
+scalar-024	72	pub fnc main(): int { return 80 - 4 * 2; }
+scalar-025	70	pub fnc main(): int { return 80 - 5 * 2; }
+scalar-026	68	pub fnc main(): int { return 80 - 6 * 2; }
+scalar-027	66	pub fnc main(): int { return 80 - 7 * 2; }
+scalar-028	64	pub fnc main(): int { return 80 - 8 * 2; }
+scalar-029	62	pub fnc main(): int { return 80 - 9 * 2; }
+scalar-030	60	pub fnc main(): int { return 80 - 10 * 2; }
+scalar-031	92	pub fnc main(): int { return 100 - (1 + 3) * 2; }
+scalar-032	90	pub fnc main(): int { return 100 - (2 + 3) * 2; }
+scalar-033	88	pub fnc main(): int { return 100 - (3 + 3) * 2; }
+scalar-034	86	pub fnc main(): int { return 100 - (4 + 3) * 2; }
+scalar-035	84	pub fnc main(): int { return 100 - (5 + 3) * 2; }
+scalar-036	82	pub fnc main(): int { return 100 - (6 + 3) * 2; }
+scalar-037	80	pub fnc main(): int { return 100 - (7 + 3) * 2; }
+scalar-038	78	pub fnc main(): int { return 100 - (8 + 3) * 2; }
+scalar-039	76	pub fnc main(): int { return 100 - (9 + 3) * 2; }
+scalar-040	74	pub fnc main(): int { return 100 - (10 + 3) * 2; }
+scalar-041	49	pub fnc main(): int { return -1 + 50; }
+scalar-042	48	pub fnc main(): int { return -2 + 50; }
+scalar-043	47	pub fnc main(): int { return -3 + 50; }
+scalar-044	46	pub fnc main(): int { return -4 + 50; }
+scalar-045	45	pub fnc main(): int { return -5 + 50; }
+scalar-046	44	pub fnc main(): int { return -6 + 50; }
+scalar-047	43	pub fnc main(): int { return -7 + 50; }
+scalar-048	42	pub fnc main(): int { return -8 + 50; }
+scalar-049	41	pub fnc main(): int { return -9 + 50; }
+scalar-050	40	pub fnc main(): int { return -10 + 50; }
