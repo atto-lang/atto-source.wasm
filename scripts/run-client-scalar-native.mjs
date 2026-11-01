@@ -56,7 +56,7 @@ export function compilerOwnedDenial(stderr, expectedCategory) {
  // The compiler bridge wraps the real native compiler's stderr in this
  // form. Other tool failures can mention the source name, so matching the
  // whole JS stack (or stderr filename) is never enough.
- const owned=/command failed \\(([^)]+)\\): ([^\\r\\n]+)/.exec(stderr);
+ const owned=/command failed \(([^)]+)\): ([^\r\n]+)/.exec(stderr);
  return Boolean(owned&&owned[1].endsWith('/compiler-exact')&&
    expectedCategory.test(owned[2])&&
    !/segmentation fault|panicked at|stack backtrace|internal compiler error|fatal error/i.test(stderr));
