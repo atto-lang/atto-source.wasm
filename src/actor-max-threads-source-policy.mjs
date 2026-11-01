@@ -71,9 +71,26 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       if (tokens[j] === "actor" || tokens[j] === "isoactor")
         throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     }
-    if (tokens[i] === "isoactor"
-        || (tokens[i] === "actor"
-            && (tokens[i-1] === "shared" || tokens[i-1] === "untrusted")))
+    // The Java frontend also accepts bare "actor A1 as ... end",
+    // "actor fnc ..." and "fnc actor ..." declaration families.
+    // A normal variable named actor or property access actor.send() is
+    // not a declaration; inspect adjacent grammar tokens, not substrings.
+    const actorToken = tokens[i] === "actor" || tokens[i] === "isoactor";
+    const next = tokens[i+1], afterNext = tokens[i+2];
+    const actorCallable = actorToken &&
+      (next === "fnc" || next === "routine" ||
+       (actorModifiers.has(next) &&
+        (tokens.slice(i+2,i+8).includes("fnc") ||
+         tokens.slice(i+2,i+8).includes("routine"))));
+    const bareActor = actorToken && (
+      tokens[i] === "isoactor" ||
+      (tokens[i-1] === "shared" || tokens[i-1] === "untrusted") ||
+      (next && /^[A-Z_][A-Za-z0-9_]*$/.test(next) &&
+       (["as","{","extends","implements","impl","<"].includes(afterNext))) ||
+      actorCallable);
+    if (bareActor ||
+        (actorToken && (tokens[i-1] === "fnc" || tokens[i-1] === "routine") &&
+         tokens[i+1] && /^[A-Za-z_]/.test(tokens[i+1])))
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
