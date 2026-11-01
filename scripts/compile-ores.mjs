@@ -119,7 +119,10 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
  for(let i=0;i<tokens.length;i++){
   const token=tokens[i];
   if(!token.id)continue;
-  if(nominal.has(token.text)&&
+  // A user-defined function named Box/Arc is not a heap type use.
+  const declaration=tokens[i-1]?.id&&
+      ["fnc","routine"].includes(tokens[i-1].text);
+  if(!declaration&&nominal.has(token.text)&&
       ["<","[","("].includes(tokens[i+1]?.text)){
    throw Error("wasm heap/container ownership ABI unsupported: "+
       token.text+" at byte "+token.offset);
