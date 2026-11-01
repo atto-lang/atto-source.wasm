@@ -55,7 +55,7 @@ function validate(input){
     ['compile_reject',input.compile_reject]
   ]){
     for(const x of entries){
-      const allowed=kind==='positive'?['expression','expected_i64','id']:['expression','id'];
+      const allowed=kind==='positive'?['expected_i64','expression','id']:['expression','id'];
       assert.deepEqual(Object.keys(x).sort(),allowed,'unexpected/missing '+kind+' fields');
       assert.equal(x.expression.trim(),x.expression,'expression must be canonical');
       assert.ok(!expressions.has(x.expression),'duplicate expression '+x.expression);
