@@ -25,7 +25,7 @@ function admitCompiler(env){
 }
 async function corpus(){
   const bytes=await readFile(manifestUrl);
-  const actualBlob=createHash("sha1").update(Buffer.from("blob "+bytes.length+"\\0","ascii"))
+  const actualBlob=createHash("sha1").update(Buffer.from("blob "+bytes.length+"\0","ascii"))
     .update(bytes).digest("hex");
   assert.equal(actualBlob,reviewedBlobSha,"shared corpus Git blob changed without reviewed pin");
   const data=JSON.parse(bytes.toString("utf8"));
