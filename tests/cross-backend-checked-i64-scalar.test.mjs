@@ -193,3 +193,23 @@ test("Oreslana checked overflow cannot be hidden by multiplication by zero",asyn
   if(!main)return;
   assert.throws(()=>main(),WebAssembly.RuntimeError);
 });
+
+// Orestra-inspired scalar capacity arithmetic: this does NOT execute the
+// Orestra scheduler, CAS admission, actor authority, or network transport.
+// Pin a real LLVM compiler and observe the no-import wasm32 guest result.
+for (const [name, expression, expected] of [
+  ["reservation-capacity-zero", "(1000 - 600) - 400", 0n],
+  ["reservation-capacity-boundary", "(9223372036854775807 - 9223372036854775700) - 65", 42n],
+  ["runtime-nonzero-canary", "73", 73n],
+]) {
+  test("Orestra-inspired native wasm32 scalar gate: "+name, async t=>{
+    const main=await compileMain(t, expression);
+    if(!main)return;
+    assert.equal(main(),expected,"actual wasm32 guest result, not host arithmetic");
+  });
+}
+test("Orestra-inspired receiver-bound overflow must not wrap",async t=>{
+  const main=await compileMain(t,"(9223372036854775807 + 1) - 1");
+  if(!main)return;
+  assert.throws(()=>main(),WebAssembly.RuntimeError);
+});
