@@ -51,8 +51,25 @@ try {
 
   // Reject missing language support only through compiler-owned diagnostics.
   // A missing clang/toolchain/bridge MUST NOT count as a negative-language pass.
-  for(const name of ["generic-state","actor-owned"]){
-    const negative=join(root,"examples/stategraph-portability",name+".ores");
+  for(const name of ["shared-generic-state","actor-owned"]){
+    const negative=name==="shared-generic-state"
+      ? join(root,"contracts/stategraph-portability/shared-generic-state.ores")
+      : join(root,"examples/stategraph-portability",name+".ores");
+    if(name==="shared-generic-state") {
+      const actual=await readFile(negative);
+      assert.equal(actual.toString("utf8"),
+        "// Nominal generic graph state, owned immutable value.\n"+
+        "define pub class GraphState<T> as\n"+
+        "  pub val T value;\n"+
+        "  pub constructor(T value) {\n"+
+        "    self.value = value;\n"+
+        "  }\n"+
+        "end\n\n"+
+        "pub fnc main(): int {\n"+
+        "  val GraphState<int> initial = new GraphState<int>(42);\n"+
+        "  return initial.value;\n"+
+        "}\n");
+    }
     assert.equal((await stat(negative)).isFile(),true);
     const result=spawnSync(pinned,["--target=wasm32",negative],{
       encoding:"utf8",timeout:30000,maxBuffer:65536
