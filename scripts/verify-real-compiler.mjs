@@ -54,6 +54,12 @@ export function assertSelectFrontendRejection(frontend) {
     throw Error("select rejection did not come from the LLVM async/channel/select capability gate");
   return true;
 }
+export function assertStateInjectionFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes("STATE_INJECTION_UNSUPPORTED: @"))
+    throw Error("injected state was not rejected by the native compiler-owned capability gate");
+  return true;
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -78,6 +84,47 @@ export async function verifyRealCompiler({
   try {
     const pinnedCompiler = join(work, "pinned-oreslang-llvmc");
     await writeFile(pinnedCompiler, compilerBytes, {flag:"wx",mode:0o500});
+    // WASM intentionally delegates guest Oreslang source semantics to LLVM.
+    // All injected-state source must be refused by the real, SHA-pinned LLVM
+    // frontend until typed region ownership/borrow lowering exists.
+    const injectionSources = [
+      ["backed", "@StateBacked(MutableStateContainer(scope = #instance))\\ndefine class Foo as\\nstate {}\\nend\\n"],
+      ["injected", "@Inject(MutableStateContainer())\\ndefine class Foo as\\nstate {}\\nend\\n"],
+      ["provider", "@Inject(SessionState)\\ndefine class Manager as\\nend\\n"]
+    ];
+    let firstInjectionSource;
+    for (const [name, body] of injectionSources) {
+      const source = join(work, "deny-state-injection-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      if (!firstInjectionSource) firstInjectionSource = source;
+      const denied = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertStateInjectionFrontendRejection(denied);
+      if (sha256((await readBoundedRegularFile(pinnedCompiler, 256 * 1024 * 1024,
+          "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during state-injection rejection test");
+    }
+    const rejectedOutput = join(work, "denied-state-injection.wasm");
+    let bridgeRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:firstInjectionSource,
+        output:rejectedOutput, environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      bridgeRejected = true;
+    }
+    if (!bridgeRejected)
+      throw Error("unlowered injected state reached Wasm bridge publication");
+    try {
+      await stat(rejectedOutput + ".current.json");
+      throw Error("injected state published a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const output = join(work, "real.wasm");
     const published = await compileOresToWasm({
       compiler:pinnedCompiler, compilerSha256, source:realSource, output,
