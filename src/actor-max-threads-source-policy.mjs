@@ -65,7 +65,13 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       throw Error("WASM Oreslang 'async' modifier removed: use suspends");
     if (tokens[i] === "suspends" || tokens[i] === "suspend")
       throw Error("WASM Oreslang suspends requires continuation lowering");
-    if (tokens[i] === "critical")
+    // 'critical' remains contextual in Oreslang. Scalar identifiers named
+    // critical must not be mistaken for unlowered protected execution.
+    if (tokens[i] === "critical" && (
+        ["{", "fnc", "routine", "method", "suspends", "suspend"].includes(tokens[i+1]) ||
+        ["try", "suspends", "suspend"].includes(tokens[i-1]) ||
+        (["pub", "private"].includes(tokens[i-1]) && tokens[i+2] === "(")
+    ))
       throw Error("WASM Oreslang critical requires scheduler-owned guard lowering");
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
