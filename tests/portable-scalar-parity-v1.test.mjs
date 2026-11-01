@@ -38,7 +38,7 @@ async function corpus(){
     assert.match(item.id,/^[a-z][a-z0-9-]{1,79}$/);
     assert.equal(ids.has(item.id),false,"duplicate corpus ID");
     ids.add(item.id);
-    assert.match(item.expression,/^[0-9_()+*%/^ -]{1,128}$/,"unreviewed source grammar");
+    assert.match(item.expression,/^[0-9_()+*%^\/ -]{1,128}$/,"unreviewed source grammar");
   }
   for(const item of data.positive){
     assert.match(item.expression,/^[0-9_()+* -]{1,128}$/,"positive case has forbidden operator");
