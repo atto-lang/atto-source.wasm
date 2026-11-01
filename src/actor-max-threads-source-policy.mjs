@@ -63,15 +63,25 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define" && tokens[i+1] === "enum"
         && tokens[i+2] === "MaxActorThreads")
       throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
-    if (tokens[i] === "define" && tokens[i+1] === "actor")
-      throw Error("WASM source actor execution unsupported: no guest actor scheduler");
-    // The scalar-only source bridge has no state-region loan lowering, typed
-    // model graph, keyed grain lifecycle or supervisor CONTROL semantics.
-    // These remain contextual identifiers in unrelated source locations:
-    // only a tokenized declaration introducer is rejected.
+    // The scalar-only source bridge has no type-directed actor activation,
+    // state-region loans, typed model graph, or supervisor CONTROL semantics.
+    // Recognize declaration tokens, not text in comments/strings. Source
+    // modifiers are contextual and must not bypass capability admission.
     if (tokens[i] === "define") {
-      const first = tokens[i+1] === "pub" ? i+2 : i+1;
-      const kind = tokens[first];
+      let first=i+1;
+      const modifiers=new Set([
+        "pub","private","abstract","shared","untrusted",
+        "serial","http","tcp","ws","websocket","unary","stream"
+      ]);
+      for(let n=0;n<16 && modifiers.has(tokens[first]);n++)first++;
+      const kind=tokens[first];
+      if(kind==="actor" || kind==="isoactor")
+        throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+      if(kind==="enum") {
+        if(tokens[first+1]==="MaxActorThreads")
+          throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+        throw Error("WASM DECL_KIND_UNSUPPORTED: enum requires nominal tagged-case ABI lowering");
+      }
       const pair = kind === "state" && tokens[first+1] === "container"
         ? "state container" : kind === "proxy" && tokens[first+1] === "actor"
         ? "proxy actor" : null;
@@ -79,10 +89,9 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
         "grain", "supervisor", "scheduler", "mailman",
         "model", "protocol", "service"
       ].includes(kind) ? kind : null);
-      if (unsupported) {
+      if (unsupported)
         throw Error("WASM DECL_KIND_UNSUPPORTED: " + unsupported
           + " requires verified nominal identity/ownership lowering");
-      }
     }
   }
 }
