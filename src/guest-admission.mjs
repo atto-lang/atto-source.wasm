@@ -47,6 +47,11 @@ export function compileAdmittedCoreGuest(input, {
       Object.keys(additionalOptions).some(key =>
         /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i.test(key)))
     throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
+  // This profile has no extensible host-capability namespace. Reject ANY
+  // unrecognized option, including false-valued typos and Symbol keys, rather
+  // than silently implying that a requested capability was provided.
+  if (Reflect.ownKeys(additionalOptions).length !== 0)
+    throw new TypeError("WASM rejects unknown core-guest admission options");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
