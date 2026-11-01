@@ -179,3 +179,39 @@ test("recognized primitive option types retain existing optional defaults", asyn
     timeoutMs: undefined, entry: undefined, expectedSha256: undefined
   }), /expected core WebAssembly bytes/);
 });
+
+test("denied authority does not touch hostile input bytes or worker setup", async () => {
+  let traps = 0;
+  const hostileBytes = new Proxy({}, {
+    get() { traps++; throw Error("input getter must not execute"); },
+    getPrototypeOf() { traps++; throw Error("input prototype must not execute"); },
+    ownKeys() { traps++; throw Error("input keys must not be read"); }
+  });
+  for (const option of [
+    {tenantId: "tenant-1"},
+    {capabilities: ["network"]},
+    {isolateId: "isolate-1"},
+    {permissions: {net: true}},
+    {entry: "main", actorPlacement: "private"}
+  ]) {
+    assert.throws(() => compileAdmittedCoreGuest(hostileBytes, option),
+      /unsupported core Wasm guest admission option/);
+    await assert.rejects(runIsolatedCoreGuest(hostileBytes, option),
+      /unsupported core Wasm isolated runner option/);
+  }
+  assert.equal(traps, 0, "invalid authority must reject before visiting guest bytes");
+});
+
+test("unsupported authority cannot hide behind an accepted value", async () => {
+  const unsupportedSecurityKeys = [
+    "isolation", "sandbox", "allowNet", "allowRead", "allowWrite",
+    "tenantQuota", "actorHeap", "actorMailbox", "wasmtimeFuel",
+    "wasi", "physicalActor", "workerPermissions"
+  ];
+  for (const key of unsupportedSecurityKeys) {
+    assert.throws(() => compileAdmittedCoreGuest(null, {entry: "main", [key]: false}),
+      new RegExp("unsupported core Wasm guest admission option: " + key));
+    await assert.rejects(runIsolatedCoreGuest(null, {entry: "main", [key]: false}),
+      new RegExp("unsupported core Wasm isolated runner option: " + key));
+  }
+});
