@@ -3,6 +3,7 @@
 const MAX_BYTES = 1024 * 1024;
 export class FrozenTcpSlab {
   #bytes;
+  #size;
   #pins = new WeakSet();
   #pinCount = 0;
   #retiring = false;
@@ -19,10 +20,11 @@ export class FrozenTcpSlab {
         throw new TypeError('TCP slab requires unsigned byte values');
       copy.push(byte);
     }
+    this.#size = copy.length;
     this.#bytes = Object.freeze(copy);
   }
-  get size() { return this.#bytes.length; }
-  get freed() { return this.#retiring && this.#pinCount === 0; }
+  get size() { return this.#size; }
+  get freed() { return this.#bytes === null; }
   get pinCount() { return this.#pinCount; }
   pin() {
     if (this.#retiring) throw new Error('slab retired');
@@ -34,6 +36,7 @@ export class FrozenTcpSlab {
   }
   readByte(pin, index) {
     if (!this.#pins.has(pin)) throw new Error('invalid TCP slab pin');
+    if (this.#bytes === null) throw new Error('TCP slab storage retired');
     if (!Number.isSafeInteger(index) || index < 0 || index >= this.#bytes.length)
       throw new RangeError('TCP slab byte index');
     return this.#bytes[index];
@@ -42,7 +45,14 @@ export class FrozenTcpSlab {
     if (!this.#pins.has(pin)) return false;
     this.#pins.delete(pin);
     this.#pinCount--;
+    this.#finalize();
     return true;
   }
-  retire() { this.#retiring = true; }
+  retire() { this.#retiring = true; this.#finalize(); }
+  #finalize() {
+    // Drop the private backing region after the final physical I/O/reader pin.
+    // This releases ownership for JS GC; it is NOT secure memory zeroization.
+    // The trusted transport owner must call retire only after kernel IO quiesces.
+    if (this.#retiring && this.#pinCount === 0) this.#bytes = null;
+  }
 }
