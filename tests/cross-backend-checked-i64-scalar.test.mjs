@@ -76,7 +76,7 @@ for(const [name,expression] of [
     const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-reject-"));
     t.after(()=>rm(dir,{recursive:true,force:true}));
     const source=join(dir,"negative.ores"),output=join(dir,"negative.wasm");
-    await writeFile(source,header+"pub fnc main(): int { return "+expression+"; }\\n".replace("\\n","\n"));
+    await writeFile(source,header+"pub fnc main(): int { return "+expression+"; }\n");
     await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
     await assert.rejects(()=>readFile(output),"rejected compiler must not publish Wasm");
   });
