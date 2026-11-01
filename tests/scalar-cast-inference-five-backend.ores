@@ -1,0 +1,7 @@
+// Byte-identical five-backend immutable/inference/cast core.
+pub fnc main(): int {
+  int x = 7;
+  const y = x;
+  const int z = y as int;
+  return z + 35;
+}

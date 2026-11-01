@@ -74,6 +74,8 @@ const negative = [
   ["unknown-target", main("const x=7 as Phantom;return 0;"), /checked cast requires a scalar/],
   ["chained-mismatch", main("const x=7 as bool as int;return 0;"), /impossible native cast/],
   ["immutable-write", main("const x=7 as int;x=8;return 0;"), /(?:immutable|assign|readonly|cannot)/i],
+  ["type-first-immutable-write", main("int x=7;x=8;return x;"), /(?:immutable|assign|readonly|cannot)/i],
+  ["type-first-int-mismatch", main("int x=true;return 0;"), /requires int, got bool/],
   ["inferred-bool-into-int-return", main("const x=true;return x;"), /return requires int, got bool/],
   ["numeric-alias-mismatch", "declare type Flag=bool;"+main("const x=7 as Flag;return 0;"), /impossible native cast/],
   ["nominal-handle-cast", main("const Option<int> x=Some(7);const int y=x as int;return 0;"), /(?:nominal|aggregate|inferred scalar)/i],
@@ -142,14 +144,31 @@ for (const [id, filename, expectedGitBlob, isPositive] of [
   }
 }
 
-const REQUIRED_LLVM_SOURCE_SHA = "710dd9383214ad410224ccd5755649fd90ca1eb9";
+const fiveBackendFixtureBytes = readFileSync(
+  new URL("./scalar-cast-inference-five-backend.ores", import.meta.url)
+);
+const fiveBackendFixtureBlob = createHash("sha1")
+  .update("blob " + fiveBackendFixtureBytes.length + "\0")
+  .update(fiveBackendFixtureBytes)
+  .digest("hex");
+assert.equal(
+  fiveBackendFixtureBlob,
+  "6c9add16ad7ca6f0e0eefbe646f663f17181bbd6",
+  "five-backend immutable/inference/cast fixture has source drift"
+);
+positive.push([
+  "five-backend-byte-identical-fixture",
+  fiveBackendFixtureBytes.toString("utf8")
+]);
+
+const REQUIRED_LLVM_SOURCE_SHA = "37de13e47e49acc2e9ca96456cd30507c2541799";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
   assert.equal(positive.length, 52);
-  assert.equal(negative.length, 33);
+  assert.equal(negative.length, 34);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
