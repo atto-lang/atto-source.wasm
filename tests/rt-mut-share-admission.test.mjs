@@ -16,7 +16,16 @@ test("host failure, generic parser error and a substituted compiler fail closed"
     "command failed (/tmp/private/compiler-exact): oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability\nSIGSEGV",
     valid + "\ndefine i64 @main() {",
     valid + "\n; ModuleID = fake",
-    valid + "\ntarget triple = fake"
+    valid + "\ntarget triple = fake",
+    valid + "\nsource_filename = pretend",
+    valid + "\ndeclare i32 @escaped()",
+    valid + "\nattributes #0 = { nounwind }",
+    valid.replace(", guarded lowering and allocation-domain proof", "")
   ]) assert.throws(() => assertNativeMutShareDenial({message}), undefined, message);
   assert.throws(() => assertNativeMutShareDenial({message:valid,signal:"SIGKILL"}));
+  for (const failure of [
+    {code:"ENOENT"}, {errno:-2}, {syscall:"spawn"}, {cause:new Error("host failure")},
+    {status:0}, {status:NaN}, {status:-1}
+  ]) assert.throws(() => assertNativeMutShareDenial({message:valid,...failure}),
+    undefined, "host failure metadata and successful status must not count as compiler denial");
 });
