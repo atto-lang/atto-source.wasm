@@ -105,6 +105,25 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
+export function rejectUnsupportedActorPubSubSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const current=tokens[i];
+  const actorGroupCall=
+    current?.id && current.text==="actor" &&
+    tokens[i+1]?.text==="." && tokens[i+2]?.id &&
+    tokens[i+2].text==="group";
+  const typedHandle=
+    current?.id && (current.text==="Topic" || current.text==="Subscription") &&
+    tokens[i+1]?.text==="<";
+  const typedTopicCall=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
+  if(actorGroupCall || typedHandle || typedTopicCall)
+   throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -247,6 +266,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
+ // Reject before invoking LLVM or staging any guest artifact.
+ rejectUnsupportedActorPubSubSource(sourceBytes);
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
