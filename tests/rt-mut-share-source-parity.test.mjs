@@ -1,0 +1,66 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
+import {mkdtemp, writeFile, rm, stat} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
+
+// This is an executable LLVM-source -> Wasm publication gate, not a native
+// SharedMutex implementation. Missing compiler evidence must not count as pass.
+test("rt mut share refuses unsynchronized aliases without publishing wasm", {
+  timeout: 180000,
+  skip: !process.env.ORESLANG_LLVM_COMPILER
+    && process.env.ORESLANG_MUT_SHARE_PARITY_REQUIRED !== "1"
+}, async () => {
+  const compiler = process.env.ORESLANG_LLVM_COMPILER;
+  assert.ok(compiler, "real LLVM compiler is required for guarded sharing gate");
+  const compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  assert.match(compilerSha256 ?? "", /^[a-f0-9]{64}$/, "must pin real compiler bytes");
+  assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA ?? "", /^[a-f0-9]{40}$/,
+    "must pin the exact LLVM compiler source head");
+  const snapshot = await readBoundedRegularFile(compiler, 256 * 1024 * 1024,
+    "invalid native compiler binary");
+  assert.equal(createHash("sha256").update(snapshot.bytes).digest("hex"),
+    compilerSha256, "compiler bytes differ from attested exact head");
+
+  const root = await mkdtemp(join(tmpdir(), "ores-wasm-mutshare-"));
+  try {
+    const expressions = [
+      "rt mut share 42",
+      "(rt mut share 42)",
+      "1 + (rt mut share 2)",
+      "rt mut share (rt borrow 3)",
+      "rt mut share (rt mut borrow 4)",
+      "rt mut share (rt mut share 5)"
+    ];
+    for (const [index, expression] of expressions.entries()) {
+      const source = join(root, `case-${index}.ores`);
+      const output = join(root, `case-${index}.wasm`);
+      await writeFile(source, `pub fnc main():int{return ${expression};}\n`);
+      await assert.rejects(
+        compileOresToWasm({
+          compiler, compilerSha256, source, output,
+          environment: "browser", publication: "atomic"
+        }),
+        error => {
+          assert.match(error.message,
+            /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /,
+            "must be the pinned native compiler, not a host/Clang failure");
+          assert.match(error.message,
+            /native rt mut share requires verified SharedMutex<T> capability/,
+            "must fail with the dedicated unsupported guarded-sharing diagnostic");
+          assert.doesNotMatch(error.message, /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL/,
+            "infrastructure failure must not count as a negative compiler test");
+          return true;
+        }
+      );
+      for (const candidate of [output, output + ".current.json"]) {
+        await assert.rejects(stat(candidate), {code:"ENOENT"},
+          "rejected mutable sharing must never publish a Wasm artifact");
+      }
+    }
+  } finally {
+    await rm(root, {recursive:true, force:true});
+  }
+});
