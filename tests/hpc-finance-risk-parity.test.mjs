@@ -102,3 +102,23 @@ test("hpc finance WASM binary64 guest capability must remain unclaimed",()=>{
     "binary64 support needs executed source-level Wasm guest proof before promotion");
   assert.equal(capabilities.capabilities.source_division_to_float,"unsupported_explicit");
 });
+
+test("hpc finance 11-guest contract is pinned but explicitly UNEXECUTED",()=>{
+  const manifestBytes=readFileSync(
+    new URL("../contracts/v1/hpc-finance/guest-manifest.json",import.meta.url));
+  const blob=createHash("sha1").update(
+    Buffer.from("blob "+manifestBytes.length+"\\0","ascii"))
+    .update(manifestBytes).digest("hex");
+  assert.equal(blob,"062cff056919708b2cc9e6f9a6f4cb6ec00661e8");
+  const manifest=JSON.parse(manifestBytes.toString("utf8"));
+  assert.equal(manifest.status,"authored-not-compiler-executed");
+  assert.equal(manifest.programs.length,11);
+  assert.equal(manifest.programs.reduce((sum,item)=>sum+item.assertions,0),182);
+  assert.equal(manifest.risk_fixture_git_blob,expectedBlob);
+  assert.deepEqual(manifest.expected_reason_distribution,[2,24,12,6,60,48,16,12]);
+  assert.equal(new Set(manifest.programs.map(x=>x.id)).size,11);
+  for(const p of manifest.programs) {
+    assert.match(p.git_blob,/^[a-f0-9]{40}$/);
+    assert.match(p.path,/^tests\/[a-z0-9_]+\.ores$/);
+  }
+});
