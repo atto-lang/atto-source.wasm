@@ -17,12 +17,9 @@ define module replay_stream as
       fi
       self.generation = generation;
       self.capacity = capacity_bytes;
-      // Fixed number of logical byte cells; never retain source arrays.
+      // Slots grow lazily, but never beyond capacity_bytes logical bytes.
       // Array<int> physical memory is larger than capacity_bytes. A byte
       // storage backend is needed before making RSS/zero-copy guarantees.
-      for (let int i = 0; i < capacity_bytes; i = i + 1) {
-        self.slots.add(0);
-      }
     }
 
     // Only the owner actor may mutate this window. A caller must not
@@ -52,7 +49,11 @@ define module replay_stream as
       let int end_offset = self.next_offset + count;
       for (let int i = 0; i < count; i = i + 1) {
         let int index = (self.next_offset + i) % self.capacity;
-        self.slots.set(index, bytes.get(i));
+        if index == self.slots.size; do
+          self.slots.add(bytes.get(i));
+        else
+          self.slots.set(index, bytes.get(i));
+        fi
       }
       self.next_offset = end_offset;
       if self.next_offset - self.floor_offset > self.capacity; do
