@@ -1,0 +1,114 @@
+{
+  "schema": "ores-liveview-event-fingerprint-v1",
+  "purpose": "Host reference SHA-256 replay equivalence golden oracle; native guest execution is NOT attested",
+  "encoding": "UTF-8 SHA-256 over JSON.stringify([user,event_name,base_rev,canonical_payload_json]) using ECMAScript JSON scalar encoding and recursively sorted ASCII JSON-object keys",
+  "cases": [
+    {
+      "id": "empty-payload",
+      "user": "alice",
+      "name": "increment",
+      "payload": {},
+      "base_rev": 0,
+      "canonical_payload_json": "{}",
+      "sha256": "cd8df1b4515740ed10236ae472abe0b8be2ecd3a3ae3d709eca695ed07eb781c"
+    },
+    {
+      "id": "unordered-keys",
+      "user": "alice",
+      "name": "increment",
+      "payload": {
+        "z": 3,
+        "a": 1,
+        "b": 2
+      },
+      "base_rev": 3,
+      "canonical_payload_json": "{\"a\":1,\"b\":2,\"z\":3}",
+      "sha256": "17b5c8d095e783f5835f30f0066fd73e1f5b9a4f7016be3d9929b2b8926d8abb"
+    },
+    {
+      "id": "nested-and-arrays",
+      "user": "alice",
+      "name": "increment",
+      "payload": {
+        "items": [
+          {
+            "z": 2,
+            "a": 1
+          },
+          {
+            "tag": "ok"
+          }
+        ],
+        "active": true,
+        "optional": null
+      },
+      "base_rev": 12,
+      "canonical_payload_json": "{\"active\":true,\"items\":[{\"a\":1,\"z\":2},{\"tag\":\"ok\"}],\"optional\":null}",
+      "sha256": "2a8113d62f0d7cf2b3ab25396ecffe1ad470e0d172e73405eb7730a9aad4be93"
+    },
+    {
+      "id": "emoji-utf8",
+      "user": "alice",
+      "name": "submit_form",
+      "payload": {
+        "message": "hi 🌐",
+        "array": [
+          "🔒",
+          "é",
+          "\n"
+        ]
+      },
+      "base_rev": 1,
+      "canonical_payload_json": "{\"array\":[\"🔒\",\"é\",\"\\n\"],\"message\":\"hi 🌐\"}",
+      "sha256": "e4aaea45286a06aad91c011758a6e52a5758290fb5195c3c70f8c2142f6b21b9"
+    },
+    {
+      "id": "decimal-and-zero",
+      "user": "alice",
+      "name": "increment",
+      "payload": {
+        "n": 0,
+        "decimal": 1.25,
+        "tiny": 0.000001
+      },
+      "base_rev": 0,
+      "canonical_payload_json": "{\"decimal\":1.25,\"n\":0,\"tiny\":0.000001}",
+      "sha256": "26c1855887a895e775c41112b0a62c341065371ced483ccde7c7308ff8f9071b"
+    },
+    {
+      "id": "different-user",
+      "user": "bob",
+      "name": "increment",
+      "payload": {
+        "a": 1,
+        "b": 2
+      },
+      "base_rev": 3,
+      "canonical_payload_json": "{\"a\":1,\"b\":2}",
+      "sha256": "755b2abe11f76c85dd131fa54da8c527976be1b5aff7dbc26e468096918e1ba9"
+    },
+    {
+      "id": "negative-exponent",
+      "user": "alice",
+      "name": "update",
+      "payload": {
+        "n": 1e-7,
+        "max": 9007199254740991
+      },
+      "base_rev": 17,
+      "canonical_payload_json": "{\"max\":9007199254740991,\"n\":1e-7}",
+      "sha256": "38c80d53b7ed56a467620cadd4cd63cf600f228b8948c40f5071846e68a6ff98"
+    },
+    {
+      "id": "escaped-string",
+      "user": "alice",
+      "name": "update",
+      "payload": {
+        "msg": "\"quote\" \\ slash\t tab"
+      },
+      "base_rev": 20,
+      "canonical_payload_json": "{\"msg\":\"\\\"quote\\\" \\\\ slash\\t tab\"}",
+      "sha256": "597ab933b4fc895f8e37f8c8da450676a95a8cc7d1f7bed0cbde30e9b6c8ca68"
+    }
+  ]
+}
