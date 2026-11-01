@@ -80,6 +80,20 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
         // comments or string contents as capability-bearing actor syntax.
         const declaredName = tokens[j+1];
         let cursor = j + 2;
+        // Class generics precede the extends clause. Skip them with a
+        // bounded balanced delimiter walk so A<T> extends Actor is not
+        // mistaken for an ordinary class by this early source gate.
+        if (tokens[cursor] === "<") {
+          let depth = 1;
+          cursor++;
+          while (cursor < tokens.length && depth > 0) {
+            if (tokens[cursor] === "<") depth++;
+            else if (tokens[cursor] === ">") depth--;
+            cursor++;
+            if (depth > 128) throw Error("source class generic nesting exceeded");
+          }
+          if (depth) throw Error("unterminated class generic parameters");
+        }
         if (declaredName && tokens[cursor] === "extends" &&
             ["Actor","IsoActor","UntrustedActor"].includes(tokens[cursor+1])) {
           throw Error("WASM source actor execution unsupported: no guest actor scheduler");
