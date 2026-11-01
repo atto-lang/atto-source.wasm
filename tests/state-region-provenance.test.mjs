@@ -146,3 +146,36 @@ test("compile-time requirement never contains concrete runtime identity", () => 
     () => stateRegionRequirement({...borrow, generationFence: false}),
     /generation fenced/);
 });
+
+test("nonenumerable, symbol, and custom-prototype metadata cannot smuggle authority", () => {
+  const validRequirement = {
+    contractVersion: "1.0",
+    regionBinding: "inventory",
+    executionBinding: "current-logical-execution",
+    generationFence: true,
+    loanId: 501,
+    place: "inventory.stock",
+    kind: "read",
+    action: "borrow"
+  };
+  for (const [validate, good] of [
+    [stateRegionProvenance, vectors.borrow],
+    [stateRegionRequirement, validRequirement]
+  ]) {
+    const hidden = {...good};
+    Object.defineProperty(hidden, "memory", {
+      value: new ArrayBuffer(8), enumerable: false
+    });
+    assert.throws(() => validate(hidden), /unknown state-region/);
+
+    const symbolic = {...good, [Symbol("guestMemory")]: new ArrayBuffer(8)};
+    assert.throws(() => validate(symbolic), /unknown state-region/);
+
+    const inherited = Object.assign(Object.create({memory: new ArrayBuffer(8)}), good);
+    assert.throws(() => validate(inherited), /plain state-region/);
+
+    // JSON.parse and trusted null-prototype records remain supported.
+    assert.doesNotThrow(() => validate(JSON.parse(JSON.stringify(good))));
+    assert.doesNotThrow(() => validate(Object.assign(Object.create(null), good)));
+  }
+});
