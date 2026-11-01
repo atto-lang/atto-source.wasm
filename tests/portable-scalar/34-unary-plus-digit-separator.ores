@@ -1,0 +1,2 @@
+// 34: unary plus and canonical decimal digit separator.
+pub fnc main(): int { return +4_2; }
