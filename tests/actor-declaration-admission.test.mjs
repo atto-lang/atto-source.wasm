@@ -7,6 +7,13 @@ const bytes = source => new TextEncoder().encode(source);
 test("Wasm source bridge rejects every actor declaration prefix", () => {
   for (const source of [
     "define actor A1 as end",
+    "actor A1 as end",
+    "actor worker as end",
+    "actor A1 extends Base as end",
+    "actor A1 implements Interface as end",
+    "actor fnc work():int{return 1;}",
+    "fnc actor work():int{return 1;}",
+    "actor routine work():int{return 1;}",
     "define pub actor A1 as end",
     "define shared actor A1 as end",
     "define untrusted actor A1 as end",
