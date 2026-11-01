@@ -11,6 +11,14 @@ const fields = Object.freeze([
 // must not silently bless a record carrying arbitrary guest memory authority.
 const allowedFields = new Set(["contractVersion", ...fields, "place", "kind", "action"]);
 function rejectUnknownFields(record) {
+  // Accessors, proxy-like descriptors and inherited properties are not
+  // transport records. Read only ordinary own data properties.
+  for (const name of allowedFields) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, name);
+    if (descriptor && !Object.hasOwn(descriptor, "value")) {
+      throw new TypeError("state-region provenance accessor forbidden: " + name);
+    }
+  }
   for (const name of Object.keys(record)) {
     if (!allowedFields.has(name)) {
       throw new TypeError("unknown state-region provenance field: " + name);
@@ -28,6 +36,11 @@ function positiveSafeInteger(value, name) {
 export function stateRegionProvenance(record) {
   if (record === null || typeof record !== "object") {
     throw new TypeError("state-region provenance record required");
+  }
+  for (const name of allowedFields) {
+    if (!Object.hasOwn(record, name)) {
+      throw new TypeError("missing own state-region provenance field: " + name);
+    }
   }
   if (record.contractVersion !== "1.0") {
     throw new TypeError("unsupported state-region provenance version");
