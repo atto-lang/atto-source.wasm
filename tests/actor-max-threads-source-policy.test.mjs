@@ -41,3 +41,30 @@ test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource(bytes('"unterminated')),
     /unterminated source string/);
 });
+
+test("supervisor source, inheritance, interfaces, and traits fail before Wasm compilation", () => {
+  for (const source of [
+    "define supervisor S1 as on_panic(f: Failure): void { return; } end",
+    "pub define supervisor S1 as end",
+    "define pub supervisor S1 as end",
+    "define supervisor actor S1 as end",
+    "define supervisor S1 extends Actor as end",
+    "define supervisor S1 implements Observer as end",
+    "define supervisor S1 with RestartPolicy as end",
+    "define module Workers as define supervisor S1 as end end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source supervisor unsupported: no typed Failure or CONTROL lowering/, source);
+  }
+});
+
+test("supervisor-like strings, comments and identifiers do not forge CONTROL", () => {
+  const source = `fnc main():int {
+    const description = "define supervisor Fake extends Actor as end";
+    // define supervisor InComment as end
+    /* define /* supervisor */ supervisor S1 implements Fake as end */
+    const supervisor_count = 42;
+    return supervisor_count;
+  }`;
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)));
+});
