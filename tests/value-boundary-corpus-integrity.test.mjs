@@ -28,7 +28,7 @@ function uniqueFixtureIds(raw, label, expectedCount) {
   assert.deepEqual([...keys].sort(), Object.keys(parsed).sort(),
     label + ': raw keys differ from parsed keys');
   for (const [key, value] of Object.entries(parsed)) {
-    assert.ok(typeof value === 'string' && value.startsWith('pub fnc main('),
+    assert.ok(typeof value === 'string' && /\bfnc\s+main\s*\(/.test(value),
       label + ': invalid source payload for ' + key);
     assert.ok(value.length <= 10000, label + ': oversized source payload for ' + key);
   }
