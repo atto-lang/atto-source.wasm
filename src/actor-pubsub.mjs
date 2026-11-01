@@ -1,6 +1,7 @@
 // Host-side in-memory ActorGroup/pub-sub admission substrate.
 // This is not guest source lowering. Actor and group handles are opaque
 // capabilities scoped to one registry/isolate; numeric IDs never authorize use.
+// Ordinary topic handles must not expose trusted system-publication bypasses.
 
 const actorKinds = new Set(["shared", "private", "untrusted"]);
 const policies = new Set(["reliable", "latest", "lossy"]);
@@ -203,11 +204,6 @@ export class WasmActorPubSub {
     return this.#publishTopic(groupId, name, freezePayload(value));
   }
 
-  _publishSystem(groupId, name, value) {
-    this.#requireGroup(groupId);
-    return this.#publishTopic(groupId, name, freezePayload(value));
-  }
-
   _tryRead(groupId, name, ref) {
     this.#requireActor(ref);
     const group = this.#requireGroup(groupId);
@@ -360,9 +356,6 @@ export class WasmActorTopic {
   unsubscribe(ref) { return this.#owner._unsubscribe(this.#groupId, this.#name, ref); }
   publish(ref, value) {
     return this.#owner._publish(this.#groupId, this.#name, ref, value);
-  }
-  publishSystem(value) {
-    return this.#owner._publishSystem(this.#groupId, this.#name, value);
   }
   tryRead(ref) { return this.#owner._tryRead(this.#groupId, this.#name, ref); }
 }
