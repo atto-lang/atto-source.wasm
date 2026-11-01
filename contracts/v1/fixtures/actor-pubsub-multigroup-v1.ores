@@ -1,0 +1,45 @@
+define actor MultiSubscriber as
+  suspends receive(ActorMail<String> mail): void {
+    val group = actor.group("room-b");
+    val topic = group.topic<String>("events");
+    val subscription = topic.subscribe();
+
+    self.send("ready-b");
+    val value = await subscription.next();
+    self.send(value);
+
+    subscription.close();
+    self.end();
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val a = actor.group("room-a");
+  val b = actor.group("room-b");
+  a.topic<String>("events", "latest", 1);
+  val topicB = b.topic<String>("events", "reliable", 4);
+
+  val subscriber = spawn MultiSubscriber();
+  await subscriber.get_ready();
+
+  a.join(subscriber);
+  b.join(subscriber);
+  b.join(subscriber);
+  a.leave(subscriber);
+
+  subscriber.send("start");
+  val ready = (await subscriber.outputs.next()).value.unwrap();
+  stdio.stdout.write(ready.value);
+  stdio.stdout.write("|");
+
+  await topicB.publish("b-still-live");
+  val value = (await subscriber.outputs.next()).value.unwrap();
+  stdio.stdout.write(value.value);
+
+  await subscriber.get_done();
+  b.leave(subscriber);
+  a.close();
+  b.close();
+  return;
+}
