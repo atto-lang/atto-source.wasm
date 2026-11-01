@@ -40,6 +40,7 @@ export class WasmActorPubSub {
   #groups = new Map();
   #topics = new Map();
   #nextGroupId = 0;
+  #closed = false;
   #maxGroups;
   #maxGroupsPerActor;
   #maxTopics;
@@ -59,6 +60,7 @@ export class WasmActorPubSub {
   }
 
   registerActor({actorId, incarnation, kind = "shared"} = {}) {
+    this.#requireOpen();
     positiveSafeInt(actorId, "actorId");
     positiveSafeInt(incarnation, "incarnation");
     if (!actorKinds.has(kind)) throw new TypeError("invalid actor kind");
@@ -95,6 +97,7 @@ export class WasmActorPubSub {
   }
 
   createGroup({maxMembers = 1024} = {}) {
+    this.#requireOpen();
     positiveSafeInt(maxMembers, "maxMembers");
     if (this.#groups.size >= this.#maxGroups)
       throw new RangeError("ActorGroup capacity exceeded");
@@ -285,18 +288,21 @@ export class WasmActorPubSub {
   }
 
   #requireActor(ref) {
+    this.#requireOpen();
     const actor = this.#actors.get(ref);
     if (!actor) throw new Error("foreign, stale or cross-isolate ActorRef");
     return actor;
   }
 
   #requireGroup(groupId) {
+    this.#requireOpen();
     const group = this.#groups.get(groupId);
     if (!group) throw new Error("unknown or closed ActorGroup");
     return group;
   }
 
   #requireTopic(groupId, name) {
+    this.#requireOpen();
     const topic = this.#topics.get(this.#topicKey(groupId, name));
     if (!topic) throw new Error("unknown topic");
     return topic;
@@ -304,6 +310,23 @@ export class WasmActorPubSub {
 
   #topicKey(groupId, name) {
     return groupId + "\u0000" + name;
+  }
+
+  #requireOpen() {
+    if (this.#closed) throw new Error("actor PubSub registry is closed");
+  }
+
+  // Host-runtime lifecycle only. This does not authorize guest code to stop
+  // another actor or group; it revokes the whole registry at physical shutdown.
+  close() {
+    if (this.#closed) return false;
+    this.#closed = true;
+    this.#topics.clear();
+    this.#groups.clear();
+    this.#actors.clear();
+    this.#actorIds.clear();
+    this.#lastIncarnation.clear();
+    return true;
   }
 }
 
