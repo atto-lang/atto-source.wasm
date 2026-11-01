@@ -39,6 +39,7 @@
     "redis": "future adapter; must not silently claim stronger delivery semantics than provider supplies"
   },
   "golden_fixture": "contracts/v1/fixtures/actor-pubsub-v1.ores",
+  "golden_expected_stdout": "subscribed|p-1",
   "conformance_cases": [
     "single-publisher-single-subscriber",
     "multiple-subscribers",
