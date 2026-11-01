@@ -1,0 +1,35 @@
+name: Continuation locality contract v1
+on:
+  pull_request:
+    paths:
+      - "contracts/v2/CONTINUATION_LOCALITY_V1.md"
+      - "contracts/v2/test_continuation_locality_v1.py"
+      - "src/**"
+      - "runtime/**"
+      - "tests/**"
+      - "verification/**"
+      - ".github/workflows/continuation-locality-v1.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reference-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exact checkout SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || exit 1
+          git rev-parse HEAD
+      - name: Run host-only reference policy checks (NOT guest parity)
+        run: python3 -m unittest -v contracts/v2/test_continuation_locality_v1.py
+  host-wasm-actor-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test tests/continuation-locality-host.test.mjs
