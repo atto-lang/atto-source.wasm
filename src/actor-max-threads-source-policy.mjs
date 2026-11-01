@@ -75,6 +75,12 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
           tokens[j] === "supervisor") {
         throw Error("WASM source actor execution unsupported: no guest actor scheduler");
       }
+      // A model declaration requires graph, tensor and differentiation
+      // lowering. Do not mistake scalar arithmetic on a layer's weights
+      // for executable define-model support on a Wasm worker.
+      if (tokens[j] === "model") {
+        throw Error("WASM source model execution unsupported: no guest model/tensor runtime");
+      }
       if (tokens[j] === "class") {
         // Detect the intrinsic actor root without treating ordinary classes,
         // comments or string contents as capability-bearing actor syntax.
