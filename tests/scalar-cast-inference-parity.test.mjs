@@ -161,15 +161,21 @@ positive.push([
   fiveBackendFixtureBytes.toString("utf8")
 ]);
 
-const REQUIRED_LLVM_SOURCE_SHA = "7926b879fd98cf8ffcffa646007fa4d05c9221aa";
+const overflowTrap = [
+  ["type-first-unused-eager-overflow", main("int unused=9223372036854775807+1;return 7;")],
+  ["const-unused-eager-overflow", main("const unused=9223372036854775807+1;return 7;")]
+];
+
+const REQUIRED_LLVM_SOURCE_SHA = "d10d414fdd6d660681878289b9657eaeb07c8f7d";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
-const ids = [...positive, ...negative].map(row => row[0]);
+const ids = [...positive, ...negative, ...overflowTrap].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
   assert.equal(positive.length, 53);
   assert.equal(negative.length, 36);
-  for (const [id, source] of [...positive, ...negative]) {
+  assert.equal(overflowTrap.length, 2);
+  for (const [id, source] of [...positive, ...negative, ...overflowTrap]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
     assert.match(source, /pub\s+fnc\s+main\(\):\s*int\s*\{/);
@@ -220,6 +226,28 @@ test("exact pinned LLVM compiler -> wasm32 -> isolated Oreslang guest cast/infer
       });
       assert.equal(actual.value,42n,id);
       assert.equal(actual.admission.hostCapabilities,0,id);
+    }
+    for (const [id, source] of overflowTrap) {
+      const input=join(tmp,id+".ores"), output=join(tmp,id+".wasm");
+      await writeFile(input,source,{flag:"wx"});
+      const sourceSha = digest(await readFile(input));
+      const receipt=await compileOresToWasm({
+        compiler,compilerSha256:compilerSha,source:input,output,
+        environment:"browser",publication:"atomic"
+      });
+      const release=await readAtomicRelease(output);
+      assert.equal(receipt.compilerSha256,compilerSha,id);
+      assert.equal(receipt.sourceSha256,sourceSha,id);
+      assert.equal(receipt.wasmSha256,digest(release.wasm),id);
+      assert.deepEqual(release.manifest.imports,[],id);
+      assert.deepEqual(release.manifest.requiredCapabilities,[],id);
+      await assert.rejects(
+        runIsolatedCoreGuest(release.wasm,{
+          expectedSha256:receipt.wasmSha256,timeoutMs:5000
+        }),
+        error=>/guest rejected or failed:.*unreachable/i.test(String(error?.message)),
+        id+" must execute the eager initializer and trap inside the isolated Wasm guest"
+      );
     }
     for (const [id, source, expectedDiagnostic] of negative) {
       const input=join(tmp,id+".ores"), output=join(tmp,id+".wasm");
