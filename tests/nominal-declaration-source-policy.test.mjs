@@ -16,6 +16,22 @@ test("Wasm rejects unsupported nominal state, grain and CONTROL declarations",()
     }
   }
 });
+test("Wasm rejects actor modifiers and non-builtin tagged enums without a native compiler",()=>{
+  for(const head of [
+    "define actor", "define pub actor", "pub define actor",
+    "define shared actor", "define untrusted actor", "define isoactor",
+    "define http actor", "define serial http actor",
+    "define unary http actor", "define websocket actor"
+  ]){
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(head+" A as end")),
+      /source actor execution unsupported/,head);
+  }
+  for(const head of ["define enum", "define pub enum", "pub define enum"]){
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(head+" Variant as end")),
+      /WASM DECL_KIND_UNSUPPORTED: enum/,head);
+  }
+});
+
 test("Wasm fail-closed words in comments and quoted strings do not grant policy evidence",()=>{
   const source=`fnc main():int {
     // define state container Fake as end
