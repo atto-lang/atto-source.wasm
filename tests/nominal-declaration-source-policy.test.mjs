@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
+import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {mkdtemp, writeFile, stat, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 const bytes = s => new TextEncoder().encode(s);
 
 test("Wasm rejects unsupported nominal state, grain and CONTROL declarations",()=>{
@@ -57,4 +61,31 @@ test("Wasm cannot confuse comments, malformed UTF8 and state-container declarati
   assert.throws(()=>rejectUnsupportedActorThreadSource(bytes("define state container X extends Object as end")),
     /WASM DECL_KIND_UNSUPPORTED/);
   assert.throws(()=>rejectUnsupportedActorThreadSource(new Uint8Array([0xff])),/encoded|valid/i);
+});
+
+test("Wasm bridge never executes compiler or publishes artifact for unlowered declarations",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"ores-wasm-nominal-"));
+  try {
+    const source=join(dir,"guest.ores"),compiler=join(dir,"compiler.sh");
+    const output=join(dir,"guest.wasm"),invoked=join(dir,"compiler-invoked");
+    await writeFile(compiler,
+      '#!/bin/sh\\nprintf invoked > "'+invoked+'"\\nexit 41\\n',
+      {mode:0o700});
+    for(const kind of [
+      "define state container Guard as end",
+      "define grain User as end",
+      "define supervisor Root as end",
+      "define model M as end",
+      "define untrusted actor Worker as end",
+      "define pub enum Variant as end"
+    ]){
+      await writeFile(source,kind+"\\n");
+      await assert.rejects(compileOresToWasm({compiler,source,output}),
+        /WASM DECL_KIND_UNSUPPORTED|source actor execution unsupported/,kind);
+      await assert.rejects(stat(invoked),/ENOENT/,
+        "compiler executable was started before source admission");
+      await assert.rejects(stat(output),/ENOENT/,
+        "failed declaration published a wasm artifact");
+    }
+  } finally {await rm(dir,{recursive:true,force:true})}
 });
