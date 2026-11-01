@@ -111,3 +111,16 @@ test("define model variants fail closed before scalar Wasm compiler execution", 
     assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)),source);
   }
 });
+
+test("canonical sealed Counter actor fixture is byte-pinned and cannot silently compile", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const source = await readFile(new URL("../examples/actor-counter-target.ores",import.meta.url));
+  const hash = createHash("sha1")
+    .update(Buffer.from("blob " + source.length + String.fromCharCode(0)))
+    .update(source).digest("hex");
+  assert.equal(hash, "c49780b4b42251db20ae9ac864eb8606bf7da922",
+    "the cross-backend target actor source must stay unchanged");
+  assert.throws(() => rejectUnsupportedActorThreadSource(source),
+    /source actor execution unsupported: no guest actor scheduler/);
+});
