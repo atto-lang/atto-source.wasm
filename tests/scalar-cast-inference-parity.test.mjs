@@ -20,6 +20,8 @@ const positive = [
   ["inferred-from-variable", main("const x=7;const y=x;return y+35;")],
   ["cast-from-variable", main("const x=7;const y=x as int;return y+35;")],
   ["cast-expression", main("const x=(2+5) as int;return x+35;")],
+  ["five-backend-expression-identity", main("return (7 as int)+35;")],
+  ["five-backend-chained-identity", main("return (7 as int as int)+35;")],
   ["precedence", main("const x=(2+5) as int;return (x+35) as int;")],
   ["bool-inference", main("const yes=true;if(yes){return 42;}fi return 0;")],
   ["bool-checked-cast", main("const yes=true as bool;if(yes){return 42;}fi return 0;")],
@@ -51,6 +53,7 @@ const positive = [
 ];
 const negative = [
   ["int-to-bool", main("const x=7 as bool;return 0;"), /impossible native cast: int as bool/],
+  ["five-backend-return-int-to-bool", main("return 7 as bool;"), /impossible native cast: int as bool/],
   ["bool-to-int", main("const x=true as int;return 0;"), /impossible native cast: bool as int/],
   ["mismatched-annotation", main("const int x=true;return 0;"), /requires int, got bool/],
   ["mismatched-inference", main("const x=true;const int y=x;return 0;"), /requires int, got bool/],
