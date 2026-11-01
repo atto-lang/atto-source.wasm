@@ -119,14 +119,37 @@ for (const [filename, expectedGitBlob] of sharedIdentityCastSources) {
   positive.push(["shared-" + filename.replace(".ores", ""), sourceBytes.toString("utf8")]);
 }
 
+// Five independent repositories carry these same exact Git source blobs.
+// They enter the real LLVM -> wasm32 -> isolated guest path, not a host oracle.
+for (const [id, filename, expectedGitBlob, isPositive] of [
+  ["portable-cast-v2-positive", "portable-checked-cast-positive-v2.ores",
+    "1a80e07da1289c87d04454866883f4e06cfc8d77", true],
+  ["portable-cast-v2-negative", "portable-checked-cast-negative-v2.ores",
+    "ecc4ccea80f016243e38f351df60cfad9eb6e136", false]
+]) {
+  const sourceBytes = readFileSync(new URL("../contracts/v1/" + filename, import.meta.url));
+  assert.ok(sourceBytes.length > 0 && sourceBytes.length < 1024, id);
+  const blob = createHash("sha1")
+    .update("blob " + sourceBytes.length + "\0")
+    .update(sourceBytes)
+    .digest("hex");
+  assert.equal(blob, expectedGitBlob, id + " drifted from five-backend contract");
+  const source = sourceBytes.toString("utf8");
+  if (isPositive) {
+    positive.push([id, source]);
+  } else {
+    negative.push([id, source, /impossible native cast: int as bool/]);
+  }
+}
+
 const REQUIRED_LLVM_SOURCE_SHA = "042c7ba7ecbfe237dd67eba560814d25405b0ecd";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
-  assert.equal(positive.length, 51);
-  assert.equal(negative.length, 32);
+  assert.equal(positive.length, 52);
+  assert.equal(negative.length, 33);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
