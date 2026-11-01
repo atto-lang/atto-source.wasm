@@ -118,3 +118,62 @@ test("supported descriptor values still require ordinary scalar validation", asy
   await assert.rejects(runIsolatedCoreGuest(null, {timeoutMs: 0}),
     /timeoutMs must be between 1 and 30000/);
 });
+
+test("Proxy option containers fail before invoking hostile traps", async () => {
+  let traps = 0;
+  const attack = new Proxy({}, {
+    getPrototypeOf() { traps++; throw Error("proxy getPrototypeOf invoked"); },
+    ownKeys() { traps++; throw Error("proxy ownKeys invoked"); },
+    get() { traps++; throw Error("proxy get invoked"); }
+  });
+  for (const options of [attack, Proxy.revocable({}, {}).proxy]) {
+    assert.throws(() => compileAdmittedCoreGuest(null, options),
+      /options cannot be Proxy objects/);
+    await assert.rejects(runIsolatedCoreGuest(null, options),
+      /options cannot be Proxy objects/);
+  }
+  assert.equal(traps, 0, "no Proxy traps invoked during option admission");
+});
+
+test("coercible option values cannot invoke attacker-defined conversion hooks", async () => {
+  let coercions = 0;
+  const value = {
+    [Symbol.toPrimitive]() {
+      coercions++;
+      throw Error("unexpected hostile conversion");
+    },
+    toString() {
+      coercions++;
+      throw Error("unexpected hostile toString");
+    }
+  };
+  const cases = [
+    ["entry", value],
+    ["expectedSha256", value],
+    ["timeoutMs", value],
+    ["maxMemoryPages", value],
+    ["ioMode", value],
+    ["hardRealtime", value],
+    ["entry", Symbol("main")],
+    ["expectedSha256", null]
+  ];
+  for (const [key, candidate] of cases) {
+    assert.throws(() => compileAdmittedCoreGuest(null, {[key]: candidate}),
+      new RegExp("option has invalid type: " + key));
+    if (!["ioMode", "hardRealtime"].includes(key)) {
+      await assert.rejects(runIsolatedCoreGuest(null, {[key]: candidate}),
+        new RegExp("option has invalid type: " + key));
+    }
+  }
+  assert.equal(coercions, 0, "no option conversion hooks executed");
+});
+
+test("recognized primitive option types retain existing optional defaults", async () => {
+  assert.throws(() => compileAdmittedCoreGuest(null, {
+    entry: undefined, maxMemoryPages: undefined,
+    expectedSha256: undefined, hardRealtime: false
+  }), /expected core WebAssembly bytes/);
+  await assert.rejects(runIsolatedCoreGuest(null, {
+    timeoutMs: undefined, entry: undefined, expectedSha256: undefined
+  }), /expected core WebAssembly bytes/);
+});
