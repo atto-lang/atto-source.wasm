@@ -1,4 +1,5 @@
 import test from "node:test";
+import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
 import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
@@ -14,13 +15,38 @@ function unavailable(t){
   return true;
 }
 const header="// oreslang:checked-i64-v1\n";
+const waveSourceSha256={
+  "34": "2d186d0c400c23c6fcdf1df963580351eacea82250097a1cd083a1cc308b40f5",
+  "35": "73e5fc703df0b0d3af6898c156ff105ec28e8dfc639f2a02ccca0f1cd3c69dd8",
+  "36": "2ca62fbe11d05cb219a4be255669842994c279e0e0a5208fbc3d3a0e4c047d29",
+  "37": "efb740b31d72bfdc1eecc8a7eb87a7b84c8961f444fbbcc08a142ca54cf7c97b",
+  "38": "391467d7baf7b84b339a63e55be2395d9a8a4d92b5719f249df428b34bac7ccd",
+  "39": "d1fa2dc614cd61c442ab1bfa5683fac50cc9d72139e0dcdf0a67b3610d427bd6",
+  "40": "0322dc2a7d48fed12d917aaaf2a50c025b77402a2b21fdbb87224fece59b44b0",
+  "41": "3483cb15d4b2f2c24f90ba65e55e886b59eaea2190aa9c18f8ed10badba04e76"
+};
 
-async function compileMain(t,expression){
+
+async function compileMain(t,expression,name){
   if(unavailable(t))return null;
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return "+expression+"; }\n");
+  const waveId=name?.startsWith("wave/")?String(
+    ["grouped precedence","double negation","left associative subtraction",
+     "signed multiplication","negative multiplication chain","i64 max minus large",
+     "i64 min plus max","nested grouping"].indexOf(name.slice(5))+34
+  ):null;
+  const guestSource=waveId&&Object.hasOwn(waveSourceSha256,waveId)
+    ? "// "+waveId+": candidate source-identical checked-i64 scalar program.\\n"
+      + "// Expected integer result 42; guest execution on each backend is unverified.\\n"
+      + "pub fnc main(): int { return "+expression+"; }\\n"
+    : header+"define pub fnc main(): int { return "+expression+"; }\\n";
+  if(waveId){
+    assert.equal(createHash("sha256").update(guestSource,"utf8").digest("hex"),
+      waveSourceSha256[waveId],"Wasm guest source bytes differ from shared Oreslang corpus");
+  }
+  await writeFile(source,guestSource);
   await compileOresToWasm({compiler:resolve(compiler),source,output});
   const bytes=await readFile(output);
   // Scalar guests must be self-contained; an import cannot stand in for
@@ -50,7 +76,7 @@ for(const [name,expression,expected] of [
   ["wave/nested grouping","2 * (3 + 4) * 3",42n],
 ]){
   test("checked-i64 cross-backend scalar: "+name,async t=>{
-    const main=await compileMain(t,expression); if(!main)return;
+    const main=await compileMain(t,expression,name); if(!main)return;
     assert.equal(main(),expected);
   });
 }
