@@ -20,6 +20,11 @@ test("host failure, generic parser error and a substituted compiler fail closed"
     valid + "\nsource_filename = pretend",
     valid + "\ndeclare i32 @escaped()",
     valid + "\nattributes #0 = { nounwind }",
+    valid + "\nSegmentation fault (core dumped)",
+    valid + "\nLLVM ERROR: malformed IR",
+    valid + "\nThread 'main' Panicked At src/compiler.rs:9",
+    valid + "\nCommand Not Found",
+    valid + "\nSTACK OVERFLOW",
     valid.replace(", guarded lowering and allocation-domain proof", "")
   ]) assert.throws(() => assertNativeMutShareDenial({message}), undefined, message);
   assert.throws(() => assertNativeMutShareDenial({message:valid,signal:"SIGKILL"}));
