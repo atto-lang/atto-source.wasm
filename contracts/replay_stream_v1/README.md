@@ -7,12 +7,12 @@ Canonical implementation and contract: https://github.com/ores-truffle-oreslang/
 - `examples/native-replay-stream-contract.ores`
 - `docs/REPLAYABLE_BYTE_STREAM_V1.md`
 
-This directory contains exact-copy `replay_stream.ores` and the same 64-check Oreslang guest `native-replay-stream-contract.ores` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
+This directory contains exact-copy `replay_stream.ores` and the same 73-check Oreslang guest `native-replay-stream-contract.ores` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
 
 ## Obligations before enabling
 
 1. Compile the actual guest with oreslang-source.wasm, using the exact candidate Git commit and compiler/source SHA. If constructs are unsupported, reject them with a deterministic diagnostic and no executable artifact. Record `unsupported`, not `passed`.
-2. Actually execute the compiled guest (not JavaScript/Python/Rust emulation, host-only assertions or Java/GraalVM fallback). Verify 64 unique `REPLAY-PASS|...` receipts, one `REPLAY-CONTRACT-DONE`, exit 0, and source/compiler hash.
+2. Actually execute the compiled guest (not JavaScript/Python/Rust emulation, host-only assertions or Java/GraalVM fallback). Verify 73 unique `REPLAY-PASS|...` receipts, one `REPLAY-CONTRACT-DONE`, exit 0, and source/compiler hash.
 3. Ensure `Array<int>` indexed writes/reads, class member mutability, `Result<T,E>`, import resolution, module constructors and bounded storage respect the same observable semantics. Prevent unbounded allocations/aliasing and silent wraparound.
 4. Add runtime transport + actor ownership tests for physical backpressure, authenticated cumulative ACK, stale-incarnation rejection, cancellation and race-safe release. No actor state loan/critical section crosses an await; no blocking codec/socket call on scheduler carriers.
 5. For media, add decoder/encoder conformance with real native adapter or permitted host import, bounded frame queue, codec state and keyframe resync, damaged/partial access units, reconnect and replay-window expiry. Failing to support a codec must be typed `UnsupportedCodec`, not a fake decoded frame.
