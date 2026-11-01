@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp, writeFile, rm, stat} from "node:fs/promises";
+import {mkdtemp, writeFile, readFile, readdir, rm, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -33,12 +33,21 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
       "1 + (rt mut share 2)",
       "rt mut share (rt borrow 3)",
       "rt mut share (rt mut borrow 4)",
-      "rt mut share (rt mut share 5)"
+      "rt mut share (rt mut share 5)",
+      // Heap handles must never be promoted by the LLVM-to-Wasm adapter.
+      "rt mut share (SharedMutex.new(42))",
+      "rt mut share (Arc.new(42))",
+      "rt mut share (Box.new(42))",
+      "rt mut share (Array.new(42))",
+      "rt mut share (rt take owner)",
+      "rt mut share (rt copy owner)"
     ];
     for (const [index, expression] of expressions.entries()) {
       const source = join(root, `case-${index}.ores`);
       const output = join(root, `case-${index}.wasm`);
-      await writeFile(source, `pub fnc main():int{return ${expression};}\n`);
+      const sourceBytes = `pub fnc main():int{return ${expression};}\\n`;
+      await writeFile(source, sourceBytes);
+      const entriesBefore = (await readdir(root)).sort();
       await assert.rejects(
         compileOresToWasm({
           compiler, compilerSha256, source, output,
@@ -46,6 +55,10 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
         }),
         assertNativeMutShareDenial
       );
+      assert.equal(await readFile(source, "utf8"), sourceBytes,
+        "failed compilation must not rewrite its source fixture");
+      assert.deepEqual((await readdir(root)).sort(), entriesBefore,
+        "rejected mutable sharing created a temporary compiler/Wasm artifact");
       for (const candidate of [output, output + ".current.json"]) {
         await assert.rejects(stat(candidate), {code:"ENOENT"},
           "rejected mutable sharing must never publish a Wasm artifact");
