@@ -18,9 +18,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Exact checkout SHA
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact PR head checkout
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || exit 1
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA" || exit 1
           git rev-parse HEAD
       - name: Run host-only reference policy checks (NOT guest parity)
         run: python3 -m unittest -v contracts/v2/test_continuation_locality_v1.py
@@ -29,6 +33,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
