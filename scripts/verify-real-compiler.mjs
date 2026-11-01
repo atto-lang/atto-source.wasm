@@ -88,9 +88,9 @@ export async function verifyRealCompiler({
     // All injected-state source must be refused by the real, SHA-pinned LLVM
     // frontend until typed region ownership/borrow lowering exists.
     const injectionSources = [
-      ["backed", "@StateBacked(MutableStateContainer(scope = #instance))\\ndefine class Foo as\\nstate {}\\nend\\n"],
-      ["injected", "@Inject(MutableStateContainer())\\ndefine class Foo as\\nstate {}\\nend\\n"],
-      ["provider", "@Inject(SessionState)\\ndefine class Manager as\\nend\\n"]
+      ["backed", "@StateBacked(MutableStateContainer(scope = #instance))\ndefine class Foo as\nstate {}\nend\n"],
+      ["injected", "@Inject(MutableStateContainer())\ndefine class Foo as\nstate {}\nend\n"],
+      ["provider", "@Inject(SessionState)\ndefine class Manager as\nend\n"]
     ];
     let firstInjectionSource;
     for (const [name, body] of injectionSources) {
