@@ -42,6 +42,10 @@ export function assertKnownCoreWasmOptions(options, allowedNames, boundary) {
     throw new TypeError("core Wasm " + boundary + " options must be a plain data object");
   }
   const allowed = new Set(allowedNames);
+  // Never return the original object to a destructuring caller: even a plain
+  // {} may inherit an attacker-controlled getter via Object.prototype.
+  // Only copy inspected OWN data descriptors into a null-prototype record.
+  const safe = Object.create(null);
   for (const key of Reflect.ownKeys(options)) {
     if (typeof key !== "string" || !allowed.has(key)) {
       throw new TypeError("unsupported core Wasm " + boundary + " option: " + String(key));
@@ -59,5 +63,7 @@ export function assertKnownCoreWasmOptions(options, allowedNames, boundary) {
          typeof descriptor.value !== expectedType)) {
       throw new TypeError("core Wasm " + boundary + " option has invalid type: " + key);
     }
+    safe[key] = descriptor.value;
   }
+  return safe;
 }
