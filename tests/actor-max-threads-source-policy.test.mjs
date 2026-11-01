@@ -93,3 +93,21 @@ test("generic class syntax cannot disguise an intrinsic Actor root", () => {
     bytes("define class Child<T extends Actor as end")),
     /unterminated class generic parameters/);
 });
+
+test("define model variants fail closed before scalar Wasm compiler execution", () => {
+  for (const source of [
+    "define model Network as Dense(2, 1) end",
+    "define pub model GradientNet as Dense(2, 1) end",
+    "pub define model BackpropNet as Dense(2, 1) end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /source model execution unsupported/, source);
+  }
+  for (const source of [
+    "fnc main():int{return 42;} // define model Network as end",
+    'fnc main():int{const s="define model Network as end";return 42;}',
+    "fnc main():int{return 42;} /* define pub model Net as end */"
+  ]) {
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)),source);
+  }
+});
