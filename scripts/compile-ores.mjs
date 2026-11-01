@@ -105,6 +105,25 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/**
+ * The Wasm scalar guest has no socket imports, TCP lease ABI or actor
+ * scheduler. Refuse the proposed shared-pool entry points on the immutable
+ * source snapshot, BEFORE invoking a delegated LLVM compiler. The lexical
+ * scan ignores comments/quoted decoys and is defense-in-depth, not a full
+ * type/authority checker.
+ */
+export function rejectUnsupportedSharedTcpPoolSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i+3<tokens.length;i++){
+  const receiver=tokens[i],dot=tokens[i+1],name=tokens[i+2],call=tokens[i+3];
+  if(!receiver.id || dot.text!=="." || !name.id || call.text!=="(")continue;
+  if((receiver.text==="tcp"&&name.text==="pool") ||
+     (receiver.text==="pool"&&["acquire_async","open_stream_async"].includes(name.text)) ||
+     (receiver.text==="lease"&&name.text==="exchange_async"))
+   throw Error("wasm guest TCP shared-pool lowering unsupported at byte "+receiver.offset);
+ }
+}
+
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -254,6 +273,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedSharedTcpPoolSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
