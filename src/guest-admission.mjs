@@ -17,7 +17,12 @@ export function compileAdmittedCoreGuest(input, {
   guestNetworkIo = false,
   nioReactors = 0,
   actorPhysicalTurns = 0,
-  hardRealtime = false
+  hardRealtime = false,
+  // Stage-0 WASM does not implement VM-owned physical TCP pooling.
+  sharedTcpPool = false,
+  tcpPoolLeaseCount = 0,
+  tcpPoolPointerSharing = false,
+  ...additionalOptions
 } = {}) {
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
@@ -34,6 +39,14 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM physical source actor execution is unsupported");
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
+  // Do not allow a misspelled/forward-compat TCP capability switch to be
+  // silently ignored. No guest sockets, immutable shared-slab imports, or
+  // transport lease ABI exist in this scalar-only profile.
+  if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
+      tcpPoolPointerSharing !== false ||
+      Object.keys(additionalOptions).some(key =>
+        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)/i.test(key)))
+    throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
