@@ -10,6 +10,7 @@ class Worker:
     domain: str
     pending: int
     accepting: bool = True
+    tenant: int = 1
 
 @dataclass(frozen=True)
 class Resume:
@@ -17,6 +18,7 @@ class Resume:
     actor_generation: int
     preferred_slot: int = -1
     preferred_generation: int = 0
+    tenant: int = 1
     cancelled: bool = False
     expired: bool = False
     code_current: bool = True
@@ -24,17 +26,18 @@ class Resume:
 
 def choose(request, actor_generation, workers, slack=1):
     """Pure, bounded policy model: placement is not permission to execute."""
-    if not request.domain or actor_generation < 1 or request.actor_generation < 1:
+    if not request.domain or request.tenant < 1 or actor_generation < 1 or request.actor_generation < 1:
         raise ValueError("invalid actor")
     if not 0 <= slack <= 1024:
         raise ValueError("invalid slack")
-    if any(w.slot < 0 or w.generation < 1 or not w.domain or w.pending < 0
-           for w in workers) or len({w.slot for w in workers}) != len(workers):
+    if len(workers) > 256 or any(w.slot < 0 or w.generation < 1 or not w.domain
+           or w.pending < 0 or w.tenant < 1 for w in workers) or len({w.slot for w in workers}) != len(workers):
         raise ValueError("invalid workers")
     if (request.cancelled or request.expired or not request.code_current
         or request.physical_active or request.actor_generation != actor_generation):
         return None
-    eligible = [w for w in workers if w.accepting and w.domain == request.domain]
+    eligible = [w for w in workers if w.accepting and w.domain == request.domain
+                and w.tenant == request.tenant]
     if not eligible:
         return None
     lowest = min(w.pending for w in eligible)
@@ -80,6 +83,19 @@ class ContinuationLocalityTests(unittest.TestCase):
         self.assertEqual(1, self.run_choice(workers=(
             replace(self.workers[0], accepting=False),) + self.workers[1:]))
 
+    def test_foreign_tenant_worker_cannot_win_same_domain(self):
+        workers = (replace(self.workers[0], tenant=2),) + self.workers[1:]
+        self.assertEqual(1, self.run_choice(workers=workers))
+
+    def test_foreign_tenant_only_returns_unavailable(self):
+        self.assertIsNone(self.run_choice(replace(self.req, tenant=2)))
+
+    def test_invalid_tenant_is_not_normalized(self):
+        with self.assertRaises(ValueError):
+            self.run_choice(replace(self.req, tenant=0))
+        with self.assertRaises(ValueError):
+            self.run_choice(workers=(replace(self.workers[0], tenant=0),))
+
     def test_foreign_preferred_worker_never_selected(self):
         self.assertEqual(0, self.run_choice(
             replace(self.req, preferred_slot=2, preferred_generation=3)))
@@ -115,6 +131,7 @@ class ContinuationLocalityTests(unittest.TestCase):
         for workers in ((Worker(-1, 1, "SHARED", 0),),
                         (Worker(0, 0, "SHARED", 0),),
                         (Worker(0, 1, "", 0),),
+                        tuple(Worker(i, 1, "SHARED", 0) for i in range(257)),
                         (Worker(0, 1, "SHARED", -1),),
                         (Worker(0, 1, "SHARED", 0), Worker(0, 2, "SHARED", 0))):
             with self.subTest(workers=workers), self.assertRaises(ValueError):
