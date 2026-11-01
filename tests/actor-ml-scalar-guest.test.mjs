@@ -4,6 +4,7 @@ import {createHash} from "node:crypto";
 import {readFile, mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve, join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 
 const fixtureUrl = new URL("../examples/actor-ml-scalar-step.ores", import.meta.url);
@@ -13,7 +14,7 @@ test("actor/ML scalar guest source is byte-identical to all other toolchains", a
   const source = await readFile(fixtureUrl);
   assert.equal(createHash("sha256").update(source).digest("hex"), expectedSha);
   assert.equal(source.toString("utf8"),
-    "pub fnc main(): int { return 2 - 1 * (2 * 1 - 42) * 1; }\\n");
+    "pub fnc main(): int { return 2 - 1 * (2 * 1 - 42) * 1; }\n");
 });
 
 test("actual LLVM-to-Wasm guest must compute identical scalar gradient step 42", async t => {
@@ -30,7 +31,7 @@ test("actual LLVM-to-Wasm guest must compute identical scalar gradient step 42",
   // Never substitute a JavaScript numerical oracle for native guest output.
   await compileOresToWasm({
     compiler:resolve(compiler),
-    source:resolve(new URL(fixtureUrl).pathname),
+    source:fileURLToPath(fixtureUrl),
     output
   });
   const bytes = await readFile(output);
