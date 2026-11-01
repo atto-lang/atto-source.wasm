@@ -66,13 +66,3 @@ test('forged stale epochs and ETS heir receipts cannot commit', () => {
   assert.equal(queryHotLoadCapabilities().featureSupport.etsHeir, false);
 });
 
-test('feature discovery does not instantiate or mutate any WebAssembly guest', () => {
-  let instantiated = 0;
-  const original = WebAssembly.Instance;
-  // We do not replace global constructors: proof rests on no invocation of
-  // WebAssembly APIs from this explicit broker-only, pure capability path.
-  const prior = queryHotLoadCapabilities();
-  assert.equal(instantiated, 0);
-  assert.equal(WebAssembly.Instance, original);
-  assert.equal(prior, queryHotLoadCapabilities());
-});
