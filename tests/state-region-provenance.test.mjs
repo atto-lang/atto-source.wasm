@@ -49,6 +49,22 @@ test("malformed or unsafe numeric provenance is rejected", () => {
   }
 });
 
+test("schema additionalProperties=false rejects smuggled runtime memory authority", () => {
+  for (const [name, value] of [
+    ["memory", new ArrayBuffer(8)],
+    ["buffer", new ArrayBuffer(8)],
+    ["regionPointer", 1234],
+    ["trusted", true]
+  ]) {
+    assert.throws(
+      () => stateRegionProvenance({...vectors.borrow, [name]: value}),
+      /unknown state-region provenance field/);
+  }
+  const borrowing = stateRegionProvenance(vectors.borrow);
+  assert.equal(stateRegionAuthorizesRelease(
+    borrowing, stateRegionReleaseRecord(borrowing)), true);
+});
+
 test("metadata record is immutable and does not expose actor linear memory", () => {
   const metadata = stateRegionProvenance(vectors.borrow);
   assert.equal(Object.isFrozen(metadata), true);
@@ -85,6 +101,15 @@ test("compile-time requirement never contains concrete runtime identity", () => 
     assert.throws(
       () => stateRegionRequirement({...borrow, [field]: value}),
       /must not contain/);
+  }
+  for (const [name, value] of [
+    ["memory", new ArrayBuffer(8)],
+    ["capability", true],
+    ["runtimePointer", 7]
+  ]) {
+    assert.throws(
+      () => stateRegionRequirement({...borrow, [name]: value}),
+      /unknown state-region requirement field/);
   }
   assert.throws(
     () => stateRegionRequirement({...borrow, generationFence: false}),
