@@ -44,7 +44,7 @@ test("source TCP lease denial occurs before any external compiler executes",asyn
   // Deliberately executable but unsafe sentinel: if the source gate is
   // accidentally moved after compiler dispatch, the marker exposes it.
   // This is a security-ordering test, not a guest compiler replacement.
-  await writeFile(compiler,"#!/bin/sh\\nprintf 'RUN' > '"+marker+"'\\nexit 3\\n");
+  await writeFile(compiler,"#!/bin/sh\nprintf 'RUN' > '"+marker+"'\nexit 3\n");
   await chmod(compiler,0o700);
   await writeFile(source,"fnc main():int{return tcp.pool(42);}");
   await assert.rejects(
