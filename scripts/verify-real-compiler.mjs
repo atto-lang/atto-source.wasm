@@ -318,6 +318,11 @@ export async function verifyRealCompiler({
     // capability diagnostic for every canonical visibility/module spelling.
     for (const [name, body] of [
       ["root", "define singleton Settings as end\n"],
+      ["trait-with-injected",
+       "define singleton StateBank with Stateful<BankState> as\n"
+       + "    @Inject\n"
+       + "    state: MutableStateContainer<BankState>\n"
+       + "end\n"],
       ["trait-injected",
        "define singleton StateBank implements Stateful<BankState> as\n"
        + "    @Inject\n"
