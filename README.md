@@ -67,3 +67,24 @@ aggregate, call, string, conditional and async feature limits.
 ## Engineering policy: no Python
 
 Python is prohibited in this repository and throughout the `ores-truffle-oreslang` organization for scripts, tests, CI helpers, code generators, analyzers, automation, and host tooling. Existing Python functionality must be migrated to **Rust** without weakening behavior, security checks, fixtures, or test coverage. Do not add `.py`, `.pyi`, `.ipynb`, Python dependency manifests, `python`/`python3` commands, `pip`, `pytest`, `poetry`, `uv`, or `actions/setup-python`. The WebAssembly backend remains its language-specific implementation; the Python-to-Rust mandate applies to Python tooling rather than rewriting the backend itself.
+
+## Strict compiler-pinned scalar parity gate (candidate)
+
+The `tests/cross-backend-checked-i64-scalar.test.mjs` suite exercises
+the actual LLVM-to-Wasm compiler and a WebAssembly guest. To prohibit skipped
+tests from being treated as parity evidence and to pin compiler provenance:
+
+```sh
+export ORESLANG_LLVM_COMPILER=/absolute/path/to/approved/oreslang-llvm
+export ORESLANG_LLVM_COMPILER_SHA256="$(sha256sum "$ORESLANG_LLVM_COMPILER" | cut -d' ' -f1)"
+export ORESLANG_SCALAR_PARITY_REQUIRED=1
+node --test tests/cross-backend-checked-i64-scalar.test.mjs
+```
+
+The SHA-256 must be independently reviewed and pinned to the approved compiler
+build; computing it immediately before an unreviewed run **alone** does not
+establish trusted compiler identity. In strict mode, missing compiler,
+missing/malformed digest, executable hash drift, missing guest execution or
+incorrect signed-i64 results fail. The local SHA self-test uses a fake binary
+only to prove tamper detection and is **not** guest parity evidence. Workflows
+with `steps=[]`/zero executed steps remain infrastructure failures.
