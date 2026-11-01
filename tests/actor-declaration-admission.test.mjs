@@ -67,6 +67,33 @@ test("malformed UTF-8 and unterminated comments fail before compilation", () => 
   );
 });
 
+test("standalone policy refuses oversized source before UTF-8 decoding", () => {
+  const overLimit = new Uint8Array(1024 * 1024 + 1).fill(0x20);
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(overLimit),
+    /source exceeds 1 MiB actor admission budget/
+  );
+  // The compiler bridge and standalone actor policy use the same byte bound.
+  assert.doesNotThrow(
+    () => rejectUnsupportedActorThreadSource(new Uint8Array(1024 * 1024).fill(0x20))
+  );
+});
+
+test("comment nesting and executable token-count budgets are enforced", () => {
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(bytes("/*".repeat(129) + "*/".repeat(129))),
+    /source comment nesting exceeded/
+  );
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(bytes("a ".repeat(100_001))),
+    /source token budget exceeded/
+  );
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(bytes('"unterminated')),
+    /unterminated source string/
+  );
+});
+
 test("exact conformance lifecycle source fails closed before Wasm scalar compilation", () => {
   const guest = readFileSync(new URL("./fixtures/actor-execution-v1.ores", import.meta.url));
   const sha = createHash("sha1")
