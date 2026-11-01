@@ -34,5 +34,7 @@ jobs:
           node-version: '22'
       - name: Execute bounded Node host-only risk oracle and mutation checks
         run: node --test tests/hpc-finance-risk-parity.test.mjs
+      - name: Recognize compiler-admission test as SKIPPED unless reviewed LLVM compiler is supplied
+        run: node --test tests/hpc-finance-source-negative.test.mjs
       - name: Record excluded compiler and guest evidence
         run: echo 'WASM_HPC_EVIDENCE=HOST_ONLY_NOT_COMPILED_WASM_GUEST'
