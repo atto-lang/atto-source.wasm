@@ -50,7 +50,7 @@ for(const x of c.compile_reject){
       // Only a NONZERO compiler invocation counts as a parser rejection.
       // Missing compiler, clang/linker failure, digest mismatch, IO and timeouts
       // are infrastructure failures, never successful negative guest evidence.
-      assert.match(message,/^command failed \\(.*compiler-exact\\):/);
+      assert.match(message,/^command failed \(.*compiler-exact\):/);
       assert.doesNotMatch(message,/ENOENT|EACCES|ETIMEDOUT|timed out|spawn|no such file/i);
       return true;
     });
