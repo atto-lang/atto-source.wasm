@@ -7,6 +7,6 @@
   "legacy-nb-default": "pub fnc main():int{let Future<int> f = nb { 42 }; return await f;}",
   "legacy-nb-cpu": "pub fnc main():int{let Future<int> f = nb cpu { 42 }; return await f;}",
   "legacy-nb-gpu": "pub fnc main():int{let Future<int> f = nb gpu { 42 }; return await f;}",
-  "gpu-cpu-gpu-nested": "pub fnc main():int{return gpu { cpu { gpu { 42 } } };}",
+  "gpu-task-cpu-gpu-nested": "pub fnc main():int{return gpu task { cpu { gpu { 42 } } };}",
   "empty-gpu-task-reject": "pub fnc main():void{gpu task {};}"
 }
