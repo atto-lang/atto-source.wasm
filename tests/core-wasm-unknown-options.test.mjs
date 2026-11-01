@@ -52,11 +52,11 @@ test("malformed options fail before byte admission", async () => {
 
 test("mixed supported and forbidden options fail before visiting bytes", async () => {
   for (const forbidden of unsupported) {
-    const options = {entry: "main", timeoutMs: 100, [forbidden]: null};
+    const options = {entry: "main", [forbidden]: null};
     assert.throws(() => compileAdmittedCoreGuest(null, options),
-      /unsupported core Wasm guest admission option/, forbidden);
+      new RegExp("unsupported core Wasm guest admission option: " + forbidden), forbidden);
     await assert.rejects(runIsolatedCoreGuest(null, options),
-      /unsupported core Wasm isolated runner option/, forbidden);
+      new RegExp("unsupported core Wasm isolated runner option: " + forbidden), forbidden);
   }
 });
 
@@ -74,14 +74,14 @@ test("only data descriptors are allowed: getters must not run", async () => {
   assert.equal(invoked, 0, "admission must not evaluate a getter");
 
   const setter = {};
-  Object.defineProperty(setter, "timeoutMs", {
+  Object.defineProperty(setter, "entry", {
     enumerable: true,
     set(_) { invoked++; }
   });
   assert.throws(() => compileAdmittedCoreGuest(null, setter),
-    /unsupported core Wasm guest admission option: timeoutMs/);
+    /option must be a data property: entry/);
   await assert.rejects(runIsolatedCoreGuest(null, setter),
-    /option must be a data property: timeoutMs/);
+    /option must be a data property: entry/);
   assert.equal(invoked, 0);
 });
 
