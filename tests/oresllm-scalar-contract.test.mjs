@@ -75,6 +75,11 @@ function validate(input){
     required_language_policy:'reject-percent-operator',
     observed_older_backends:'some still accept literal-divisor signed remainder; not a parity pass'
   });
+  // v1 freezes IDs; otherwise unexecuted added vectors can inflate parity claims.
+  const frozenIds={"positive":["zero","literal-42","precedence","parentheses","signed-add","signed-multiply","max","min","max-minus-one","min-plus-one","signed-subtract","grouped-negative","left-associative","multiply-before-subtract","nested-precedence","double-negation","zero-times-max"],"checked_overflow":["add-overflow","subtract-overflow","multiply-overflow","negate-min","eager-overflow","nested-overflow"],"compile_reject":["unknown-identifier","integer-division-not-i64","caret-xor-banned","double-caret-banned","invalid-separator"]};
+  for(const kind of Object.keys(frozenIds))
+    assert.deepEqual(input[kind].map(x=>x.id).sort(),[...frozenIds[kind]].sort(),
+      'v1 vector inventory changed without version bump: '+kind);
   return ids.size;
 }
 test('versioned manifest retains five backends, unique cases, and explicit drift',()=>{
@@ -141,4 +146,72 @@ test('manifest cannot claim unchecked wraparound as positive',()=>{
 test('manifest cannot hide an extra backend inside the required set',()=>{
   const m=structuredClone(c);m.required_backends.push('host-oracle');
   assert.throws(()=>validate(m));
+});
+
+test('v1 positive vector growth requires explicit versioned contract review',()=>{
+  const m=structuredClone(c);
+  m.positive.push({id:'unproven-extra',expression:'6 + 7',expected_i64:'13'});
+  assert.throws(()=>validate(m),/v1 vector inventory changed/);
+});
+test('v1 overflow vector growth cannot masquerade as verified backend coverage',()=>{
+  const m=structuredClone(c);
+  m.checked_overflow.push({id:'unproven-overflow',expression:'9223372036854775807 + 2'});
+  assert.throws(()=>validate(m),/v1 vector inventory changed/);
+});
+test('v1 rejection vector growth cannot silently rewrite compiler support',()=>{
+  const m=structuredClone(c);
+  m.compile_reject.push({id:'new-unreviewed-operator',expression:'7 % 3'});
+  assert.throws(()=>validate(m),/v1 vector inventory changed/);
+});
+test('v1 removed case is not silently accepted above minimum count',()=>{
+  const m=structuredClone(c);
+  m.positive=m.positive.filter(x=>x.id!=='zero');
+  assert.throws(()=>validate(m),/v1 vector inventory changed/);
+});
+test('v1 case ID rename cannot be accepted under new native-coverage label',()=>{
+  const m=structuredClone(c);
+  m.positive[0].id='native-proven';
+  assert.throws(()=>validate(m),/v1 vector inventory changed/);
+});
+test('BigInt host oracle retains integers above double precision exactly',()=>{
+  assert.equal(evaluate('9007199254740993 + 1'),9007199254740994n);
+  assert.equal(evaluate('9007199254740995 - 1'),9007199254740994n);
+  assert.equal(evaluate('9007199254740993 * 2'),18014398509481986n);
+});
+test('checked host edges preserve signed 64 extrema, never wrap',()=>{
+  for(const [expr,expected] of [
+    ['9223372036854775807 - 0',9223372036854775807n],
+    ['-9223372036854775808 + 0',-9223372036854775808n],
+    ['-9223372036854775808 + 9223372036854775807',-1n],
+    ['9223372036854775807 + (-9223372036854775808)',-1n],
+    ['-(-9223372036854775807)',9223372036854775807n],
+    ['-(-5)',5n],['(5 - 7) * -3',6n]
+  ]) assert.equal(evaluate(expr),expected,expr);
+});
+test('all six independent checked-overflow boundaries fail closed',()=>{
+  for(const expr of [
+    '9223372036854775807 + 1',
+    '-9223372036854775808 - 1',
+    '-(-9223372036854775808)',
+    '(-9223372036854775808) * (-1)',
+    '3037000500 * 3037000500',
+    '(9223372036854775807 + 1) * 0'
+  ]) assert.throws(()=>evaluate(expr),/signed 64 overflow/,expr);
+});
+test('scalar parser rejects unsupported operators and injection variants',()=>{
+  for(const expr of [
+    '7 % 3','7 / 2','5 ^ 3','5 ^^ 3','1__0','0x10','1e2',
+    '1;2','1 /**/ + 2','1 + import evil','1 + {2}','1 + [2]',
+    '1 + true','1 + 2.0','1 + 2\nreturn 3','1 2','', '3 ** 2'
+  ]) assert.throws(()=>evaluate(expr),undefined,expr);
+});
+test('seeded small-number arithmetic oracle never loses precision or precedence',()=>{
+  let state=0x6d2b79f5;
+  const next=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return (state%200001)-100000;};
+  for(let i=0;i<512;i++){
+    const x=next(),y=next(),z=next();
+    const lhs=BigInt(x),rhs=BigInt(y),tail=BigInt(z);
+    assert.equal(evaluate('('+x+' + '+y+') * '+z),(lhs+rhs)*tail);
+    assert.equal(evaluate(x+' - ('+y+' * '+z+')'),lhs-rhs*tail);
+  }
 });
