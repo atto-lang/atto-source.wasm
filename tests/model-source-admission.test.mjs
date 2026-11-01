@@ -26,6 +26,14 @@ test("model remains contextual and comments or strings are inert",()=>{
  ]) assert.doesNotThrow(()=>rejectUnsupportedModelSource(bytes(source)));
 });
 
+test("model rejection offset counts UTF-8 bytes after Unicode comments",()=>{
+ const prefix="/* café 🌟 */ ";
+ const source=prefix+"define model x as Identity() end";
+ const expected=Buffer.byteLength(prefix+"define ","utf8");
+ assert.throws(()=>rejectUnsupportedModelSource(bytes(source)),error=>
+   error.message.endsWith("at byte "+expected));
+});
+
 test("invalid UTF-8 rejects before source model scanning",()=>{
  assert.throws(()=>rejectUnsupportedModelSource(Uint8Array.from([0xc0,0xaf])),
    /encoded data was not valid/i);
