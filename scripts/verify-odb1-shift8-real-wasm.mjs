@@ -5,7 +5,7 @@
  */
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
-import {mkdtemp, rm, writeFile} from 'node:fs/promises';
+import {lstat, mkdtemp, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {fileURLToPath} from 'node:url';
 import {isAbsolute, join} from 'node:path';
@@ -109,6 +109,15 @@ export async function verifyOdb1ScalarWasm({
         denied = true;
       }
       if (!denied) throw Error(`invalid expression compiled: ${expression}`);
+      for (const published of [output, output+'.current.json', output+'.provenance.json']) {
+        try {
+          await lstat(published);
+        } catch (error) {
+          if (error?.code === 'ENOENT') continue;
+          throw error;
+        }
+        throw Error(`rejected scalar source published a Wasm artifact: ${expression}`);
+      }
       rejected++;
     }
     // Final executable/source checkout consistency, not a full build attestation.
