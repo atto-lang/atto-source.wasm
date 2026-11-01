@@ -109,6 +109,7 @@ for(const [name,expression] of [
 
 test("int / int is not admitted as an i64 result",async t=>{
   if(unavailable(t))return;
+  await requirePinnedCompilerInParityMode();
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
@@ -124,6 +125,7 @@ for(const [name,expression] of [
 ]){
   test("five-backend scalar rejection: "+name,async t=>{
     if(unavailable(t))return;
+    await requirePinnedCompilerInParityMode();
     const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-reject-"));
     t.after(()=>rm(dir,{recursive:true,force:true}));
     const source=join(dir,"negative.ores"),output=join(dir,"negative.wasm");
