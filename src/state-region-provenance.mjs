@@ -48,10 +48,12 @@ export function stateRegionProvenance(record) {
       throw new TypeError("missing own state-region provenance field: " + name);
     }
   }
+  // Validate all descriptors before reading any field: even a rejected
+  // contractVersion getter must never execute at this trust boundary.
+  rejectUnknownFields(record);
   if (record.contractVersion !== "1.0") {
     throw new TypeError("unsupported state-region provenance version");
   }
-  rejectUnknownFields(record);
   const out = {contractVersion: "1.0"};
   for (const name of fields) out[name] = positiveSafeInteger(record[name], name);
   if (typeof record.place !== "string" || record.place.trim().length === 0) {
