@@ -41,3 +41,37 @@ test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource(bytes('"unterminated')),
     /unterminated source string/);
 });
+
+test("all actor-domain declaration spellings and spawns fail before scalar bridge", () => {
+  for (const source of [
+    "define actor A1 as end",
+    "define shared actor A1 as end",
+    "define pub actor A1 as end",
+    "pub define actor A1 as end",
+    "define untrusted actor A1 as end",
+    "define isoactor A1 as end",
+    "define supervisor S1 as end",
+    "define class A1 extends Actor as end",
+    "define class A1 extends IsoActor as end",
+    "define class A1 extends UntrustedActor as end",
+    "actor fnc work(): int { return 42; }",
+    "actor routine work(): int { return 42; }",
+    "fnc main():int { spawn Worker(); return 42; }",
+    "define actor Parent as end\ndefine actor Child extends Parent as end",
+    "define actor A1 implements TrainableStage as end"
+  ]) assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+    /source actor execution unsupported/, source);
+});
+
+test("ordinary scalar source is not denied by actor-like text in comments or strings", () => {
+  for (const source of [
+    'fnc main():int{return 42;} // define untrusted actor Foo as end',
+    'fnc main():int{return 42;} /* define isoactor B as end */',
+    'fnc main():int{return 42;} /* outer /* spawn Bad() */ end */',
+    'fnc main():int { const label = "define class A1 extends Actor as end"; return 42; }',
+    'fnc main():int { const label = "actor fnc"; return 42; }',
+    'fnc main():int{return 42;} // define shared actor S'
+  ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(
+    bytes("define class PureValue as end\nfnc main():int{return 42;}")));
+});
