@@ -40,7 +40,8 @@ test("safe scalar sources and words hidden in comments or strings are not falsel
     "/* Box<int> /* Arc<Mutex<int>> */ rt borrow x */ fnc main():int{return 42;}",
     "fnc Box():int{return 42;} fnc main():int{return 42;}",
     "fnc main():int{let message=\"Vector[int] rt mut share\";return 42;}",
-    "fnc main():int{let x=42;return rt copy x;}"
+    "fnc main():int{let x=42;return rt copy x;}",
+    "fnc main():int{let x=42;return rt share x;}"
   ]) assert.doesNotThrow(() => rejectUnsupportedHeapContainerSource(utf8(source)));
 });
 
