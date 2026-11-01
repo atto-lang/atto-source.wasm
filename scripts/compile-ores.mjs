@@ -118,7 +118,11 @@ export function rejectUnsupportedModelSource(sourceBytes){
   let cursor=i+(tokens[i].text==="pub"?2:1);
   if(tokens[cursor]?.text==="pub")cursor++;
   if(tokens[cursor]?.id&&tokens[cursor].text==="model"){
-   throw Error("MODEL_LOWERING_UNSUPPORTED: wasm32 requires verified nominal ModelGraph ABI at byte "+tokens[cursor].offset);
+   // Scanner offsets are JS UTF-16 indices, not UTF-8 byte offsets.
+   // Diagnostics must address the pinned source bytes even after Unicode comments.
+   const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+   const byteOffset=new TextEncoder().encode(text.slice(0,tokens[cursor].offset)).length;
+   throw Error("MODEL_LOWERING_UNSUPPORTED: wasm32 requires verified nominal ModelGraph ABI at byte "+byteOffset);
   }
  }
 }
