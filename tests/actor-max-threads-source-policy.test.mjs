@@ -75,3 +75,21 @@ test("ordinary scalar source is not denied by actor-like text in comments or str
   assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(
     bytes("define class PureValue as end\nfnc main():int{return 42;}")));
 });
+
+test("generic class syntax cannot disguise an intrinsic Actor root", () => {
+  for (const source of [
+    "define class Child<T> extends Actor as end",
+    "define pub class Child<T=int> extends Actor as end",
+    "define class Child<X<Y>> extends IsoActor as end",
+    "define class Child<T> extends UntrustedActor as end",
+    "pub define class Child<T> extends Actor as end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /source actor execution unsupported/, source);
+  }
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(
+    bytes("define class Box<T> extends Plain as end")));
+  assert.throws(() => rejectUnsupportedActorThreadSource(
+    bytes("define class Child<T extends Actor as end")),
+    /unterminated class generic parameters/);
+});
