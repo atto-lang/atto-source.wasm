@@ -4,6 +4,19 @@ export function stateRegionRequirement(record) {
   if (record === null || typeof record !== "object") {
     throw new TypeError("state-region requirement record required");
   }
+  const allowedFields = [
+    "contractVersion", "regionBinding", "executionBinding", "generationFence",
+    "loanId", "place", "kind", "action"
+  ];
+  for (const name of allowedFields) {
+    if (!Object.hasOwn(record, name)) {
+      throw new TypeError("missing own state-region requirement field: " + name);
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(record, name);
+    if (!descriptor || !Object.hasOwn(descriptor, "value")) {
+      throw new TypeError("state-region requirement accessor forbidden: " + name);
+    }
+  }
   if (record.contractVersion !== "1.0") {
     throw new TypeError("unsupported state-region requirement version");
   }
