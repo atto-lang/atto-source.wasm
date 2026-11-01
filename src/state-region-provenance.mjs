@@ -21,7 +21,7 @@ function rejectUnknownFields(record) {
   }
   for (const name of Reflect.ownKeys(record)) {
     if (!allowedFields.has(name)) {
-      throw new TypeError("unknown state-region provenance field: " + name);
+      throw new TypeError("unknown state-region provenance field: " + String(name));
     }
   }
 }
