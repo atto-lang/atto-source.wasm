@@ -54,7 +54,13 @@ const positive = [
   ["dual-identity-operands", main("return (7 as int)+(35 as int);")],
   ["grouped-identity-multiplication", main("return ((2+5) as int)*6;")],
   ["chained-identity-multiplication", main("return (7 as int as int)*6;")],
-  ["identity-through-const-reference", main("const x=7 as int;const y=x as int;return y*6;")]
+  ["identity-through-const-reference", main("const x=7 as int;const y=x as int;return y*6;")],
+  ["ssa-let-multiwrite", main("let x=7;x=x+1;x=x+34;return x;")],
+  ["ssa-let-const-snapshot", main("let x=7;const snap=x;x=42;return snap+35;")],
+  ["ssa-let-val-snapshot", main("let x=7;val snap=x;x=42;return snap+35;")],
+  ["ssa-let-cast-snapshot", main("let x=7;const snap=x as int;x=42;return snap+35;")],
+  ["ssa-let-casted-write", main("let x=7 as int;x=(x+35) as int;return x;")],
+  ["ssa-let-from-const", main("const base=7;let x=base;x=42;return x;")]
 ];
 const negative = [
   ["int-to-bool", main("const x=7 as bool;return 0;"), /impossible native cast: int as bool/],
@@ -119,7 +125,7 @@ const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
-  assert.equal(positive.length, 45);
+  assert.equal(positive.length, 51);
   assert.equal(negative.length, 32);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
