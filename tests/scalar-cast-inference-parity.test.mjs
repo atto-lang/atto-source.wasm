@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {mkdtemp, writeFile, readFile, stat, rm} from "node:fs/promises";
+import {readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -90,18 +91,40 @@ const negative = [
   ["identity-then-optional", main("return (7 as int) as? int;"), /native as\? requires Option/],
   ["identity-then-bool-arithmetic", main("return (7 as int)+true;"), /arithmetic requires int, got bool/]
 ];
+// Exact Git blob SHA-1 provenance binds the five copied native guest source
+// files to oreslang-compilers-parity-testing candidate programs 45–49.
+// All five must pass through the *real* LLVM compiler -> wasm32 -> isolated
+// guest when ORESLANG_CAST_PARITY_REQUIRED=1. No host arithmetic credit.
+const sharedIdentityCastSources = [
+  ["45-cast-int-literal.ores", "69cecd231d32bf70ea36424e59c932861d01fe44"],
+  ["46-chained-cast-int.ores", "b088dd3f5e3114be4affbb4935582b58f010d75f"],
+  ["47-grouped-cast-multiply.ores", "9ebc3f7bc230557fe2f2639172883bb2f4589464"],
+  ["48-readonly-local-cast.ores", "87d0773504e0d22fc3cf1ee76755b36a2fc415c6"],
+  ["49-const-typed-identity.ores", "bff7c6070008c5c6a8b3316e8a289f93d3f8c5b3"]
+];
+for (const [filename, expectedGitBlob] of sharedIdentityCastSources) {
+  const sourceBytes = readFileSync(new URL("./parity/" + filename, import.meta.url));
+  assert.ok(sourceBytes.length > 0 && sourceBytes.length < 8192);
+  const actualGitBlob = createHash("sha1")
+    .update("blob " + sourceBytes.length + "\0")
+    .update(sourceBytes)
+    .digest("hex");
+  assert.equal(actualGitBlob, expectedGitBlob, filename + " has source drift");
+  positive.push(["shared-" + filename.replace(".ores", ""), sourceBytes.toString("utf8")]);
+}
+
 const REQUIRED_LLVM_SOURCE_SHA = "042c7ba7ecbfe237dd67eba560814d25405b0ecd";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 const ids = [...positive, ...negative].map(row => row[0]);
 
 test("scalar cast/inference corpus integrity and negative mutation checks (host-only)", () => {
   assert.equal(ids.length, new Set(ids).size, "duplicate scalar case ID");
-  assert.equal(positive.length, 40);
+  assert.equal(positive.length, 45);
   assert.equal(negative.length, 32);
   for (const [id, source] of [...positive, ...negative]) {
     assert.match(id, /^[a-z][a-z0-9-]{2,60}$/);
     assert.ok(Buffer.byteLength(source, "utf8") < 8192);
-    assert.match(source, /pub fnc main\(\):int\{/);
+    assert.match(source, /pub\s+fnc\s+main\(\):\s*int\s*\{/);
     assert.equal(digest(Buffer.from(source)).length, 64);
   }
   const modified = positive[0][1].replace("7;return", "8;return");

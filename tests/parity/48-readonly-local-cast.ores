@@ -1,0 +1,6 @@
+// 48: type-first immutable local with a checked i64 identity cast.
+// Candidate only: no five-backend compiler execution has been verified.
+pub fnc main(): int {
+  int amount = 7;
+  return (amount as int) * 6;
+}

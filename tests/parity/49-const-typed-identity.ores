@@ -1,0 +1,6 @@
+// 49: explicitly typed compile-time const and checked identity cast.
+// Candidate only: no five-backend compiler execution has been verified.
+pub fnc main(): int {
+  const int amount = 7 as int;
+  return amount * 6;
+}
