@@ -39,6 +39,19 @@ test("does not ban async task expressions solely because they contain async",()=
 test("source policy rejects malformed UTF-8 instead of interpreting lossily",()=>{
  assert.throws(()=>rejectUnsupportedCriticalSuspendsSource(new Uint8Array([0xc3,0x28])),/encoded|UTF|valid/i);
 });
+test("CR and Unicode line separators cannot hide executable critical tokens",()=>{
+ for(const separator of ["\r","\u0085","\u2028","\u2029"]){
+  const source="fnc main():int{return 42;} // harmless"+separator+"critical { illegal(); }";
+  assert.throws(()=>rejectUnsupportedCriticalSuspendsSource(bytes(source)),/E_CRITICAL_UNSUPPORTED/);
+ }
+});
+test("unterminated strings and templates fail before compiler invocation",()=>{
+ for(const source of [
+  'fnc main():int{return "critical',
+  "fnc main():int{return `critical`;}"
+ ])assert.throws(()=>rejectUnsupportedCriticalSuspendsSource(bytes(source)),
+  /unterminated source literal|does not support template literal/);
+});
 test("Wasm source policy is independent from host-import and runtime admission",()=>{
  const unsafe="suspends fnc main():int{return await io();}";
  assert.throws(()=>rejectUnsupportedCriticalSuspendsSource(bytes(unsafe)),/E_SUSPENDS_UNSUPPORTED/);
