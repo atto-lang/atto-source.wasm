@@ -32,13 +32,24 @@ test("actor io error/events are typed and metadata is immutable versioned snapsh
   assert.equal(io.metadata(auth).values.route, "/v1");
 });
 
-test("actor io authority rejects stale, copied and foreign-looking handles", () => {
+test("actor io authority rejects stale handles and restart erases retired state", () => {
   const io = new ActorIoEnvelope({actorId: 3});
   const first = io.authority();
   const forged = Object.freeze({actorId: first.actorId, generation: first.generation});
   assert.throws(() => io.tryWriteOutput(forged, Uint8Array.of(1)), /stale, foreign, or retired/);
+
+  assert.equal(io.tryWriteOutput(first, Uint8Array.of(9, 9)), true);
+  assert.equal(io.tryEmitEvent(first, {kind: "old", payload: "generation"}), true);
+  io.replaceMetadata(first, {trace_id: "old"});
+
   const second = io.restart(2);
   assert.throws(() => io.metadata(first), /stale, foreign, or retired/);
+  assert.equal(io.readOutput(second), undefined, "restart must erase old output");
+  assert.equal(io.readEvent(second), undefined, "restart must erase old events");
+  assert.equal(io.metadata(second).version, 1, "metadata version resets per generation");
+  assert.deepEqual(
+    Object.keys(io.metadata(second).values), [],
+    "restart must erase old metadata");
   assert.equal(io.tryWriteOutput(second, Uint8Array.of(2)), true);
 });
 
@@ -65,7 +76,18 @@ test("metadata and record quotas fail closed", () => {
   const auth = io.authority();
   assert.equal(io.tryFeedInput(auth, Uint8Array.of(1, 2)), true);
   assert.equal(io.tryFeedInput(auth, Uint8Array.of()), false, "record quota includes empty records");
+  assert.equal(
+    io.tryWriteOutput(auth, Uint8Array.of(1, 2, 3)),
+    false,
+    "oversized single record must fail before mutation");
+  assert.equal(
+    io.readOutput(auth),
+    undefined,
+    "oversized record must not partially enqueue");
   assert.throws(() => io.replaceMetadata(auth,
     Object.fromEntries(Array.from({length: ActorIoEnvelope.MAX_METADATA_ENTRIES + 1},
       (_, i) => ["k" + i, "v"]))), /entry limit/);
+  assert.throws(() => io.replaceMetadata(auth, {
+    oversized: "x".repeat(ActorIoEnvelope.MAX_METADATA_BYTES + 1),
+  }), /byte limit/);
 });
