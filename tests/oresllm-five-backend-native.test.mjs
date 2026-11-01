@@ -15,6 +15,8 @@ const compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256;
 const required=process.env.ORESLLM_REQUIRE_REAL_WASM_PARITY==='1';
 async function withFixture(t,expression,check){
   if(!compiler){
+    // A dangling SHA pin means an incomplete configuration, not an optional skip.
+    if(compilerSha256)throw Error('WASM compiler SHA provided without compiler path');
     if(required)throw Error('WASM parity requires pinned ORESLANG_LLVM_COMPILER');
     t.skip('no compiler pinned; not a native guest pass');
     return;
@@ -56,6 +58,7 @@ test('WASM native parity cannot be silently certified without compiler or digest
     assertPinnedCompilerSha256(compilerSha256);
     t.skip('compiler path and SHA provided; compiler-backed guest tests must run');return;
   }
+  assert.equal(compilerSha256,undefined,'digest alone cannot establish a native compiler');
   assert.equal(required,false,'required WASM guest proof missing pinned compiler');
 });
 
