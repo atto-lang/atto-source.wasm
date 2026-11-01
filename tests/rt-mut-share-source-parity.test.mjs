@@ -5,6 +5,7 @@ import {mkdtemp, writeFile, rm, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
+import {assertNativeMutShareDenial} from "../scripts/rt-mut-share-admission.mjs";
 
 // This is an executable LLVM-source -> Wasm publication gate, not a native
 // SharedMutex implementation. Missing compiler evidence must not count as pass.
@@ -43,17 +44,7 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
           compiler, compilerSha256, source, output,
           environment: "browser", publication: "atomic"
         }),
-        error => {
-          assert.match(error.message,
-            /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: /,
-            "must be the pinned native compiler, not a host/Clang failure");
-          assert.match(error.message,
-            /native rt mut share requires verified SharedMutex<T> capability/,
-            "must fail with the dedicated unsupported guarded-sharing diagnostic");
-          assert.doesNotMatch(error.message, /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL/,
-            "infrastructure failure must not count as a negative compiler test");
-          return true;
-        }
+        assertNativeMutShareDenial
       );
       for (const candidate of [output, output + ".current.json"]) {
         await assert.rejects(stat(candidate), {code:"ENOENT"},
