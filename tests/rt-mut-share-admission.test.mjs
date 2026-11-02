@@ -39,7 +39,7 @@ test("host failure, generic parser error and a substituted compiler fail closed"
   ]) assert.throws(() => assertNativeMutShareDenial({...evidence,message}), undefined, message);
   // Human-facing messages are truncated to 4 KiB by the spawn bridge.
   // Forged rejection bytes must never conceal later stderr IR or crashes.
-  for (const tail of ["\\ndeclare i64 @hidden(i64)", "\\nSegmentation fault (core dumped)"]) {
+  for (const tail of ["\ndeclare i64 @hidden(i64)", "\nSegmentation fault (core dumped)"]) {
     assert.throws(() => assertNativeMutShareDenial({
       ...evidence,
       stderr:evidence.stderr + "x".repeat(5000) + tail
