@@ -11,11 +11,15 @@ function testRealCompilerAdmission(required) {
   // A nested `node --test` inheriting it silently skips the child test files
   // and returns exit 0, invalidating both admission assertions.
   delete env.NODE_TEST_CONTEXT;
+  delete env.ATTOLANG_LLVM_COMPILER;
+  delete env.ATTOLANG_LLVM_COMPILER_SHA256;
+  delete env.ATTOLANG_LLVM_SOURCE_SHA;
   delete env.ORESLANG_LLVM_COMPILER;
   delete env.ORESLANG_LLVM_COMPILER_SHA256;
   delete env.ORESLANG_LLVM_SOURCE_SHA;
+  delete env.ATTOLANG_REQUIRE_REAL_COMPILER;
   delete env.ORESLANG_REQUIRE_REAL_COMPILER;
-  if (required) env.ORESLANG_REQUIRE_REAL_COMPILER = "1";
+  if (required) env.ATTOLANG_REQUIRE_REAL_COMPILER = "1";
   return spawnSync(process.execPath, [
     "--test",
     "--test-name-pattern=real source value boundaries reject before publishing a Wasm artifact",

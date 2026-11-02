@@ -9,7 +9,7 @@ import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
+const realSource = fileURLToPath(new URL("../examples/native-int.atto", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.atto", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
   "../examples/unsupported-any-ternary.atto", import.meta.url));
@@ -193,7 +193,7 @@ export async function verifyRealCompiler({
         throw Error("shared scalar expected value overflows i64");
       // The compiler must never race the original checkout fixture after
       // its content hash has been admitted. Compile a private, pinned copy.
-      const stagedSource = join(work, "shared-" + testCase.id + ".ores");
+      const stagedSource = join(work, "shared-" + testCase.id + ".atto");
       await writeFile(stagedSource, sourceBytes, {flag:"wx",mode:0o400});
       const out = join(work, "shared-" + testCase.id + ".wasm");
       const built = await compileOresToWasm({

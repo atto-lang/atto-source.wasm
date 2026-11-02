@@ -1,6 +1,6 @@
 /**
  * Experimental, explicit end-to-end bridge:
- * native oreslang-llvmc (.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
+ * native oreslang-llvmc (.atto -> LLVM IR; legacy .ores retained) -> clang wasm32 -> Wasm module.
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";

@@ -1,6 +1,6 @@
-# Oreslang import parity v1 — LLVM-to-Wasm promotion gate
+# AttoLang import parity v1 — LLVM-to-Wasm promotion gate
 
-The canonical Oreslang project-root import marker is `+/`, **not** `@/`.
+The canonical AttoLang project-root import marker is `+/`, **not** `@/`.
 Java/Graal is the behavioral reference for manifest-root selection, nested
 package contexts, declared `pkg:alias/path` dependencies, and whole-program
 linking. This Wasm backend consumes a separately pinned LLVM compiler. It
@@ -18,7 +18,7 @@ does **not** implement a separate source import parser or linker.
 4. Source validation, code generation, and Wasm publication must all bind
    to one exact, complete verified input graph and compiler binary digest.
 5. All guest imports remain denied under the current zero-capability core
-   Wasm profile. A verified linked Oreslang program may contain multiple
+   Wasm profile. A verified linked AttoLang program may contain multiple
    source units, but the resulting core Wasm guest cannot acquire host
    imports, tables, start sections or unbounded memory.
 

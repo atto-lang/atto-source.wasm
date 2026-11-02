@@ -5,11 +5,11 @@ import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
 test("missing real native compiler fails instead of silently skipping", () => {
   const env = {...process.env};
-  for (const name of ["ORESLANG_LLVM_COMPILER","ORESLANG_LLVM_COMPILER_SHA256","ORESLANG_LLVM_SOURCE_SHA"])
+  for (const name of ["ATTOLANG_LLVM_COMPILER","ATTOLANG_LLVM_COMPILER_SHA256","ATTOLANG_LLVM_SOURCE_SHA","ORESLANG_LLVM_COMPILER","ORESLANG_LLVM_COMPILER_SHA256","ORESLANG_LLVM_SOURCE_SHA"])
     delete env[name];
   const r = spawnSync(process.execPath,[path],{env,encoding:"utf8",timeout:15000});
   assert.equal(r.status,1);
-  assert.match(r.stderr,/ORESLANG_LLVM_COMPILER must be an absolute compiler executable path/);
+  assert.match(r.stderr,/ATTOLANG_LLVM_COMPILER must be an absolute compiler executable path/);
   assert.doesNotMatch(r.stdout,/"status":\s*"verified"/);
 });
 
@@ -18,7 +18,7 @@ test("invalid real-compiler SHA is refused before any executable is read", async
   await assert.rejects(
     verifyRealCompiler({compiler:process.execPath,
       compilerSha256:"bad",llvmSourceSha:"0".repeat(40)}),
-    /ORESLANG_LLVM_COMPILER_SHA256 is required/
+    /ATTOLANG_LLVM_COMPILER_SHA256 is required/
   );
 });
 test("invalid source-commit attestation is refused before compiler execution", async () => {
@@ -26,7 +26,7 @@ test("invalid source-commit attestation is refused before compiler execution", a
   await assert.rejects(
     verifyRealCompiler({compiler:process.execPath,
       compilerSha256:"f".repeat(64),llvmSourceSha:"bad"}),
-    /ORESLANG_LLVM_SOURCE_SHA is required/
+    /ATTOLANG_LLVM_SOURCE_SHA is required/
   );
 });
 
@@ -151,7 +151,7 @@ test("opaque-top ternary fixture is pinned and remains source-only negative cove
   const {readFile} = await import("node:fs/promises");
   const {createHash} = await import("node:crypto");
   const content = await readFile(new URL(
-    "../examples/unsupported-any-ternary.ores", import.meta.url));
+    "../examples/unsupported-any-ternary.atto", import.meta.url));
   const gitSha = createHash("sha1")
     .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
     .update(content).digest("hex");
@@ -161,12 +161,12 @@ test("opaque-top ternary fixture is pinned and remains source-only negative cove
 test("value-pipeline source fixture is byte-identical to shared conformance", async () => {
   const {readFile} = await import("node:fs/promises");
   const {createHash} = await import("node:crypto");
-  const content = await readFile(new URL("../examples/value-pipe-scalar.ores", import.meta.url));
+  const content = await readFile(new URL("../examples/value-pipe-scalar.atto", import.meta.url));
   const gitSha = createHash("sha1")
     .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
     .update(content).digest("hex");
   assert.equal(gitSha, "1ce089ef1592b2c263a44bb6a71067f5785c6f58");
-  const invalid = await readFile(new URL("../examples/value-pipe-invalid.ores", import.meta.url));
+  const invalid = await readFile(new URL("../examples/value-pipe-invalid.atto", import.meta.url));
   const invalidGitSha = createHash("sha1")
     .update(Buffer.from("blob " + invalid.length + String.fromCharCode(0)))
     .update(invalid).digest("hex");

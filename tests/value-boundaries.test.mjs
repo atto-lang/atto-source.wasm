@@ -46,29 +46,30 @@ const cases = {...legacyCases, ...sharedCases, ...taskV2Cases, ...borrowTaskCase
 test('real source value boundaries reject before publishing a Wasm artifact', {
   // A baseline unit suite can omit the optional installed native compiler;
   // a real-parity CI job must opt in and cannot silently skip when missing.
-  skip: !process.env.ORESLANG_LLVM_COMPILER &&
+  skip: !(process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER) &&
+        process.env.ATTOLANG_REQUIRE_REAL_COMPILER === undefined &&
         process.env.ORESLANG_REQUIRE_REAL_COMPILER === undefined,
   timeout: 60000
 }, async () => {
-  const compiler = process.env.ORESLANG_LLVM_COMPILER;
+  const compiler = process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER;
   assert.ok(compiler,
-    'ORESLANG_REQUIRE_REAL_COMPILER requires ORESLANG_LLVM_COMPILER; never skip required guest execution');
+    'ATTOLANG_REQUIRE_REAL_COMPILER requires ATTOLANG_LLVM_COMPILER (legacy ORESLANG aliases accepted); never skip required guest execution');
   // A real-compiler parity run is never an implicit unpinned test. Require
   // both the exact compiled executable and declared upstream source revision.
   // The separate trusted build must independently attest their relationship.
-  assert.match(process.env.ORESLANG_LLVM_COMPILER_SHA256 || '', /^[0-9a-f]{64}$/,
+  assert.match(process.env.ATTOLANG_LLVM_COMPILER_SHA256 || process.env.ORESLANG_LLVM_COMPILER_SHA256 || '', /^[0-9a-f]{64}$/,
     'real compiler parity requires an explicit binary SHA-256 pin');
-  assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA || '', /^[0-9a-f]{40}$/,
+  assert.match(process.env.ATTOLANG_LLVM_SOURCE_SHA || process.env.ORESLANG_LLVM_SOURCE_SHA || '', /^[0-9a-f]{40}$/,
     'real compiler parity requires an explicit LLVM source commit');
   const bytes = (await readBoundedRegularFile(compiler, 256 * 1024 * 1024)).bytes;
   const compilerSha256 = createHash('sha256').update(bytes).digest('hex');
-  assert.equal(compilerSha256, process.env.ORESLANG_LLVM_COMPILER_SHA256,
-    'native Oreslang compiler binary does not match pinned source build');
+  assert.equal(compilerSha256, (process.env.ATTOLANG_LLVM_COMPILER_SHA256 || process.env.ORESLANG_LLVM_COMPILER_SHA256),
+    'native AttoLang compiler binary does not match pinned source build');
   const dir = await mkdtemp(join(tmpdir(), 'ores-value-boundaries-'));
   try {
-    const source = join(dir, 'main.ores');
+    const source = join(dir, 'main.atto');
     const output = join(dir, 'good.wasm');
-    // Real executed positive control uses exactly the normative Java/LLVM Oreslang bytes.
+    // Real executed positive control uses exactly the normative Java/LLVM AttoLang bytes.
     await writeFile(source, await readFile(new URL('../contracts/v1/semantics/fixtures/add.ores', import.meta.url)));
     await compileOresToWasm({compiler, compilerSha256, source, output});
     const good = await readFile(output);
