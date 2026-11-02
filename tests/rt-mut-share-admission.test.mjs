@@ -37,6 +37,14 @@ test("host failure, generic parser error and a substituted compiler fail closed"
     valid + "\nSTACK OVERFLOW",
     valid.replace(", guarded lowering and allocation-domain proof", "")
   ]) assert.throws(() => assertNativeMutShareDenial({...evidence,message}), undefined, message);
+  // Human-facing messages are truncated to 4 KiB by the spawn bridge.
+  // Forged rejection bytes must never conceal later stderr IR or crashes.
+  for (const tail of ["\\ndeclare i64 @hidden(i64)", "\\nSegmentation fault (core dumped)"]) {
+    assert.throws(() => assertNativeMutShareDenial({
+      ...evidence,
+      stderr:evidence.stderr + "x".repeat(5000) + tail
+    }), undefined, "full stderr must be inspected beyond the truncated error summary");
+  }
   for (const stdout of ["define i64 @main() {", " ", "; partial source module"]) {
     assert.throws(() => assertNativeMutShareDenial({...evidence,stdout}),
       undefined, "failed compiler stdout is not a valid source rejection");
