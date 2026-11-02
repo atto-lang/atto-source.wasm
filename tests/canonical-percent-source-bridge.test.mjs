@@ -49,6 +49,29 @@ test("non-ASCII source prefix cannot corrupt compiler-facing byte offsets", () =
   }
 });
 
+test("fixed-seed Unicode/comment/literal prefixes preserve exact forbidden-operator byte offsets", () => {
+  let seed=20261102;
+  const next=() => {
+    seed=(Math.imul(seed,1664525)+1013904223)>>>0;
+    return seed;
+  };
+  const prefix=[
+    "// café\\n", "// 😀\\n", "/* 東京 */", "\\r", " ", "",
+    "/* % */", '"%"', "// ignored\\r",
+  ];
+  for(let i=0;i<512;i++) {
+    const pre=Array.from({length:1+next()%7},()=>prefix[next()%prefix.length]).join("");
+    const source=pre+"7 % 3";
+    const expected=Buffer.byteLength(pre+"7 ","utf8");
+    assert.throws(
+      () => rejectLegacyPercentSource(bytes(source)),
+      error => error.message.includes("E_OPERATOR_REMOVED") &&
+               error.message.endsWith("at byte "+expected),
+      "case "+i
+    );
+  }
+});
+
 test("malformed quoted literals cannot hide lexical source admission", () => {
   for (const source of [
     'fnc main():int{return 42;} "unterminated %',
