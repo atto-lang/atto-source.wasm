@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import {assertNativeMutShareDenial} from "../scripts/rt-mut-share-admission.mjs";
 
 const valid = "command failed (/tmp/private/compiler-exact): oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof";
+const evidence = {
+  message:valid, status:1, signal:null, stdout:"",
+  stderr:"oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof"
+};
 test("guarded-sharing rejection requires the exact compiler and diagnostic", () => {
-  assert.equal(assertNativeMutShareDenial(new Error(valid)), true);
-  assert.equal(assertNativeMutShareDenial({message: valid, signal: null}), true);
+  assert.equal(assertNativeMutShareDenial(evidence), true);
+  assert.equal(assertNativeMutShareDenial({...evidence,status:2}), true);
+  assert.throws(() => assertNativeMutShareDenial(new Error(valid)),
+    undefined, "message-only Error is not real compiler evidence");
+  assert.throws(() => assertNativeMutShareDenial({message:valid,signal:null}),
+    undefined, "missing process fields are not compiler evidence");
+  assert.throws(() => assertNativeMutShareDenial({...evidence,stderr:"unrelated parser error"}),
+    undefined, "compiler-owned stderr is required");
 });
 test("host failure, generic parser error and a substituted compiler fail closed", () => {
   for (const message of [
@@ -26,16 +36,16 @@ test("host failure, generic parser error and a substituted compiler fail closed"
     valid + "\nCommand Not Found",
     valid + "\nSTACK OVERFLOW",
     valid.replace(", guarded lowering and allocation-domain proof", "")
-  ]) assert.throws(() => assertNativeMutShareDenial({message}), undefined, message);
+  ]) assert.throws(() => assertNativeMutShareDenial({...evidence,message}), undefined, message);
   for (const stdout of ["define i64 @main() {", " ", "; partial source module"]) {
-    assert.throws(() => assertNativeMutShareDenial({message:valid,stdout,status:1}),
+    assert.throws(() => assertNativeMutShareDenial({...evidence,stdout}),
       undefined, "failed compiler stdout is not a valid source rejection");
   }
-  assert.equal(assertNativeMutShareDenial({message:valid,stdout:"",status:1,signal:null}),true);
-  assert.throws(() => assertNativeMutShareDenial({message:valid,signal:"SIGKILL"}));
+  assert.equal(assertNativeMutShareDenial(evidence),true);
+  assert.throws(() => assertNativeMutShareDenial({...evidence,signal:"SIGKILL"}));
   for (const failure of [
     {code:"ENOENT"}, {errno:-2}, {syscall:"spawn"}, {cause:new Error("host failure")},
     {status:0}, {status:NaN}, {status:-1}
-  ]) assert.throws(() => assertNativeMutShareDenial({message:valid,...failure}),
+  ]) assert.throws(() => assertNativeMutShareDenial({...evidence,...failure}),
     undefined, "host failure metadata and successful status must not count as compiler denial");
 });
