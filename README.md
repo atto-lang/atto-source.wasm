@@ -1,6 +1,6 @@
 # AttoLang source-to-WebAssembly backend
 
-AttoLang is the current public language name (formerly Oreslang). This repository remains an independent compiler integration and experimental zero-capability Wasm execution host. Existing package, module, host and guest wire identifiers remain stable. This documentation-only branding change does not establish `.atto` file admission, full parser coverage, or parity with the Java reference backend.
+AttoLang is the current public language name (formerly Oreslang). This repository remains an independent compiler integration and experimental zero-capability Wasm execution host. Existing package, module, host and guest wire identifiers remain stable. The source bridge accepts canonical `.atto` files and retains `.ores` compatibility. The real compiler gate validates the external LLVM compiler; it does not make this host a second AttoLang parser or claim full Java/backend parity.
 
 Use [AttoLang Brand Compatibility v1](https://github.com/ores-truffle-oreslang/oreslang-common-source/blob/main/contracts/v1/attolang-brand-compat-v1.json) as the migration policy. Do not rename repository paths, package coordinates, command names, ABI or wire-format identifiers as part of a branding-only change.
 
@@ -14,7 +14,7 @@ Do not rename repositories, dependencies, commands or fixed interfaces merely
 to make their names match the public brand.
 
 
-Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
+Dedicated compiler integration and **experimental zero-capability execution host** for AttoLang core Wasm.
 Compare with oreslang-source.* repos.
 
 Please keep parity with oreslang-source.java in terms of features and capability. The same guest code that runs on graalvm should compile and execute with gcc/llvm. Do not use python for anything, use Rust instead of python to support the language.
@@ -32,12 +32,12 @@ Notes on the compiler and runtime:
 
 ## Implemented (initial slice)
 
-- Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new Oreslang parser.
-- Build pipeline: `.ores` source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
+- Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new AttoLang parser.
+- Build pipeline: `.atto` source (legacy `.ores` also accepted) -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
 - Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
 - Deny all guest imports, reject start and table sections, bound private linear memory with a required `memory` export, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
 - Run admitted modules in disposable Node worker threads. Validation and JIT compilation occur inside the worker's deadline, with a module-local four-worker admission quota; the worker is terminated before returning. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
-- Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
+- Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native AttoLang compiler.
 
 ## Run locally
 
@@ -45,21 +45,21 @@ Requires Node 22+, Clang with wasm32 support, and wasm-ld / LLD.
 
 ~~~sh
 npm test
-node scripts/compile-ores.mjs --compiler=/absolute/path/to/oreslang-llvmc --source=/absolute/path/to/main.ores --output=/absolute/path/to/guest.wasm
+node scripts/compile-ores.mjs --compiler=/absolute/path/to/oreslang-llvmc --source=/absolute/path/to/main.atto --output=/absolute/path/to/guest.wasm
 node scripts/run-guest.mjs --wasm=/absolute/path/to/guest.wasm --sha256=EXPECTED_64_HEX_DIGITS
 ~~~
 
-For real Oreslang compiler integration, use:
+For real AttoLang compiler integration, use:
 
 ~~~sh
-ORESLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc npm test
+ATTOLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc npm test (legacy ORESLANG_LLVM_COMPILER is also accepted)
 ~~~
 
-A fake or stub compiler exercising the linker does **not** count as real Oreslang language parity.
+A fake or stub compiler exercising the linker does **not** count as real AttoLang language parity.
 
 ## Security boundary and status
 
-**This is not yet an Oreslang actor runtime, a WASI/component-model host, or a production untrusted-code sandbox.**
+**This is not yet an AttoLang actor runtime, a WASI/component-model host, or a production untrusted-code sandbox.**
 
 - Node worker threads and V8 isolates do not provide OS process separation.
 - The CLI requires a pinned SHA-256 digest and refuses oversized input before reading or executing it.
@@ -67,13 +67,13 @@ A fake or stub compiler exercising the linker does **not** count as real Oreslan
 - The four-worker quota is module-local, not a process-wide or cross-service tenant quota; a deployment broker must enforce aggregate budgets.
 - The Node/V8 host may perform JIT compilation of WebAssembly: this is NOT a strict-no-JIT runtime.
 - The current ABI is intentionally limited to a pure `() -> i64` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
-- Static `select` is therefore **fail-closed through the pinned LLVM frontend**, for both `{ ... }` and `over ... end` outer delimiters. The real-compiler gate requires the compiler-owned `native async/channel/select boundary unsupported` diagnostic with no LLVM IR, and the Wasm bridge must publish no release pointer for rejected select source. This repository deliberately does not maintain a second Oreslang select parser.
+- Static `select` is therefore **fail-closed through the pinned LLVM AttoLang frontend**, for both `{ ... }` and `over ... end` outer delimiters. The real-compiler gate requires the compiler-owned `native async/channel/select boundary unsupported` diagnostic with no LLVM IR, and the Wasm bridge must publish no release pointer for rejected select source. This repository deliberately does not maintain a second AttoLang select parser.
 - Compiler executable bytes must be trusted. A SHA-256 pin proves byte identity, not that the binary came from any particular source commit.
 - Full strict AOT requires a separate trusted precompilation stage and compatible compiler-free native runtime (planned: Wasmtime host with OS sandbox).
 
 See [isolation and roadmap](docs/ISOLATION.md), [portable guest build](docs/PORTABLE_GUEST_BUILD.md), and [atomic artifact publication](docs/ATOMIC_ARTIFACT_PUBLICATION.md).
 
-Related projects: [Oreslang LLVM compiler](https://github.com/ores-truffle-oreslang/oreslang-source.llvm), [earlier Wasm ABI prototype](https://github.com/ores-truffle-oreslang/oreslang-wasm), [target profiles](https://github.com/ores-truffle-oreslang/oreslang-target-profiles).
+Related projects: [AttoLang LLVM compiler](https://github.com/ores-truffle-oreslang/oreslang-source.llvm), [earlier Wasm ABI prototype](https://github.com/ores-truffle-oreslang/oreslang-wasm), [target profiles](https://github.com/ores-truffle-oreslang/oreslang-target-profiles).
 
 See [value-boundary audit and admission tests](docs/VALUE_BOUNDARIES.md) for
 aggregate, call, string, conditional and async feature limits.

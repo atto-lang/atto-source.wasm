@@ -13,15 +13,15 @@ import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 test("shared source-i64 numeric controls execute in real compiler -> wasm32 guest", {
   // A regular developer run may skip an unavailable external compiler.
   // A dedicated parity job must fail closed instead of counting a skip.
-  skip: !process.env.ORESLANG_LLVM_COMPILER
+  skip: !(process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER)
     && process.env.ORESLANG_NUMERIC_PARITY_REQUIRED !== "1",
   timeout: 180000
 }, async () => {
-  const compiler = process.env.ORESLANG_LLVM_COMPILER;
+  const compiler = process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER;
   assert.ok(compiler,
     "numeric parity required: pinned real Oreslang LLVM compiler is missing");
-  const expectedCompilerSha = process.env.ORESLANG_LLVM_COMPILER_SHA256;
-  const declaredLlvmSourceSha = process.env.ORESLANG_LLVM_SOURCE_SHA;
+  const expectedCompilerSha = process.env.ATTOLANG_LLVM_COMPILER_SHA256 || process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  const declaredLlvmSourceSha = process.env.ATTOLANG_LLVM_SOURCE_SHA || process.env.ORESLANG_LLVM_SOURCE_SHA;
   assert.match(expectedCompilerSha || "", /^[a-f0-9]{64}$/,
     "real numeric conformance requires pinned compiler SHA-256");
   assert.match(declaredLlvmSourceSha || "", /^[a-f0-9]{40}$/,
@@ -68,7 +68,7 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
   });
   const dir = await mkdtemp(join(tmpdir(),"ores-numeric-parity-"));
   try {
-    const input = join(dir,"source.ores");
+    const input = join(dir,"source.atto");
     for (let i=0;i<controls.length;i++) {
       const [expression,expected]=controls[i], target=join(dir,"guest-"+i+".wasm");
       await writeFile(input,"pub fnc main():int{return "+expression+";}\n");

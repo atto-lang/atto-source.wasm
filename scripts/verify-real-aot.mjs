@@ -45,22 +45,22 @@ function invoke(executable,args,expectedSuccess=true) {
   return r;
 }
 export async function verifyRealSourceToAot({
-  compiler=process.env.ORESLANG_LLVM_COMPILER,
-  compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256,
-  llvmSourceSha=process.env.ORESLANG_LLVM_SOURCE_SHA,
+  compiler=process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER,
+  compilerSha256=process.env.ATTOLANG_LLVM_COMPILER_SHA256 || process.env.ORESLANG_LLVM_COMPILER_SHA256,
+  llvmSourceSha=process.env.ATTOLANG_LLVM_SOURCE_SHA || process.env.ORESLANG_LLVM_SOURCE_SHA,
   builder=process.env.ORESLANG_AOT_BUILDER,
   builderSha256=process.env.ORESLANG_AOT_BUILDER_SHA256,
   runner=process.env.ORESLANG_AOT_DEV_RUNNER,
   runnerSha256=process.env.ORESLANG_AOT_DEV_RUNNER_SHA256
 }={}) {
   if(![compiler,builder,runner].every(p=>typeof p==="string"&&isAbsolute(p)))
-    throw Error("absolute ORESLANG_LLVM_COMPILER, ORESLANG_AOT_BUILDER and ORESLANG_AOT_DEV_RUNNER paths required");
+    throw Error("absolute ATTOLANG_LLVM_COMPILER (legacy ORESLANG alias accepted), ORESLANG_AOT_BUILDER and ORESLANG_AOT_DEV_RUNNER paths required");
   if(!/^[a-f0-9]{64}$/.test(compilerSha256||"")||!/^[a-f0-9]{40}$/.test(llvmSourceSha||""))
     throw Error("pinned LLVM compiler binary and source commit SHAs are required");
   if(!/^[a-f0-9]{64}$/.test(builderSha256||"")||!/^[a-f0-9]{64}$/.test(runnerSha256||""))
     throw Error("pinned AOT builder and development runner SHA-256 values are required");
   const binary=(await readBoundedRegularFile(compiler,256*1024*1024)).bytes;
-  if(sha256(binary)!==compilerSha256)throw Error("native Oreslang compiler digest mismatch");
+  if(sha256(binary)!==compilerSha256)throw Error("native AttoLang compiler digest mismatch");
   // Verify the exact AOT tools independently. A caller-selected path and
   // its self-reported output are not evidence that Wasmtime executed.
   const builderBytes=(await readBoundedRegularFile(builder,256*1024*1024)).bytes;
@@ -79,7 +79,7 @@ export async function verifyRealSourceToAot({
     await writeFile(pinnedRunner,runnerBytes,{flag:"wx",mode:0o500});
     const results=[];
     for(const [name,expected] of fixtures) {
-      const source=join(root,"examples",name+".ores");
+      const source=join(root,"examples",name+".atto");
       const output=join(tmp,name+".wasm");
       const published=await compileOresToWasm({
         compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"
@@ -94,7 +94,7 @@ export async function verifyRealSourceToAot({
       assert.deepEqual(release.manifest.requiredCapabilities,[]);
       assert.deepEqual(release.manifest.imports,[]);
       const js=await runIsolatedCoreGuest(wasm,{expectedSha256:pin,timeoutMs:5000});
-      assert.equal(String(js.value),expected,"real Oreslang Node guest mismatch: "+name);
+      assert.equal(String(js.value),expected,"real AttoLang Node guest mismatch: "+name);
       assert.equal(js.admission.sha256,pin);
       const raw=join(tmp,name+".raw.wasm"),native=join(tmp,name+".cwasm");
       await writeFile(raw,wasm,{flag:"wx",mode:0o400});
@@ -104,7 +104,7 @@ export async function verifyRealSourceToAot({
       const nativeSha=await sha256BoundedNativeArtifact(native);
       assert.equal(match[1],nativeSha,"native artifact integrity mismatch");
       const executed=invoke(pinnedRunner,[native,nativeSha]);
-      assert.equal(executed.stdout.trim(),expected,"real Oreslang AOT result mismatch: "+name);
+      assert.equal(executed.stdout.trim(),expected,"real AttoLang AOT result mismatch: "+name);
       // Reject caller tampering with an otherwise valid native artifact.
       assert.match(invoke(pinnedRunner,[native,"0".repeat(64)],false).stderr,/AOT bytes do not match insecure development digest/);
       // Correct SHA must not make raw WebAssembly acceptable to the AOT loader.

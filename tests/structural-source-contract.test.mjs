@@ -6,15 +6,15 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 // This is a *negative* real-compiler admission check, not Wasm structural
-// parity. The Wasm backend delegates all Oreslang parsing to LLVM; once the
+// parity. The Wasm backend delegates all AttoLang parsing to LLVM; once the
 // positive LLVM typed/match conformance suite passes, replace this test with
-// verified .ores -> wasm32 compilation and actual guest execution.
+// verified .atto -> wasm32 compilation and actual guest execution.
 test("LLVM-backed Wasm never mislabels unsupported structural source as compiled", {
-  skip: !process.env.ORESLANG_LLVM_COMPILER
+  skip: !(process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER)
 }, async () => {
   const work = await mkdtemp(join(tmpdir(),"ores-wasm-structural-"));
   try {
-    const source = join(work,"structural.ores");
+    const source = join(work,"structural.atto");
     await writeFile(source,`
       define interface Shape
         x: int;
@@ -23,7 +23,7 @@ test("LLVM-backed Wasm never mislabels unsupported structural source as compiled
       fnc main(): int { return 1; }
     `, {flag:"wx"});
     const before = await readdir(work);
-    const compile = spawnSync(process.env.ORESLANG_LLVM_COMPILER,[source],{
+    const compile = spawnSync((process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER),[source],{
       cwd: work, encoding:"utf8",timeout:15000,maxBuffer:1024*1024
     });
     assert.deepEqual(await readdir(work), before, "rejected source must leave no new artifacts");
@@ -46,7 +46,7 @@ test("Wasm bridge refuses unimplemented structural tuple width and optional-tail
 }, async () => {
   const work = await mkdtemp(join(tmpdir(), "ores-wasm-tuple-width-"));
   try {
-    const source = join(work, "tuple-width.ores");
+    const source = join(work, "tuple-width.atto");
     await writeFile(source, `
       fnc take(structural (int, int, string?) value): int { return 1; }
       fnc main(): int { return take(...(5, 3, "foo", "start")); }

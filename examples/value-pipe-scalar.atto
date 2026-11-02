@@ -1,0 +1,5 @@
+pub fnc main(): int {
+  return 3 |> twice |> plus(1);
+}
+fnc twice(int n): int { return n * 2; }
+fnc plus(int n, int k): int { return n + k; }

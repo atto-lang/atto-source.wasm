@@ -10,9 +10,9 @@ import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
-const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
+const forwardSource = fileURLToPath(new URL("../examples/forward-call.atto", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
-  "../examples/unsupported-any-ternary.ores", import.meta.url));
+  "../examples/unsupported-any-ternary.atto", import.meta.url));
 
 
 // Fail-closed integration. CI pins source checkout independently, then pins the
@@ -55,16 +55,16 @@ export function assertSelectFrontendRejection(frontend) {
   return true;
 }
 export async function verifyRealCompiler({
-  compiler = process.env.ORESLANG_LLVM_COMPILER,
-  compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
-  llvmSourceSha = process.env.ORESLANG_LLVM_SOURCE_SHA
+  compiler = process.env.ATTOLANG_LLVM_COMPILER || process.env.ORESLANG_LLVM_COMPILER,
+  compilerSha256 = process.env.ATTOLANG_LLVM_COMPILER_SHA256 || process.env.ORESLANG_LLVM_COMPILER_SHA256,
+  llvmSourceSha = process.env.ATTOLANG_LLVM_SOURCE_SHA || process.env.ORESLANG_LLVM_SOURCE_SHA
 } = {}) {
   if (!compiler || !isAbsolute(compiler))
-    throw Error("ORESLANG_LLVM_COMPILER must be an absolute compiler executable path");
+    throw Error("ATTOLANG_LLVM_COMPILER must be an absolute compiler executable path (legacy ORESLANG_LLVM_COMPILER fallback supported)");
   if (!/^[0-9a-f]{64}$/.test(compilerSha256 || ""))
-    throw Error("ORESLANG_LLVM_COMPILER_SHA256 is required");
+    throw Error("ATTOLANG_LLVM_COMPILER_SHA256 is required (legacy ORESLANG_LLVM_COMPILER_SHA256 fallback supported)");
   if (!/^[0-9a-f]{40}$/.test(llvmSourceSha || ""))
-    throw Error("ORESLANG_LLVM_SOURCE_SHA is required");
+    throw Error("ATTOLANG_LLVM_SOURCE_SHA is required (legacy ORESLANG_LLVM_SOURCE_SHA fallback supported)");
   // Bind all validation and execution to the same bounded immutable snapshot.
   // The original compiler pathname is never executed after the SHA check.
   const compilerBytes = (await readBoundedRegularFile(
@@ -96,7 +96,7 @@ export async function verifyRealCompiler({
       expectedSha256:published.wasmSha256, timeoutMs:5000
     });
     if (executed.value !== 42n || executed.admission.hostCapabilities !== 0)
-      throw Error("native Oreslang Wasm guest returned incorrect result/capabilities");
+      throw Error("native AttoLang Wasm guest returned incorrect result/capabilities");
     // A second distinct Oreslang program proves same-module calls and
     // prevents a constant-result smoke test from masquerading as parity.
     const forwardOutput = join(work, "forward.wasm");
@@ -112,7 +112,7 @@ export async function verifyRealCompiler({
       expectedSha256:forwardPublished.wasmSha256, timeoutMs:5000
     });
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
-      throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
+      throw Error("forward-call AttoLang guest produced incorrect result/capabilities");
 
     // A real compiler, not an IR test double, must support independently
     // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
@@ -131,7 +131,7 @@ export async function verifyRealCompiler({
     ];
     const scalarResults=[];
     for (const {name,expected} of scalarMatrix) {
-      const source = fileURLToPath(new URL("../examples/"+name+".ores", import.meta.url));
+      const source = fileURLToPath(new URL("../examples/"+name+".atto", import.meta.url));
       const fixtureOutput = join(work,name+".wasm");
       const pinnedSourceSha = sha256(await readFile(source));
       const built = await compileOresToWasm({
@@ -238,7 +238,7 @@ export async function verifyRealCompiler({
       ["package", "pkg:math/src/helper"],
       ["relative", "./helper"]
     ]) {
-      const source = join(work, "deny-import-" + name + ".ores");
+      const source = join(work, "deny-import-" + name + ".atto");
       await writeFile(source,
         'import fnc helper from "' + imported +
         '";\npub fnc main(): int { return helper(); }\n', {flag:"wx"});
@@ -260,7 +260,7 @@ export async function verifyRealCompiler({
       ["rt-deref", "pub fnc main(): int { return rt deref value; }\n"],
       ["rt-unref", "pub fnc main(): int { return rt unref value; }\n"]
     ]) {
-      const source = join(work, "deny-pointer-syntax-" + name + ".ores");
+      const source = join(work, "deny-pointer-syntax-" + name + ".atto");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
@@ -276,7 +276,7 @@ export async function verifyRealCompiler({
       ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
       ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
     ]) {
-      const source = join(work, "generator-v1-" + name + ".ores");
+      const source = join(work, "generator-v1-" + name + ".atto");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
@@ -297,7 +297,7 @@ export async function verifyRealCompiler({
       ["pub-define", "pub define inverted class Particle as x: int; end\n"],
       ["module", "define module Physics as\n define inverted class Particle as x: int; end\n pub fnc main(): int { return 0; }\nend\n"]
     ]) {
-      const source = join(work, "deny-inverted-" + name + ".ores");
+      const source = join(work, "deny-inverted-" + name + ".atto");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(
         pinnedCompiler, ["--target=wasm32", source],
@@ -305,7 +305,7 @@ export async function verifyRealCompiler({
       assertInvertedFrontendRejection(frontendResult);
     }
 
-    const negativeSource = join(work, "bad.ores");
+    const negativeSource = join(work, "bad.atto");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
       "pub fnc main(): int { return missing_identifier; }\n", {flag:"wx"});
@@ -341,7 +341,7 @@ export async function verifyRealCompiler({
     // frontend, not in the linker or Wasm admission layer. The rejected
     // source must never publish an artifact or a current release pointer.
     const invalidPipeSource = fileURLToPath(new URL(
-      "../examples/value-pipe-invalid.ores", import.meta.url));
+      "../examples/value-pipe-invalid.atto", import.meta.url));
     const invalidPipeOutput = join(work, "invalid-pipe.wasm");
     const pipeFrontend = spawnSync(pinnedCompiler,
       ["--target=wasm32", invalidPipeSource], {
@@ -386,7 +386,7 @@ export async function verifyRealCompiler({
       ["do-nb-over", "do nb select over default: { return 1; } end"]
     ];
     for (const [name, form] of selectCases) {
-      const source = join(work, "deny-select-" + name + ".ores");
+      const source = join(work, "deny-select-" + name + ".atto");
       await writeFile(source,
         "pub fnc main(): int { " + form + " return 0; }\n", {flag:"wx"});
       const frontendResult = spawnSync(
@@ -399,7 +399,7 @@ export async function verifyRealCompiler({
         throw Error("pinned compiler mutated during select rejection test");
     }
 
-    const selectBridgeSource = join(work, "deny-select-bridge.ores");
+    const selectBridgeSource = join(work, "deny-select-bridge.atto");
     const selectBridgeOutput = join(work, "deny-select-bridge.wasm");
     await writeFile(selectBridgeSource,
       "pub fnc main(): int { nb select over default: { return 1; } end return 0; }\n",
@@ -483,7 +483,7 @@ export async function verifyRealCompiler({
       }
     ];
     for (const tupleCase of tupleV2Cases) {
-      const tupleSource = join(work, tupleCase.name + ".ores");
+      const tupleSource = join(work, tupleCase.name + ".atto");
       await writeFile(tupleSource, tupleCase.source, {flag:"wx"});
       const tupleFrontend = spawnSync(
         pinnedCompiler, ["--target=wasm32", tupleSource],
