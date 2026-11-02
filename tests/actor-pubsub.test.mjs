@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {WasmActorPubSub} from "../src/actor-pubsub.mjs";
+import {WasmActorPubSub, WasmActorGroup, WasmActorTopic} from "../src/actor-pubsub.mjs";
 
 test("bounded pub-sub preserves multi-group membership and delivery policy", () => {
   const bus = new WasmActorPubSub();
@@ -186,4 +186,26 @@ test("Wasm subscription quotas release on leave and actor retirement across grou
     "prior incarnation's subscription must not hold quota or survive retirement");
   assert.throws(() => topicB.tryRead(ref), /stale or cross-isolate ActorRef/);
   bus.close();
+});
+
+test("Wasm ActorGroup and Topic constructors cannot forge opaque handles", () => {
+  const bus = new WasmActorPubSub();
+  const realGroup = bus.createGroup();
+  const realTopic = realGroup.defineTopic("events", "latest", 1);
+
+  assert.throws(() => new WasmActorGroup(bus, realGroup.id),
+    /must be issued by the runtime/);
+  assert.throws(() => new WasmActorTopic(bus, realGroup.id, "events"),
+    /must be issued by the runtime/);
+  assert.throws(() => new WasmActorGroup(bus, realGroup.id, Symbol("ActorGroup")),
+    /must be issued by the runtime/);
+  assert.throws(() => new WasmActorTopic(bus, realGroup.id, "events", Symbol("Topic")),
+    /must be issued by the runtime/);
+
+  const member = bus.registerActor({actorId: 222, incarnation: 1, kind: "shared"});
+  realGroup.join(member);
+  realTopic.subscribe(member);
+  assert.equal(realTopic.publish(member, "legitimate").accepted, 1);
+  assert.deepEqual(realTopic.tryRead(member), {present: true, value: "legitimate"});
+  assert.equal(bus.close(), true);
 });
