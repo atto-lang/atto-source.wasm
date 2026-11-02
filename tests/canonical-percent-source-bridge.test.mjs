@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,writeFile,stat,rm} from "node:fs/promises";
+import {mkdtemp,writeFile,stat,rm,readFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {rejectLegacyPercentSource,compileOresToWasm} from "../scripts/compile-ores.mjs";
@@ -96,6 +96,24 @@ test("malformed comments and literals have UTF-8 byte-aligned diagnostics", () =
                error.message.endsWith("at byte "+offset),
       source
     );
+  }
+});
+
+test("AOT CI source preflight avoids checkout-controlled clean filters", async () => {
+  const workflow=await readFile(new URL("../.github/workflows/aot-host.yml",import.meta.url),"utf8");
+  assert.ok(workflow.includes('test "$(git rev-parse --verify HEAD)" = "$EXPECTED_HEAD"'));
+  assert.ok(workflow.includes('test "$(git write-tree)" = "$SOURCE_TREE"'));
+  assert.ok(workflow.includes('test "$(git cat-file -t "$SOURCE_TREE")" = tree'));
+  assert.ok(workflow.includes("persist-credentials: false"));
+  const section=workflow
+    .split("name: Verify exact source head and indexed Git tree before AOT execution")[1]
+    ?.split("name: Set up pinned Node 22 for architecture assertions")[0];
+  assert.ok(section,"expected preflight section");
+  for(const line of section.split("\n")) {
+    const command=line.trim();
+    if(command.startsWith("#"))continue;
+    assert.ok(!/^(git diff|git status|git add|git hash-object --path)\\b/.test(command),
+      "filter-capable Git preflight: "+command);
   }
 });
 
