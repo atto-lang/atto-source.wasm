@@ -8,6 +8,12 @@ const policies = new Set(["reliable", "latest", "lossy"]);
 // Module-private constructors: public exported class names are not grant minting.
 const GROUP_HANDLE_BRAND = Symbol("WasmActorGroup capability");
 const TOPIC_HANDLE_BRAND = Symbol("WasmActorTopic capability");
+function requireGroupHandle(brand) {
+  if (brand !== GROUP_HANDLE_BRAND) throw new TypeError("invalid ActorGroup handle authority");
+}
+function requireTopicHandle(brand) {
+  if (brand !== TOPIC_HANDLE_BRAND) throw new TypeError("invalid Topic handle authority");
+}
 
 function positiveSafeInt(value, name) {
   if (!Number.isSafeInteger(value) || value <= 0)
@@ -112,7 +118,8 @@ export class WasmActorPubSub {
     return new WasmActorGroup(this, id, GROUP_HANDLE_BRAND);
   }
 
-  _join(groupId, ref) {
+  _join(groupId, ref, brand) {
+    requireGroupHandle(brand);
     const actor = this.#requireActor(ref);
     const group = this.#requireGroup(groupId);
     if (actor.groups.has(groupId)) return false;
@@ -125,7 +132,8 @@ export class WasmActorPubSub {
     return true;
   }
 
-  _leave(groupId, ref) {
+  _leave(groupId, ref, brand) {
+    requireGroupHandle(brand);
     const actor = this.#actors.get(ref), group = this.#groups.get(groupId);
     if (!actor || !group || !actor.groups.delete(groupId)) return false;
     group.members.delete(ref);
@@ -136,16 +144,19 @@ export class WasmActorPubSub {
     return true;
   }
 
-  _contains(groupId, ref) {
+  _contains(groupId, ref, brand) {
+    requireGroupHandle(brand);
     return this.#actors.has(ref) &&
       (this.#groups.get(groupId)?.members.has(ref) ?? false);
   }
 
-  _memberCount(groupId) {
+  _memberCount(groupId, brand) {
+    requireGroupHandle(brand);
     return this.#requireGroup(groupId).members.size;
   }
 
-  _defineTopic(groupId, name, policy, capacity) {
+  _defineTopic(groupId, name, policy, capacity, brand) {
+    requireGroupHandle(brand);
     this.#requireGroup(groupId);
     name = topicName(name);
     if (!policies.has(policy)) throw new TypeError("invalid topic policy");
@@ -170,12 +181,14 @@ export class WasmActorPubSub {
     return new WasmActorTopic(this, groupId, name, TOPIC_HANDLE_BRAND);
   }
 
-  _topic(groupId, name) {
+  _topic(groupId, name, brand) {
+    requireGroupHandle(brand);
     this.#requireTopic(groupId, topicName(name));
     return new WasmActorTopic(this, groupId, name, TOPIC_HANDLE_BRAND);
   }
 
-  _subscribe(groupId, name, ref) {
+  _subscribe(groupId, name, ref, brand) {
+    requireTopicHandle(brand);
     const actor = this.#requireActor(ref);
     const group = this.#requireGroup(groupId);
     if (!group.members.has(ref))
@@ -193,7 +206,8 @@ export class WasmActorPubSub {
     return true;
   }
 
-  _unsubscribe(groupId, name, ref) {
+  _unsubscribe(groupId, name, ref, brand) {
+    requireTopicHandle(brand);
     const topic = this.#requireTopic(groupId, name);
     if (!topic.subscribers.delete(ref)) return false;
     const actor = this.#actors.get(ref);
@@ -201,7 +215,8 @@ export class WasmActorPubSub {
     return true;
   }
 
-  _publish(groupId, name, publisher, value) {
+  _publish(groupId, name, publisher, value, brand) {
+    requireTopicHandle(brand);
     const actor = this.#requireActor(publisher);
     const group = this.#requireGroup(groupId);
     if (!group.members.has(publisher))
@@ -210,7 +225,8 @@ export class WasmActorPubSub {
     return this.#publishTopic(groupId, name, freezePayload(value));
   }
 
-  _tryRead(groupId, name, ref) {
+  _tryRead(groupId, name, ref, brand) {
+    requireTopicHandle(brand);
     this.#requireActor(ref);
     const group = this.#requireGroup(groupId);
     if (!group.members.has(ref))
@@ -222,7 +238,8 @@ export class WasmActorPubSub {
       {present: false, value: undefined};
   }
 
-  _closeGroup(groupId) {
+  _closeGroup(groupId, brand) {
+    requireGroupHandle(brand);
     const group = this.#groups.get(groupId);
     if (!group) return false;
     for (const ref of group.members)
@@ -353,18 +370,18 @@ export class WasmActorGroup {
     return this.#owner;
   }
 
-  join(ref) { return this.#open()._join(this.#id, ref); }
-  leave(ref) { return this.#open()._leave(this.#id, ref); }
-  contains(ref) { return this.#open()._contains(this.#id, ref); }
-  get memberCount() { return this.#open()._memberCount(this.#id); }
+  join(ref) { return this.#open()._join(this.#id, ref, GROUP_HANDLE_BRAND); }
+  leave(ref) { return this.#open()._leave(this.#id, ref, GROUP_HANDLE_BRAND); }
+  contains(ref) { return this.#open()._contains(this.#id, ref, GROUP_HANDLE_BRAND); }
+  get memberCount() { return this.#open()._memberCount(this.#id, GROUP_HANDLE_BRAND); }
   defineTopic(name, policy, capacity) {
-    return this.#open()._defineTopic(this.#id, name, policy, capacity);
+    return this.#open()._defineTopic(this.#id, name, policy, capacity, GROUP_HANDLE_BRAND);
   }
-  topic(name) { return this.#open()._topic(this.#id, name); }
+  topic(name) { return this.#open()._topic(this.#id, name, GROUP_HANDLE_BRAND); }
   close() {
     if (this.#closed) return false;
     this.#closed = true;
-    return this.#owner._closeGroup(this.#id);
+    return this.#owner._closeGroup(this.#id, GROUP_HANDLE_BRAND);
   }
 }
 
@@ -384,10 +401,10 @@ export class WasmActorTopic {
   }
 
   get name() { return this.#name; }
-  subscribe(ref) { return this.#owner._subscribe(this.#groupId, this.#name, ref); }
-  unsubscribe(ref) { return this.#owner._unsubscribe(this.#groupId, this.#name, ref); }
+  subscribe(ref) { return this.#owner._subscribe(this.#groupId, this.#name, ref, TOPIC_HANDLE_BRAND); }
+  unsubscribe(ref) { return this.#owner._unsubscribe(this.#groupId, this.#name, ref, TOPIC_HANDLE_BRAND); }
   publish(ref, value) {
-    return this.#owner._publish(this.#groupId, this.#name, ref, value);
+    return this.#owner._publish(this.#groupId, this.#name, ref, value, TOPIC_HANDLE_BRAND);
   }
-  tryRead(ref) { return this.#owner._tryRead(this.#groupId, this.#name, ref); }
+  tryRead(ref) { return this.#owner._tryRead(this.#groupId, this.#name, ref, TOPIC_HANDLE_BRAND); }
 }
