@@ -35,7 +35,7 @@ function tupleV2Tokens(sourceBytes){
     else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
     else i++;
    }
-   if(depth)throw Error("unterminated block comment at byte "+start);
+   if(depth)throw Error("unterminated block comment at byte "+Buffer.byteLength(text.slice(0,start),"utf8"));
    continue;
   }
   if(c==="\""||c==="'"){
@@ -46,7 +46,7 @@ function tupleV2Tokens(sourceBytes){
     if(q==="\\"){escaped=true;continue}
     if(q===quote){closed=true;break}
    }
-   if(!closed)throw Error("unterminated quoted literal at byte "+start);
+   if(!closed)throw Error("unterminated quoted literal at byte "+Buffer.byteLength(text.slice(0,start),"utf8"));
    continue;
   }
   if(idStart(c)){
