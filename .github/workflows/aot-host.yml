@@ -29,18 +29,22 @@ jobs:
           # Bind to reviewed PR head, never the synthetic merge ref.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify exact source head and clean checkout before AOT execution
+      - name: Verify exact source head and indexed Git tree before AOT execution
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git diff --quiet --exit-code HEAD --
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_HEAD"
+          SOURCE_TREE="$(git rev-parse 'HEAD^{tree}')"
+          test "$(git cat-file -t "$SOURCE_TREE")" = tree
+          # Untrusted .gitattributes clean filters can execute in git diff/status.
+          # Git write-tree compares the index to the exact tree without filters.
+          test "$(git write-tree)" = "$SOURCE_TREE"
           test -z "$(git ls-files --others --exclude-standard)"
           echo "WASM_AOT_SOURCE_COMMIT=$EXPECTED_HEAD"
-          echo "WASM_AOT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+          echo "WASM_AOT_SOURCE_TREE=$SOURCE_TREE"
       - name: Set up pinned Node 22 for architecture assertions
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
