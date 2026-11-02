@@ -5,6 +5,9 @@
 
 const actorKinds = new Set(["shared", "private", "untrusted"]);
 const policies = new Set(["reliable", "latest", "lossy"]);
+// Module-private constructors: public exported class names are not grant minting.
+const GROUP_HANDLE_BRAND = Symbol("WasmActorGroup capability");
+const TOPIC_HANDLE_BRAND = Symbol("WasmActorTopic capability");
 
 function positiveSafeInt(value, name) {
   if (!Number.isSafeInteger(value) || value <= 0)
@@ -106,7 +109,7 @@ export class WasmActorPubSub {
 
     const id = ++this.#nextGroupId;
     this.#groups.set(id, {maxMembers, members: new Set(), closed: false});
-    return new WasmActorGroup(this, id);
+    return new WasmActorGroup(this, id, GROUP_HANDLE_BRAND);
   }
 
   _join(groupId, ref) {
@@ -155,7 +158,7 @@ export class WasmActorPubSub {
     if (existing) {
       if (existing.policy !== policy || existing.capacity !== capacity)
         throw new Error("topic already defined with different policy/capacity");
-      return new WasmActorTopic(this, groupId, name);
+      return new WasmActorTopic(this, groupId, name, TOPIC_HANDLE_BRAND);
     }
     if (this.#topics.size >= this.#maxTopics)
       throw new RangeError("topic capacity exceeded");
@@ -164,12 +167,12 @@ export class WasmActorPubSub {
       groupId, name, policy, capacity,
       subscribers: new Map()
     });
-    return new WasmActorTopic(this, groupId, name);
+    return new WasmActorTopic(this, groupId, name, TOPIC_HANDLE_BRAND);
   }
 
   _topic(groupId, name) {
     this.#requireTopic(groupId, topicName(name));
-    return new WasmActorTopic(this, groupId, name);
+    return new WasmActorTopic(this, groupId, name, TOPIC_HANDLE_BRAND);
   }
 
   _subscribe(groupId, name, ref) {
@@ -335,7 +338,10 @@ export class WasmActorGroup {
   #id;
   #closed = false;
 
-  constructor(owner, id) {
+  constructor(owner, id, brand) {
+    if (brand !== GROUP_HANDLE_BRAND) {
+      throw new TypeError("ActorGroup handles must be issued by the runtime");
+    }
     this.#owner = owner;
     this.#id = id;
     Object.preventExtensions(this);
@@ -367,7 +373,10 @@ export class WasmActorTopic {
   #groupId;
   #name;
 
-  constructor(owner, groupId, name) {
+  constructor(owner, groupId, name, brand) {
+    if (brand !== TOPIC_HANDLE_BRAND) {
+      throw new TypeError("Topic handles must be issued by the runtime");
+    }
     this.#owner = owner;
     this.#groupId = groupId;
     this.#name = name;
