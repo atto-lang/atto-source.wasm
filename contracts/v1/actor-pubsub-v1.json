@@ -17,6 +17,7 @@
   "semantics": {
     "membership": "an actor may belong to multiple groups concurrently; duplicate join is idempotent",
     "group_leave": "leaving one group revokes only that group's subscriptions and authority",
+    "leave_barrier": "after leave returns, no new publish, subscribe, or read admission may commit under the revoked membership; deliveries committed before the barrier are not recalled",
     "publish_without_subscribe": true,
     "subscribe_requires_membership": true,
     "delivery": "at-most-once per accepted subscription publication",
@@ -25,6 +26,7 @@
     "durable": false,
     "replay": false,
     "success_means": "delivery admission, not handler completion or business acknowledgement",
+    "reliable_cancellation": "cancelling a pending RELIABLE publication revokes its still-pending owned admissions and releases their bounded accounting; deliveries already committed to subscriber queues are not recalled",
     "cross_tenant": "deny by default",
     "actor_termination": "automatically revoke memberships and subscriptions",
     "critical_body_may_suspend": false
