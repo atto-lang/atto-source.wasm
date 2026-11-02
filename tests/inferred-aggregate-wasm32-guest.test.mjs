@@ -26,7 +26,7 @@ const cases=[
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const clang=process.env.CLANG || 'clang';
-const enabled=!!compiler && process.env.ATTO_WASM_AGGREGATE_REAL_GUEST==='1';
+const mandatory=process.env.ATTO_WASM_AGGREGATE_REAL_GUEST==='1';
 
 test('opt-in cannot bypass compiler pin even for a valid source snapshot',async()=>{
   const directory=await mkdtemp(join(tmpdir(),'atto-wasm-pin-'));
@@ -44,8 +44,9 @@ test('opt-in cannot bypass compiler pin even for a valid source snapshot',async(
 });
 
 test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
-  skip:enabled?false:'requires pinned native LLVM compiler and opt-in ATTO_WASM_AGGREGATE_REAL_GUEST=1'
+  skip:mandatory?false:'requires real guest release gate: npm run test:aggregate-real-guest'
 },async()=>{
+  assert.ok(compiler,'real aggregate Wasm32 gate requires ORESLANG_LLVM_COMPILER');
   const compilerPath=resolve(compiler);
   const digest=createHash('sha256').update(await readFile(compilerPath)).digest('hex');
   for(const [name,sourceText,expected] of cases){
