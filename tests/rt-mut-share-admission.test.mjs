@@ -27,6 +27,11 @@ test("host failure, generic parser error and a substituted compiler fail closed"
     valid + "\nSTACK OVERFLOW",
     valid.replace(", guarded lowering and allocation-domain proof", "")
   ]) assert.throws(() => assertNativeMutShareDenial({message}), undefined, message);
+  for (const stdout of ["define i64 @main() {", " ", "; partial source module"]) {
+    assert.throws(() => assertNativeMutShareDenial({message:valid,stdout,status:1}),
+      undefined, "failed compiler stdout is not a valid source rejection");
+  }
+  assert.equal(assertNativeMutShareDenial({message:valid,stdout:"",status:1,signal:null}),true);
   assert.throws(() => assertNativeMutShareDenial({message:valid,signal:"SIGKILL"}));
   for (const failure of [
     {code:"ENOENT"}, {errno:-2}, {syscall:"spawn"}, {cause:new Error("host failure")},
