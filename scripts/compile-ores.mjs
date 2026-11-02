@@ -231,9 +231,13 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // A lexical resolve() comparison alone can overwrite compiler/source
  // inputs through an alternate symlinked parent directory.
  await mkdir(dirname(output),{recursive:true});
- const [sourcePath,compilerPath,outputParent]=await Promise.all([
-  realpath(source),realpath(compiler),realpath(dirname(output))
+ // Resolve directory aliases, but keep the source leaf itself intact so
+ // readBoundedRegularFile's O_NOFOLLOW open can reject a caller-supplied
+ // symlink instead of silently following it through realpath(source).
+ const [sourceParent,compilerPath,outputParent]=await Promise.all([
+  realpath(dirname(source)),realpath(compiler),realpath(dirname(output))
  ]);
+ const sourcePath=join(sourceParent,basename(source));
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
