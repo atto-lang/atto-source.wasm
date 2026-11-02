@@ -59,6 +59,23 @@ test("malformed quoted literals cannot hide lexical source admission", () => {
   assert.throws(() => rejectLegacyPercentSource(Buffer.from([0xff])), /encoded|UTF-8|valid/i);
 });
 
+test("malformed comments and literals have UTF-8 byte-aligned diagnostics", () => {
+  for (const [prefix, ending, diagnostic] of [
+    ["// café\\n", "/* never closed", "unterminated block comment"],
+    ["// 😀\\n", '"never closed', "unterminated quoted literal"],
+    ["/* 東京 */\\n", "'never closed", "unterminated quoted literal"],
+  ]) {
+    const source=prefix+ending;
+    const offset=Buffer.byteLength(prefix, "utf8");
+    assert.throws(
+      () => rejectLegacyPercentSource(bytes(source)),
+      error => error.message.includes(diagnostic) &&
+               error.message.endsWith("at byte "+offset),
+      source
+    );
+  }
+});
+
 test("negative legacy operator gate publishes no artifacts and invokes no native compiler", async () => {
   const dir=await mkdtemp(join(tmpdir(),"ores-wasm-no-percent-"));
   const source=join(dir,"source.ores"),compiler=join(dir,"unused-compiler"),output=join(dir,"result.wasm");
