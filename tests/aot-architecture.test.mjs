@@ -98,7 +98,7 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/git rev-parse --verify HEAD/);
   assert.match(workflow,/git write-tree/);
   assert.match(workflow,/git cat-file -t/);
-  assert.doesNotMatch(workflow,/^\\s*git diff --quiet/m);
+  assert.ok(!workflow.includes("git diff --quiet"));
   assert.match(workflow,/WASM_AOT_SOURCE_TREE=/);
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
