@@ -29,6 +29,12 @@ export function assertNativeMutShareDenial(error) {
   assert.match(error.stderr ?? "",
     /oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof/,
     "diagnostic must originate from compiler stderr, not a synthetic message");
+  // The mandatory capability denial must be the entire compiler diagnostic.
+  // A plausible first line followed by a parser/usage error is not proof
+  // that the exact source was rejected for the guarded-sharing reason.
+  assert.match(error.stderr ?? "",
+    /^oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof[^\r\n]*(?:\r?\n)?$/,
+    "mixed or multiline compiler errors cannot establish guarded-sharing denial");
   assert.ok(error.code == null && error.errno == null && error.syscall == null && error.cause == null,
     "host/transport failure metadata cannot stand in for compiler rejection");
 
