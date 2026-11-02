@@ -1,4 +1,14 @@
-# Oreslang source-to-WebAssembly backend
+# AttoLang WebAssembly backend
+
+**AttoLang** is the current public language name (formerly **Oreslang**).
+This independent Wasm compiler and host retain their existing package names, entry points and guest wire/serialization formats.
+This branding change does not establish new syntax, source-extension support,
+execution parity, AOT capabilities or zero-GC guarantees. New source SHOULD
+use `.atto` only after this particular backend has passed a real compile/run
+admission test; `.ores` remains supported wherever already implemented.
+Do not rename repositories, dependencies, commands or fixed interfaces merely
+to make their names match the public brand.
+
 
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
 Compare with oreslang-source.* repos.
