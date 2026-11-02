@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,writeFile,readFile,stat,rm} from "node:fs/promises";
+import {mkdtemp,writeFile,stat,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {rejectLegacyPercentSource,compileOresToWasm} from "../scripts/compile-ores.mjs";
@@ -53,7 +53,7 @@ test("negative legacy operator gate publishes no artifacts and invokes no native
     await writeFile(source, "pub fnc main(): int { return 7 % 3; }");
     // This binary exists only to prove preflight precedes compiler execution.
     // It is not a real Oreslang compiler or positive guest test.
-    await writeFile(compiler, "#!/bin/sh\\nexit 71\\n",{mode:0o700});
+    await writeFile(compiler, "#!/bin/sh\nexit 71\n",{mode:0o700});
     await assert.rejects(
       compileOresToWasm({compiler,source,output,publication:"atomic"}),
       /E_OPERATOR_REMOVED/
