@@ -56,8 +56,8 @@ test("fixed-seed Unicode/comment/literal prefixes preserve exact forbidden-opera
     return seed;
   };
   const prefix=[
-    "// café\\n", "// 😀\\n", "/* 東京 */", "\\r", " ", "",
-    "/* % */", '"%"', "// ignored\\r",
+    "// café\n", "// 😀\n", "/* 東京 */", "\r", " ", "",
+    "/* % */", '"%"', "// ignored\r",
   ];
   for(let i=0;i<512;i++) {
     const pre=Array.from({length:1+next()%7},()=>prefix[next()%prefix.length]).join("");
@@ -84,9 +84,9 @@ test("malformed quoted literals cannot hide lexical source admission", () => {
 
 test("malformed comments and literals have UTF-8 byte-aligned diagnostics", () => {
   for (const [prefix, ending, diagnostic] of [
-    ["// café\\n", "/* never closed", "unterminated block comment"],
-    ["// 😀\\n", '"never closed', "unterminated quoted literal"],
-    ["/* 東京 */\\n", "'never closed", "unterminated quoted literal"],
+    ["// café\n", "/* never closed", "unterminated block comment"],
+    ["// 😀\n", '"never closed', "unterminated quoted literal"],
+    ["/* 東京 */\n", "'never closed", "unterminated quoted literal"],
   ]) {
     const source=prefix+ending;
     const offset=Buffer.byteLength(prefix, "utf8");
