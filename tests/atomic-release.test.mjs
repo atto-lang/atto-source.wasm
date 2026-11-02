@@ -11,7 +11,7 @@ import {publishAtomicRelease,readAtomicRelease,inspectAtomicReleaseState,AtomicR
 async function workspace(extension=".ores"){
  const dir=await mkdtemp(join(tmpdir(),"oreslang-atomic-release-"));
  const compiler=join(dir,"compiler.sh"),source=join(dir,"program"+extension);
- const script="#!/bin/sh\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
+ const script="#!/bin/sh\ncase \"$4\" in *"+extension+") ;; *) echo 'wrong staged source suffix' >&2; exit 92;; esac\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
  await writeFile(compiler,script,{mode:0o700});
  await chmod(compiler,0o700);
  await writeFile(source,"pub fnc main(): int { return 42; }\n");
