@@ -14,6 +14,7 @@ import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
+import {rejectUnsupportedInferredAggregateSource} from "../src/inferred-aggregate-source-admission.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -103,22 +104,6 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
      tokens[i+1].id && tokens[i+1].text==="structural"){
    throw Error("wasm structural pattern lowering unsupported at byte "+tokens[i+1].offset);
   }
- }
-}
-/** Closed-row aggregate types do not yet have a Wasm32 layout or ownership
- * lowering. Detect canonical constructors after stripping trivia; never infer
- * a dynamic JS object/Map/prototype as an AttoLang record or struct.
- */
-export function rejectUnsupportedInferredAggregateSource(sourceBytes){
- const tokens=tupleV2Tokens(sourceBytes);
- for(let i=0;i<tokens.length;i++){
-  const token=tokens[i],next=tokens[i+1];
-  if(!token.id)continue;
-  if(token.text==="infer" && next?.id &&
-     (next.text==="struct"||next.text==="record"))
-   throw Error("wasm inferred aggregate lowering unsupported at byte "+token.offset);
-  if((token.text==="struct"||token.text==="record") && next?.text==="{")
-   throw Error("wasm inferred aggregate lowering unsupported at byte "+token.offset);
  }
 }
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
