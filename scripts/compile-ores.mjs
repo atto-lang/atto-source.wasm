@@ -105,6 +105,22 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/** Closed-row aggregate types do not yet have a Wasm32 layout or ownership
+ * lowering. Detect canonical constructors after stripping trivia; never infer
+ * a dynamic JS object/Map/prototype as an AttoLang record or struct.
+ */
+export function rejectUnsupportedInferredAggregateSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i],next=tokens[i+1];
+  if(!token.id)continue;
+  if(token.text==="infer" && next?.id &&
+     (next.text==="struct"||next.text==="record"))
+   throw Error("wasm inferred aggregate lowering unsupported at byte "+token.offset);
+  if((token.text==="struct"||token.text==="record") && next?.text==="{")
+   throw Error("wasm inferred aggregate lowering unsupported at byte "+token.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -254,6 +270,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedInferredAggregateSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
