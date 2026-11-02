@@ -68,8 +68,14 @@ function tupleV2Tokens(sourceBytes){
 export function rejectLegacyPercentSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
  for(const token of tokens) {
-  if(token.text==="%" && !token.id)
-   throw Error("E_OPERATOR_REMOVED: noncanonical '%' source operator; use Integer.rem/mod at byte "+token.offset);
+  if(token.text==="%" && !token.id) {
+   // Scanner indices are UTF-16 character positions. Compiler diagnostics
+   // and provenance policy require UTF-8 *byte* offsets; comments can carry
+   // multi-byte text before an illegal operator.
+   const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+   const byteOffset=Buffer.byteLength(text.slice(0,token.offset),"utf8");
+   throw Error("E_OPERATOR_REMOVED: noncanonical '%' source operator; use Integer.rem/mod at byte "+byteOffset);
+  }
  }
 }
 
