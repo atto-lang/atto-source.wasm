@@ -47,9 +47,12 @@ pub routine main(): void {
   check(w.mark_sent(8, 3) == false, "stale-send");
   check(w.mark_sent(7, 4) == false, "future-send");
   check(w.mark_sent(7, 3), "mark-sent");
+  check(w.mark_sent(7, 2) == false, "regressive-send");
+  check(w.mark_sent(7, 3), "duplicate-send");
   check(w.acknowledge(8, 2) == false, "stale-ack");
   check(w.acknowledge(7, 4) == false, "future-ack");
   check(w.acknowledge(7, 2), "partial-ack");
+  check(w.acknowledge(7, 2), "duplicate-ack");
   check(w.acked_until() == 2, "partial-ack-watermark");
   check(w.acknowledge(7, 1) == false, "regressive-ack");
   check(w.append(7, two(4, 5)).is_err(), "backpressure");
@@ -62,6 +65,8 @@ pub routine main(): void {
   check(first.get(2) == 3, "original-2");
   check(w.replay_from(8, 0, 4).is_err(), "stale-read");
   check(w.replay_from(7, 4, 4).is_err(), "future-read");
+  check(w.replay_from(7, -1, 4).is_err(), "negative-read");
+  check(w.replay_from(7, 0, 65537).is_err(), "oversized-read");
   check(w.replay_from(7, 0, 0).is_err(), "invalid-maximum");
 
   check(w.append(7, two(4, 5)).expect("wrap") == 5, "wrap-append");
@@ -76,6 +81,8 @@ pub routine main(): void {
   check(w.replay_from(7, 5, 4).expect("tail").size == 0, "empty-tail-not-eof");
   check(w.mark_sent(7, 5), "mark-sent-after-wrap");
   check(w.acknowledge(7, 5), "ack-all");
+  check(w.append(7, three(11, 22, 256)).is_err(), "invalid-tail-byte");
+  check(w.produced_until() == 5, "invalid-tail-byte-atomic");
   check(w.unacked_bytes() == 0, "fully-acked");
   val completed = w.checkpoint();
   check(completed.retained_from == 1, "checkpoint-retained");
