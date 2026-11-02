@@ -32,7 +32,7 @@ test('opt-in cannot bypass compiler pin even for a valid source snapshot',async(
   const directory=await mkdtemp(join(tmpdir(),'atto-wasm-pin-'));
   try{
     const fake=join(directory,'compiler');
-    const source=join(directory,'source.ores');
+    const source=join(directory,'source.atto');
     const output=join(directory,'output.wasm');
     await writeFile(fake,'not executable',{mode:0o700});
     await writeFile(source,cases[0][1]);
@@ -51,7 +51,7 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
   for(const [name,sourceText,expected] of cases){
     const dir=await mkdtemp(join(tmpdir(),'atto-wasm-aggregate-'));
     try{
-      const source=join(dir,'program.ores');
+      const source=join(dir,'program.atto');
       const output=join(dir,'program.wasm');
       await writeFile(source,sourceText,{flag:'wx'});
       await compileOresToWasm({
