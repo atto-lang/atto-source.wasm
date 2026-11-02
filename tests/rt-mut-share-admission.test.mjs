@@ -57,3 +57,22 @@ test("host failure, generic parser error and a substituted compiler fail closed"
   ]) assert.throws(() => assertNativeMutShareDenial({...evidence,...failure}),
     undefined, "host failure metadata and successful status must not count as compiler denial");
 });
+
+test("mixed diagnostics and spoofed trailing errors are never ownership proof", () => {
+  // A native compiler may print a plausible capability denial and then
+  // report the actual failure. Only a single compiler-owned denial counts.
+  for (const stderr of [
+    evidence.stderr + "\nerror: unrelated parser failure",
+    evidence.stderr + "\r\nusage: compiler-exact [options]",
+    evidence.stderr + "\n" + evidence.stderr,
+    "warning: fallback compiler\n" + evidence.stderr,
+    evidence.stderr + "\nsource_filename = 'partial.ll'",
+    evidence.stderr + "\nerror: missing input"
+  ]) {
+    assert.throws(() => assertNativeMutShareDenial({...evidence, stderr}),
+      undefined, "mixed failure incorrectly treated as native ownership rejection");
+  }
+  assert.equal(assertNativeMutShareDenial({
+    ...evidence, stderr:evidence.stderr + "; refusing unsynchronized alias\n"
+  }), true);
+});
