@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {rejectUnsupportedInferredAggregateSource} from '../src/inferred-aggregate-source-admission.mjs';
+import {compileOresToWasm} from '../scripts/compile-ores.mjs';
+import {mkdtemp,writeFile,readdir,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 const bytes = source => Buffer.from(source,'utf8');
 const tick = String.fromCharCode(96);
 
@@ -52,4 +56,26 @@ test('bounded nesting in comments and infer type arguments',()=>{
   const hugeGenerics='infer'+'<'.repeat(33)+'A'+'>'.repeat(33)+' struct{x:1}';
   assert.throws(()=>rejectUnsupportedInferredAggregateSource(bytes(hugeComments)),/nesting exceeded/);
   assert.throws(()=>rejectUnsupportedInferredAggregateSource(bytes(hugeGenerics)),/nesting exceeded/);
+});
+
+
+test('real Wasm compilation entry refuses inferred aggregate before compiler exec and artifact staging',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'attolang-aggregate-admission-'));
+  try {
+    const compiler=join(root,'llvmc-stub-not-executed');
+    const source=join(root,'guest.ores');
+    const output=join(root,'guest.wasm');
+    // The fake binary must NOT run; the production bridge rejects first.
+    await writeFile(compiler,'not a compiler', {mode:0o700});
+    await writeFile(source,'pub fnc main():int{const a=infer<Local> struct{x:42};return a.x;}');
+    const before=(await readdir(root)).sort();
+    await assert.rejects(
+      compileOresToWasm({compiler,source,output,publication:'atomic'}),
+      /wasm inferred aggregate lowering unsupported/
+    );
+    assert.deepEqual((await readdir(root)).sort(),before,
+      'unsupported aggregate cannot publish Wasm output or temporary artifacts');
+  } finally {
+    await rm(root,{recursive:true,force:true});
+  }
 });
