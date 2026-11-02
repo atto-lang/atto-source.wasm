@@ -36,6 +36,19 @@ test("comment and quoted literal percent signs do not masquerade as operators", 
   }
 });
 
+test("non-ASCII source prefix cannot corrupt compiler-facing byte offsets", () => {
+  for (const prefix of ["// café\n", "// 😀\n", "/* 東京 */\n"]) {
+    const source=prefix+"fnc main():int{return 7 % 3;}";
+    const offset=Buffer.byteLength(source.slice(0,source.indexOf("%")),"utf8");
+    assert.throws(
+      () => rejectLegacyPercentSource(bytes(source)),
+      error => error.message.includes("E_OPERATOR_REMOVED") &&
+               error.message.endsWith("at byte "+offset),
+      source
+    );
+  }
+});
+
 test("malformed quoted literals cannot hide lexical source admission", () => {
   for (const source of [
     'fnc main():int{return 42;} "unterminated %',
