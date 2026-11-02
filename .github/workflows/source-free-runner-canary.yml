@@ -1,4 +1,4 @@
-name: Source-free runner admission canary
+name: AttoLang source-free runner admission canary
 
 on:
   pull_request:
@@ -40,4 +40,4 @@ jobs:
             "$EXPECTED_REPOSITORY" "$EXPECTED_REPOSITORY_ID" "$EXPECTED_RUN_ID" \
             "$EXPECTED_RUN_ATTEMPT" "$RUNNER_NAME" "$RUNNER_OS"
           echo "This canary proves command execution only; external API evidence must verify runner_id > 0."
-          echo "It does not certify compiler execution, compiled .ores guest execution, artifacts, or backend parity."
+          echo "It does not certify compiler execution, compiled .atto or legacy .ores guest execution, artifacts, or backend parity."
