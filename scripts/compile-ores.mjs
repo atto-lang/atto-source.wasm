@@ -198,7 +198,7 @@ function run(command,args,{input}={}){
  if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",experimentalStackAggregate=false}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -255,7 +255,17 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
- rejectUnsupportedInferredAggregateSource(sourceBytes);
+ if(experimentalStackAggregate!==false&&experimentalStackAggregate!==true)
+  throw new TypeError("experimentalStackAggregate must be boolean");
+ if(!experimentalStackAggregate){
+  rejectUnsupportedInferredAggregateSource(sourceBytes);
+ }else{
+  // The only opt-in path uses an exact pinned independently supplied
+  // native compiler. The ordinary Wasm bridge still validates target IR,
+  // imports, memory, export ABI and source immutability before publication.
+  if(typeof compilerSha256!=="string"||!/^[0-9a-f]{64}$/.test(compilerSha256))
+   throw Error("experimental aggregate lowering requires exact compiler SHA-256 pin");
+ }
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
