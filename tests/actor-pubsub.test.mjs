@@ -161,3 +161,29 @@ test("registry shutdown revokes cached ActorGroup and topic handles without resu
     /registry is closed/,
     "closing registry must prevent generation reuse");
 });
+
+test("Wasm subscription quotas release on leave and actor retirement across groups", () => {
+  const bus = new WasmActorPubSub({maxSubscriptionsPerActor: 1, maxGroupsPerActor: 2});
+  const a = bus.createGroup();
+  const b = bus.createGroup();
+  const ref = bus.registerActor({actorId: 101, incarnation: 1, kind: "shared"});
+  a.join(ref);
+  b.join(ref);
+  const topicA = a.defineTopic("same", "latest", 1);
+  const topicB = b.defineTopic("same", "latest", 1);
+
+  assert.equal(topicA.subscribe(ref), true);
+  assert.throws(() => topicB.subscribe(ref), /subscription quota exceeded/);
+  assert.equal(a.leave(ref), true);
+  assert.equal(b.contains(ref), true);
+  assert.equal(topicB.subscribe(ref), true, "leave must refund the global subscription quota");
+  assert.throws(() => topicA.tryRead(ref), /topic read requires live ActorGroup membership/);
+
+  assert.equal(bus.retireActor(ref), true);
+  const successor = bus.registerActor({actorId: 101, incarnation: 2, kind: "shared"});
+  assert.equal(b.join(successor), true);
+  assert.equal(topicB.subscribe(successor), true,
+    "prior incarnation's subscription must not hold quota or survive retirement");
+  assert.throws(() => topicB.tryRead(ref), /stale or cross-isolate ActorRef/);
+  bus.close();
+});
