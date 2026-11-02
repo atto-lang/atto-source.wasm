@@ -52,6 +52,19 @@ test("Wasm source bridge rejects non-language extensions before compiler executi
    /source file must use canonical \.atto or legacy \.ores extension/);
  }finally{await cleanup(w.dir)}
 });
+
+test("Wasm source bridge rejects a caller-supplied .atto leaf symlink",async()=>{
+ const w=await workspace(".atto");
+ try{
+  const target=join(w.dir,"actual-source.atto");
+  await rename(w.source,target);
+  await symlink(target,w.source);
+  await assert.rejects(
+   compileOresToWasm({...w,environment:"browser",publication:"atomic"}),
+   /symlink or special input file is forbidden/
+  );
+ }finally{await cleanup(w.dir)}
+});
 \ntest("atomic compilation publishes verified release, never partial legacy paths",async()=>{
  const w=await workspace();
  try{
