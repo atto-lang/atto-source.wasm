@@ -131,3 +131,33 @@ test("ordinary Wasm topic handles cannot impersonate system publications", () =>
   assert.equal(group.close(), true);
   assert.throws(() => topic.publish(member, "closed"), /unknown or closed ActorGroup/);
 });
+
+test("registry shutdown revokes cached ActorGroup and topic handles without resurrection", () => {
+  const bus = new WasmActorPubSub();
+  const a = bus.createGroup();
+  const b = bus.createGroup();
+  const actor = bus.registerActor({actorId: 77, incarnation: 1, kind: "shared"});
+  a.join(actor);
+  b.join(actor);
+  const tA = a.defineTopic("events", "reliable", 2);
+  const tB = b.defineTopic("events", "latest", 1);
+  tA.subscribe(actor);
+  tB.subscribe(actor);
+  tA.publish(actor, "before-close");
+
+  assert.equal(bus.close(), true);
+  assert.equal(bus.close(), false, "shutdown is idempotent");
+  assert.equal(a.contains(actor), false);
+  assert.equal(b.contains(actor), false);
+  assert.equal(a.close(), false, "cached group cannot resurrect closed registry");
+  assert.throws(() => a.join(actor), /registry is closed/);
+  assert.throws(() => b.topic("events"), /registry is closed/);
+  assert.throws(() => tA.publish(actor, "after-close"), /registry is closed/);
+  assert.throws(() => tA.tryRead(actor), /registry is closed/);
+  assert.throws(() => tB.subscribe(actor), /registry is closed/);
+  assert.throws(() => bus.createGroup(), /registry is closed/);
+  assert.throws(
+    () => bus.registerActor({actorId: 77, incarnation: 2, kind: "shared"}),
+    /registry is closed/,
+    "closing registry must prevent generation reuse");
+});
