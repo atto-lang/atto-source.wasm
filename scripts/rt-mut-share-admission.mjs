@@ -9,12 +9,15 @@ export function assertNativeMutShareDenial(error) {
   assert.match(error.message,
     /^command failed \([^)]+[\\/]compiler-exact\): oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof/,
     "expected the exact staged native compiler and guarded-sharing diagnostic");
-  assert.doesNotMatch(error.message,
-    /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL|SIGSEGV|SIGABRT|fatal error|compiler crashed|segmentation fault|aborted|core dumped|panicked at|stack overflow|command not found|LLVM ERROR/i,
-    "runtime/host/compiler crash cannot satisfy source admission");
-  assert.doesNotMatch(error.message,
-    /(?:^|\n)\s*(?:define\s+[^\n]*@|; ModuleID\s*=|target triple\s*=|source_filename\s*=|declare\s+[^\n]*@|attributes\s+#\d+\s*=)/m,
-    "rejected mutable sharing must not leak partial LLVM IR");
+  // The bridge deliberately truncates the human-readable error message to
+  // 4 KiB, but retains complete bounded stderr. Inspect both to prevent
+  // forged successes with IR or crash evidence past the message truncation.
+  const crash = /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL|SIGSEGV|SIGABRT|fatal error|compiler crashed|segmentation fault|aborted|core dumped|panicked at|stack overflow|command not found|LLVM ERROR/i;
+  const partialIR = /(?:^|\\n)\\s*(?:define\\s+[^\\n]*@|; ModuleID\\s*=|target triple\\s*=|source_filename\\s*=|declare\\s+[^\\n]*@|attributes\\s+#\\d+\\s*=)/m;
+  assert.doesNotMatch(error.message, crash, "host/compiler crash cannot count as source denial");
+  assert.doesNotMatch(error.message, partialIR, "failed compiler cannot leak LLVM IR");
+  assert.doesNotMatch(error.stderr ?? "", crash, "compiler stderr contains crash evidence");
+  assert.doesNotMatch(error.stderr ?? "", partialIR, "compiler stderr leaked LLVM IR");
   // A plain Error(message) is not compiler evidence. The bridge must carry
   // the real exit status, signal and independent stderr/stdout streams.
   assert.equal(error.stdout, "",
