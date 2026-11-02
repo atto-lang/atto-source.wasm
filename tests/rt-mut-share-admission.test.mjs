@@ -67,12 +67,15 @@ test("mixed diagnostics and spoofed trailing errors are never ownership proof", 
     evidence.stderr + "\n" + evidence.stderr,
     "warning: fallback compiler\n" + evidence.stderr,
     evidence.stderr + "\nsource_filename = 'partial.ll'",
-    evidence.stderr + "\nerror: missing input"
+    evidence.stderr + "\nerror: missing input",
+    evidence.stderr + " error: unrelated parser failure",
+    evidence.stderr + "; refusing unsynchronized alias at byte invalid",
+    evidence.stderr + "; refusing unsynchronized alias at byte 42 error: unexpected token"
   ]) {
     assert.throws(() => assertNativeMutShareDenial({...evidence, stderr}),
       undefined, "mixed failure incorrectly treated as native ownership rejection");
   }
   assert.equal(assertNativeMutShareDenial({
-    ...evidence, stderr:evidence.stderr + "; refusing unsynchronized alias\n"
+    ...evidence, stderr:evidence.stderr + "; refusing unsynchronized alias at byte 47\n"
   }), true);
 });
