@@ -112,7 +112,8 @@ test("AOT CI source preflight avoids checkout-controlled clean filters", async (
   for(const line of section.split("\n")) {
     const command=line.trim();
     if(command.startsWith("#"))continue;
-    assert.ok(!/^(git diff|git status|git add|git hash-object --path)\\b/.test(command),
+    const forbidden=["git diff","git status","git add","git hash-object --path"];
+    assert.ok(!forbidden.some(name=>command===name||command.startsWith(name+" ")),
       "filter-capable Git preflight: "+command);
   }
 });
