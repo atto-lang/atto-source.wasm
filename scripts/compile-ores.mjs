@@ -26,7 +26,7 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   i+=2;while(i<text.length&&text[i]!=="\n"&&text[i]!=="\r")i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
@@ -39,13 +39,14 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+   const quote=c,start=i;i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated quoted literal at byte "+start);
    continue;
   }
   if(idStart(c)){
@@ -55,6 +56,21 @@ function tupleV2Tokens(sourceBytes){
   tokens.push({text:c,offset:i,id:false});i++;
  }
  return tokens;
+}
+
+/**
+ * Canonical AttoLang removed the '%' source operator. Reject it before
+ * invoking an LLVM compiler that might still accept legacy grammar.
+ * Reuse token-aware scanning: comments and quoted literal payloads are
+ * never treated as executable arithmetic. This is lexical admission only;
+ * it does not establish Integer.rem/mod codegen or Wasm guest parity.
+ */
+export function rejectLegacyPercentSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(const token of tokens) {
+  if(token.text==="%" && !token.id)
+   throw Error("E_OPERATOR_REMOVED: noncanonical '%' source operator; use Integer.rem/mod at byte "+token.offset);
+ }
 }
 
 /**
@@ -272,6 +288,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  rejectUnsupportedActorThreadSource(sourceBytes);
+ rejectLegacyPercentSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
