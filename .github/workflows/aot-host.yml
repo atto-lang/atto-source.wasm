@@ -42,6 +42,75 @@ jobs:
           # Untrusted .gitattributes clean filters can execute in git diff/status.
           # Git write-tree compares the index to the exact tree without filters.
           test "$(git write-tree)" = "$SOURCE_TREE"
+          # Validate real worktree bytes and modes, not only indexed Git objects.
+          # Inline verifier is workflow-owned: do NOT execute a checker from the untrusted checkout.
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import pathlib
+          import stat
+          import subprocess
+          
+          def git(*args):
+              return subprocess.check_output(("git", *args), stderr=subprocess.PIPE)
+          
+          def reject(reason):
+              raise SystemExit("EXACT_WORKTREE_REJECTED: " + reason)
+          
+          if git("rev-parse", "--show-object-format").strip() != b"sha1":
+              reject("unsupported Git object format")
+          if git("write-tree").strip() != git("rev-parse", "HEAD^{tree}").strip():
+              reject("index tree differs from HEAD")
+          count = 0
+          for entry in git("ls-files", "--stage", "-z").split(b"\0"):
+              if not entry:
+                  continue
+              try:
+                  meta, encoded_path = entry.split(b"\t", 1)
+                  mode, oid, stage = meta.split(b" ")
+              except ValueError:
+                  reject("malformed index entry")
+              if stage != b"0" or mode not in (b"100644", b"100755"):
+                  reject("unmerged or unsupported tracked object")
+              name = os.fsdecode(encoded_path)
+              parts = pathlib.Path(name).parts
+              if not parts or os.path.isabs(name) or ".." in parts:
+                  reject("unsafe tracked path")
+              parent = pathlib.Path(".")
+              for part in parts[:-1]:
+                  parent = parent / part
+                  if parent.is_symlink() or not parent.is_dir():
+                      reject("tracked parent is not a real directory")
+              try:
+                  before = os.lstat(name)
+                  if not stat.S_ISREG(before.st_mode):
+                      reject("tracked source is not a regular file")
+                  if bool(before.st_mode & 0o111) != (mode == b"100755"):
+                      reject("tracked executable mode differs")
+                  fd = os.open(name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+                  with os.fdopen(fd, "rb") as stream:
+                      opened = os.fstat(stream.fileno())
+                      if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                          reject("tracked source swapped during open")
+                      digest = hashlib.sha1()
+                      digest.update(b"blob " + str(opened.st_size).encode() + b"\0")
+                      size = 0
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                          size += len(chunk)
+                          digest.update(chunk)
+                      after = os.fstat(stream.fileno())
+                  stamp = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+                  if size != opened.st_size or stamp(opened) != stamp(after):
+                      reject("tracked source changed during snapshot")
+                  if digest.hexdigest().encode() != oid:
+                      reject("tracked raw bytes differ from indexed Git object")
+              except OSError as exc:
+                  reject("tracked file could not be checked: " + str(exc))
+              count += 1
+          if git("ls-files", "--others", "-z"):
+              reject("untracked checkout file exists")
+          print("EXACT_WORKTREE_PASS files=" + str(count))
+          PY
           test -z "$(git ls-files --others --exclude-standard)"
           echo "WASM_AOT_SOURCE_COMMIT=$EXPECTED_HEAD"
           echo "WASM_AOT_SOURCE_TREE=$SOURCE_TREE"
