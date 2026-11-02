@@ -156,6 +156,30 @@ export async function verifyRealCompiler({
     });
     if (executed.value !== 42n || executed.admission.hostCapabilities !== 0)
       throw Error("native Oreslang Wasm guest returned incorrect result/capabilities");
+    // A valid comment containing an annotation-looking capability must not
+    // affect executable lexing. Prove this with real LLVM->Wasm compilation and
+    // isolated guest execution, not merely a JavaScript rejection helper.
+    const commentSource = fileURLToPath(new URL(
+      "../examples/comment-only-state-injection.ores", import.meta.url));
+    const commentOutput = join(work, "comment-only-state-injection.wasm");
+    const expectedCommentSha = sha256(await readFile(commentSource));
+    const commentPublished = await compileOresToWasm({
+      compiler:pinnedCompiler,compilerSha256,source:commentSource,
+      output:commentOutput,environment:"browser",publication:"atomic"
+    });
+    const commentRelease = await readAtomicRelease(commentOutput);
+    if (commentPublished.sourceSha256 !== expectedCommentSha ||
+        commentPublished.compilerSha256 !== compilerSha256 ||
+        commentPublished.wasmSha256 !== sha256(commentRelease.wasm) ||
+        commentRelease.manifest?.wasmSha256 !== commentPublished.wasmSha256)
+      throw Error("comment-only state annotation altered Wasm source/artifact provenance");
+    const commentObserved = await runIsolatedCoreGuest(commentRelease.wasm,{
+      expectedSha256:commentPublished.wasmSha256,timeoutMs:5000
+    });
+    if (commentObserved.value !== 42n ||
+        commentObserved.admission.imports !== 0 ||
+        commentObserved.admission.hostCapabilities !== 0)
+      throw Error("comment-only injection positive guest failed isolated Wasm execution");
     // A second distinct Oreslang program proves same-module calls and
     // prevents a constant-result smoke test from masquerading as parity.
     const forwardOutput = join(work, "forward.wasm");
@@ -562,6 +586,7 @@ export async function verifyRealCompiler({
       scalarFixtures:Object.freeze(scalarResults),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
+      commentOnlyStateInjectionExecuted:true,
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
       tupleV2Rejected:true,
