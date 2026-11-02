@@ -15,6 +15,8 @@ export function assertNativeMutShareDenial(error) {
   assert.doesNotMatch(error.message,
     /(?:^|\n)\s*(?:define\s+[^\n]*@|; ModuleID\s*=|target triple\s*=|source_filename\s*=|declare\s+[^\n]*@|attributes\s+#\d+\s*=)/m,
     "rejected mutable sharing must not leak partial LLVM IR");
+  assert.equal(error.stdout ?? "", "",
+    "rejected source must not emit partial IR or any stdout");
   assert.ok(!error.signal, "signal-terminated compiler is not diagnosed rejection");
   assert.ok(error.code == null && error.errno == null && error.syscall == null && error.cause == null,
     "host/transport failure metadata cannot stand in for compiler rejection");
