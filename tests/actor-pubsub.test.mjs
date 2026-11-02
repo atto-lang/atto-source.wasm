@@ -205,6 +205,18 @@ test("Wasm ActorGroup and Topic constructors cannot forge opaque handles", () =>
   const member = bus.registerActor({actorId: 222, incarnation: 1, kind: "shared"});
   realGroup.join(member);
   realTopic.subscribe(member);
+  assert.throws(() => bus._join(realGroup.id, member),
+    /invalid ActorGroup handle authority/);
+  assert.throws(() => bus._defineTopic(realGroup.id, "forged", "lossy", 1),
+    /invalid ActorGroup handle authority/);
+  assert.throws(() => bus._closeGroup(realGroup.id),
+    /invalid ActorGroup handle authority/);
+  assert.throws(() => bus._subscribe(realGroup.id, "events", member),
+    /invalid Topic handle authority/);
+  assert.throws(() => bus._publish(realGroup.id, "events", member, "forged"),
+    /invalid Topic handle authority/);
+  assert.throws(() => bus._tryRead(realGroup.id, "events", member),
+    /invalid Topic handle authority/);
   assert.equal(realTopic.publish(member, "legitimate").accepted, 1);
   assert.deepEqual(realTopic.tryRead(member), {present: true, value: "legitimate"});
   assert.equal(bus.close(), true);
