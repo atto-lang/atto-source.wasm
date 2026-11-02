@@ -276,7 +276,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const scratch=await mkdtemp(join(outputParent,".oreslang-wasm-"));
  const provisional=join(scratch,"guest.wasm");
  try{
- const stagedSource=join(scratch,"source.ores");
+ const stagedSource=join(scratch,experimentalStackAggregate?"source.atto":"source.ores");
  const stagedCompiler=join(scratch,"compiler-exact");
  await writeFile(stagedSource,sourceBytes,{mode:0o400,flag:"wx"});
  // Execute the exact compiler bytes whose SHA-256 we pinned, not a mutable
