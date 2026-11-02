@@ -100,7 +100,7 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/git cat-file -t/);
   assert.match(workflow,/EXACT_WORKTREE_PASS/);
   assert.match(workflow,/tracked raw bytes differ from indexed Git object/);
-  assert.match(workflow,/os\\.O_NOFOLLOW/);
+  assert.ok(workflow.includes("os.O_NOFOLLOW"));
 
   assert.ok(!workflow.includes("git diff --quiet"));
   assert.match(workflow,/WASM_AOT_SOURCE_TREE=/);
