@@ -63,7 +63,7 @@ test('real Wasm compilation entry refuses inferred aggregate before compiler exe
   const root=await mkdtemp(join(tmpdir(),'attolang-aggregate-admission-'));
   try {
     const compiler=join(root,'llvmc-stub-not-executed');
-    const source=join(root,'guest.ores');
+    const source=join(root,'guest.atto');
     const output=join(root,'guest.wasm');
     // The fake binary must NOT run; the production bridge rejects first.
     await writeFile(compiler,'not a compiler', {mode:0o700});
