@@ -58,6 +58,28 @@ function tupleV2Tokens(sourceBytes){
 }
 
 /**
+ * Conservative source admission for new declaration families. This bridge
+ * does not own the language parser: native LLVM must also reject unimplemented
+ * declarations. Scan exact declaration-head tokens only, never raw substrings.
+ */
+export function rejectUnsupportedStateContainerVirtualActorSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++) {
+  let j=i;
+  if(tokens[j]?.text==="pub" && tokens[j+1]?.text==="define") j++;
+  if(tokens[j]?.text!=="define") continue;
+  j++;
+  if(tokens[j]?.text==="pub") j++;
+  const first=tokens[j], second=tokens[j+1];
+  if(!first?.id||!second?.id)continue;
+  if(first.text==="state"&&second.text==="container")
+   throw Error("STATE_CONTAINER_BACKEND_UNSUPPORTED: Wasm bridge needs protected heap region and critical guard lowering at offset "+first.offset);
+  if(first.text==="virtual"&&second.text==="actor")
+   throw Error("VIRTUAL_ACTOR_BACKEND_UNSUPPORTED: Wasm bridge needs logical key and activation fencing at offset "+first.offset);
+ }
+}
+
+/**
  * Wasm source bridge capability gate. This backend has no tuple-value ABI,
  * optional-tail representation, or readonly structural tuple view yet.
  */
@@ -252,6 +274,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
+ rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
