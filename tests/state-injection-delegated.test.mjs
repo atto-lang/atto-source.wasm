@@ -1,11 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { assertStateInjectionFrontendRejection } from "../scripts/verify-real-compiler.mjs";
 
 const nativeDenied = {
   status: 1, signal: null, error: undefined, stdout: "",
   stderr: "oreslang-llvmc: STATE_INJECTION_UNSUPPORTED: @Inject requires native typed region and borrow lowering at byte 0"
 };
+
+test("real-compiler positive control contains only commented state annotations", () => {
+  const source = readFileSync(
+    new URL("../examples/comment-only-state-injection.ores", import.meta.url), "utf8");
+  assert.match(source, /^\/\/ @Inject\(MutableStateContainer\(scope = #instance\)\)/);
+  assert.match(source, /\/\/ @StateBacked\(MutableStateContainer\(scope = #shared\)\)/);
+  assert.match(source, /pub fnc main\(\): int \{ return 40 \+ 2; \}\n$/);
+  assert.equal(source.split("\n").filter(line => line.startsWith("@")).length, 0);
+});
 
 test("WASM relies on native compiler-owned injected-state denial", () => {
   assert.equal(assertStateInjectionFrontendRejection(nativeDenied, "Inject"), true);
