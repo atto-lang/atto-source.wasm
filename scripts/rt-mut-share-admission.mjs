@@ -13,7 +13,7 @@ export function assertNativeMutShareDenial(error) {
   // 4 KiB, but retains complete bounded stderr. Inspect both to prevent
   // forged successes with IR or crash evidence past the message truncation.
   const crash = /spawn |ENOENT|EACCES|ETIMEDOUT|SIGKILL|SIGSEGV|SIGABRT|fatal error|compiler crashed|segmentation fault|aborted|core dumped|panicked at|stack overflow|command not found|LLVM ERROR/i;
-  const partialIR = /(?:^|\\n)\\s*(?:define\\s+[^\\n]*@|; ModuleID\\s*=|target triple\\s*=|source_filename\\s*=|declare\\s+[^\\n]*@|attributes\\s+#\\d+\\s*=)/m;
+  const partialIR = /(?:^|\n)\s*(?:define\s+[^\n]*@|; ModuleID\s*=|target triple\s*=|source_filename\s*=|declare\s+[^\n]*@|attributes\s+#\d+\s*=)/m;
   assert.doesNotMatch(error.message, crash, "host/compiler crash cannot count as source denial");
   assert.doesNotMatch(error.message, partialIR, "failed compiler cannot leak LLVM IR");
   assert.doesNotMatch(error.stderr ?? "", crash, "compiler stderr contains crash evidence");
