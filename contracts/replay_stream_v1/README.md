@@ -7,7 +7,7 @@ Canonical implementation and contract: https://github.com/ores-truffle-oreslang/
 - `examples/native-replay-stream-contract.ores`
 - `docs/REPLAYABLE_BYTE_STREAM_V1.md`
 
-This directory contains exact-copy `replay_stream.ores` and the same 73-check Oreslang guest `native-replay-stream-contract.ores` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
+This directory contains exact-copy `replay_stream.ores` and the same 80-check Oreslang guest `native-replay-stream-contract.ores` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
 
 ## Obligations before enabling
 
@@ -28,3 +28,7 @@ This directory contains exact-copy `replay_stream.ores` and the same 73-check Or
 - `Result.Err` retains the error; `trap` is lossy and should not drive retry decisions. Panic/cancellation remain distinct terminal effects.
 
 **Nothing in this fixture grants a codec, raw socket, FFI handle, network capability, or cross-tenant access.**
+
+## Additional v1 admission checks (source-only, not executed)
+
+The shared guest fixture now contains 80 unique `REPLAY-PASS|...` assertions. The seven added checks cover regressive/duplicate transport send markers, idempotent repeated ACKs, negative and oversized read requests, and invalid trailing byte rejection without advancing the produced watermark. These are candidate Oreslang guest checks, **not** compiler, actor, codec, or NativeAOT execution evidence. No private-source CI mirroring is authorized under the current incident hold.
