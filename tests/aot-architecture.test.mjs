@@ -95,7 +95,10 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   // PR checkout must match the reviewed head, not GitHub's merge ref.
   assert.match(workflow,/ref: .*github\.event\.pull_request\.head\.sha/);
   assert.match(workflow,/EXPECTED_HEAD: .*github\.event\.pull_request\.head\.sha/);
-  assert.match(workflow,/git rev-parse HEAD/);
+  assert.match(workflow,/git rev-parse --verify HEAD/);
+  assert.match(workflow,/git write-tree/);
+  assert.match(workflow,/git cat-file -t/);
+  assert.doesNotMatch(workflow,/^\\s*git diff --quiet/m);
   assert.match(workflow,/WASM_AOT_SOURCE_TREE=/);
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
