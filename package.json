@@ -12,6 +12,7 @@
     "run:guest": "node scripts/run-guest.mjs",
     "test:real-compiler": "node scripts/verify-real-compiler.mjs",
     "test:real-aot": "node scripts/verify-real-aot.mjs",
-    "test:refinement-admission": "node tests/refinement-admission-delegated.mjs"
+    "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
+    "test:aggregate-real-guest": "node scripts/verify-real-aggregate-wasm32.mjs"
   }
 }
