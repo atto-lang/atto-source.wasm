@@ -241,7 +241,24 @@ async function withPublicationLock(published,publication,callback){
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
 function run(command,args,{input}={}){
  const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
- if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+ if(output.error||output.status!==0||output.signal){
+  // Keep the historic diagnostic message, but retain process evidence. A
+  // rejected compiler that wrote partial IR to stdout or died by signal must
+  // not be mistaken for an intentional source-level capability denial.
+  const failure=new Error("command failed ("+command+"): "+
+    (output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+  failure.status=output.status;
+  failure.signal=output.signal;
+  failure.stdout=output.stdout||"";
+  failure.stderr=output.stderr||"";
+  if(output.error){
+   failure.code=output.error.code;
+   failure.errno=output.error.errno;
+   failure.syscall=output.error.syscall;
+   failure.cause=output.error;
+  }
+  throw failure;
+ }
  return output.stdout||"";
 }
 export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
