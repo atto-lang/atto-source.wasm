@@ -61,3 +61,29 @@ For production promotion:
 5. Obtain independent review of the sandbox and any private source export.
 
 Contract: https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/pull/332
+
+## Pinned Wasmtime 49 development JIT binary (source-only until native CI)
+
+A second execution candidate now lives in
+`aot-host/precompile/src/bin/oreslang-jit-dev.rs` (the existing independently
+pinned Wasmtime 49.0.3 Cranelift build graph). It JIT-compiles **raw** admitted
+core Wasm via `Module::from_binary`; does not deserialize attacker-supplied
+native AOT artifacts. It reuses the existing bounded no-follow Wasm file
+reader, strict source section guard, exported ABI check, Wasmtime fuel and
+store memory limits. The command is **deliberately disabled by default** and
+its debug-only `insecure-dev-jit` Cargo feature cannot enable release builds,
+even when release assertions are forced.
+
+Development-only test command (requires Rust 1.96, Clang wasm32 and LLD):
+
+```sh
+bash aot-host/tests/jit-dev-smoke.sh
+```
+
+That smoke script is committed, and an exact-head GitHub Actions JIT job is
+configured, but **the Rust binary has not compiled or run successfully in this
+change**: the local container lacks Rust, and sampled GitHub Actions runs have
+`steps=null` (runner admission, not a compiler/test verdict).
+Its CLI is **not** an OS process broker, hostile-tenant sandbox, signed-image
+admission service, or AttoLang guest actor runtime. Do not deploy it to
+production or promote it from source review alone.
