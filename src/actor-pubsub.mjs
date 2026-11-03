@@ -23,7 +23,7 @@ function positiveSafeInt(value, name) {
 
 function topicName(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 ||
-      /[\u0000-\u001f\u007f-\u009f]/u.test(value))
+      value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value))
     throw new TypeError("invalid topic name");
   return value;
 }
