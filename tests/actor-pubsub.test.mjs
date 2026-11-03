@@ -308,3 +308,15 @@ test("512 actor reincarnations preserve group isolation and bounded topic admiss
   assert.equal(groupB.memberCount, 0);
   assert.equal(bus.close(), true);
 });
+
+test("topic names reject whitespace-only values without sacrificing distinct keys", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  for (const name of [" ", "  ", "\t", "\n", "\u00a0", "\u2003", "\u202f", "\u3000"]) {
+    assert.throws(() => group.defineTopic(name, "reliable", 1), /invalid topic name/);
+    assert.throws(() => group.topic(name), /invalid topic name/);
+  }
+  assert.equal(group.defineTopic("events", "lossy", 1).name, "events");
+  assert.equal(group.defineTopic("events_2", "lossy", 1).name, "events_2");
+  assert.equal(group.close(), true);
+});
