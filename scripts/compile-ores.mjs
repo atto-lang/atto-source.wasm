@@ -1,13 +1,13 @@
 /**
  * Experimental, explicit end-to-end bridge:
- * native oreslang-llvmc (.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
+ * native AttoLang/legacy source (.atto/.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
-import {dirname,resolve,isAbsolute,join,basename} from "node:path";
+import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
@@ -223,14 +223,21 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ const sourceExtension=extname(source).toLowerCase();
+ if(sourceExtension!==".atto"&&sourceExtension!==".ores")
+  throw Error("source file must use canonical .atto or legacy .ores extension");
  // Resolve directory symlinks ONCE and use that physical pathname for
  // publication, not the caller's possibly aliased directory spelling.
  // A lexical resolve() comparison alone can overwrite compiler/source
  // inputs through an alternate symlinked parent directory.
  await mkdir(dirname(output),{recursive:true});
- const [sourcePath,compilerPath,outputParent]=await Promise.all([
-  realpath(source),realpath(compiler),realpath(dirname(output))
+ // Resolve directory aliases, but keep the source leaf itself intact so
+ // readBoundedRegularFile's O_NOFOLLOW open can reject a caller-supplied
+ // symlink instead of silently following it through realpath(source).
+ const [sourceParent,compilerPath,outputParent]=await Promise.all([
+  realpath(dirname(source)),realpath(compiler),realpath(dirname(output))
  ]);
+ const sourcePath=join(sourceParent,basename(source));
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
@@ -282,12 +289,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
   throw Error("unsupported portable host environment");
  // Compile exactly the already-hashed source snapshot, not a mutable path.
- // The current scalar subset supports standalone source files; relative
- // source imports must be resolved and pinned by a future module graph gate.
+ // The current scalar subset supports standalone .atto/.ores source files;
+ // relative source imports must be resolved and pinned by a future module graph gate.
  const scratch=await mkdtemp(join(outputParent,".oreslang-wasm-"));
  const provisional=join(scratch,"guest.wasm");
  try{
- const stagedSource=join(scratch,"source.ores");
+ // Preserve the approved language suffix: the native LLVM CLI uses this
+ // extension for frontend admission. Never disguise .atto as .ores.
+ const stagedSource=join(scratch,"source"+sourceExtension);
  const stagedCompiler=join(scratch,"compiler-exact");
  await writeFile(stagedSource,sourceBytes,{mode:0o400,flag:"wx"});
  // Execute the exact compiler bytes whose SHA-256 we pinned, not a mutable

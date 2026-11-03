@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
+test("canonical shared .atto real-compiler guest has the reviewed exact bytes", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const canonical = new URL("../contracts/atto-parity-v1/add.atto", import.meta.url);
+  const legacy = new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url);
+  const mirrored = new URL("../examples/atto-real-compiler-parity.atto", import.meta.url);
+  const [atto, ores, example] = await Promise.all([
+    readFile(canonical), readFile(legacy), readFile(mirrored)
+  ]);
+  assert.ok(canonical.pathname.endsWith(".atto"));
+  assert.deepEqual(atto, ores, "extension migration must not change source semantics");
+  assert.deepEqual(atto, example, "compiler smoke and shared corpus must not drift");
+  assert.equal(atto.toString("utf8"), "pub fnc main(): int { return 40 + 2; }\n");
+});
+
 test("missing real native compiler fails instead of silently skipping", () => {
   const env = {...process.env};
   for (const name of ["ORESLANG_LLVM_COMPILER","ORESLANG_LLVM_COMPILER_SHA256","ORESLANG_LLVM_SOURCE_SHA"])
