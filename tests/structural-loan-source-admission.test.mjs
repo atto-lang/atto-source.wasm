@@ -27,6 +27,8 @@ test('preserve contextual identifiers, strings and comments',()=>{
     'fnc f()->int { return structural(42);}',
     'fnc f()->int { return foo(structural(42));}',
     'fnc f()->int { return foo(42, structural(3));}',
+    'fnc f()->int { return foo(arg: structural(42));}',
+    'fnc f()->int { return foo(arg: structural(42), n: 1);}',
     'fnc f()->int { const s="fnc f(int n, structural Shape v)"; return 42;}',
     "fnc f()->int { const s='structural {id:int}'; return 42;}",
     '/* /* structural {id:int} */ */ fnc f()->int {return 42;}',
