@@ -87,3 +87,24 @@ export function rejectUnsupportedInferredAggregateSource(sourceBytes) {
       throw new Error('wasm inferred aggregate lowering unsupported at character '+token.at);
   }
 }
+/**
+ * The scalar Wasm bridge has no typed ABI for structural parameter/return
+ * loans. The older tuple-v2 preflight checked only the first parameter; catch
+ * later parameters and named type annotations without flagging a contextual
+ * function/field/variable called structural. The native compiler remains the
+ * authority for actual type grammar and must perform its own checks.
+ */
+export function rejectUnsupportedStructuralLoanSource(sourceBytes) {
+  const tokens=tokenize(sourceBytes);
+  for(let i=0;i<tokens.length;i++){
+    const token=tokens[i];
+    if(!token.identifier||token.value!=='structural')continue;
+    const prior=tokens[i-1]?.value;
+    const typePosition=prior==='('||prior===','||prior===':'||
+      (prior==='>'&&tokens[i-2]?.value==='-');
+    const next=tokens[i+1];
+    const shapeStart=next?.identifier||next?.value==='{'||next?.value==='(';
+    if(typePosition&&shapeStart)
+      throw new Error('wasm structural readonly-view ABI unsupported at character '+token.at);
+  }
+}
