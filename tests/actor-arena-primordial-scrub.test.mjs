@@ -56,3 +56,27 @@ test('scratch bytes must scrub before next turn under poisoned host fill', () =>
   assert.deepEqual([...new NativeBytes(memory.buffer).slice(65536, 65540)], [0, 0, 0, 0]);
   arena.retire();
 });
+
+test('retirement uses native memory and byte-length slots after prototype corruption', () => {
+  const {arena, memory} = captureArena(204);
+  const actualBuffer = memory.buffer;
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  arena.write(turn, handle, NativeBytes.from([51, 52, 53, 54]));
+  arena.endTurn(turn);
+  const originalBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, 'buffer');
+  const originalByteLength = Object.getOwnPropertyDescriptor(NativeBytes.prototype, 'byteLength');
+  Object.defineProperty(NativeMemory.prototype, 'buffer', {
+    configurable: true, get() { return new ArrayBuffer(131072); }
+  });
+  Object.defineProperty(NativeBytes.prototype, 'byteLength', {
+    configurable: true, get() { return 0; }
+  });
+  try { arena.retire(); }
+  finally {
+    Object.defineProperty(NativeMemory.prototype, 'buffer', originalBuffer);
+    if (originalByteLength) Object.defineProperty(NativeBytes.prototype, 'byteLength', originalByteLength);
+    else delete NativeBytes.prototype.byteLength;
+  }
+  assert.deepEqual([...new NativeBytes(actualBuffer).slice(0, 4)], [0, 0, 0, 0]);
+});
