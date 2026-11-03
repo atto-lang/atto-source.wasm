@@ -72,6 +72,25 @@ test("serialized and cloned child handles never obtain supervisor authority", ()
   assert.throws(() => lane.register({actorId:"physical-X",incarnation:0}), /identity/);
 });
 
+test("STOP ticket belongs to exactly one ledger instance", () => {
+  const first = create(1);
+  const second = create(1);
+  const firstChild = first.register({actorId:"same",incarnation:1});
+  const secondChild = second.register({actorId:"same",incarnation:1});
+  first.assert_physically_finalized(firstChild);
+  second.assert_physically_finalized(secondChild);
+  const firstTicket = first.reserve_stop(firstChild);
+  const secondTicket = second.reserve_stop(secondChild);
+  assert.equal(first.receipt_snapshot(firstTicket).turnGeneration, 1);
+  assert.equal(second.receipt_snapshot(secondTicket).turnGeneration, 1);
+  assert.throws(() => second.claim_host_invocation(firstTicket), /foreign/);
+  assert.equal(second.receipt(secondTicket), "pending");
+  second.claim_host_invocation(secondTicket);
+  second.mark_applied(secondTicket);
+  second.acknowledge_applied(secondTicket);
+  assert.equal(second.snapshot(secondChild).phase, "stopped");
+});
+
 test("compiler source admission remains independent of host STOP bookkeeping", async () => {
   const {rejectUnsupportedActorThreadSource} =
     await import("../src/actor-max-threads-source-policy.mjs");
