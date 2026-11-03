@@ -11,7 +11,15 @@ const wordRest = c => /[A-Za-z_0-9]/.test(c);
 export function rejectUnsupportedActorThreadSource(snapshot) {
   if (!(snapshot instanceof Uint8Array))
     throw new TypeError("source preflight requires immutable snapshot bytes");
+  // Apply the same 1 MiB byte cap as the scalar compiler frontends before
+  // allocating a decoded copy or scanning long, token-free comment payloads.
+  if (snapshot.byteLength > 1_048_576)
+    throw Error("WASM source preflight exceeds 1 MiB byte budget");
   const source = decoder.decode(snapshot);
+  // NUL is not source trivia: it can truncate native bridge consumers,
+  // producing a different program from the one just safety-checked.
+  if (source.includes("\0"))
+    throw Error("WASM source preflight contains NUL byte");
   const tokens = [];
   for (let i = 0; i < source.length;) {
     const c = source[i];
@@ -63,6 +71,14 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define" && tokens[i+1] === "enum"
         && tokens[i+2] === "MaxActorThreads")
       throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+    // A source supervisor is an independent CONTROL process, not a scalar
+    // class or a guest actor that can be delegated to the LLVM compiler.
+    // Recognize both visibility orders without matching text in comments
+    // or string literals, and reject before any Wasm artifact is staged.
+    if (tokens[i] === "define" &&
+        (tokens[i+1] === "supervisor" ||
+         (tokens[i+1] === "pub" && tokens[i+2] === "supervisor")))
+      throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
   }

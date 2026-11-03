@@ -41,3 +41,62 @@ test("policy rejects malformed source snapshots without host execution", () => {
   assert.throws(() => rejectUnsupportedActorThreadSource(bytes('"unterminated')),
     /unterminated source string/);
 });
+
+test("supervisor source, inheritance, interfaces, and traits fail before Wasm compilation", () => {
+  for (const source of [
+    "define supervisor S1 as on_panic(f: Failure): void { return; } end",
+    "pub define supervisor S1 as end",
+    "define pub supervisor S1 as end",
+    "define supervisor actor S1 as end",
+    "define supervisor S1 extends Actor as end",
+    "define supervisor S1 implements Observer as end",
+    "define supervisor S1 with RestartPolicy as end",
+    "define module Workers as define supervisor S1 as end end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source supervisor unsupported: no typed Failure or CONTROL lowering/, source);
+  }
+});
+
+test("supervisor-like strings, comments and identifiers do not forge CONTROL", () => {
+  const source = `fnc main():int {
+    const description = "define supervisor Fake extends Actor as end";
+    // define supervisor InComment as end
+    /* define /* supervisor */ supervisor S1 implements Fake as end */
+    const supervisor_count = 42;
+    return supervisor_count;
+  }`;
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)));
+});
+
+test("WASM source policy rejects oversized and NUL-bearing snapshots before LLVM handoff", () => {
+  // A mostly-comment source could evade the token-count limit without this
+  // byte cap, and NUL must never truncate the native compiler input.
+  assert.throws(() => rejectUnsupportedActorThreadSource(new Uint8Array(1_048_577)),
+    /exceeds 1 MiB byte budget/);
+  assert.throws(() => rejectUnsupportedActorThreadSource(bytes(
+    "fnc main():int{return 42;}\0define supervisor S1 as end")),
+    /contains NUL byte/);
+  assert.throws(() => rejectUnsupportedActorThreadSource(bytes(
+    "/*" + "a".repeat(1_048_576) + "*/")),
+    /exceeds 1 MiB byte budget/);
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(
+    "fnc main():int{return 42;} // " + "a".repeat(1_048_000))));
+});
+
+test("WASM comment boundaries and multiline visibility modifiers preserve source authority checks", () => {
+  for (const source of [
+    "define /* nested /* x */ y */ supervisor S1 as end",
+    "define\n// visibility\npub\n/* type */ supervisor S1 as end",
+    "pub /* x */ define /* y */ supervisor S1 as end",
+    "define supervisor S1 as end // later source",
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source supervisor unsupported/, source);
+  }
+  for (const source of [
+    "fnc main():int{return 42;} // define /*x*/ supervisor S1 as end",
+    "fnc main():int{return 42;} /* define\n pub\n supervisor S1 as end */",
+    'fnc main():int{return 42;} // "define supervisor S1"',
+  ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
+});
