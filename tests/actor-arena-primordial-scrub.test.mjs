@@ -80,3 +80,30 @@ test('retirement uses native memory and byte-length slots after prototype corrup
   }
   assert.deepEqual([...new NativeBytes(actualBuffer).slice(0, 4)], [0, 0, 0, 0]);
 });
+
+test('read and write retain native byte operations under later host monkeypatches', () => {
+  const {arena} = captureArena(205);
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 4);
+  const supplied = NativeBytes.from([71, 72, 73, 74]);
+  const savedConstructor = globalThis.Uint8Array;
+  const savedSet = NativeBytes.prototype.set;
+  const savedSlice = NativeBytes.prototype.slice;
+  let copied;
+  globalThis.Uint8Array = function () { throw Error('host type replaced'); };
+  NativeBytes.prototype.set = function () { throw Error('host set replaced'); };
+  NativeBytes.prototype.slice = function () { throw Error('host slice replaced'); };
+  try {
+    arena.write(turn, handle, supplied);
+    copied = arena.read(turn, handle);
+  } finally {
+    globalThis.Uint8Array = savedConstructor;
+    NativeBytes.prototype.set = savedSet;
+    NativeBytes.prototype.slice = savedSlice;
+  }
+  assert.deepEqual([...copied], [71, 72, 73, 74]);
+  copied[0] = 99;
+  assert.deepEqual([...arena.read(turn, handle)], [71, 72, 73, 74]);
+  arena.endTurn(turn);
+  arena.retire();
+});
