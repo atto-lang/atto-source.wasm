@@ -50,7 +50,7 @@ Memory maximum is checked against the binary, not just build flags. CLI file rea
 2. Stabilize actor message ABI (bounded serialized payloads, authenticated actor handles, generation IDs, ownership/borrow discipline, cancellation).
 3. Define capability/effect manifest; enforce at source checker, link/import gate, and trusted host broker.
 4. Add isolated actor instances and deterministic mailbox/continuation semantics, with each actor's private memory.
-5. Add Wasmtime-based strict AOT host (precompile under trusted build conditions, pin host compatibility, reject untrusted serialized native artifacts) and OS process sandboxing for hostile tenants.
+5. Add Wasmtime-based tenant host with governed JIT as a first-class option, optional strict-AOT/precompiled execution, checked module provenance, resource/interrupt controls and OS process sandboxing for hostile tenants. Never load untrusted serialized native engine artifacts.
 6. Add WIT component APIs with separate pinned WASI 0.2/0.3 profiles; no direct raw pointers across actor domains.
 7. Attach real compiler binaries to `oreslang-platform-conformance` and test inter-backend behavior, not just harness self-tests.
 8. Add fuzzing, differential compilation, crash/timeout, memory-exhaustion and formal state-machine checks.
@@ -79,3 +79,20 @@ The parent also validates the complete worker-reported admission envelope
 budget and zero capabilities) before returning a successful result. These
 checks prevent accidental success from inconsistent internal metadata but
 do not turn the Node Worker API into an OS-level security boundary.
+
+## AttoLang untrusted JIT policy (candidate; not runtime parity)
+
+Untrusted guest actors **do not require AOT**. Execution mode (JIT/AOT/
+interpreter) is orthogonal to actor trust. A Wasm JIT may be chosen when the
+supervisor independently enforces OS process isolation, bounded JIT compilation
+and executable-memory policy, module identity, memory and host-resource quotas,
+capability/host-import denial, interruption (fuel/epoch where available),
+worker termination and generation/retirement fences. A Wasm Store, V8 isolate
+or Node Worker by itself is not an OS security boundary. Hostile code must not
+be promoted from this current scalar prototype to a sandboxed actor claim.
+
+Contract and 32 source-free policy tests:
+[platform-conformance draft PR #332](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/pull/332).
+The existing Node worker compiler may already JIT core Wasm; that does not
+establish real AttoLang actor lowering, Wasmtime/OS sandbox enforcement, or
+backend guest execution proof.
