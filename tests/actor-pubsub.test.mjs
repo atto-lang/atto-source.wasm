@@ -255,3 +255,56 @@ test("closing one group preserves the other group's subscriptions and quota", ()
   assert.deepEqual(tb.tryRead(actor), {present: true, value: "B2"});
   bus.close();
 });
+
+test("RELIABLE partial-drain backpressure remains atomic across subscribers", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const left = bus.registerActor({actorId: 2, incarnation: 1});
+  const right = bus.registerActor({actorId: 3, incarnation: 1});
+  for (const actor of [publisher, left, right]) group.join(actor);
+  const topic = group.defineTopic("atomic", "reliable", 1);
+  topic.subscribe(left);
+  topic.subscribe(right);
+  assert.equal(topic.publish(publisher, "one").accepted, 2);
+  assert.deepEqual(topic.tryRead(left), {present: true, value: "one"});
+  const blocked = topic.publish(publisher, "two");
+  assert.equal(blocked.backpressured, true);
+  assert.equal(blocked.accepted, 0);
+  assert.deepEqual(topic.tryRead(left), {present: false, value: undefined},
+    "failed admission must not deliver to a partially drained subscriber");
+  assert.deepEqual(topic.tryRead(right), {present: true, value: "one"});
+  assert.equal(topic.publish(publisher, "two").accepted, 2);
+  assert.deepEqual(topic.tryRead(left), {present: true, value: "two"});
+  assert.deepEqual(topic.tryRead(right), {present: true, value: "two"});
+});
+
+test("512 actor reincarnations preserve group isolation and bounded topic admission", () => {
+  const bus = new WasmActorPubSub({maxGroups: 2, maxGroupsPerActor: 2,
+    maxTopics: 2, maxSubscriptionsPerActor: 2});
+  const groupA = bus.createGroup();
+  const groupB = bus.createGroup();
+  const a = groupA.defineTopic("same", "latest", 1);
+  const b = groupB.defineTopic("same", "latest", 1);
+  for (let generation = 1; generation <= 512; generation++) {
+    const actor = bus.registerActor({actorId: 37, incarnation: generation});
+    assert.equal(groupA.join(actor), true);
+    assert.equal(groupB.join(actor), true);
+    assert.equal(a.subscribe(actor), true);
+    assert.equal(b.subscribe(actor), true);
+    assert.equal(a.publish(actor, "A" + generation).accepted, 1);
+    assert.equal(b.publish(actor, "B" + generation).accepted, 1);
+    assert.deepEqual(a.tryRead(actor), {present: true, value: "A" + generation});
+    assert.deepEqual(b.tryRead(actor), {present: true, value: "B" + generation});
+    assert.equal(groupA.leave(actor), true);
+    assert.throws(() => a.publish(actor, "stale"), /publication requires/);
+    assert.equal(b.publish(actor, "B-next").accepted, 1);
+    assert.deepEqual(b.tryRead(actor), {present: true, value: "B-next"});
+    assert.equal(bus.retireActor(actor), true);
+    assert.equal(groupB.contains(actor), false);
+    assert.throws(() => b.tryRead(actor), /stale or cross-isolate ActorRef/);
+  }
+  assert.equal(groupA.memberCount, 0);
+  assert.equal(groupB.memberCount, 0);
+  assert.equal(bus.close(), true);
+});
