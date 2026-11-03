@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFile,writeFile,mkdtemp,rm} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
-import {compileOresToWasm} from '../scripts/compile-ores.mjs';
+import {compileOresToWasm,readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 
 const cases=[
   ['inferred struct',`pub fnc main():int{
@@ -63,7 +63,11 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
 },async()=>{
   assert.ok(compiler,'real aggregate Wasm32 gate requires ORESLANG_LLVM_COMPILER');
   const compilerPath=resolve(compiler);
-  const digest=createHash('sha256').update(await readFile(compilerPath)).digest('hex');
+  // Use the same bounded, NOFOLLOW compiler snapshot admission as the bridge.
+  // Never read a caller-chosen compiler executable unbounded into test memory.
+  const compilerSnapshot=await readBoundedRegularFile(compilerPath,256*1024*1024,
+    'aggregate compiler exceeds the 256 MiB verifier limit');
+  const digest=createHash('sha256').update(compilerSnapshot.bytes).digest('hex');
   assert.deepEqual(cases.map(x=>x[2]),[42,43,44],
     'different programs must not all accept an arbitrary constant-returning compiler');
   for(const [name,sourceText,expected] of cases){
@@ -97,7 +101,7 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
           source,output,clang,experimentalStackAggregate:true,publication:'legacy'}),
         /command failed|unsupported|diagnostic|rejected|invalid|error/i,
         name+' must be rejected by the actual compiler');
-      assert.deepEqual((await (await import('node:fs/promises')).readdir(dir)).sort(),
+      assert.deepEqual((await readdir(dir)).sort(),
         ['reject.atto'],name+' must leave no wasm/IR/release artifacts');
       assert.equal(await readFile(source,'utf8'),sourceText,
         name+' must not mutate rejected source');
