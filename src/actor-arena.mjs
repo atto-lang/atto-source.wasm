@@ -18,7 +18,10 @@ const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
-const scrub = (bytes, start = 0, end = bytes.byteLength) =>
+const trustedMemoryBuffer = Object.getOwnPropertyDescriptor(
+  WebAssembly.Memory.prototype, "buffer").get;
+const ownedBytes = memory => new trustedBytes(trustedApply(trustedMemoryBuffer, memory, []));
+const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])) =>
   trustedApply(trustedFill, bytes, [0, start, end]);
 
 export class ActorArena {
@@ -57,7 +60,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new trustedBytes(this.#memory.buffer);
+    return ownedBytes(this.#memory);
   }
 
   #requireTurn(token) {
@@ -113,7 +116,7 @@ export class ActorArena {
     if (this.#memory === null) return;
     // This zeroes guest-visible bytes and severs the host reference. The JS
     // engine, not Oreslang, decides when physical backing pages are reclaimed.
-    scrub(new trustedBytes(this.#memory.buffer));
+    scrub(ownedBytes(this.#memory));
     this.#memory = null;
   }
 
