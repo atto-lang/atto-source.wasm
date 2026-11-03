@@ -101,7 +101,11 @@ export async function verifyRealCompiler({
     const injectionSources = [
       ["backed", "StateBacked", "@StateBacked(MutableStateContainer(scope = #instance))\ndefine class Foo as\nstate {}\nend\n"],
       ["injected", "Inject", "@Inject(MutableStateContainer())\ndefine class Foo as\nstate {}\nend\n"],
-      ["provider", "Inject", "@Inject(SessionState)\ndefine class Manager as\nend\n"]
+      ["provider", "Inject", "@Inject(SessionState)\ndefine class Manager as\nend\n"],
+      ["bare", "Inject", "@Inject\ndefine class Foo as\nend\n"],
+      ["generic", "Inject", "@Inject<MutableStateContainer()>\ndefine class Foo as\nend\n"],
+      ["container", "StateContainer", "@StateContainer()\ndefine class Foo as\nend\n"],
+      ["callable", "Inject", "@Inject(SessionState)\npub fnc main(): int { return 42; }\n"]
     ];
     let firstInjectionSource;
     for (const [name, annotation, body] of injectionSources) {
