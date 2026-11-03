@@ -79,3 +79,30 @@ test('real Wasm compilation entry refuses inferred aggregate before compiler exe
     await rm(root,{recursive:true,force:true});
   }
 });
+
+test('real Wasm bridge denies later-parameter structural loans and infer structural before compiler invocation',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'atto-wasm-structural-preflight-'));
+  try {
+    const compiler=join(root,'llvmc-must-not-run');
+    await writeFile(compiler,'not a compiler',{mode:0o700});
+    const cases=[
+      ['later-parameter.atto','pub fnc use(int n, structural Shape v):int{return n;} pub fnc main():int{return 42;}',/wasm structural readonly-view ABI unsupported/],
+      ['invalid-infer.atto','pub fnc main():int{const a=infer structural{id:42};return 42;}',/wasm invalid infer structural constructor/]
+    ];
+    for(const [filename,text,error] of cases){
+      const source=join(root,filename);
+      const output=join(root,filename+'.wasm');
+      await writeFile(source,text);
+      const before=(await readdir(root)).sort();
+      await assert.rejects(
+        compileOresToWasm({compiler,source,output,publication:'atomic',experimentalStackAggregate:true,compilerSha256:'a'.repeat(64)}),
+        error,
+        filename+' must fail before pinned compiler and any guest output'
+      );
+      assert.deepEqual((await readdir(root)).sort(),before,
+        filename+' must not create a Wasm/IR/release artifact or temporary directory');
+    }
+  } finally {
+    await rm(root,{recursive:true,force:true});
+  }
+});
