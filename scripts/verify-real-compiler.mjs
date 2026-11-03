@@ -9,7 +9,7 @@ import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
+// Canonical AttoLang entrypoint: execute .atto bytes through the pinned LLVM\n// frontend and real wasm32 compiler, not merely the source-free test double.\nconst realSource = fileURLToPath(new URL("../examples/atto-real-compiler-parity.atto", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
   "../examples/unsupported-any-ternary.ores", import.meta.url));
