@@ -89,21 +89,47 @@ export function rejectUnsupportedInferredAggregateSource(sourceBytes) {
 }
 /**
  * The scalar Wasm bridge has no typed ABI for structural parameter/return
- * loans. The older tuple-v2 preflight checked only the first parameter; catch
- * later parameters and named type annotations without flagging a contextual
- * function/field/variable called structural. The native compiler remains the
- * authority for actual type grammar and must perform its own checks.
+ * loans. The older tuple-v2 preflight checked only the first parameter.
+ * Track callable parameter lists, rather than treating arbitrary function
+ * calls as type syntax: `foo(structural(42))` is a contextual function call.
+ * The native compiler remains the grammar/type-system authority.
  */
 export function rejectUnsupportedStructuralLoanSource(sourceBytes) {
   const tokens=tokenize(sourceBytes);
+  const inParams=new Uint8Array(tokens.length);
+  for(let i=0;i<tokens.length;i++){
+    if(!tokens[i].identifier||!['fnc','routine','method'].includes(tokens[i].value)||
+       !tokens[i+1]?.identifier)continue;
+    let cursor=i+2;
+    if(tokens[cursor]?.value==='<'){
+      let depth=0;
+      for(;cursor<tokens.length;cursor++){
+        if(tokens[cursor].value==='<')depth++;
+        else if(tokens[cursor].value==='>'&&--depth===0){cursor++;break;}
+      }
+      if(depth!==0)continue;
+    }
+    if(tokens[cursor]?.value!=='(')continue;
+    let nesting=0;
+    const first=cursor;
+    for(;cursor<tokens.length;cursor++){
+      if(tokens[cursor].value==='(')nesting++;
+      else if(tokens[cursor].value===')'){
+        if(--nesting===0)break;
+      }
+      if(cursor>first&&nesting>0)inParams[cursor]=1;
+    }
+  }
   for(let i=0;i<tokens.length;i++){
     const token=tokens[i];
     if(!token.identifier||token.value!=='structural')continue;
     const prior=tokens[i-1]?.value;
-    const typePosition=prior==='('||prior===','||prior===':'||
-      (prior==='>'&&tokens[i-2]?.value==='-');
     const next=tokens[i+1];
     const shapeStart=next?.identifier||next?.value==='{'||next?.value==='(';
+    if(prior==='infer'&&shapeStart)
+      throw new Error('wasm invalid infer structural constructor at character '+token.at);
+    const typePosition=inParams[i]===1||prior===':'||
+      (prior==='>'&&tokens[i-2]?.value==='-');
     if(typePosition&&shapeStart)
       throw new Error('wasm structural readonly-view ABI unsupported at character '+token.at);
   }
