@@ -9,6 +9,17 @@ const kinds = new Set(["shared", "private", "untrusted"]);
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
 const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteLength").get;
+// Capture byte operations before untrusted or plugin code can mutate globals.
+// A no-op monkeypatch of .fill must never bypass actor-memory zeroization.
+const trustedBytes = Uint8Array;
+const trustedApply = Reflect.apply;
+const trustedFill = Uint8Array.prototype.fill;
+const trustedSlice = Uint8Array.prototype.slice;
+const trustedSet = Uint8Array.prototype.set;
+const trustedIsUint8Array = types.isUint8Array;
+const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
+const scrub = (bytes, start = 0, end = bytes.byteLength) =>
+  trustedApply(trustedFill, bytes, [0, start, end]);
 
 export class ActorArena {
   #memory;
@@ -46,7 +57,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new Uint8Array(this.#memory.buffer);
+    return new trustedBytes(this.#memory.buffer);
   }
 
   #requireTurn(token) {
@@ -66,7 +77,7 @@ export class ActorArena {
 
   endTurn(turn) {
     this.#requireTurn(turn);
-    this.#bytes().fill(0, PAGE, PAGE + this.#scratchTop);
+    scrub(this.#bytes(), PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
     this.#scratch = new WeakMap();
@@ -102,7 +113,7 @@ export class ActorArena {
     if (this.#memory === null) return;
     // This zeroes guest-visible bytes and severs the host reference. The JS
     // engine, not Oreslang, decides when physical backing pages are reclaimed.
-    new Uint8Array(this.#memory.buffer).fill(0);
+    scrub(new trustedBytes(this.#memory.buffer));
     this.#memory = null;
   }
 
@@ -140,7 +151,7 @@ export class ActorArena {
     const handle = Object.freeze({});
     const slot = {offset, length};
     (scratch ? this.#scratch : this.#handles).set(handle, slot);
-    this.#bytes().fill(0, offset, offset + length);
+    scrub(this.#bytes(), offset, offset + length);
     return handle;
   }
 
@@ -151,7 +162,7 @@ export class ActorArena {
     this.#requireTurn(turn);
     const entry = this.#handles.get(handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    this.#bytes().fill(0, entry.offset, entry.offset + entry.length);
+    scrub(this.#bytes(), entry.offset, entry.offset + entry.length);
     this.#handles.delete(handle);
     --this.#persistentCount;
     this.#freePersistent.push({...entry});
@@ -174,21 +185,21 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return this.#bytes().slice(offset, offset + length); // owned copy
+    return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
   }
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
     // Native internal slots prevent instance property overrides from changing
     // the exact-size and shared-memory admission checks.
-    if (!types.isUint8Array(data) || nativeByteLength.call(data) !== length) {
+    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
       throw new TypeError("arena write requires exact-size Uint8Array");
     }
-    if (types.isSharedArrayBuffer(nativeBuffer.call(data))) {
+    if (trustedIsSharedArrayBuffer(trustedApply(nativeBuffer, data, []))) {
       throw new TypeError("arena write rejects shared backing memory");
     }
     // Never return live memory views; callers cannot retain a raw alias.
-    this.#bytes().set(data, offset);
+    trustedApply(trustedSet, this.#bytes(), [data, offset]);
   }
 
   retire() {
