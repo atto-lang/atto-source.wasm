@@ -53,7 +53,7 @@ test('host-importing core Wasm is rejected before execution',async()=>{
   assert.ok(WebAssembly.Module.imports(new WebAssembly.Module(wasm)).length>0);
   await assert.rejects(runExperimentalProcessGuest(wasm,opt),/host imports denied/);
 });
-test('recursive nonterminating Wasm can be terminated without killing parent',async()=>{
+test('nonterminating Wasm can be terminated without killing parent',async()=>{
   const spin=compile('target triple = "wasm32-unknown-unknown"\ndefine i64 @main() {\nentry:\n br label %spin\nspin:\n br label %spin\n}\n');
   await assert.rejects(runExperimentalProcessGuest(spin,{...opt,timeoutMs:350}),/execution deadline exceeded/);
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
@@ -62,4 +62,9 @@ test('independent invocations cannot share mutable Wasm linear memory',async()=>
   const wasm=compile('target triple = "wasm32-unknown-unknown"\n@counter = internal global i64 0\ndefine i64 @main() {\nentry:\n %old = load i64, ptr @counter\n %new = add i64 %old, 1\n store i64 %new, ptr @counter\n ret i64 %new\n}\n');
   const [a,b]=await Promise.all([runExperimentalProcessGuest(wasm,opt),runExperimentalProcessGuest(wasm,opt)]);
   assert.equal(a.value,1n);assert.equal(b.value,1n);
+});
+test('guest runtime trap cannot terminate the supervisor or poison another invocation',async()=>{
+  const wasm=compile('target triple = "wasm32-unknown-unknown"\ndefine i64 @main() {\nentry:\n unreachable\n}\n');
+  await assert.rejects(runExperimentalProcessGuest(wasm,opt),/guest rejected or failed:/);
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
