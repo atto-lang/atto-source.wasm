@@ -179,3 +179,15 @@ test('snapshot never invokes inherited typed-array iterator or overridden set', 
   const result = await runIsolatedCoreGuest(dataView, {expectedSha256: digest});
   assert.equal(result.value, 42n);
 });
+
+test('namespace and lifecycle admission is fail-closed before guest worker or code execution', async () => {
+  const bytes = compile(scalarIr);
+  assert.throws(() => admitCoreGuest(bytes, {entry: 'init'}),
+    /init lifecycle cannot be invoked as a guest entry/);
+  assert.throws(() => admitCoreGuest(bytes, {namespaceBindings: []}),
+    /namespace linking requires verified package index/);
+  await assert.rejects(runIsolatedCoreGuest(bytes, {entry: 'init'}),
+    /init lifecycle cannot be invoked as a guest entry/);
+  await assert.rejects(runIsolatedCoreGuest(bytes, {namespaceBindings: [{alias:'billing'}]}),
+    /namespace linking requires verified package index/);
+});
