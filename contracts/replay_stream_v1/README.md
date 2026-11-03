@@ -1,18 +1,18 @@
-# Oreslang replayable byte stream — oreslang-source.wasm conformance admission
+# AttoLang replayable byte stream — oreslang-source.wasm conformance admission
 
 **Status, 2026-11-01: source fixtures staged, NOT validated or enabled.** The current oreslang-source.wasm backend is not certified to compile or execute this userland stream. Do not treat a successful source contract/host mock test as a native guest pass.
 
 Canonical implementation and contract: https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2445
-- `stdlib/replay_stream.ores`
-- `examples/native-replay-stream-contract.ores`
+- `stdlib/replay_stream.atto`
+- `examples/native-replay-stream-contract.atto`
 - `docs/REPLAYABLE_BYTE_STREAM_V1.md`
 
-This directory contains exact-copy `replay_stream.ores` and the same 80-check Oreslang guest `native-replay-stream-contract.ores` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
+This directory contains exact-copy `replay_stream.atto` and the same 80-check AttoLang guest `native-replay-stream-contract.atto` with only its relative module import path changed. They are **conformance targets**, not supported compiled APIs or proof that the parser/runtime accepts them.
 
 ## Obligations before enabling
 
 1. Compile the actual guest with oreslang-source.wasm, using the exact candidate Git commit and compiler/source SHA. If constructs are unsupported, reject them with a deterministic diagnostic and no executable artifact. Record `unsupported`, not `passed`.
-2. Actually execute the compiled guest (not JavaScript/Python/Rust emulation, host-only assertions or Java/GraalVM fallback). Verify 73 unique `REPLAY-PASS|...` receipts, one `REPLAY-CONTRACT-DONE`, exit 0, and source/compiler hash.
+2. Actually execute the compiled guest (not JavaScript/Python/Rust emulation, host-only assertions or Java/GraalVM fallback). Verify 80 unique `REPLAY-PASS|...` receipts, one `REPLAY-CONTRACT-DONE`, exit 0, and source/compiler hash.
 3. Ensure `Array<int>` indexed writes/reads, class member mutability, `Result<T,E>`, import resolution, module constructors and bounded storage respect the same observable semantics. Prevent unbounded allocations/aliasing and silent wraparound.
 4. Add runtime transport + actor ownership tests for physical backpressure, authenticated cumulative ACK, stale-incarnation rejection, cancellation and race-safe release. No actor state loan/critical section crosses an await; no blocking codec/socket call on scheduler carriers.
 5. For media, add decoder/encoder conformance with real native adapter or permitted host import, bounded frame queue, codec state and keyframe resync, damaged/partial access units, reconnect and replay-window expiry. Failing to support a codec must be typed `UnsupportedCodec`, not a fake decoded frame.
@@ -31,4 +31,4 @@ This directory contains exact-copy `replay_stream.ores` and the same 80-check Or
 
 ## Additional v1 admission checks (source-only, not executed)
 
-The shared guest fixture now contains 80 unique `REPLAY-PASS|...` assertions. The seven added checks cover regressive/duplicate transport send markers, idempotent repeated ACKs, negative and oversized read requests, and invalid trailing byte rejection without advancing the produced watermark. These are candidate Oreslang guest checks, **not** compiler, actor, codec, or NativeAOT execution evidence. No private-source CI mirroring is authorized under the current incident hold.
+The shared guest fixture now contains 80 unique `REPLAY-PASS|...` assertions. The seven added checks cover regressive/duplicate transport send markers, idempotent repeated ACKs, negative and oversized read requests, and invalid trailing byte rejection without advancing the produced watermark. These are candidate AttoLang guest checks, **not** compiler, actor, codec, or NativeAOT execution evidence. No private-source CI mirroring is authorized under the current incident hold.

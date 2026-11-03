@@ -1,7 +1,7 @@
-// Minimal actual Oreslang guest SOURCE smoke: two opaque encoded-byte chunks,
+// Minimal actual AttoLang guest SOURCE smoke: two opaque encoded-byte chunks,
 // receiver-applied ACK, simulated disconnect, then replay the missing chunk.
 // No socket, actor scheduling, FFmpeg, decoder, or codec behavior is claimed here.
-// This file MUST be compiled and executed by each real Oreslang backend.
+// This file MUST be compiled and executed by each real AttoLang backend.
 import class ReplayWindow from './replay_stream';
 import fnc window from './replay_stream';
 

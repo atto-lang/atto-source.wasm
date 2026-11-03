@@ -1,4 +1,4 @@
-// Native Oreslang guest conformance: use actual Array and Result semantics.
+// Native AttoLang guest conformance: use actual Array and Result semantics.
 // This is NOT a simulated host-language test. A CI run must compile and
 // execute this file on each backend before recording a backend as passing.
 import class ReplayWindow from './replay_stream';

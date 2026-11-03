@@ -1,5 +1,5 @@
 // Bounded actor-owned byte replay window (payload bytes, not RSS).
-// Pure Oreslang policy; no sockets, codecs, persistence, timers, or FFI.
+// Pure AttoLang policy; no sockets, codecs, persistence, timers, or FFI.
 // An authenticated transport adapter MUST validate ACK/stream identity.
 define module replay_stream as
   // Coherent metadata snapshot; not the replay bytes and not a durable write.
