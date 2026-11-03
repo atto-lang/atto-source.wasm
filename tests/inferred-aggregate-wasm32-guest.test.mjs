@@ -14,14 +14,29 @@ const cases=[
 }`,42],
   ['readonly record',`pub fnc main():int{
   const original=infer record{x:20,y:1};
-  const new_row=infer record{...original,y:22};
+  const new_row=infer record{...original,y:23};
   return new_row.x+new_row.y;
-}`,42],
+}`,43],
   ['override final type',`pub fnc main():int{
-  const first=infer struct{x:true,y:40};
+  const first=infer struct{x:true,y:42};
   const last=infer struct{...first,x:2};
   return last.x+last.y;
-}`,42]
+}`,44]
+];
+
+const rejectedCases=[
+  ['duplicate explicit field',`pub fnc main():int{
+    const row=infer record{x:1,x:2};
+    return row.x;
+  }`],
+  ['scalar spread operand',`pub fnc main():int{
+    const row=infer struct{...42,y:2};
+    return row.y;
+  }`],
+  ['missing spread binding',`pub fnc main():int{
+    const row=infer record{...missing,y:2};
+    return row.y;
+  }`]
 ];
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
@@ -49,6 +64,8 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
   assert.ok(compiler,'real aggregate Wasm32 gate requires ORESLANG_LLVM_COMPILER');
   const compilerPath=resolve(compiler);
   const digest=createHash('sha256').update(await readFile(compilerPath)).digest('hex');
+  assert.deepEqual(cases.map(x=>x[2]),[42,43,44],
+    'different programs must not all accept an arbitrary constant-returning compiler');
   for(const [name,sourceText,expected] of cases){
     const dir=await mkdtemp(join(tmpdir(),'atto-wasm-aggregate-'));
     try{
@@ -65,6 +82,25 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
       assert.equal(instance.exports.main(),BigInt(expected),name);
       assert.equal(await readFile(source,'utf8'),sourceText,
         'compiler modified source for '+name);
+    }finally{await rm(dir,{recursive:true,force:true});}
+  }
+  // Negative controls must use the SAME real compiler and pinned compiler
+  // bytes; no mock/stdout heuristic can count as native compiler rejection.
+  for(const [name,sourceText] of rejectedCases){
+    const dir=await mkdtemp(join(tmpdir(),'atto-wasm-aggregate-negative-'));
+    try{
+      const source=join(dir,'reject.atto');
+      const output=join(dir,'reject.wasm');
+      await writeFile(source,sourceText,{flag:'wx'});
+      await assert.rejects(
+        compileOresToWasm({compiler:compilerPath,compilerSha256:digest,
+          source,output,clang,experimentalStackAggregate:true,publication:'legacy'}),
+        /command failed|unsupported|diagnostic|rejected|invalid|error/i,
+        name+' must be rejected by the actual compiler');
+      assert.deepEqual((await (await import('node:fs/promises')).readdir(dir)).sort(),
+        ['reject.atto'],name+' must leave no wasm/IR/release artifacts');
+      assert.equal(await readFile(source,'utf8'),sourceText,
+        name+' must not mutate rejected source');
     }finally{await rm(dir,{recursive:true,force:true});}
   }
 });
