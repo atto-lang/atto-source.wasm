@@ -128,7 +128,7 @@ export function rejectUnsupportedStructuralLoanSource(sourceBytes) {
     const shapeStart=next?.identifier||next?.value==='{'||next?.value==='(';
     if(prior==='infer'&&shapeStart)
       throw new Error('wasm invalid infer structural constructor at character '+token.at);
-    const typePosition=inParams[i]===1||prior===':'||
+    const typePosition=inParams[i]===1||(prior===':'&&next?.value!=='(')||
       (prior==='>'&&tokens[i-2]?.value==='-');
     if(typePosition&&shapeStart)
       throw new Error('wasm structural readonly-view ABI unsupported at character '+token.at);
