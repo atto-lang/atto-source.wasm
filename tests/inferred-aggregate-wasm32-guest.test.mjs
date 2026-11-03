@@ -63,11 +63,22 @@ test('exact LLVM compiler produces real inferred aggregate wasm32 guests', {
 },async()=>{
   assert.ok(compiler,'real aggregate Wasm32 gate requires ORESLANG_LLVM_COMPILER');
   const compilerPath=resolve(compiler);
-  // Use the same bounded, NOFOLLOW compiler snapshot admission as the bridge.
-  // Never read a caller-chosen compiler executable unbounded into test memory.
+  // The expected digest must come from independent build/CI admission rather
+  // than hashing whichever executable the test runner was handed and trusting
+  // that self-derived value as a pin.
+  const digest=process.env.ATTO_WASM_AGGREGATE_COMPILER_SHA256;
+  const sourceRevision=process.env.ATTO_WASM_AGGREGATE_LLVM_SOURCE_SHA;
+  assert.match(digest||'',/^[0-9a-f]{64}$/,
+    'real guest verification requires an independently supplied compiler SHA-256');
+  assert.match(sourceRevision||'',/^[0-9a-f]{40}$/,
+    'real guest verification requires an exact LLVM source commit SHA');
+  // The source revision is a caller claim, not proof of binary derivation.
+  // A trusted CI build receipt must independently establish that relationship.
   const compilerSnapshot=await readBoundedRegularFile(compilerPath,256*1024*1024,
     'aggregate compiler exceeds the 256 MiB verifier limit');
-  const digest=createHash('sha256').update(compilerSnapshot.bytes).digest('hex');
+  const actualDigest=createHash('sha256').update(compilerSnapshot.bytes).digest('hex');
+  assert.equal(actualDigest,digest,
+    'compiler executable bytes differ from the independent expected SHA-256');
   assert.deepEqual(cases.map(x=>x[2]),[42,43,44],
     'different programs must not all accept an arbitrary constant-returning compiler');
   for(const [name,sourceText,expected] of cases){
