@@ -89,6 +89,25 @@ test("inverted real-compiler gate requires native declaration rejection", async 
   }), /inverted-class source did not fail/);
 });
 
+test("singleton real-compiler gate requires compiler-owned capability diagnostic and no IR", async () => {
+  const {assertSingletonFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require exactly-once complete publication, cycle/failure semantics, runtime-derived actor authority for shared state, and five-backend guest execution parity at byte 7"
+  };
+  assert.equal(assertSingletonFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected 'class' or 'actor' at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
+  }), /diagnosed error/);
+});
+
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
   const {assertSelectFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
