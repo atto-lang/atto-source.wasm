@@ -69,3 +69,29 @@ jobs:
         run: npm test
       - name: Run strict AOT scalar smoke and tamper rejection
         run: bash aot-host/tests/smoke.sh
+
+  jit-dev:
+    name: wasmtime-jit-dev-nonproduction
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify JIT source head and Git tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet --exit-code HEAD --
+          echo "WASM_JIT_SOURCE_COMMIT=$EXPECTED_HEAD"
+          echo "WASM_JIT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Install LLVM wasm32 toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run governed Wasmtime JIT developmental smoke
+        run: bash aot-host/tests/jit-dev-smoke.sh
