@@ -14,7 +14,7 @@ import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
-import {rejectUnsupportedInferredAggregateSource} from "../src/inferred-aggregate-source-admission.mjs";
+import {rejectUnsupportedInferredAggregateSource,rejectUnsupportedStructuralLoanSource} from "../src/inferred-aggregate-source-admission.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -255,6 +255,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedStructuralLoanSource(sourceBytes);
  if(experimentalStackAggregate!==false&&experimentalStackAggregate!==true)
   throw new TypeError("experimentalStackAggregate must be boolean");
  if(!experimentalStackAggregate){
