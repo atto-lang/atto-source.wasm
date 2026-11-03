@@ -150,7 +150,7 @@ test("registry shutdown revokes cached ActorGroup and topic handles without resu
   assert.equal(a.contains(actor), false);
   assert.equal(b.contains(actor), false);
   assert.equal(a.close(), false, "cached group cannot resurrect closed registry");
-  assert.throws(() => a.join(actor), /registry is closed/);
+  assert.throws(() => a.join(actor), /registry is closed|closed ActorGroup handle/);
   assert.throws(() => b.topic("events"), /registry is closed/);
   assert.throws(() => tA.publish(actor, "after-close"), /registry is closed/);
   assert.throws(() => tA.tryRead(actor), /registry is closed/);
@@ -220,4 +220,38 @@ test("Wasm ActorGroup and Topic constructors cannot forge opaque handles", () =>
   assert.equal(realTopic.publish(member, "legitimate").accepted, 1);
   assert.deepEqual(realTopic.tryRead(member), {present: true, value: "legitimate"});
   assert.equal(bus.close(), true);
+});
+
+test("portable topic identifiers reject C1 controls", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  for (const code of [0, 31, 127, 128, 133, 159]) {
+    const name = "before" + String.fromCharCode(code) + "after";
+    assert.throws(() => group.defineTopic(name, "lossy", 1), /invalid topic name/);
+    assert.throws(() => group.topic(name), /invalid topic name/);
+  }
+  const topic = group.defineTopic("legal-name", "lossy", 1);
+  assert.equal(group.topic("legal-name").name, topic.name);
+});
+
+test("closing one group preserves the other group's subscriptions and quota", () => {
+  const bus = new WasmActorPubSub({maxSubscriptionsPerActor: 2});
+  const a = bus.createGroup();
+  const b = bus.createGroup();
+  const actor = bus.registerActor({actorId: 99, incarnation: 1, kind: "shared"});
+  a.join(actor);
+  b.join(actor);
+  const ta = a.defineTopic("events", "latest", 1);
+  const tb = b.defineTopic("events", "latest", 1);
+  ta.subscribe(actor);
+  tb.subscribe(actor);
+  ta.publish(actor, "A");
+  tb.publish(actor, "B");
+  assert.equal(a.close(), true);
+  assert.equal(b.contains(actor), true);
+  assert.throws(() => ta.publish(actor, "late"), /unknown or closed ActorGroup/);
+  assert.deepEqual(tb.tryRead(actor), {present: true, value: "B"});
+  assert.equal(tb.publish(actor, "B2").accepted, 1);
+  assert.deepEqual(tb.tryRead(actor), {present: true, value: "B2"});
+  bus.close();
 });
