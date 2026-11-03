@@ -26,12 +26,12 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
    while(i<text.length&&depth){
-    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
+    if(text[i]==="/"&&text[i+1]==="*"){if(++depth>128)throw Error("block comment nesting too deep at byte "+start);i+=2}
     else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
     else i++;
    }
@@ -39,13 +39,14 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+   const quote=c;const start=i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated source literal at byte "+start);
    continue;
   }
   if(idStart(c)){
@@ -110,6 +111,30 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
   }
   if(first.id&&first.text==="tuple"&&tokens[cursor+2]?.text==="("){
    throw Error("wasm structural tuple v2 parameter ABI unsupported at byte "+first.offset);
+  }
+ }
+}
+/**
+ * Fail closed until actual LLVM source → wasm32 inverted-row lowering exists.
+ * A bounded comment/string-aware scanner only diagnoses unsupported source:
+ * it does NOT recognize a valid layout or replace the compiler/typechecker.
+ * There is no ordinary Array<T>, actor shard or scalar fallback for these.
+ */
+export function rejectUnsupportedInvertedLayoutSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ const is=(i,text)=>tokens[i]?.id===true&&tokens[i].text===text;
+ for(let i=0;i<tokens.length;i++){
+  if(is(i,"define")||is(i,"pub")&&is(i+1,"define")){
+   let j=i+(is(i,"define")?1:2);
+   if(is(j,"pub"))j++;
+   if(is(j,"inverted")&&(is(j+1,"struct")||is(j+1,"class"))){
+    throw Error("wasm inverted "+tokens[j+1].text+
+      " requires typed one-level SoA source lowering at byte "+tokens[j].offset);
+   }
+  }
+  if(is(i,"InvertedArray")&&tokens[i+1]?.text==="<"){
+   throw Error("wasm inverted collection requires checked owner/row/column ABI at byte "+
+     tokens[i].offset);
   }
  }
 }
@@ -284,6 +309,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedInvertedLayoutSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
