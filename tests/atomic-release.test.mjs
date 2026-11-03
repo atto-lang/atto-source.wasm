@@ -65,7 +65,8 @@ test("Wasm source bridge rejects a caller-supplied .atto leaf symlink",async()=>
   );
  }finally{await cleanup(w.dir)}
 });
-\ntest("atomic compilation publishes verified release, never partial legacy paths",async()=>{
+
+test("atomic compilation publishes verified release, never partial legacy paths",async()=>{
  const w=await workspace();
  try{
   const r=await compileOresToWasm({...w,environment:"browser",publication:"atomic"});

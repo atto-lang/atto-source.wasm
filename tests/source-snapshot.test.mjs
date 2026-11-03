@@ -53,12 +53,17 @@ test("artifact paths cannot clobber source inputs or compiler executable",async(
   assert.equal(await readFile(source,"utf8"),original);
   assert.equal(await readFile(compiler,"utf8"),"not executable");
   for(const suffix of [".artifact.json",".provenance.json"]){
-   const metadataSource=out+suffix;
-   await writeFile(metadataSource,original);
+   const metadataPath=out+suffix;
+   await writeFile(metadataPath,original);
+   // A .json path can no longer be a source (extension gate), but the
+   // compiler has no suffix rule, so sidecars must still not clobber it.
    await assert.rejects(compileOresToWasm({
-    compiler,source:metadataSource,output:out
+    compiler,source:metadataPath,output:out
+   }),/must use canonical \.atto or legacy \.ores extension/);
+   await assert.rejects(compileOresToWasm({
+    compiler:metadataPath,source,output:out
    }),/overlaps a compiler\/source input/);
-   assert.equal(await readFile(metadataSource,"utf8"),original);
+   assert.equal(await readFile(metadataPath,"utf8"),original);
   }
  }finally{await rm(dir,{recursive:true,force:true})}
 });
@@ -120,13 +125,15 @@ test("symlinked output parent cannot overwrite physical compiler or source input
   }
   assert.deepEqual(await readFile(source),originalSource);
   assert.deepEqual(await readFile(compiler),originalCompiler);
-  const metadataSource=join(realDir,"guest.wasm.provenance.json");
-  await writeFile(metadataSource,"intact");
+  const metadataPath=join(realDir,"guest.wasm.provenance.json");
+  await writeFile(metadataPath,"intact");
+  // Sidecar written through the aliased parent must not clobber a physical
+  // compiler input (a .json source is now refused by the extension gate).
   await assert.rejects(
-   compileOresToWasm({source:metadataSource,compiler,output:join(aliasDir,"guest.wasm")}),
+   compileOresToWasm({source,compiler:metadataPath,output:join(aliasDir,"guest.wasm")}),
    /overlaps a compiler\/source input/
   );
-  assert.equal(await readFile(metadataSource,"utf8"),"intact");
+  assert.equal(await readFile(metadataPath,"utf8"),"intact");
  }finally{await rm(root,{recursive:true,force:true})}
 });
 
