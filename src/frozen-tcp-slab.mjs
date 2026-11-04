@@ -1,3 +1,11 @@
+import {types} from "node:util";
+// Read the backing-store slot with captured intrinsics. A typed-array
+// subclass can shadow .buffer with a forged getter; that must not hide SAB.
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const intrinsicTypedBuffer = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get);
+const intrinsicDataViewBuffer = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(DataView.prototype, "buffer").get);
 // Trusted-host immutable TCP slab. This is NOT a guest Wasm memory import,
 // socket connector, network capability, or unsafe shared-memory pointer.
 const MAX_BYTES = 1024 * 1024;
@@ -10,9 +18,12 @@ export class FrozenTcpSlab {
   constructor(source) {
     if (source == null || typeof source[Symbol.iterator] !== 'function')
       throw new TypeError('invalid TCP byte source');
-    if (typeof SharedArrayBuffer !== 'undefined' &&
-        ArrayBuffer.isView(source) && source.buffer instanceof SharedArrayBuffer)
-      throw new TypeError('mutable shared backing memory is forbidden');
+    if (ArrayBuffer.isView(source)) {
+      const backing = types.isDataView(source)
+        ? intrinsicDataViewBuffer(source) : intrinsicTypedBuffer(source);
+      if (types.isSharedArrayBuffer(backing))
+        throw new TypeError('mutable shared backing memory is forbidden');
+    }
     const copy = [];
     for (const byte of source) {
       if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
