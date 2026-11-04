@@ -8,8 +8,11 @@ import {compileOresToWasm, readBoundedRegularFile} from "./compile-ores.mjs";
 import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
+import {verifyAttoScalarV1} from "./atto-scalar-v1-inventory.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-// Canonical AttoLang entrypoint: execute .atto bytes through the pinned LLVM\n// frontend and real wasm32 compiler, not merely the source-free test double.\nconst realSource = fileURLToPath(new URL("../contracts/atto-parity-v1/add.atto", import.meta.url));
+// Canonical AttoLang entrypoint: execute .atto bytes through the pinned LLVM
+// frontend and real wasm32 compiler, not merely the source-free test double.
+const realSource = fileURLToPath(new URL("../contracts/atto-parity-v1/add.atto", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
   "../examples/unsupported-any-ternary.ores", import.meta.url));
@@ -228,6 +231,45 @@ export async function verifyRealCompiler({
       "5b5d1bc00def9b3a343cb3281e0bb0be4e5ca438095f621141049e2d7a1a25b3";
     if (sharedScalarSuiteSha256 !== expectedScalarSuiteSha256)
       throw Error("shared scalar corpus digest differs from pinned parity contract");
+
+    // Exact 19-case .atto source corpus. Wasm i64 export witnesses full
+    // signed64 results rather than truncated process exit statuses.
+    const attoCases=await verifyAttoScalarV1();
+    const attoResults=[],attoRemoved=[];
+    for(const item of attoCases){
+      const staged=join(work,"atto-v1-"+item.id+".atto");
+      await writeFile(staged,item.bytes,{flag:"wx",mode:0o400});
+      if(item.kind==="positive"){
+        const output=join(work,"atto-v1-"+item.id+".wasm");
+        const built=await compileOresToWasm({
+          compiler:pinnedCompiler,compilerSha256,source:staged,output,
+          environment:"browser",publication:"atomic"
+        });
+        const release=await readAtomicRelease(output);
+        if(built.compilerSha256!==compilerSha256||
+           built.sourceSha256!==sha256(item.bytes)||
+           built.wasmSha256!==sha256(release.wasm)||
+           release.manifest.wasmSha256!==built.wasmSha256)
+          throw Error("Atto scalar v1 source/native artifact drift: "+item.id);
+        const executedGuest=await runIsolatedCoreGuest(release.wasm,{
+          expectedSha256:built.wasmSha256,timeoutMs:5000
+        });
+        if(executedGuest.value!==BigInt(item.expected_i64)||
+           executedGuest.admission.imports!==0||
+           executedGuest.admission.hostCapabilities!==0)
+          throw Error("Atto scalar v1 typed execution mismatch: "+item.id);
+        attoResults.push(Object.freeze({id:item.id,
+          value:executedGuest.value.toString(),wasmSha256:built.wasmSha256}));
+      }else if(item.diagnostic_family==="removed-operator"){
+        const failed=spawnSync(pinnedCompiler,["--target=wasm32",staged],{
+          encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024
+        });
+        assertNativeFrontendRejection(failed);
+        attoRemoved.push(item.id);
+      }
+    }
+    if(attoResults.length!==10||attoRemoved.length!==3)
+      throw Error("incomplete executed Atto scalar v1 evidence");
 
     // +/ import graph linking is not implemented for the wasm32 compiler
     // target. A scalar guest or bridge must never silently discard imports.
@@ -501,6 +543,8 @@ export async function verifyRealCompiler({
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults),
+      attoScalarV1Results:Object.freeze(attoResults),
+      attoScalarV1RemovedOperators:Object.freeze(attoRemoved),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
