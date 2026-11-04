@@ -24,6 +24,14 @@ const expressions = [
   "rt mut share (rt copy owner)"
 ];
 const fixture = expression => "pub fnc main():int{return " + expression + ";}\n";
+const preflightOnly = [
+  "rt/* comment */mut share 99",
+  "rt mut/* comment */share 99",
+  "rt\nmut\nshare 99",
+  "rt/* nested /* comment */ outer */mut share 99",
+  "rt mut share 6" // One deliberate legacy .ores source-name fixture.
+];
+const preflightExpressions = [...expressions, ...preflightOnly];
 
 // The Wasm bridge deliberately denies heap/shared alias operations before
 // invoking LLVM. This HOST PREFLIGHT test must not pretend that a rejection
@@ -38,8 +46,9 @@ test("Wasm preflight rejects shared mutation without executing or publishing a c
     const fake = "#!/bin/sh\n: > '" + marker + "'\necho 'unexpected compiler invocation' >&2\nexit 1\n";
     await writeFile(compiler, fake, {mode: 0o700});
     const compilerSha256 = digest(Buffer.from(fake));
-    for (const [index, expression] of expressions.entries()) {
-      const source = join(root, "case-" + index + ".atto");
+    for (const [index, expression] of preflightExpressions.entries()) {
+      const extension = index === preflightExpressions.length - 1 ? ".ores" : ".atto";
+      const source = join(root, "case-" + index + extension);
       const output = join(root, "case-" + index + ".wasm");
       const sourceBytes = fixture(expression);
       await writeFile(source, sourceBytes);
