@@ -39,7 +39,6 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-  if(c==="\""||c==="'"){
    const start=i,quote=c;i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
