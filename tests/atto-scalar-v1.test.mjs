@@ -28,6 +28,15 @@ test("Atto scalar file reader denies traversal, oversized leaves and symlinked p
  assert.equal((await readPinnedAttoScalarSource(temp,relative)).toString("utf8"),"ok\n");
  await assert.rejects(()=>readPinnedAttoScalarSource(temp,"contracts/atto-scalar-v1/positive/../probe.atto"),/noncanonical/);
  await assert.rejects(()=>readPinnedAttoScalarSource(temp,"/etc/passwd"),/noncanonical/);
+ // Exact budget boundary, including empty files and an appended byte.
+ await writeFile(source,"x".repeat(8192));
+ assert.equal((await readPinnedAttoScalarSource(temp,relative)).length,8192);
+ await writeFile(source,"");
+ await assert.rejects(()=>readPinnedAttoScalarSource(temp,relative),/byte budget/);
+ await writeFile(source,"ok\n");
+ const rootAlias=join(temp,"alias");
+ await symlink(temp,rootAlias,"dir");
+ await assert.rejects(()=>readPinnedAttoScalarSource(rootAlias,relative),/root is a symlink/);
  await writeFile(source,"x".repeat(8193));
  await assert.rejects(()=>readPinnedAttoScalarSource(temp,relative),/byte budget/);
  await writeFile(source,"ok\n");
