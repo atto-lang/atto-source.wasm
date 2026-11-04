@@ -73,3 +73,24 @@ test("prototype-inherited macro gate flags fail closed before getter execution",
   assert.equal(requiresMacroWasm32Guest(
     {ORESLANG_REQUIRE_REAL_COMPILER:"1"}),true);
 });
+
+test("own required flags never override unsafe inherited companion flags",()=>{
+ for(const [ownKey,inheritedKey] of [
+   ["ORESLANG_MACRO_WASM_PARITY_REQUIRED","ORESLANG_REQUIRE_REAL_COMPILER"],
+   ["ORESLANG_REQUIRE_REAL_COMPILER","ORESLANG_MACRO_WASM_PARITY_REQUIRED"]
+ ]){
+   let getterReads=0;
+   const prototype=Object.create(null);
+   Object.defineProperty(prototype,inheritedKey,{
+     get(){getterReads++;throw Error("inherited getter must not run");}
+   });
+   const flags=Object.create(prototype);
+   Object.defineProperty(flags,ownKey,{value:"1",enumerable:true});
+   assert.throws(()=>requiresMacroWasm32Guest(flags),/inherited flag/);
+   assert.equal(getterReads,0);
+ }
+ assert.equal(requiresMacroWasm32Guest({
+   ORESLANG_MACRO_WASM_PARITY_REQUIRED:"1",
+   ORESLANG_REQUIRE_REAL_COMPILER:"0"
+ }),true);
+});
