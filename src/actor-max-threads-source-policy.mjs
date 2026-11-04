@@ -122,5 +122,13 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    // The Wasm source bridge has no authenticated ETS table handles,
+    // ActorGroup pg memberships, or actor-owned mailbox admission. Reject
+    // explicit module access before invoking LLVM or staging a Wasm artifact.
+    // Lexical gate only; the compiler still owns full name resolution.
+    if (tokens[i] === "ets" && tokens[i+1] === ".")
+      throw Error("WASM ETS guest table operations unsupported: missing isolate-bound table capabilities");
+    if (tokens[i] === "pg" && tokens[i+1] === ".")
+      throw Error("WASM pg guest group operations unsupported: missing actor mailbox and membership lowering");
   }
 }
