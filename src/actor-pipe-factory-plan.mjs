@@ -61,9 +61,17 @@ export function planActorPipeFactory(stages, generation = 1) {
       stages.length > MAX_STAGE_COUNT)
     throw new RangeError("actor factory stage budget");
   const count = stages.length;
-  const snapshot = new Array(count);
-  for (let i = 0; i < count; i++)
-    snapshot[i] = snapshotStage(ownData(stages, String(i)));
+  const snapshot = new Array(count), seen = new Set();
+  for (let i = 0; i < count; i++) {
+    const entry = snapshotStage(ownData(stages, String(i)));
+    if (seen.has(entry.id))
+      throw new TypeError("duplicate actor instance");
+    seen.add(entry.id);
+    snapshot[i] = entry;
+  }
+  if (snapshot[0].role !== "readable" ||
+      snapshot[count - 1].role !== "writable")
+    throw new TypeError("linear actor factory requires a source and sink");
   const edges = new Array(count - 1);
   for (let i = 0; i < count - 1; i++)
     edges[i] = planActorConnectEdge(snapshot[i], snapshot[i + 1]);
