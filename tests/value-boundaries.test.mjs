@@ -22,8 +22,11 @@ assert.equal(Object.keys(legacyCases).filter(k => Object.hasOwn(sharedCases, k))
   'shared fixtures must not be overwritten by older local corpus');
 assert.equal(Object.keys(taskV2Cases).length, 10, 'CPU/GPU task v2 corpus must remain complete');
 assert.equal(new Set(Object.keys(taskV2Cases)).size, 10, 'no duplicate CPU/GPU task v2 case IDs');
-assert.equal(Object.keys(taskV2Cases).filter(k => Object.hasOwn(sharedCases, k) || Object.hasOwn(legacyCases, k)).length, 0,
-  'v2 task fixtures must have distinct stable IDs');
+// The v1 and v2 contracts may both pin a case, but one ID must name one source.
+assert.equal(Object.keys(taskV2Cases).filter(k =>
+  (Object.hasOwn(sharedCases, k) && sharedCases[k] !== taskV2Cases[k]) ||
+  (Object.hasOwn(legacyCases, k) && legacyCases[k] !== taskV2Cases[k])).length, 0,
+  'v2 task fixtures must not reuse a stable ID for different source');
 for (const [name, source] of Object.entries(taskV2Cases)) {
   assert.match(source, /^pub fnc main\(\):(?:int|void)\{/,
     name + ': exact-source v2 fixture required');
@@ -40,7 +43,7 @@ const borrowTaskCases = Object.freeze({
 });
 assert.equal(Object.keys(borrowTaskCases).length, 6);
 for (const source of Object.values(borrowTaskCases))
-  assert.match(source, /task[\s\S]*\{[\s\S]*rt borrow/, 'must exercise a captured borrow inside Task');
+  assert.match(source, /task[\s\S]*\{[\s\S]*rt (?:mut )?borrow/, 'must exercise a captured borrow inside Task');
 
 const cases = {...legacyCases, ...sharedCases, ...taskV2Cases, ...borrowTaskCases};
 test('real source value boundaries reject before publishing a Wasm artifact', {
