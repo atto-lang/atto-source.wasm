@@ -94,8 +94,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define") {
       // Visibility modifiers may precede the reserved actor-thread enum.
       let j = i + 1;
-      // A reserved built-in enum must not pass the scalar bridge when
-      // visibility or actor-related modifiers appear before its name.
+      // Reserved actor-thread enum identity cannot hide behind stacked modifiers.
       while (j < tokens.length && j < i + 12 &&
              ["pub","private","shared","untrusted","serial","abstract"].includes(tokens[j])) j++;
       if (tokens[j] === "enum" && tokens[j+1] === "MaxActorThreads")

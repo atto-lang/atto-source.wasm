@@ -181,6 +181,19 @@ test("Wasm scalar source preflight cannot be fooled by byteLength or buffer shad
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes("fnc main():int{return 42;}")));
 });
 
+test("NEL-separated actor modifiers and reserved enums retain fail-closed lexical admission",()=>{
+  for(const source of [
+    'define\u0085private\u0085enum\u0085MaxActorThreads as end',
+    'define\u0085pub\u0085private\u0085enum\u0085MaxActorThreads as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /built-in MaxActorThreads enum unsupported/,source);
+  for(const source of [
+    'define\u0085http\u0085actor\u0085Server as end',
+    'define\u0085serial\u0085http\u0085actor\u0085Server as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /WASM source actor execution unsupported/,source);
+});
+
 test('reserved MaxActorThreads enum cannot hide behind stacked modifiers',()=>{
   for(const modifiers of ['shared','pub shared','private untrusted','abstract','serial']){
     const source='define '+modifiers+' enum MaxActorThreads as end';
