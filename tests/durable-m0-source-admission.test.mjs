@@ -80,3 +80,10 @@ test("Wasm M0 golden manifest reference is byte/sha-identical to LLVM and .NET c
   assert.notEqual(sha(altered), pinned, "a one-byte mutation must invalidate digest");
   console.log("DURABLE_M0_REFERENCE_ONLY|sha256=" + pinned + "|bytes=1671|not_guest_execution");
 });
+
+test("Wasm bridge rejects shared 464-byte corpus before LLVM compilation", () => {
+  const raw = readFileSync(new URL("../contracts/durable-m0/v1/checkout.atto", import.meta.url));
+  assert.equal(raw.length, 464);
+  assert.throws(() => rejectUnsupportedDurableM0Source(raw),
+    /DURABLE_M0_BACKEND_UNSUPPORTED: Wasm durable activity/);
+});
