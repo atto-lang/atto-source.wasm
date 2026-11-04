@@ -197,3 +197,15 @@ test("SAB spoofed .buffer getter cannot evade source preflight", () => {
     /WASM source preflight refuses shared mutable backing/
   );
 });
+
+test("Proxy source views are refused without executing traps", () => {
+  let traps = 0;
+  const input = new Proxy(bytes("actor Real as end"), {
+    get() { traps++; throw new Error("unexpected byte trap"); }
+  });
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(input),
+    /preflight rejects Proxy byte views/
+  );
+  assert.equal(traps, 0);
+});
