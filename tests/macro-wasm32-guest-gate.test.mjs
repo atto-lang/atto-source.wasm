@@ -55,3 +55,21 @@ test("malformed environment carriers cannot silently disable required guest test
   explicit.ORESLANG_REQUIRE_REAL_COMPILER="1";
   assert.equal(requiresMacroWasm32Guest(explicit),true);
 });
+
+test("prototype-inherited macro gate flags fail closed before getter execution",()=>{
+  for(const key of ["ORESLANG_MACRO_WASM_PARITY_REQUIRED",
+                    "ORESLANG_REQUIRE_REAL_COMPILER"]){
+    for(const value of ["0","1"]){
+      const inherited=Object.create({[key]:value});
+      assert.throws(()=>requiresMacroWasm32Guest(inherited),/inherited flag/);
+    }
+    let reads=0;
+    const proto=Object.create(null);
+    Object.defineProperty(proto,key,{get(){reads++;throw Error("inherited getter executed");}});
+    assert.throws(()=>requiresMacroWasm32Guest(Object.create(proto)),/inherited flag/);
+    assert.equal(reads,0);
+  }
+  assert.equal(requiresMacroWasm32Guest(Object.create(null)),false);
+  assert.equal(requiresMacroWasm32Guest(
+    {ORESLANG_REQUIRE_REAL_COMPILER:"1"}),true);
+});
