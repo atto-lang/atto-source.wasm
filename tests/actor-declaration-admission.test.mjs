@@ -145,3 +145,15 @@ test("CR-only, NEL and Unicode comment lines cannot hide unsupported actors", ()
     assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes("// actor ignored" + separator + "fnc main():int{return 42;}")), label);
   }
 });
+
+test('reserved MaxActorThreads enum is denied behind visibility modifiers',()=>{
+  for(const source of [
+    'define enum MaxActorThreads as end',
+    'define pub enum MaxActorThreads as end',
+    'define private enum MaxActorThreads as end',
+    'define pub private enum MaxActorThreads as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /WASM built-in MaxActorThreads enum unsupported/,source);
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    'define pub enum UserColors as red end')));
+});
