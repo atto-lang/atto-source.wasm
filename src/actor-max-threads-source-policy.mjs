@@ -5,6 +5,12 @@
  * quoted strings; it does not substitute for a full Oreslang source parser.
  */
 const decoder = new TextDecoder("utf-8", {fatal:true});
+// Read the actual native slots, not caller-controlled .buffer/.byteLength.
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const actualSize = Object.getOwnPropertyDescriptor(typedArrayPrototype,"byteLength").get;
+const actualBacking = Object.getOwnPropertyDescriptor(typedArrayPrototype,"buffer").get;
+const sharedSize = typeof SharedArrayBuffer==="function"
+  ? Object.getOwnPropertyDescriptor(SharedArrayBuffer.prototype,"byteLength").get : null;
 const wordStart = c => /[A-Za-z_]/.test(c);
 const wordRest = c => /[A-Za-z_0-9]/.test(c);
 
@@ -13,8 +19,16 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     throw new TypeError("source preflight requires immutable snapshot bytes");
   // Apply the same 1 MiB byte cap as the scalar compiler frontends before
   // allocating a decoded copy or scanning long, token-free comment payloads.
-  if (snapshot.byteLength > 1_048_576)
+  let size,backing;
+  try { size=actualSize.call(snapshot); backing=actualBacking.call(snapshot); }
+  catch { throw new TypeError("source preflight requires genuine typed-array bytes"); }
+  if (size > 1_048_576)
     throw Error("WASM source preflight exceeds 1 MiB byte budget");
+  if (sharedSize) {
+    let shared=false;
+    try { sharedSize.call(backing); shared=true; } catch {}
+    if (shared) throw Error("WASM source preflight rejects shared memory");
+  }
   const source = decoder.decode(snapshot);
   // NUL is not source trivia: it can truncate native bridge consumers,
   // producing a different program from the one just safety-checked.
