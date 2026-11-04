@@ -102,3 +102,30 @@ test('recursive guest stack exhaustion traps without poisoning the supervisor',a
   await assert.rejects(runExperimentalProcessGuest(recursive,opt),/guest rejected or failed:.*stack/i);
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
+
+test('repeated pre-spawn snapshot and digest refusals never leak capacity',async()=>{
+  for(let i=0;i<8;i++){
+    await assert.rejects(
+      runExperimentalProcessGuest('not-wasm-bytes',opt),
+      /expected core WebAssembly bytes/
+    );
+    await assert.rejects(
+      runExperimentalProcessGuest(simple,{...opt,expectedSha256:'0'.repeat(64)}),
+      /guest artifact SHA-256 mismatch/
+    );
+  }
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
+test('child rejects inherited ambient environment despite parent environment changes',async()=>{
+  const key='ATTO_TEST_PROCESS_ENV_INHERITANCE';
+  const original=process.env[key];
+  process.env[key]='must-not-reach-child';
+  try {
+    const result=await runExperimentalProcessGuest(simple,opt);
+    assert.equal(result.value,42n);
+    assert.equal(result.admission.hostCapabilities,0);
+  } finally {
+    if(original===undefined)delete process.env[key];
+    else process.env[key]=original;
+  }
+});
