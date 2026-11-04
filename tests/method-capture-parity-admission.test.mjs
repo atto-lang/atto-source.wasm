@@ -56,7 +56,9 @@ test("method/capture parity gate requires independently pinned LLVM compiler", {
     "fnc main():int {val int x=1; val f=lex[x] |x| -> x; return 1;}",
     "fnc main():int {val int x=1; val f=|y| -> x; return 1;}",
     "fnc main():int {val int x=1; val f=lex[x] || -> nlex || -> x; return 1;}",
-    "define class Foo as fnc read(mut self, int x): int {return x;} end fnc main():int{return 1;}",
+    // Restricted scalar-class receiver forms have a dedicated positive wasm32
+    // compile/link/execute matrix. Keep this suite scoped to unsupported
+    // lambda capture, actor methods, and abstract declarations only.
     "define actor Foo as receive(self, int x): void {return;} end fnc main():int{return 1;}",
     "define actor Foo as on_start(self): void {return;} end fnc main():int{return 1;}",
     "define actor Foo as receive(ActorMail<int> mail): void {self.receive(mail);return;} end fnc main():int{return 1;}",

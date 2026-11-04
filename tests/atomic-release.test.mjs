@@ -8,10 +8,10 @@ import {join} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 import {publishAtomicRelease,readAtomicRelease,inspectAtomicReleaseState,AtomicReleaseCommitUncertainError} from "../scripts/atomic-release.mjs";
 
-async function workspace(){
+async function workspace(extension=".ores"){
  const dir=await mkdtemp(join(tmpdir(),"oreslang-atomic-release-"));
- const compiler=join(dir,"compiler.sh"),source=join(dir,"program.ores");
- const script="#!/bin/sh\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
+ const compiler=join(dir,"compiler.sh"),source=join(dir,"program"+extension);
+ const script="#!/bin/sh\ncase \"$4\" in *"+extension+") ;; *) echo 'wrong staged source suffix' >&2; exit 92;; esac\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
  await writeFile(compiler,script,{mode:0o700});
  await chmod(compiler,0o700);
  await writeFile(source,"pub fnc main(): int { return 42; }\n");
@@ -32,6 +32,39 @@ async function cleanup(dir){
  await rm(dir,{recursive:true,force:true});
 }
 
+
+
+test("AttoLang .atto suffix is preserved through the bounded snapshot and compiler invocation",async()=>{
+ const w=await workspace(".atto");
+ try{
+  const r=await compileOresToWasm({...w,environment:"browser",publication:"atomic"});
+  const release=await readAtomicRelease(w.output);
+  assert.equal(r.publication,"atomic");
+  assert.equal(execute(release.wasm),42n);
+  assert.equal(release.manifest.producer.sourceSha256,r.sourceSha256);
+ }finally{await cleanup(w.dir)}
+});
+
+test("Wasm source bridge rejects non-language extensions before compiler execution",async()=>{
+ const w=await workspace(".java");
+ try{
+  await assert.rejects(compileOresToWasm({...w,environment:"browser"}),
+   /source file must use canonical \.atto or legacy \.ores extension/);
+ }finally{await cleanup(w.dir)}
+});
+
+test("Wasm source bridge rejects a caller-supplied .atto leaf symlink",async()=>{
+ const w=await workspace(".atto");
+ try{
+  const target=join(w.dir,"actual-source.atto");
+  await rename(w.source,target);
+  await symlink(target,w.source);
+  await assert.rejects(
+   compileOresToWasm({...w,environment:"browser",publication:"atomic"}),
+   /symlink or special input file is forbidden/
+  );
+ }finally{await cleanup(w.dir)}
+});
 
 test("atomic compilation publishes verified release, never partial legacy paths",async()=>{
  const w=await workspace();
