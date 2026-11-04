@@ -88,13 +88,22 @@ export async function runExperimentalProcessGuest(input, options = {}) {
       (typeof expectedSha256 !== 'string' || !shaPattern.test(expectedSha256))) {
     throw new TypeError('invalid pinned SHA-256');
   }
-  // Copy before launching; never give the child a mutable caller-owned view.
-  const bytes = snapshotGuestBytes(input, maxModuleBytes);
-  const actualHash = createHash('sha256').update(bytes).digest('hex');
-  if (expectedSha256 !== undefined && actualHash !== expectedSha256)
-    throw Error('guest artifact SHA-256 mismatch');
+  // Reserve the process admission slot *before* copying/hashing potentially
+  // large guest bytes. Admission and snapshot are synchronous, so another
+  // caller cannot interleave between this capacity check and the increment.
   if (concurrent >= MAX_CONCURRENT) throw Error('guest process concurrency quota exceeded');
   concurrent++;
+  let bytes, actualHash;
+  try {
+    // This copy is the only source for both the pin and the child submission.
+    bytes = snapshotGuestBytes(input, maxModuleBytes);
+    actualHash = createHash('sha256').update(bytes).digest('hex');
+    if (expectedSha256 !== undefined && actualHash !== expectedSha256)
+      throw Error('guest artifact SHA-256 mismatch');
+  } catch (error) {
+    concurrent--;
+    throw error;
+  }
   try {
     return await new Promise((resolve, reject) => {
       let child, timer, response, validated, failure, finalized = false;
@@ -115,6 +124,9 @@ export async function runExperimentalProcessGuest(input, options = {}) {
         resolve(validated);
       };
       try {
+        // Arm the wall-clock deadline before spawning or sending large IPC.
+        // A launch failure still waits for close before releasing the slot.
+        timer = setTimeout(() => fail(Error('guest process execution deadline exceeded')), timeoutMs);
         child = spawn(process.execPath,
           ['--max-old-space-size=64', childPath],
           {env: {}, stdio: ['ignore','ignore','ignore','ipc'],
@@ -139,13 +151,16 @@ export async function runExperimentalProcessGuest(input, options = {}) {
             failure = Error('guest process exited without result');
           finish();
         });
-        timer = setTimeout(() => fail(Error('guest process execution deadline exceeded')), timeoutMs);
         child.send({kind: 'RUN_ONE', bytes, options: {
           expectedSha256: actualHash, entry, maxMemoryPages, maxModuleBytes
         }}, err => { if (err) fail(Error('guest process IPC failed: ' + err.message)); });
       } catch (err) {
         if (child) fail(err);
-        else { concurrent--; reject(err); }
+        else {
+          clearTimeout(timer);
+          concurrent--;
+          reject(err);
+        }
       }
     });
   } catch (err) {
