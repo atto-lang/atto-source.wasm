@@ -43,6 +43,13 @@ set -e
 if [[ "$status" == 0 || "$status" == 124 || "$status" == 137 ]]; then
   echo 'JIT loop failed to exhaust fuel safely' >&2; exit 1
 fi
+# A nonzero exit is not sufficient: a linker failure, validation error or
+# process crash must NOT masquerade as a successful fuel-exhaustion test.
+if ! grep -Eiq 'fuel' "$tmp/loop.err"; then
+  echo 'loop exited without a verified Wasmtime fuel-exhaustion diagnostic' >&2
+  cat "$tmp/loop.err" >&2
+  exit 1
+fi
 # Test real Wasm import denial with no imported function silently fulfilled.
 cat > "$tmp/import.ll" <<'LLVM'
 target triple = "wasm32-unknown-unknown"
@@ -53,8 +60,13 @@ LLVM
 clang --target=wasm32 -x ir -O0 -nostdlib -Wl,--no-entry -Wl,--export=main \
   -Wl,--allow-undefined -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
   -o "$tmp/import.wasm" "$tmp/import.ll"
-if "$cli" "$tmp/import.wasm" "$(sha256sum "$tmp/import.wasm" | cut -d ' ' -f 1)" > /dev/null 2>&1; then
+if "$cli" "$tmp/import.wasm" "$(sha256sum "$tmp/import.wasm" | cut -d ' ' -f 1)" > /dev/null 2> "$tmp/import.err"; then
   echo 'JIT admitted forbidden import' >&2; exit 1
+fi
+if ! grep -q 'guest imports are forbidden' "$tmp/import.err"; then
+  echo 'import rejection did not originate from the strict Wasm admission gate' >&2
+  cat "$tmp/import.err" >&2
+  exit 1
 fi
 # Release with forced debug assertions MUST STILL refuse developer JIT.
 cargo build --release --locked --manifest-path "$crate" --bin oreslang-jit-dev \
