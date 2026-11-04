@@ -76,9 +76,14 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
-    if (tokens[i] === "define" && tokens[i+1] === "enum"
-        && tokens[i+2] === "MaxActorThreads")
-      throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+    if (tokens[i] === "define") {
+      // Visibility modifiers may precede the reserved actor-thread enum.
+      let j = i + 1;
+      while (j < tokens.length && j < i + 12 &&
+             (tokens[j] === "pub" || tokens[j] === "private")) j++;
+      if (tokens[j] === "enum" && tokens[j+1] === "MaxActorThreads")
+        throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
+    }
     // A source supervisor is an independent CONTROL process, not a scalar
     // class or a guest actor that can be delegated to the LLVM compiler.
     // Recognize both visibility orders without matching text in comments
