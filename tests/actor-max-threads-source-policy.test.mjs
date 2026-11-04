@@ -58,6 +58,34 @@ test("supervisor source, inheritance, interfaces, and traits fail before Wasm co
   }
 });
 
+test("modified and bare supervisor declarations fail before Wasm guest compilation", () => {
+  for (const source of [
+    "define private supervisor Internal as end",
+    "define abstract supervisor Root as end",
+    "define serial supervisor Root as end",
+    "define shared supervisor Root as end",
+    "define pub abstract supervisor Root as end",
+    "define supervisor Root with RestartPolicy as end",
+    "supervisor Root as end",
+    "supervisor Root extends Parent as end",
+    "supervisor Root implements Contract as end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source supervisor unsupported: no typed Failure or CONTROL lowering/,
+      source);
+  }
+  for (const source of [
+    "fnc main():int{let supervisor=1;return supervisor;}",
+    "fnc main():int{let x=supervisor.status;return 1;}",
+    "// define private supervisor Fake as end\nfnc main():int{return 1;}",
+    "/* supervisor Root as end */ fnc main():int{return 1;}",
+    "fnc main():int{const text=\"define abstract supervisor Fake as end\";return 1;}"
+  ]) {
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      source);
+  }
+});
+
 test("supervisor-like strings, comments and identifiers do not forge CONTROL", () => {
   const source = `fnc main():int {
     const description = "define supervisor Fake extends Actor as end";

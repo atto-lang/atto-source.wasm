@@ -65,6 +65,12 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens.length > 100_000) throw Error("source token budget exceeded");
   }
 
+  // Recognize declaration modifiers before the unsupported guest supervisor
+  // boundary; plain identifiers and property references must remain valid.
+  const supervisorModifiers = new Set([
+    "pub", "private", "shared", "untrusted", "serial", "abstract",
+    "transform", "pipe", "http", "tcp", "websocket", "stream", "unary"
+  ]);
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
@@ -75,9 +81,16 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // class or a guest actor that can be delegated to the LLVM compiler.
     // Recognize both visibility orders without matching text in comments
     // or string literals, and reject before any Wasm artifact is staged.
-    if (tokens[i] === "define" &&
-        (tokens[i+1] === "supervisor" ||
-         (tokens[i+1] === "pub" && tokens[i+2] === "supervisor")))
+    if (tokens[i] === "define") {
+      let j = i + 1;
+      while (j < tokens.length && j < i + 12 && supervisorModifiers.has(tokens[j])) j++;
+      if (tokens[j] === "supervisor")
+        throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
+    }
+    const name = tokens[i+1], following = tokens[i+2];
+    if (tokens[i] === "supervisor" &&
+        name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
+        ["as", "{", "extends", "implements", "impl", "with", "<"].includes(following))
       throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
