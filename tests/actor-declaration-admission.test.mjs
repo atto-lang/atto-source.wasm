@@ -168,3 +168,16 @@ test("NEL U+0085 cannot split reserved enum tokens in scalar Wasm preflight",()=
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     "define\u0085pub\u0085enum\u0085Color as red end")));
 });
+
+test("NEL-separated actor modifiers and reserved enums retain fail-closed lexical admission",()=>{
+  for(const source of [
+    'define\u0085private\u0085enum\u0085MaxActorThreads as end',
+    'define\u0085pub\u0085private\u0085enum\u0085MaxActorThreads as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /built-in MaxActorThreads enum unsupported/,source);
+  for(const source of [
+    'define\u0085http\u0085actor\u0085Server as end',
+    'define\u0085serial\u0085http\u0085actor\u0085Server as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /WASM source actor execution unsupported/,source);
+});
