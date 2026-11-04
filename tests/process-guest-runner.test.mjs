@@ -113,6 +113,10 @@ test('repeated pre-spawn snapshot and digest refusals never leak capacity',async
       runExperimentalProcessGuest(simple,{...opt,expectedSha256:'0'.repeat(64)}),
       /guest artifact SHA-256 mismatch/
     );
+    await assert.rejects(
+      runExperimentalProcessGuest(simple,{...opt,maxModuleBytes:8}),
+      /Wasm module exceeds maximum byte size/
+    );
   }
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
