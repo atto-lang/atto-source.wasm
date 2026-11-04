@@ -11,17 +11,31 @@ const allowed = new Set(['unsafeDevelopmentMode', 'expectedSha256', 'entry',
   'maxMemoryPages', 'maxModuleBytes', 'timeoutMs']);
 const childPath = fileURLToPath(new URL('./process-guest-child.mjs', import.meta.url));
 const shaPattern = /^[a-f0-9]{64}$/;
+const ADMISSION_KEYS = new Set(['schemaVersion','profile','sha256','bytes','entry',
+  'memoryInitialPages','memoryMaximumPages','imports','hostCapabilities']);
+const RESULT_KEYS = new Set(['kind','ok','value','admission']);
 
 function checkInt(n, min, max, label) {
   if (!Number.isSafeInteger(n) || n < min || n > max) throw new TypeError(`invalid ${label}`);
 }
 function verifyResponse(message, bytes, hash, entry, maxMemoryPages) {
-  if (message === null || typeof message !== 'object' || message.kind !== 'RESULT' ||
-      typeof message.ok !== 'boolean') throw Error('invalid process guest response');
+  if (message === null || typeof message !== 'object' || Array.isArray(message) ||
+      Object.getPrototypeOf(message) !== Object.prototype ||
+      message.kind !== 'RESULT' || typeof message.ok !== 'boolean') {
+    throw Error('invalid process guest response');
+  }
   if (message.ok === false) throw Error('guest rejected or failed: ' +
     String(message.error || 'unknown guest failure').slice(0, 500));
   const a = message.admission;
-  if (message.ok !== true || typeof message.value !== 'bigint' || !a ||
+  if (Reflect.ownKeys(message).length !== RESULT_KEYS.size ||
+      Reflect.ownKeys(message).some(k => !RESULT_KEYS.has(k)) ||
+      !a || typeof a !== 'object' || Array.isArray(a) ||
+      Object.getPrototypeOf(a) !== Object.prototype ||
+      Reflect.ownKeys(a).length !== ADMISSION_KEYS.size ||
+      Reflect.ownKeys(a).some(k => !ADMISSION_KEYS.has(k))) {
+    throw Error('invalid process guest response fields');
+  }
+  if (message.ok !== true || typeof message.value !== 'bigint' ||
       a.schemaVersion !== 1 || a.profile !== 'core-wasm.i64-v1' ||
       a.entry !== entry || a.bytes !== bytes || a.sha256 !== hash ||
       a.imports !== 0 || a.hostCapabilities !== 0 ||
@@ -31,7 +45,8 @@ function verifyResponse(message, bytes, hash, entry, maxMemoryPages) {
       a.memoryMaximumPages > maxMemoryPages) {
     throw Error('invalid process guest response');
   }
-  return Object.freeze({value: message.value, admission: a,
+  // Never expose a mutable or extensible purported proof object.
+  return Object.freeze({value: message.value, admission: Object.freeze({...a}),
     execution: Object.freeze({profile: 'experimental-node-process-wasm-jit',
       actualWasmGuestExecuted: true, hostileSandboxCertified: false,
       attolangActorExecuted: false})});
