@@ -59,7 +59,10 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
   if (entry === "init")
     throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
+  // Bound requested export names before scanning source/decoding Wasm bytes.
+  // This keeps the scalar guest API aligned with the browser host limit.
+  if (typeof entry!=="string" || entry.length>128 ||
+      !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
   if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
