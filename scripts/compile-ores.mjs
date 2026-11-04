@@ -39,13 +39,16 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+  if(c==="\""||c==="'"){
+   const start=i,quote=c;i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated quoted source token at byte "+
+     Buffer.byteLength(text.slice(0,start),"utf8"));
    continue;
   }
   if(idStart(c)){
