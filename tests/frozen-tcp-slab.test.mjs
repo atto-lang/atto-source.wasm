@@ -143,3 +143,12 @@ test('the exact one-MiB limit is accepted but the next byte is rejected', () => 
     /exceeds one MiB/
   );
 });
+
+test('proxied byte iterables are denied without running iterator traps', () => {
+  let traps = 0;
+  const input = new Proxy([1, 2, 3], {
+    get() { traps++; throw new Error('iterator trap executed'); }
+  });
+  assert.throws(() => new FrozenTcpSlab(input), /rejects Proxy byte sources/);
+  assert.equal(traps, 0);
+});
