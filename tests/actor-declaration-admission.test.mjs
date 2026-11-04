@@ -136,3 +136,12 @@ test("exact conformance lifecycle source fails closed before Wasm scalar compila
     /WASM source actor execution unsupported: no guest actor scheduler/
   );
 });
+
+test("CR-only, NEL and Unicode comment lines cannot hide unsupported actors", () => {
+  for (const separator of ["\r", "\u0085", "\u2028", "\u2029"]) {
+    const label = "U+" + separator.charCodeAt(0).toString(16);
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes("// hidden actor" + separator + "define actor Worker as end")),
+      /WASM source actor execution unsupported/, label);
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes("// actor ignored" + separator + "fnc main():int{return 42;}")), label);
+  }
+});
