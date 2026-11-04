@@ -8,8 +8,13 @@ Wasm and executes the guest in an isolated worker. There is no JavaScript
 macro expander, transpiler or synthetic return-42 shortcut.
 
 The 16 pinned `.atto` files in `tests/fixtures/macro-scalar-v1` have
-byte-identical Git blob SHAs to their .NET PR #346 and LLVM PR #1026 copies:
-seven positive guest-value-42 programs and nine compiler-negative programs.
+byte-identical Git blob SHAs to the corresponding .NET PR #346 and
+LLVM PR #1026 sources: seven positive guest-value-42 programs and nine
+compiler-negative programs. LLVM stores two matching blobs under different
+filenames: `dynamic-const-reject.atto` (Wasm `runtime-const-reject.atto`)
+and `template-twice-unresolved-name-reject.atto` (Wasm
+`template-twice-name-reject.atto`). LLVM also has an **extra** bound-main
+rejection that is not shared with the .NET/Wasm scalar-entry subset.
 Two extra negative cases verify unused invalid macro declarations and checked
 unary signed-min overflow, rather than silently treating them as runtime calls.
 Node's default `npm test` proves only this source integrity and explicitly
