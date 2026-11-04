@@ -1,0 +1,9 @@
+guest-scalar	wasm	execution
+async-carrier-progress	wasm	execution
+cancellation-backpressure	wasm	execution
+inverted-index	wasm	execution
+ownership-task	wasm	execution
+export-bindings	wasm	execution
+generator-cleanup	wasm	execution
+supervisor-generation	wasm	execution
+negative-admission	wasm	rejection
