@@ -1,0 +1,6 @@
+define macro twice(Syntax<Expr> value) -> Syntax<Expr> {
+    return quote(unquote(value) + unquote(value));
+}
+pub fnc main() -> int {
+    return twice!(syntax expr 21);
+}
