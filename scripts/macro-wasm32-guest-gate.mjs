@@ -4,6 +4,10 @@
  * because the narrower macro-only toggle was absent.
  */
 export function requiresMacroWasm32Guest(env = process.env) {
+  // A malformed environment carrier must not downgrade required guest tests
+  // to optional by making both flag lookups silently return undefined.
+  if (env === null || typeof env !== "object" || Array.isArray(env))
+    throw new TypeError("macro guest gate requires an environment record");
   // Snapshot each flag exactly once: accessor-backed input must not change
   // the decision between validation and execution admission.
   const flags = Object.create(null);
