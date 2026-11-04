@@ -1,8 +1,17 @@
 
 # Actor Runtime Resilience v1
 
-Status: normative cross-backend runtime contract. Backend status is evidence,
-not permission to claim unimplemented source features.
+Status: normative cross-backend runtime contract for settled decisions, with
+explicitly identified **proposals** below. Backend status is evidence, not
+permission to claim unimplemented source features.
+
+**Decision boundary (language spec chapter 18, merged PR #7):** restart from
+last committed stored state, queued-but-unstarted mail carry-over, and checked
+overflow failing the actor are language-owner decisions. The exact restart
+budget, one-for-one/transient preset, outbound-send-at-turn-commit protocol and
+pipeline abort-barrier default are **proposed initial policies**, not yet
+ratified runtime guarantees. Cases 21-28 are proposed acceptance targets,
+not existing executable fixtures or evidence of backend implementation.
 
 This contract defines Oreslang fault-tolerance, overload, scheduling,
 observability and lifecycle invariants. It deliberately avoids unbounded default
@@ -152,24 +161,28 @@ Identity:
 - A reply is correlated to the incarnation that asked for it. A reply to a failed
   incarnation is rejected as stale and never reaches its replacement.
 
-Restart policy:
+Restart policy (restart decision; operational defaults proposed):
 
-- Restart is a declared supervisor policy, never hidden behavior. The default is
+- Restart is a declared supervisor policy, never hidden behavior. A proposed
+  default is
   `one_for_one` with `transient` children: an actor that fails is restarted, and
   one that stops normally is not. Every restart is counted and reported on CONTROL.
-- A restart budget bounds restarts, with backoff between attempts. The default is
+- A restart budget bounds restarts, with backoff between attempts. A proposed
+  starting value is
   3 restarts in 10 seconds. Restart work is charged to the tenant's CPU budget.
 - A restart is a new incarnation with a new generation. Runtime or group
   bookkeeping cannot resurrect a terminal incarnation.
 
-Turn commit and stored state:
+Turn commit and stored state (stored-state survival decided; send protocol proposed):
 
 - The runtime stores each actor's sealed state outside memory the actor can
   address. Stored state outlives the incarnation but not the tenant VM. Surviving
   VM or process failure requires an explicit durable protocol.
-- A successful turn commits its state and outbound mail together. A failed turn
+- Proposed atomic turn protocol: a successful turn commits state and outbound mail
+  together. A failed turn
   commits neither, so its private changes and unpublished sends disappear.
-- A send made during a turn reserves mailbox capacity and returns its admission
+- Proposed reservation protocol: a send made during a turn reserves mailbox
+  capacity and returns its admission
   result immediately. The message is published at commit, and a failed turn
   releases the reservation.
 
@@ -186,13 +199,14 @@ Restarting a failed actor:
 - Mailbox limits still apply during a restart, so sends may fail as FULL. Senders
   do not see TERMINATED while a restart is still possible.
 
-When the restart budget is spent, the stage is terminal:
+Proposed terminal-stage behavior once a restart budget is spent:
 
 - Sends to it fail as TERMINATED, and its queued mail is reported as abandoned.
 - Each downstream edge receives an upstream-failed signal after that edge's accepted
   mail. This signal is distinct from normal completion, so partial data never looks
   like a finished stream.
-- By default the pipeline stops through an abort barrier. A supervisor may declare
+- Under the proposed default, the pipeline stops through an abort barrier.
+  A supervisor may declare
   a different policy, and the failure escalates to its parent. The rest of the
   tenant keeps running.
 
