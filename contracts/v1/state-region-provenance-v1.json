@@ -1,0 +1,175 @@
+{
+  "contractVersion": "1.0",
+  "borrow": {
+    "contractVersion": "1.0",
+    "regionId": 9,
+    "regionGeneration": 3,
+    "runtimeDomain": 7,
+    "executionId": 1001,
+    "executionSlot": 41,
+    "executionGeneration": 6,
+    "loanId": 501,
+    "place": "inventory.stock",
+    "kind": "write",
+    "action": "borrow"
+  },
+  "validRelease": {
+    "contractVersion": "1.0",
+    "regionId": 9,
+    "regionGeneration": 3,
+    "runtimeDomain": 7,
+    "executionId": 1001,
+    "executionSlot": 41,
+    "executionGeneration": 6,
+    "loanId": 501,
+    "place": "inventory.stock",
+    "kind": "write",
+    "action": "release"
+  },
+  "invalidReleases": [
+    {
+      "name": "foreign-execution",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1002,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "foreign-runtime-domain",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 8,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "stale-execution-generation",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 5,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "foreign-execution-slot",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 42,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "foreign-region",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 10,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "stale-region-generation",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 2,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "foreign-loan-id",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 502,
+        "place": "inventory.stock",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "foreign-place",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.reserved",
+        "kind": "write",
+        "action": "release"
+      }
+    },
+    {
+      "name": "wrong-access-mode",
+      "release": {
+        "contractVersion": "1.0",
+        "regionId": 9,
+        "regionGeneration": 3,
+        "runtimeDomain": 7,
+        "executionId": 1001,
+        "executionSlot": 41,
+        "executionGeneration": 6,
+        "loanId": 501,
+        "place": "inventory.stock",
+        "kind": "read",
+        "action": "release"
+      }
+    }
+  ]
+}

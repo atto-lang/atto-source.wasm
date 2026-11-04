@@ -17,7 +17,8 @@ export function compileAdmittedCoreGuest(input, {
   guestNetworkIo = false,
   nioReactors = 0,
   actorPhysicalTurns = 0,
-  hardRealtime = false
+  hardRealtime = false,
+  namespaceBindings = null
 } = {}) {
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
@@ -34,6 +35,12 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM physical source actor execution is unsupported");
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
+  // The scalar Wasm profile has no manifest-owned multi-file namespace
+  // graph, startup barrier or exact-symbol provider routing.
+  if (namespaceBindings !== null)
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  if (entry === "init")
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.

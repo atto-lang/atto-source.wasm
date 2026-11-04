@@ -11,7 +11,25 @@
     "decimal_exact": "unsupported_explicit",
     "complex_binary64": "unsupported_explicit",
     "decimal_matrix": "unsupported_explicit",
-    "source_division_to_float": "unsupported_explicit"
+    "source_division_to_float": "unsupported_explicit",
+    "math_i64_unary": "unsupported_explicit",
+    "binary64_unary": "unsupported_explicit",
+    "bigint_unary": "unsupported_explicit",
+    "decimal_unary": "unsupported_explicit",
+    "bigint_div_rem": "unsupported_explicit",
+    "bigint_to_i64_checked": "unsupported_explicit",
+    "bigint_to_f64_exact": "unsupported_explicit",
+    "bigint_to_f64_nearest": "unsupported_explicit",
+    "decimal_round_context": "unsupported_explicit",
+    "decimal_to_f64_exact": "unsupported_explicit",
+    "decimal_to_f64_nearest": "unsupported_explicit",
+    "binary64_strict_profile": "unsupported_explicit",
+    "binary64_next_after": "unsupported_explicit",
+    "binary64_ulp": "unsupported_explicit",
+    "binary64_approx_eq": "unsupported_explicit",
+    "binary64_fma": "unsupported_explicit",
+    "binary64_sqrt": "unsupported_explicit",
+    "binary64_transcendentals": "unsupported_explicit"
   },
   "evidence": {
     "source_i64": {},
@@ -22,8 +40,59 @@
     "decimal_exact": {},
     "complex_binary64": {},
     "decimal_matrix": {},
-    "source_division_to_float": {}
+    "source_division_to_float": {},
+    "math_i64_unary": {},
+    "binary64_unary": {},
+    "bigint_unary": {},
+    "decimal_unary": {},
+    "bigint_div_rem": {
+      "scope": "Shared exact BigInt contract pinned; no guest arbitrary-precision lowering for this operation."
+    },
+    "bigint_to_i64_checked": {
+      "scope": "Shared exact BigInt contract pinned; no guest arbitrary-precision lowering for this operation."
+    },
+    "bigint_to_f64_exact": {
+      "scope": "Shared exact BigInt contract pinned; no guest arbitrary-precision lowering for this operation."
+    },
+    "bigint_to_f64_nearest": {
+      "scope": "Shared exact BigInt contract pinned; no guest arbitrary-precision lowering for this operation."
+    },
+    "decimal_round_context": {
+      "scope": "Shared Decimal precision contract pinned; no guest Decimal implementation for this operation."
+    },
+    "decimal_to_f64_exact": {
+      "scope": "Shared Decimal precision contract pinned; no guest Decimal implementation for this operation."
+    },
+    "decimal_to_f64_nearest": {
+      "scope": "Shared Decimal precision contract pinned; no guest Decimal implementation for this operation."
+    },
+    "binary64_strict_profile": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_next_after": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_ulp": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_approx_eq": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_fma": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_sqrt": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    },
+    "binary64_transcendentals": {
+      "scope": "Strict floating contract pinned; guest lowering is absent. JavaScript Number/libm is not accepted as the language implementation."
+    }
   },
   "source_i64_fixture_git_blob_sha": "bbc319c19ecd007109d33592e210091eb267e5a2",
-  "source_i64_overflow_fixture_git_blob_sha": "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a"
+  "source_i64_overflow_fixture_git_blob_sha": "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a",
+  "math_unary_precision_fixture_git_blob_sha": "3249d837ae6bcf6e2c2c23cac872becf92d0c8e0",
+  "bigint_exact_fixture_git_blob_sha": "b49c7a7d9395f7298e5534c4a6e5b90d4a2a518c",
+  "decimal_precision_fixture_git_blob_sha": "3bbb44277f3816add53da40a1e161e466ab162b1",
+  "binary_floating_fixture_git_blob_sha": "4f5a8da960f017f9254872cccd565cfff5fc8f33",
+  "numeric_public_api_fixture_git_blob_sha": "1b0f0295de78ce7d33b2dc0b07eed3cc78cf6983"
 }

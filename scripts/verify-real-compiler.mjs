@@ -9,7 +9,7 @@ import {readAtomicRelease} from "./atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {cleanupRealCompilerWorkspace} from "./cleanup-real-compiler.mjs";
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-const realSource = fileURLToPath(new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url));
+// Canonical AttoLang entrypoint: execute .atto bytes through the pinned LLVM\n// frontend and real wasm32 compiler, not merely the source-free test double.\nconst realSource = fileURLToPath(new URL("../contracts/atto-parity-v1/add.atto", import.meta.url));
 const forwardSource = fileURLToPath(new URL("../examples/forward-call.ores", import.meta.url));
 const opaqueTernarySource = fileURLToPath(new URL(
   "../examples/unsupported-any-ternary.ores", import.meta.url));
@@ -52,6 +52,14 @@ export function assertSelectFrontendRejection(frontend) {
   if (!String(frontend.stderr || "").includes(
       "native async/channel/select boundary unsupported"))
     throw Error("select rejection did not come from the LLVM async/channel/select capability gate");
+  return true;
+}
+export function assertSingletonFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  const stderr = String(frontend.stderr || "");
+  if (!stderr.includes("ORES-SINGLETON-UNSUPPORTED") ||
+      !stderr.includes("five-backend guest execution parity"))
+    throw Error("singleton rejection did not come from the required compiler-owned admission gate");
   return true;
 }
 export async function verifyRealCompiler({
@@ -305,6 +313,67 @@ export async function verifyRealCompiler({
       assertInvertedFrontendRejection(frontendResult);
     }
 
+    // Wasm owns no duplicate Oreslang parser: source admission is delegated
+    // to the exact pinned LLVM compiler. Require its compiler-owned singleton
+    // capability diagnostic for every canonical visibility/module spelling.
+    for (const [name, body] of [
+      ["root", "define singleton Settings as end\n"],
+      ["trait-with-injected",
+       "define singleton StateBank with Stateful<BankState> as\n"
+       + "    @Inject\n"
+       + "    state: MutableStateContainer<BankState>\n"
+       + "end\n"],
+      ["trait-injected",
+       "define singleton StateBank implements Stateful<BankState> as\n"
+       + "    @Inject\n"
+       + "    state: MutableStateContainer<BankState>\n"
+       + "end\n"],
+      ["inline-state",
+       "define singleton StateBank as\n"
+       + "    state { let count: int = 0 }\n"
+       + "end\n"],
+      ["define-pub", "define pub singleton Settings as end\n"],
+      ["pub-define", "pub define singleton Settings as end\n"],
+      ["module", "define module app as\n define singleton Settings as end\n pub fnc main(): int { return 0; }\nend\n"]
+    ]) {
+      const source = join(work, "deny-singleton-" + name + ".ores");
+      await writeFile(source, body, {flag:"wx"});
+      const frontendResult = spawnSync(
+        pinnedCompiler, ["--target=wasm32", source],
+        {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024});
+      assertSingletonFrontendRejection(frontendResult);
+      if (sha256((await readBoundedRegularFile(
+        pinnedCompiler, 256 * 1024 * 1024,
+        "pinned compiler grew past byte budget")).bytes) !== compilerSha256)
+        throw Error("pinned compiler mutated during singleton rejection test");
+    }
+
+    // Also prove the actual Wasm publication bridge cannot turn the canonical
+    // rejected declaration into an artifact through a linker/fallback path.
+    const singletonBridgeSource = join(work, "deny-singleton-bridge.ores");
+    const singletonBridgeOutput = join(work, "deny-singleton-bridge.wasm");
+    await writeFile(singletonBridgeSource,
+      "define singleton Settings as end\n", {flag:"wx"});
+    let singletonBridgeRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:singletonBridgeSource, output:singletonBridgeOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      singletonBridgeRejected = true;
+    }
+    if (!singletonBridgeRejected)
+      throw Error("unsupported singleton source reached Wasm artifact publication");
+    try {
+      await stat(singletonBridgeOutput + ".current.json");
+      throw Error("unsupported singleton source published a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const negativeSource = join(work, "bad.ores");
     const negativeOutput = join(work, "bad.wasm");
     await writeFile(negativeSource,
@@ -507,6 +576,8 @@ export async function verifyRealCompiler({
       generatorV1Rejected:true,
       tupleV2Rejected:true,
       invertedSourceRejected:true,
+      singletonSourceRejected:true,
+      singletonBridgeRejected:true,
       staticSelectRejected:true,
       opaqueTopTernaryRejected:true
     });
