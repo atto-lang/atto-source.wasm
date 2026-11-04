@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {types} from "node:util";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
@@ -9,6 +10,10 @@ import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
 export function compileAdmittedCoreGuest(input, options = {}) {
+  // A Proxy can execute user code from getPrototypeOf/ownKeys/descriptor
+  // traps before any capability check. Refuse it before introspection.
+  if (types.isProxy(options))
+    throw new TypeError("WASM core-guest admission forbids Proxy option bags");
   // Object rest/spread drops non-enumerable keys and destructuring can invoke
   // attacker-supplied getters. Normalize only own data properties before
   // reading guest bytes so even hidden capability flags fail closed.
@@ -77,7 +82,11 @@ export function compileAdmittedCoreGuest(input, options = {}) {
     throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
   if (entry === "init")
     throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
+  if (typeof entry !== "string" || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry))
+    throw Error("invalid guest entry");
+  if (expectedSha256 !== undefined &&
+      (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256)))
+    throw Error("invalid pinned SHA-256");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
   if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
@@ -85,7 +94,6 @@ export function compileAdmittedCoreGuest(input, options = {}) {
   const snapshot = snapshotGuestBytes(input, maxModuleBytes);
   const sha256 = createHash("sha256").update(snapshot).digest("hex");
   if (expectedSha256 !== undefined) {
-    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
     if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
   }
   const inspected = inspectWasmBytes(snapshot, {maxModuleBytes, maxMemoryPages});
