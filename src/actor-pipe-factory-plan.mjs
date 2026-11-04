@@ -19,6 +19,8 @@ function ownData(value, field) {
 function checkedName(value, optional = false) {
   if (typeof value !== "string" || (!optional && !value) || value.includes("\0"))
     throw new TypeError("invalid actor factory identifier or port");
+  if (value.length > MAX_FIELD_BYTES)
+    throw new RangeError("actor factory metadata byte budget");
   for (let i = 0; i < value.length; i++) {
     const cp = value.charCodeAt(i);
     if (cp >= 0xd800 && cp <= 0xdbff) {
