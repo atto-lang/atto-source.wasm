@@ -152,6 +152,38 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/**
+ * Current core-wasm.i64-v1 cannot lower heap aliases, vector relocation or
+ * shared mutation. Deny source ownership forms BEFORE invoking native LLVMc;
+ * an eventual compiler backend must replace this explicit capability gate
+ * only after guest, Worker and linear-memory lifetime evidence exists.
+ * Lexical tokenization ignores source comments and string contents.
+ */
+export function rejectUnsupportedHeapContainerSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ const nominal=new Set(["Box","Arc","Weak","Rc","RefCell",
+  "Vector","Array","List","Mutex","RwLock","SharedMutex"]);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i];
+  if(!token.id)continue;
+  // A user-defined function named Box/Arc is not a heap type use.
+  const declaration=tokens[i-1]?.id&&
+      ["fnc","routine"].includes(tokens[i-1].text);
+  if(!declaration&&nominal.has(token.text)&&
+      ["<","[","("].includes(tokens[i+1]?.text)){
+   throw Error("wasm heap/container ownership ABI unsupported: "+
+      token.text+" at byte "+token.offset);
+  }
+  if(token.text!=="rt")continue;
+  const a=tokens[i+1],b=tokens[i+2];
+  if(a?.id&&["borrow","take"].includes(a.text) ||
+     a?.text==="mut"&&b?.id&&["borrow","share"].includes(b.text)){
+   throw Error("wasm heap loan/transfer lowering unsupported at byte "+
+      token.offset);
+  }
+ }
+}
+
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -327,6 +359,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
  rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
