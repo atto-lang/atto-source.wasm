@@ -24,6 +24,9 @@ function checkedName(value, optional = false) {
     throw new TypeError("invalid actor factory identifier or port");
   if (value.length > MAX_FIELD_BYTES)
     throw new RangeError("actor factory metadata byte budget");
+  if (/[\u0001-\u001f\u007f-\u009f\u200e-\u200f\u2028-\u202e\u2066-\u2069]/.test(value))
+    throw new TypeError("unsafe actor factory identifier or port");
+
   for (let i = 0; i < value.length; i++) {
     const cp = value.charCodeAt(i);
     if (cp >= 0xd800 && cp <= 0xdbff) {
