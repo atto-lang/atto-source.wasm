@@ -14,6 +14,10 @@ const wordStart = c => /[A-Za-z_]/.test(c);
 const wordRest = c => /[A-Za-z_0-9]/.test(c);
 
 export function rejectUnsupportedActorThreadSource(snapshot) {
+  // A Proxy around a typed-array view can replace byte-access behavior and
+  // execute user traps during preflight; this is not an immutable snapshot.
+  if (types.isProxy(snapshot))
+    throw new TypeError("WASM source preflight rejects Proxy byte views");
   if (!(snapshot instanceof Uint8Array))
     throw new TypeError("source preflight requires immutable snapshot bytes");
   // A shared mutable backing can change between preflight and compilation,
