@@ -14,7 +14,7 @@ These three source files are required to be **Git-blob identical** in
 
 Current status: a target fixture contract. Java and LLVM have authored
 positive/negative language paths and test harnesses, but exact-head guest
-execution is **not yet verified**. Wasm, .NET and Forge are contract-only
+execution is **not yet verified**. Wasm is contract-only; .NET and Forge have authored rejection-only gates (not executed)
 until their compiler, type/ownership checker and runtime execute or reject
 these source files as specified. Do not use host-language simulations as
 guest evidence. A failed GitHub Actions job with `steps=null` is a
