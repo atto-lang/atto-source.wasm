@@ -32,13 +32,18 @@ source-bound environment must supply:
 - `ORESLANG_LLVM_COMPILER_SHA256=<sha256 actual executable bytes>`
 - `CLANG=<absolute resolved clang/lld executable>`
 - `ORESLANG_MACRO_WASM_CLANG_SHA256=<sha256 of actual clang executable>`
+- `WASM_LD=<absolute reviewed wasm-ld executable>`
+- `ORESLANG_MACRO_WASM_LLD_SHA256=<sha256 of actual wasm-ld executable>`
 
 Then run `npm run test:macro-wasm32` with Node >=22 and a real wasm32
 Clang/lld toolchain. The reviewer must independently verify that the exact
 LLVM checkout built that compiler; environment-provided claims alone do not
 establish source/compiler provenance. The strict lane now reads the local
 LLVM Git HEAD/tree and checks tracked cleanliness before/after; it hashes the
-reviewed clang/lld executable before/after as well. This still does not
+reviewed Clang driver **and** the explicitly selected wasm-ld linker
+executable before/after as well. Clang receives a literal
+`-fuse-ld=<resolved absolute wasm-ld path>` argument, not an unpinned PATH
+lookup. This still does not
 substitute for an independently witnessed exact-checkout compiler build.
 The native compiler and linker run from an isolated temporary working
 directory with a constrained child environment: PATH and locale only on

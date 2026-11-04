@@ -180,6 +180,15 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
  const linkerBytes=(await readBoundedRegularFile(linker,256*1024*1024,
    "clang executable exceeds byte budget")).bytes;
  assert.equal(sha256(linkerBytes),linkerDigest,"clang/lld toolchain binary mismatch");
+ const wasmLldRequested=process.env.WASM_LD;
+ const wasmLldDigest=process.env.ORESLANG_MACRO_WASM_LLD_SHA256;
+ assert.ok(wasmLldRequested&&isAbsolute(wasmLldRequested),
+   "absolute reviewed wasm-ld binary required");
+ assert.match(wasmLldDigest||"",/^[0-9a-f]{64}$/,"pinned wasm-ld SHA-256 required");
+ const wasmLld=await realpath(wasmLldRequested);
+ const wasmLldBytes=(await readBoundedRegularFile(wasmLld,256*1024*1024,
+   "wasm-ld exceeds byte budget")).bytes;
+ assert.equal(sha256(wasmLldBytes),wasmLldDigest,"wasm-ld executable changed");
  const compiler=process.env.ORESLANG_LLVM_COMPILER;
  const compilerSha=process.env.ORESLANG_LLVM_COMPILER_SHA256;
  assert.ok(compiler&&isAbsolute(compiler),"approved absolute LLVM compiler path required");
@@ -198,7 +207,7 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
    await writeFile(source,bytes,{mode:0o400,flag:"wx"});
    if(f.kind==="pass"){
     const built=await compileOresToWasm({compiler,compilerSha256:compilerSha,
-     clang:linker,source,output,environment:"browser",publication:"atomic"});
+     clang:linker,wasmLinker:wasmLld,source,output,environment:"browser",publication:"atomic"});
     const release=await readAtomicRelease(output);
     assert.equal(built.sourceSha256,sha256(bytes));
     assert.equal(built.compilerSha256,compilerSha);
@@ -215,11 +224,12 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
     console.log("MACRO_WASM32_GUEST_PASS fixture="+f.name+" value=42 source_sha256="+
       sha256(bytes)+" compiler_sha256="+compilerSha+" wasm_sha256="+built.wasmSha256+
       " wasm_head="+expectedWasm+" wasm_tree="+wasmTree+
-      " llvm_head="+reviewedLlvmHead+" clang_sha256="+linkerDigest);
+      " llvm_head="+reviewedLlvmHead+" clang_sha256="+linkerDigest+
+      " wasm_ld_sha256="+wasmLldDigest);
    }else{
     await assert.rejects(
       compileOresToWasm({compiler,compilerSha256:compilerSha,
-        clang:linker,source,output,environment:"browser",publication:"atomic"}),
+        clang:linker,wasmLinker:wasmLld,source,output,environment:"browser",publication:"atomic"}),
       e=>{
        assert.equal(e?.status,1,"negative requires typed compiler exit 1");
        assert.equal(e?.signal,null,"negative compiler killed");
@@ -247,6 +257,8 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
      "compiler changed")).bytes),compilerSha);
   assert.equal(sha256((await readBoundedRegularFile(linker,256*1024*1024,
      "linker changed")).bytes),linkerDigest);
+  assert.equal(sha256((await readBoundedRegularFile(wasmLld,256*1024*1024,
+     "wasm-ld changed")).bytes),wasmLldDigest);
   console.log("MACRO_WASM32_EXACT_SOURCE_GUEST_GATE_PASS guests="+positiveCount+
     " rejections="+negativeCount+" wasm_head="+expectedWasm+
     " llvm_head="+reviewedLlvmHead);

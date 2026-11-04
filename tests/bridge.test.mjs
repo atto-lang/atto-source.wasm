@@ -25,6 +25,13 @@ test("real Clang wasm32 bridge accepts verified IR and records hashes (stub comp
   assert.equal((new WebAssembly.Instance(new WebAssembly.Module(wasm))).exports.main(),42n);
   assert.equal(JSON.parse(await readFile(output+".provenance.json","utf8")).wasmSha256,hash(wasm));
   await assert.rejects(()=>compileOresToWasm({compiler,source,output:join(dir,"bad.wasm"),compilerSha256:"0".repeat(64)}),/SHA-256/);
+  // No relative or PATH-searched linker in an exact-toolchain certification
+  // lane: fail before the native compiler can run or an artifact is published.
+  const badLinkOutput=join(dir,"bad-linker.wasm");
+  await assert.rejects(()=>compileOresToWasm({compiler,source,
+    output:badLinkOutput,compilerSha256:pin,wasmLinker:"wasm-ld"}),
+    /wasm linker must be an absolute path/);
+  await assert.rejects(readFile(badLinkOutput),{code:"ENOENT"});
  }finally{await rm(dir,{recursive:true,force:true})}
 });
 test("real native Oreslang compiler integration, opt-in and never simulated",{

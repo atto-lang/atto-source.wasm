@@ -325,10 +325,11 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ if (wasmLinker !== undefined) absolute(wasmLinker,"wasm linker");
  const sourceExtension=extname(source).toLowerCase();
  if(sourceExtension!==".atto"&&sourceExtension!==".ores")
   throw Error("source file must use canonical .atto or legacy .ores extension");
@@ -434,7 +435,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.
- run(clang,["--target=wasm32","-x","ir","-Oz","-nostdlib",
+ run(clang,[...(wasmLinker ? ["-fuse-ld="+wasmLinker] : []),
+   "--target=wasm32","-x","ir","-Oz","-nostdlib",
    "-Wl,--no-entry","-Wl,--export="+exportName,
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
    "-o",provisional,"-"],{input:ir,cwd:scratch});
