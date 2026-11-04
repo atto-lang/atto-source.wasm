@@ -56,6 +56,38 @@ test("Wasm admission never treats comments or strings as actor declarations", ()
   }
 });
 
+test("Wasm source bridge fails closed on supervisor tree declarations", () => {
+  for (const source of [
+    "define supervisor Root as end",
+    "define pub supervisor Root as end",
+    "define private supervisor Internal as end",
+    "define abstract supervisor Root as end",
+    "define serial supervisor Root as end",
+    "define supervisor Root extends Parent as end",
+    "define supervisor Root implements SupervisorPolicy as end",
+    "supervisor Root as end",
+    "supervisor Root extends Parent as end"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source supervisor execution unsupported: no guest supervisor runtime/,
+      source);
+  }
+});
+
+test("supervisor references in nondeclaration source remain legal tokens", () => {
+  for (const source of [
+    "// define pub supervisor Root as end\nfnc main():int{return 1;}",
+    "/* define supervisor Root as end */ fnc main():int{return 1;}",
+    "fnc main():int{const x=\"define supervisor Fake as end\";return 1;}",
+    "fnc main():int{let supervisor=1;return supervisor;}",
+    "fnc main():int{let x=supervisor.status;return 1;}",
+    "define module supervisor_helpers as fnc count():int{return 1;} end"
+  ]) {
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      source);
+  }
+});
+
 test("malformed UTF-8 and unterminated comments fail before compilation", () => {
   assert.throws(
     () => rejectUnsupportedActorThreadSource(Uint8Array.of(0xc0,0xaf)),
