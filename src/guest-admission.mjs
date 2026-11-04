@@ -8,7 +8,25 @@ import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
  * Pure checking: no guest instantiation, no guest code execution.
  * The result never exposes validated executable bytes to avoid a validation/use race.
  */
-export function compileAdmittedCoreGuest(input, {
+export function compileAdmittedCoreGuest(input, options = {}) {
+  // Object rest/spread drops non-enumerable keys and destructuring can invoke
+  // attacker-supplied getters. Normalize only own data properties before
+  // reading guest bytes so even hidden capability flags fail closed.
+  if (options === null || typeof options !== "object" ||
+      (Object.getPrototypeOf(options) !== Object.prototype &&
+       Object.getPrototypeOf(options) !== null))
+    throw new TypeError("WASM core-guest admission requires a plain options record");
+  const normalizedOptions = Object.create(null);
+  const keys = Reflect.ownKeys(options);
+  if (keys.length > 32)
+    throw new TypeError("WASM core-guest admission exceeds option key budget");
+  for (const key of keys) {
+    const descriptor = Object.getOwnPropertyDescriptor(options, key);
+    if (!descriptor || !Object.hasOwn(descriptor, "value"))
+      throw new TypeError("WASM core-guest admission options must be data properties");
+    normalizedOptions[key] = descriptor.value;
+  }
+  const {
   expectedSha256,
   entry = "main",
   maxModuleBytes = 16 * 1024 * 1024,
@@ -24,7 +42,7 @@ export function compileAdmittedCoreGuest(input, {
   tcpPoolLeaseCount = 0,
   tcpPoolPointerSharing = false,
   ...additionalOptions
-} = {}) {
+} = normalizedOptions;
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
