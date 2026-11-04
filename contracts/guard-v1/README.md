@@ -4,7 +4,7 @@ Canonical source extension: `.atto`.
 
 | Fixture | Required result |
 | --- | --- |
-| `canonical-scalar.atto` | Compile through the actual guest frontend, run at O0 and O2 (where applicable), exit with code 42, no guest stdout |
+| `canonical-scalar.atto` | Compile through the actual guest frontend and return integer 42 from main; LLVM native executables must exit 42, JVM guests must expose result 42, and stdout must be empty |
 | `reject-fallthrough.atto` | Compile-time reject, no executable output or fallback |
 | `reject-else.atto` | Compile-time reject, no executable output or fallback |
 
