@@ -43,7 +43,7 @@ test('missing or partial reverse port sets denied',()=>{
 });
 test('wrong forward type and malformed roles denied',()=>{
  const s=stages();s[1].forwardOut='Other';assert.throws(()=>plan(s),/incompatible forward/);
- for(const bad of ['supervisor','duplex','other']) {
+ for(const bad of ['supervisor','readable','other']) {
   const b=stages();b[1].role=bad;assert.throws(()=>plan(b),/role/);
  }
 });
@@ -75,3 +75,5 @@ test('bounded metadata, malformed Unicode, duplicate and sparse arrays fail clos
  assert.equal(plan(chain).forwardStages.length,1024);
  assert.throws(()=>plan([...chain,{...chain[0],id:'extra'}]),/stage budget/);
 });
+
+test('duplex intermediate stage accepts a typed bidirectional shape',()=>{const s=stages();s[1].role='duplex';assert.equal(plan(s).reverseEdges.length,2);});
