@@ -12,6 +12,7 @@ import {fileURLToPath} from "node:url";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {requiresMacroWasm32Guest} from "../scripts/macro-wasm32-guest-gate.mjs";
 
 const root=fileURLToPath(new URL("../",import.meta.url));
 const fixtures=Object.freeze([
@@ -144,7 +145,7 @@ test("16 byte-identical .NET/LLVM/Wasm stage-0 fixtures are pinned, source-only"
  // No execution marker is emitted here: this is deliberately source only.
 });
 
-const demanded=process.env.ORESLANG_MACRO_WASM_PARITY_REQUIRED==="1";
+const demanded=requiresMacroWasm32Guest(process.env);
 test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests and rejects nine",{
  skip:!demanded,timeout:900000
 },async()=>{
