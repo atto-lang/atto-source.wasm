@@ -4,6 +4,7 @@
 // remain part of the separate pipeline v1 contract and are NOT validated here.
 // Only trusted compiler-generated metadata may reach this module; JS Proxy traps are not a sandbox.
 import { ActorPipelineSelector } from "./actor-pipeline-selector.mjs";
+import { planActorBidirectionalMetadata } from "./actor-pipe-bidirectional-metadata.mjs";
 
 const encoder = new TextEncoder();
 const MAX_STAGE_COUNT = 1024;
@@ -101,5 +102,19 @@ export function planActorConnectEdge(source, target) {
     source: from.id,
     target: to.id,
     payload: from.outbound
+  });
+}
+
+// This is a static factory planning result, not a runtime reply capability.
+// Actual self.backward transport requires unforgeable correlation tickets,
+// generation checks, bounded reply admission and physical shutdown barriers.
+export function planActorBidirectionalPipeFactory(stages, generation = 1) {
+  const metadata = planActorBidirectionalMetadata(stages);
+  const forward = planActorPipeFactory(metadata.forwardStages, generation);
+  return Object.freeze({
+    forward,
+    reverseEdges: metadata.reverseEdges,
+    backwardEnabled: metadata.backwardEnabled,
+    reversePolicy: metadata.reversePolicy
   });
 }
