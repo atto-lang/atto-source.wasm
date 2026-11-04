@@ -209,3 +209,12 @@ test("Proxy source views are refused without executing traps", () => {
   );
   assert.equal(traps, 0);
 });
+
+test("spoofed typed-array byteLength cannot bypass source size budget", () => {
+  const source = new Uint8Array(1_048_577).fill(0x20);
+  Object.defineProperty(source, "byteLength", {get() { return 0; }});
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(source),
+    /WASM source preflight exceeds 1 MiB byte budget/
+  );
+});
