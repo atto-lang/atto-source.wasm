@@ -15,6 +15,7 @@ import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
 const sha256=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_NATIVE_AOT_BYTES=128*1024*1024;
+const FLAGS2ENV_STATUS_SHA256="9add46476c703374f76dd1a0a5827fbad0eb69ff703f4f3cf302604a6f506750";
 // The native builder has a 128 MiB output budget. A successful exit code is
 // not permission for the verifier to eagerly read a bigger or special file.
 // Open and hash the same bounded, no-follow snapshot used at admission.
@@ -31,7 +32,8 @@ const fixtures=[
   ["return-arithmetic", "28"],
   ["negative-result", "-5"],
   ["zero-result", "0"],
-  ["class-scalar-constructor", "40"]
+  ["class-scalar-constructor", "40"],
+  ["flags2env-client-abi-status", "42"]
 ];
 function invoke(executable,args,expectedSuccess=true) {
   const r=spawnSync(executable,args,{
@@ -80,6 +82,8 @@ export async function verifyRealSourceToAot({
     const results=[];
     for(const [name,expected] of fixtures) {
       const source=join(root,"examples",name+".ores");
+      if(name==="flags2env-client-abi-status" && sha256(await readFile(source))!==FLAGS2ENV_STATUS_SHA256)
+        throw Error("flags2env ABI scalar fixture digest mismatch");
       const output=join(tmp,name+".wasm");
       const published=await compileOresToWasm({
         compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"

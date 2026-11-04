@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
+test("canonical shared .atto real-compiler guest has the reviewed exact bytes", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const canonical = new URL("../contracts/atto-parity-v1/add.atto", import.meta.url);
+  const legacy = new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url);
+  const mirrored = new URL("../examples/atto-real-compiler-parity.atto", import.meta.url);
+  const [atto, ores, example] = await Promise.all([
+    readFile(canonical), readFile(legacy), readFile(mirrored)
+  ]);
+  assert.ok(canonical.pathname.endsWith(".atto"));
+  assert.deepEqual(atto, ores, "extension migration must not change source semantics");
+  assert.deepEqual(atto, example, "compiler smoke and shared corpus must not drift");
+  assert.equal(atto.toString("utf8"), "pub fnc main(): int { return 40 + 2; }\n");
+});
+
 test("missing real native compiler fails instead of silently skipping", () => {
   const env = {...process.env};
   for (const name of ["ORESLANG_LLVM_COMPILER","ORESLANG_LLVM_COMPILER_SHA256","ORESLANG_LLVM_SOURCE_SHA"])
@@ -73,6 +87,25 @@ test("inverted real-compiler gate requires native declaration rejection", async 
     status:1,signal:null,error:undefined,stdout:"",
     stderr:"oreslang-llvmc: unrelated arithmetic failure"
   }), /inverted-class source did not fail/);
+});
+
+test("singleton real-compiler gate requires compiler-owned capability diagnostic and no IR", async () => {
+  const {assertSingletonFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require exactly-once complete publication, cycle/failure semantics, runtime-derived actor authority for shared state, and five-backend guest execution parity at byte 7"
+  };
+  assert.equal(assertSingletonFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected 'class' or 'actor' at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
+  }), /diagnosed error/);
 });
 
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
