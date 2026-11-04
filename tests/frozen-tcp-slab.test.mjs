@@ -97,3 +97,49 @@ test('pin release before retire does not prematurely free backing storage', () =
   slab.releasePin(second);
   assert.equal(slab.freed, true);
 });
+
+test('spoofed typed-array backing cannot disguise SharedArrayBuffer bytes', () => {
+  if (typeof SharedArrayBuffer === 'undefined') return;
+  const source = new Uint8Array(new SharedArrayBuffer(3));
+  source.set([4, 5, 6]);
+  Object.defineProperty(source, 'buffer', {
+    get() { return new ArrayBuffer(3); }
+  });
+  assert.throws(
+    () => new FrozenTcpSlab(source),
+    /mutable shared backing memory is forbidden/
+  );
+});
+
+test('a private view copy is independent and mixed pins never release each other', () => {
+  const base = new Uint8Array([1, 2, 3, 4, 5]);
+  const slab = new FrozenTcpSlab(base.subarray(1, 4));
+  const other = new FrozenTcpSlab([2, 3, 4]);
+  const a = slab.pin(), b = other.pin();
+  base.fill(99);
+  assert.equal(slab.readByte(a, 0), 2);
+  assert.equal(slab.readByte(a, 2), 4);
+  assert.equal(slab.releasePin(b), false);
+  slab.retire();
+  assert.equal(slab.freed, false);
+  assert.equal(other.readByte(b, 1), 3);
+  assert.equal(slab.releasePin(a), true);
+  assert.equal(slab.freed, true);
+  assert.equal(other.releasePin(b), true);
+  other.retire();
+  assert.equal(other.freed, true);
+});
+
+test('the exact one-MiB limit is accepted but the next byte is rejected', () => {
+  const slab = new FrozenTcpSlab(new Uint8Array(1024 * 1024));
+  const p = slab.pin();
+  assert.equal(slab.size, 1024 * 1024);
+  assert.equal(slab.readByte(p, slab.size - 1), 0);
+  slab.retire();
+  slab.releasePin(p);
+  assert.equal(slab.freed, true);
+  assert.throws(
+    () => new FrozenTcpSlab(new Uint8Array(1024 * 1024 + 1)),
+    /exceeds one MiB/
+  );
+});
