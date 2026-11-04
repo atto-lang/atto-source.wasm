@@ -194,7 +194,17 @@ async function withPublicationLock(published,publication,callback){
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
 function run(command,args,{input}={}){
  const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
- if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+ if(output.error||output.status!==0||output.signal){
+  const error=Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+  // Keep exit evidence separate from the error text. Negative language tests
+  // must reject compiler crashes, missing executables and partial IR stdout.
+  Object.defineProperty(error,"commandEvidence",{value:Object.freeze({
+    command, status:output.status, signal:output.signal,
+    spawnError:output.error?String(output.error.message||output.error):null,
+    stdoutLength:typeof output.stdout==="string"?Buffer.byteLength(output.stdout,"utf8"):-1
+  })});
+  throw error;
+ }
  return output.stdout||"";
 }
 export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
