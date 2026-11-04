@@ -27,3 +27,21 @@ test("typos, blank values and noncanonical booleans fail closed", () => {
                     /must be explicitly 0 or 1/);
     }
 });
+
+test("reads each dynamic gate flag exactly once before deciding admission", () => {
+  let generalReads = 0;
+  const general = {};
+  Object.defineProperty(general, "ORESLANG_REQUIRE_REAL_COMPILER", {
+    get() { generalReads++; return generalReads === 1 ? "1" : "0"; }
+  });
+  assert.equal(requiresMacroWasm32Guest(general), true);
+  assert.equal(generalReads, 1, "validated required=1 must not turn into skip=0");
+
+  let macroReads = 0;
+  const macro = {};
+  Object.defineProperty(macro, "ORESLANG_MACRO_WASM_PARITY_REQUIRED", {
+    get() { macroReads++; return macroReads === 1 ? "1" : "0"; }
+  });
+  assert.equal(requiresMacroWasm32Guest(macro), true);
+  assert.equal(macroReads, 1);
+});
