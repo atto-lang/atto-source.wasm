@@ -13,6 +13,7 @@ test("Wasm source bridge rejects every actor declaration prefix", () => {
     "actor worker as end",
     "actor A1 extends Base as end",
     "actor A1 implements Interface as end",
+    "actor A1 with Mixin as end",
     "actor fnc work():int{return 1;}",
     "fnc actor work():int{return 1;}",
     "actor routine work():int{return 1;}",
@@ -135,4 +136,17 @@ test("exact conformance lifecycle source fails closed before Wasm scalar compila
     () => rejectUnsupportedActorThreadSource(guest),
     /WASM source actor execution unsupported: no guest actor scheduler/
   );
+});
+
+test("shared-backed actor preflight is denied before lexing mutable bytes", () => {
+  if (typeof SharedArrayBuffer === "undefined") return;
+  const safe = bytes("fnc main():int{return 42;}");
+  const shared = new Uint8Array(new SharedArrayBuffer(safe.length));
+  shared.set(safe);
+  assert.throws(
+    () => rejectUnsupportedActorThreadSource(shared),
+    /WASM source preflight refuses shared mutable backing/
+  );
+  // A private copy remains valid and does not grant actor capabilities.
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(new Uint8Array(shared)));
 });
