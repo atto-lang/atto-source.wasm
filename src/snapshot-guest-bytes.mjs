@@ -18,6 +18,11 @@ const copyTrustedBytes = Function.prototype.call.bind(Uint8Array.prototype.set);
 // Hashing bytes from one instant and validating another is not acceptable.
 // Cross-realm SABs are recognized by the intrinsic util.types predicate.
 export function snapshotGuestBytes(input, maxModuleBytes) {
+  // This helper is exported: never rely on a higher-level caller to enforce
+  // the allocation ceiling before an independently invoked snapshot.
+  if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 0 ||
+      maxModuleBytes > 16 * 1024 * 1024)
+    throw new TypeError("invalid maximum module size");
   const isBuffer = types.isArrayBuffer(input);
   if (!isBuffer && !ArrayBuffer.isView(input))
     throw new TypeError("expected core WebAssembly bytes");
