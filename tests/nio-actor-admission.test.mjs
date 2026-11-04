@@ -32,3 +32,60 @@ test("WASM default remains scalar-only and does not fake network/actors", () => 
   assert.throws(() => compileAdmittedCoreGuest(neverAdmitted),
     error => !/NIO|reactor threads|physical source actor|hard-real-time|legacy/.test(error.message));
 });
+
+
+test("unsupported TCP pooling and shared pointers reject before decoding any Wasm", () => {
+  const forbidden = [
+    {sharedTcpPool: true}, {sharedTcpPool: 1}, {sharedTcpPool: null},
+    {tcpPoolLeaseCount: 1}, {tcpPoolLeaseCount: -1},
+    {tcpPoolLeaseCount: "0"}, {tcpPoolLeaseCount: Number.NaN},
+    {tcpPoolPointerSharing: true}, {tcpPoolPointerSharing: "false"},
+    {sharedTcpPool: false, tcpPoolLeaseCount: 1},
+    {tcpSocketPool: true}, {tcpPoolLeases: 4},
+    {socketPool: 2}, {sharedTcpLease: true},
+    {connectionPoolPointer: "unsafe"}
+  ];
+  for (const options of forbidden) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /shared TCP pool\/lease\/pointer capability is unsupported/,
+      JSON.stringify(options)
+    );
+  }
+  const readonlySlabOptions = [
+    {sharedReadonlyBuffer: true}, {sharedReadonlyBuffer: false},
+    {frozenSlab: true}, {frozenSlab: 0},
+    {pinnedSlabCount: 4}, {sharedMemory: true},
+    {sharedArrayBuffer: true}, {zeroCopyTransport: true},
+    {immutableBufferPins: 2}, {bufferPinLease: 1},
+    {borrowedSlabPointer: true}, {readonlyBuffer: true},
+    {pinnedBytes: 4096}, {slabPointer: 2},
+    {zero_copy: true}, {sharedBuffer: new Uint8Array([1, 2])}
+  ];
+  for (const options of readonlySlabOptions) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /shared TCP pool\/lease\/pointer capability is unsupported/,
+      Object.keys(options).join(',')
+    );
+  }
+  // Even a false-valued unknown capability or Symbol option must never be
+  // silently interpreted as supported by the scalar guest profile.
+  for (const options of [
+    {unsupportedHostFeature: true},
+    {unsupportedHostFeature: false},
+    {shared_readonly_payload: false},
+    {[Symbol('pin')]: true}
+  ]) {
+    assert.throws(
+      () => compileAdmittedCoreGuest(neverAdmitted, options),
+      /rejects unknown core-guest admission options/
+    );
+  }
+  // Explicitly inactive capabilities must not change core scalar admission.
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, {
+      sharedTcpPool: false, tcpPoolLeaseCount: 0, tcpPoolPointerSharing: false
+    }),
+    error => !/shared TCP pool\/lease\/pointer/.test(error.message));
+});

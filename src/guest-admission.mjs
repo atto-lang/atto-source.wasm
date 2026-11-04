@@ -18,7 +18,12 @@ export function compileAdmittedCoreGuest(input, {
   nioReactors = 0,
   actorPhysicalTurns = 0,
   hardRealtime = false,
-  namespaceBindings = null
+  namespaceBindings = null,
+  // Stage-0 WASM does not implement VM-owned physical TCP pooling.
+  sharedTcpPool = false,
+  tcpPoolLeaseCount = 0,
+  tcpPoolPointerSharing = false,
+  ...additionalOptions
 } = {}) {
   // This core-wasm.i64-v1 implementation has no guest network host imports,
   // actor scheduler, or safe native reactor bridge. Fail explicitly before
@@ -35,6 +40,19 @@ export function compileAdmittedCoreGuest(input, {
     throw new TypeError("WASM physical source actor execution is unsupported");
   if (hardRealtime !== false)
     throw new TypeError("WASM hard-real-time scheduling is unsupported");
+  // Do not allow a misspelled/forward-compat TCP capability switch to be
+  // silently ignored. No guest sockets, pinned readonly slabs, or immutable shared-slab imports, or
+  // transport lease ABI exist in this scalar-only profile.
+  if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
+      tcpPoolPointerSharing !== false ||
+      Object.keys(additionalOptions).some(key =>
+        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i.test(key)))
+    throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
+  // This profile has no extensible host-capability namespace. Reject ANY
+  // unrecognized option, including false-valued typos and Symbol keys, rather
+  // than silently implying that a requested capability was provided.
+  if (Reflect.ownKeys(additionalOptions).length !== 0)
+    throw new TypeError("WASM rejects unknown core-guest admission options");
   // The scalar Wasm profile has no manifest-owned multi-file namespace
   // graph, startup barrier or exact-symbol provider routing.
   if (namespaceBindings !== null)
