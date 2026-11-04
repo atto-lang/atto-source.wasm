@@ -180,3 +180,13 @@ test("Wasm scalar source preflight cannot be fooled by byteLength or buffer shad
   }
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes("fnc main():int{return 42;}")));
 });
+
+test('reserved MaxActorThreads enum cannot hide behind stacked modifiers',()=>{
+  for(const modifiers of ['shared','pub shared','private untrusted','abstract','serial']){
+    const source='define '+modifiers+' enum MaxActorThreads as end';
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+      /built-in MaxActorThreads enum unsupported/,source);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    'define pub shared enum UserColors as red end')));
+});
