@@ -18,6 +18,7 @@ export function compileAdmittedCoreGuest(input, {
   nioReactors = 0,
   actorPhysicalTurns = 0,
   hardRealtime = false,
+  namespaceBindings = null,
   // Stage-0 WASM does not implement VM-owned physical TCP pooling.
   sharedTcpPool = false,
   tcpPoolLeaseCount = 0,
@@ -52,6 +53,12 @@ export function compileAdmittedCoreGuest(input, {
   // than silently implying that a requested capability was provided.
   if (Reflect.ownKeys(additionalOptions).length !== 0)
     throw new TypeError("WASM rejects unknown core-guest admission options");
+  // The scalar Wasm profile has no manifest-owned multi-file namespace
+  // graph, startup barrier or exact-symbol provider routing.
+  if (namespaceBindings !== null)
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  if (entry === "init")
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
   if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
   // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
   // untrusted Wasm. Never hash one buffer and execute another.
