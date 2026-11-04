@@ -157,3 +157,14 @@ test('reserved MaxActorThreads enum is denied behind visibility modifiers',()=>{
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     'define pub enum UserColors as red end')));
 });
+
+test("NEL U+0085 cannot split reserved enum tokens in scalar Wasm preflight",()=>{
+  for(const source of [
+    "define\u0085enum\u0085MaxActorThreads as end",
+    "define\u0085pub\u0085enum\u0085MaxActorThreads as end",
+    "define pub\u0085enum MaxActorThreads as end"
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /built-in MaxActorThreads enum unsupported/,source);
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    "define\u0085pub\u0085enum\u0085Color as red end")));
+});

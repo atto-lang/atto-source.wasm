@@ -23,7 +23,8 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
   const tokens = [];
   for (let i = 0; i < source.length;) {
     const c = source[i];
-    if (/\s/.test(c)) {i++;continue;}
+    // NEL is an AttoLang line boundary but is not matched by JavaScript /\\s/.
+    if (/\s/.test(c) || c === "\u0085") {i++;continue;}
     if (source.startsWith("//", i)) {
       let next = i + 2;
       // CR-only, NEL and Unicode separators also terminate AttoLang // comments.
