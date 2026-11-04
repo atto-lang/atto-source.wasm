@@ -120,3 +120,26 @@ Clang 17/V8 recursive Wasm fixture produced a real stack overflow trap.
 These checks are not a full run of the current PR's Node integration suite
 and do not execute the Rust Wasmtime JIT binary or a genuine `.atto` actor.
 No production sandbox certification is implied.
+
+## November 4, 2026 — capacity, timeout and native-file hardening
+
+The runner now reserves its four-slot development process quota **before**
+copying and hashing guest bytes. Copy, oversized-input, and digest failures
+release the reserved slot synchronously. The execution deadline is armed
+before `spawn` and IPC submission; synchronous launch failure clears it.
+This closes pre-spawn resource-accounting and timer-installation gaps.
+
+The 14-case committed Node test corpus adds repeated invalid-byte, mismatched
+pin and oversized-input failure neutrality, then proves a valid invocation
+still works, plus refusal of inherited ambient environment. The Wasmtime JIT
+smoke adds independent symlink/FIFO admission negatives and zero/overflow/
+nonnumeric fuel inputs; every negative must fail rather than hang.
+
+**Verification discipline:** 14/14 checks passed in a local V8 simulation
+using the exact published `src/process-guest-runner.mjs` protocol code with
+a synthetic child-process implementation. This tests the state machine only:
+it does **not** instantiate real guest Wasm, exercise native memory limits,
+compile the Rust Wasmtime JIT, or certify the full 14-test integration suite.
+At latest checked PR head, Actions job steps were `null`, so hosted
+compiler/guest execution is `NOT_EXECUTED`. Keep this draft behind real
+exact-head/stepful Node + Rust runs and independent sandbox review.
