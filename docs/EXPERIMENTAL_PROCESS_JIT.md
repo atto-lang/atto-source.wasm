@@ -87,3 +87,36 @@ change**: the local container lacks Rust, and sampled GitHub Actions runs have
 Its CLI is **not** an OS process broker, hostile-tenant sandbox, signed-image
 admission service, or AttoLang guest actor runtime. Do not deploy it to
 production or promote it from source review alone.
+
+## November 4, 2026: fail-closed protocol audit
+
+The initial process runner killed its child immediately upon receiving any
+IPC message, including a successful result. That prevented checking whether
+the guest child could naturally disconnect and exit cleanly. The current
+runner instead verifies the response **before** accepting it, waits for
+a zero-exit/no-signal `close`, and keeps the timeout active until physical
+termination; a post-reply abnormal exit is a failure.
+
+Process launch option admission now requires an ordinary, own-data-property
+object (no accessors, symbols, inherited opt-in, or unexpected fields).
+One immutable configuration snapshot is used for validation and launch.
+Positive result envelopes have exact allowed fields only, no
+`productionCertified` or other fake proof extensions, and the successful
+admission receipt is frozen after validation. The child's negative response
+cannot bypass these positive-evidence gates.
+
+The Rust smoke additionally requires a **fuel-specific** diagnostic for
+loop interruption and an **import-admission-specific** diagnostic for host
+import refusal, rather than treating any nonzero exit as success. The Node
+test suite also covers four simultaneous spinning guests, fifth-admission
+denial, quota release after actual child exit, accessor/symbol injection,
+and real recursive Wasm stack exhaustion with subsequent supervisor recovery.
+
+**Evidence scope:** the new 12-case integration test source has been committed,
+but current hosted PR workflows report `steps=null`. Focused, source-extracted
+local admission/response checks (14/14), static Rust/CI policy checks
+(12/12), and a local Node 22 clean IPC-exit smoke passed. An independent
+Clang 17/V8 recursive Wasm fixture produced a real stack overflow trap.
+These checks are not a full run of the current PR's Node integration suite
+and do not execute the Rust Wasmtime JIT binary or a genuine `.atto` actor.
+No production sandbox certification is implied.
