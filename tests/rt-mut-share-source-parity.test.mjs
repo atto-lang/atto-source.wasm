@@ -75,6 +75,42 @@ test("Wasm preflight rejects shared mutation without executing or publishing a c
   }
 });
 
+// Source-only spelling inside comments and literals must not trigger the
+// ownership preflight. A fake compiler marks invocation; its error is NOT
+// evidence of real LLVM compilation or guest parity.
+test("Wasm ownership preflight ignores comments and string literals", {
+  timeout: 30000
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), "atto-wasm-lexer-control-"));
+  try {
+    const marker = join(root, "fake-compiler-invoked");
+    const compiler = join(root, "control-compiler");
+    const fake = "#!/bin/sh\nprintf 'invoked\\n' > '" + marker +
+      "'\necho 'synthetic compiler rejection' >&2\nexit 7\n";
+    await writeFile(compiler, fake, {mode: 0o700});
+    const source = join(root, "only-literal-ownership.atto");
+    const output = join(root, "only-literal-ownership.wasm");
+    const sourceBytes = 'pub fnc main():int{let string s = "rt mut share 42";\n' +
+      '/* rt mut share (Box.new(42)) /* nested rt mut share */ */\n' +
+      '// rt mut share 99\nreturn 42;}\n';
+    await writeFile(source, sourceBytes);
+    await assert.rejects(
+      compileOresToWasm({
+        compiler, compilerSha256: digest(Buffer.from(fake)),
+        source, output, environment: "browser", publication: "atomic"
+      }),
+      /command failed .*synthetic compiler rejection/,
+      "comment/string-only source must reach the synthetic compiler, not fail ownership preflight"
+    );
+    assert.equal(await readFile(marker, "utf8"), "invoked\n",
+      "the harmless quoted/commented spelling was incorrectly denied by preflight");
+    assert.equal(await readFile(source, "utf8"), sourceBytes);
+    await assert.rejects(stat(output + ".current.json"), {code: "ENOENT"});
+  } finally {
+    await rm(root, {recursive: true, force: true});
+  }
+});
+
 // This is a DIFFERENT gate: direct execution of a pinned real LLVM compiler.
 // It proves the native parser rejected each .atto input, but NOT that Wasm
 // linked or published guest code. No copied private source or fallback compiler.
