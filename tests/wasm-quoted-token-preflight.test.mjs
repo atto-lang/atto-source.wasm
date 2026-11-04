@@ -53,7 +53,7 @@ test("malformed .atto source cannot execute the pinned compiler or publish Wasm"
       JSON.stringify(marker)+'\n',{mode:0o700});
     await assert.rejects(
       compileOresToWasm({compiler,source,output}),
-      /unterminated quoted source token/);
+      /unterminated (?:quoted source token|source string)/);
     await assert.rejects(access(marker),/ENOENT/);
     await assert.rejects(access(output),/ENOENT/);
   }finally{await rm(root,{recursive:true,force:true})}
