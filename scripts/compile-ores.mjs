@@ -10,6 +10,7 @@ import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/prom
 import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
+import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
@@ -295,8 +296,15 @@ async function withPublicationLock(published,publication,callback){
  }
 }
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
-function run(command,args,{input}={}){
- const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
+function run(command,args,{input,cwd}={}){
+ // The native source compiler and clang/lld are trusted build tools, not
+ // sandboxes. Keep their ambient environment free of CI tokens, Node hooks,
+ // cloud credentials and dynamic-loader overrides. Compile in the private
+ // scratch workspace so accidental relative writes cannot hit the checkout.
+ const output=spawnSync(command,args,{
+  input,cwd,env:restrictedBuildEnvironment(),
+  encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true
+ });
  if(output.error||output.status!==0||output.signal){
   // Keep the historic diagnostic message, but retain process evidence. A
   // rejected compiler that wrote partial IR to stdout or died by signal must
@@ -407,7 +415,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource],{cwd:scratch});
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -429,7 +437,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  run(clang,["--target=wasm32","-x","ir","-Oz","-nostdlib",
    "-Wl,--no-entry","-Wl,--export="+exportName,
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
-   "-o",provisional,"-"],{input:ir});
+   "-o",provisional,"-"],{input:ir,cwd:scratch});
  const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
   "linked Wasm exceeds 16 MiB artifact budget")).bytes;
  // Validate strict no-managed-guest policy before engine compilation.
@@ -452,7 +460,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
-  clangVersion:run(clang,["--version"]).split("\n")[0],
+  clangVersion:run(clang,["--version"],{cwd:scratch}).split("\n")[0],
   note:"Binary provenance: exact compiler executable bytes, not proof of source-repository commit or feature parity."
  };
  let manifest=null;

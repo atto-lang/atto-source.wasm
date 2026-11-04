@@ -27,13 +27,24 @@ source-bound environment must supply:
 - `ORESLANG_MACRO_WASM_EXPECTED_HEAD=<exact committed Wasm SHA>`
 - `ORESLANG_LLVM_SOURCE_SHA=b83f540269a256e549cc9160b6b43bf37d33fb0f`
 - `ORESLANG_LLVM_SOURCE_TREE=26e85b258061b206e4a145825df6dfe11065a499`
+- `ORESLANG_LLVM_SOURCE_ROOT=<absolute path to authorized exact local LLVM checkout>`
 - `ORESLANG_LLVM_COMPILER=<absolute reviewed native compiler executable>`
 - `ORESLANG_LLVM_COMPILER_SHA256=<sha256 actual executable bytes>`
+- `CLANG=<absolute resolved clang/lld executable>`
+- `ORESLANG_MACRO_WASM_CLANG_SHA256=<sha256 of actual clang executable>`
 
 Then run `npm run test:macro-wasm32` with Node >=22 and a real wasm32
 Clang/lld toolchain. The reviewer must independently verify that the exact
 LLVM checkout built that compiler; environment-provided claims alone do not
-establish source/compiler provenance. The suite rejects absent/mismatched
+establish source/compiler provenance. The strict lane now reads the local
+LLVM Git HEAD/tree and checks tracked cleanliness before/after; it hashes the
+reviewed clang/lld executable before/after as well. This still does not
+substitute for an independently witnessed exact-checkout compiler build.
+The native compiler and linker run from an isolated temporary working
+directory with a constrained child environment: PATH and locale only on
+POSIX (plus OS-required Windows process lookup fields), never inherited CI
+tokens, cloud credentials, `NODE_OPTIONS`, `LD_PRELOAD` or similar hooks.
+This is least-privilege process hygiene, **not** a malicious compiler sandbox. The suite rejects absent/mismatched
 SHA pins, outputs native binary SHA receipts, checks seven guest values of
 42n, nine typed compiler rejections, no artifacts on rejected sources, and
 compares source heads and executable bytes before/after.
