@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "oreslang.numeric-public-api.v1",
+  "status": "proposed-api-contract-not-backend-proof",
+  "source_ownership": {
+    "public_api": "Oreslang source",
+    "backend_primitives": "sealed compiler/runtime implementation detail",
+    "forbidden": [
+      "public Java/.NET/C/C++/JavaScript numeric interop defining guest semantics",
+      "implicit binary64 coercion for BigInt or Decimal",
+      "host-global mutable decimal rounding context",
+      "host overflow/wrap behavior leaking through Math.abs or Math.neg"
+    ]
+  },
+  "types": {
+    "int": "checked signed fixed-width integer domain",
+    "f64": "IEEE-754 binary64",
+    "f32": "IEEE-754 binary32; must be a distinct representation or rejected",
+    "BigInt": "arbitrary-precision signed integer subject to explicit resource budgets",
+    "Decimal": "arbitrary-precision/resource-bounded base-10 coefficient plus signed scale",
+    "DecimalContext": "immutable explicit precision and rounding policy"
+  },
+  "math_overloads": {
+    "Math.abs": {
+      "int": "same type; minimum signed value reports ArithmeticOverflowError",
+      "f64": "clear sign bit; -0 -> +0; infinities preserved positive; NaN remains NaN",
+      "BigInt": "exact",
+      "Decimal": "exact and scale preserving"
+    },
+    "Math.neg": {
+      "int": "same type; minimum signed value reports ArithmeticOverflowError",
+      "f64": "toggle sign; +0 -> -0; -0 -> +0; NaN remains NaN",
+      "BigInt": "exact",
+      "Decimal": "exact and scale preserving"
+    }
+  },
+  "bigint_api": {
+    "parse": "BigInt.parse(text: String) -> Result<BigInt, NumericParseError>",
+    "quot": "BigInt.quot(dividend: BigInt, divisor: BigInt) -> Result<BigInt, DivisionByZeroError>",
+    "rem": "BigInt.rem(dividend: BigInt, divisor: BigInt) -> Result<BigInt, DivisionByZeroError>",
+    "div_rem": "BigInt.div_rem(dividend: BigInt, divisor: BigInt) -> Result<(BigInt, BigInt), DivisionByZeroError>",
+    "to_i64_checked": "BigInt.to_i64_checked(value: BigInt) -> Result<int, ArithmeticOverflowError>",
+    "to_f64_exact": "BigInt.to_f64_exact(value: BigInt) -> Result<f64, InexactConversionError>",
+    "to_f64_nearest": "BigInt.to_f64_nearest(value: BigInt) -> Result<f64, NumericRangeError>"
+  },
+  "decimal_api": {
+    "parse": "Decimal.parse(text: String) -> Result<Decimal, NumericParseError>",
+    "divide_exact": "Decimal.divide_exact(a: Decimal, b: Decimal) -> Result<Decimal, DecimalDivisionError>",
+    "divide": "Decimal.divide(a: Decimal, b: Decimal, context: DecimalContext) -> Result<Decimal, DivisionByZeroError>",
+    "round": "Decimal.round(value: Decimal, context: DecimalContext) -> Result<Decimal, NumericContextError>",
+    "to_f64_exact": "Decimal.to_f64_exact(value: Decimal) -> Result<f64, InexactConversionError>",
+    "to_f64_nearest": "Decimal.to_f64_nearest(value: Decimal) -> Result<f64, NumericRangeError>"
+  },
+  "parsing": {
+    "BigInt": {
+      "accepted": ["0", "-0", "42", "-42", "9007199254740993"],
+      "canonical_output": ["0", "42", "-42", "9007199254740993"],
+      "rejected": ["", "+1", "01", "-01", "1.0", "1e3", "_1", "1_", "1__0"]
+    },
+    "Decimal": {
+      "accepted": ["0", "-0", "0.1", "-12.3400", "1e3", "1E-3"],
+      "exact": true,
+      "rejected": ["", "+1", ".1", "1.", "1__0", "nan", "inf", "-inf"]
+    }
+  },
+  "rounding_modes": [
+    "HALF_EVEN",
+    "HALF_UP",
+    "HALF_DOWN",
+    "UP",
+    "DOWN",
+    "CEILING",
+    "FLOOR",
+    "UNNECESSARY"
+  ],
+  "errors": [
+    "ArithmeticOverflowError",
+    "DivisionByZeroError",
+    "InexactConversionError",
+    "NumericRangeError",
+    "NumericParseError",
+    "NumericContextError",
+    "NumericResourceError",
+    "NonterminatingDecimalError"
+  ],
+  "hard_rt": {
+    "fixed_int_and_floats": "eligible subject to target profile and WCET proof",
+    "BigInt_and_Decimal": "not hard-real-time by default; require statically bounded operands, allocation and WCET"
+  }
+}

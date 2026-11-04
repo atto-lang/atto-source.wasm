@@ -1,13 +1,13 @@
 /**
  * Experimental, explicit end-to-end bridge:
- * native oreslang-llvmc (.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
+ * native AttoLang/legacy source (.atto/.ores -> LLVM IR) -> clang wasm32 -> Wasm module.
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
-import {dirname,resolve,isAbsolute,join,basename} from "node:path";
+import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
@@ -26,12 +26,12 @@ function tupleV2Tokens(sourceBytes){
   const c=text[i];
   if(/\s/.test(c)){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&text[i]!=="\n")i++;continue;
+   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
    while(i<text.length&&depth){
-    if(text[i]==="/"&&text[i+1]==="*"){depth++;i+=2}
+    if(text[i]==="/"&&text[i+1]==="*"){if(++depth>128)throw Error("block comment nesting too deep at byte "+start);i+=2}
     else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
     else i++;
    }
@@ -39,13 +39,14 @@ function tupleV2Tokens(sourceBytes){
    continue;
   }
   if(c==="\""||c==="'"){
-   const quote=c;i++;let escaped=false;
+   const quote=c;const start=i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
     if(escaped){escaped=false;continue}
     if(q==="\\"){escaped=true;continue}
-    if(q===quote)break;
+    if(q===quote){closed=true;break}
    }
+   if(!closed)throw Error("unterminated source literal at byte "+start);
    continue;
   }
   if(idStart(c)){
@@ -55,6 +56,28 @@ function tupleV2Tokens(sourceBytes){
   tokens.push({text:c,offset:i,id:false});i++;
  }
  return tokens;
+}
+
+/**
+ * Conservative source admission for new declaration families. This bridge
+ * does not own the language parser: native LLVM must also reject unimplemented
+ * declarations. Scan exact declaration-head tokens only, never raw substrings.
+ */
+export function rejectUnsupportedStateContainerVirtualActorSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++) {
+  let j=i;
+  if(tokens[j]?.text==="pub" && tokens[j+1]?.text==="define") j++;
+  if(tokens[j]?.text!=="define") continue;
+  j++;
+  if(tokens[j]?.text==="pub") j++;
+  const first=tokens[j], second=tokens[j+1];
+  if(!first?.id||!second?.id)continue;
+  if(first.text==="state"&&second.text==="container")
+   throw Error("STATE_CONTAINER_BACKEND_UNSUPPORTED: Wasm bridge needs protected heap region and critical guard lowering at offset "+first.offset);
+  if(first.text==="virtual"&&second.text==="actor")
+   throw Error("VIRTUAL_ACTOR_BACKEND_UNSUPPORTED: Wasm bridge needs logical key and activation fencing at offset "+first.offset);
+ }
 }
 
 /**
@@ -92,6 +115,30 @@ export function rejectUnsupportedTupleV2Source(sourceBytes){
  }
 }
 /**
+ * Fail closed until actual LLVM source → wasm32 inverted-row lowering exists.
+ * A bounded comment/string-aware scanner only diagnoses unsupported source:
+ * it does NOT recognize a valid layout or replace the compiler/typechecker.
+ * There is no ordinary Array<T>, actor shard or scalar fallback for these.
+ */
+export function rejectUnsupportedInvertedLayoutSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ const is=(i,text)=>tokens[i]?.id===true&&tokens[i].text===text;
+ for(let i=0;i<tokens.length;i++){
+  if(is(i,"define")||is(i,"pub")&&is(i+1,"define")){
+   let j=i+(is(i,"define")?1:2);
+   if(is(j,"pub"))j++;
+   if(is(j,"inverted")&&(is(j+1,"struct")||is(j+1,"class"))){
+    throw Error("wasm inverted "+tokens[j+1].text+
+      " requires typed one-level SoA source lowering at byte "+tokens[j].offset);
+   }
+  }
+  if(is(i,"InvertedArray")&&tokens[i+1]?.text==="<"){
+   throw Error("wasm inverted collection requires checked owner/row/column ABI at byte "+
+     tokens[i].offset);
+  }
+ }
+}
+/**
  * Structural match-arm patterns need typed metadata and readonly loan
  * lowering; a scalar-only Wasm guest may never materialize them by accident.
  * Reuses the bounded UTF-8 lexer so strings/comments are never evidence.
@@ -105,6 +152,38 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
   }
  }
 }
+/**
+ * Current core-wasm.i64-v1 cannot lower heap aliases, vector relocation or
+ * shared mutation. Deny source ownership forms BEFORE invoking native LLVMc;
+ * an eventual compiler backend must replace this explicit capability gate
+ * only after guest, Worker and linear-memory lifetime evidence exists.
+ * Lexical tokenization ignores source comments and string contents.
+ */
+export function rejectUnsupportedHeapContainerSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ const nominal=new Set(["Box","Arc","Weak","Rc","RefCell",
+  "Vector","Array","List","Mutex","RwLock","SharedMutex"]);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i];
+  if(!token.id)continue;
+  // A user-defined function named Box/Arc is not a heap type use.
+  const declaration=tokens[i-1]?.id&&
+      ["fnc","routine"].includes(tokens[i-1].text);
+  if(!declaration&&nominal.has(token.text)&&
+      ["<","[","("].includes(tokens[i+1]?.text)){
+   throw Error("wasm heap/container ownership ABI unsupported: "+
+      token.text+" at byte "+token.offset);
+  }
+  if(token.text!=="rt")continue;
+  const a=tokens[i+1],b=tokens[i+2];
+  if(a?.id&&["borrow","take"].includes(a.text) ||
+     a?.text==="mut"&&b?.id&&["borrow","share"].includes(b.text)){
+   throw Error("wasm heap loan/transfer lowering unsupported at byte "+
+      token.offset);
+  }
+ }
+}
+
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -194,21 +273,45 @@ async function withPublicationLock(published,publication,callback){
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
 function run(command,args,{input}={}){
  const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
- if(output.error||output.status!==0||output.signal)throw Error("command failed ("+command+"): "+(output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+ if(output.error||output.status!==0||output.signal){
+  // Keep the historic diagnostic message, but retain process evidence. A
+  // rejected compiler that wrote partial IR to stdout or died by signal must
+  // not be mistaken for an intentional source-level capability denial.
+  const failure=new Error("command failed ("+command+"): "+
+    (output.error?.message||output.stderr||"exit "+output.status).slice(0,4000));
+  failure.status=output.status;
+  failure.signal=output.signal;
+  failure.stdout=output.stdout||"";
+  failure.stderr=output.stderr||"";
+  if(output.error){
+   failure.code=output.error.code;
+   failure.errno=output.error.errno;
+   failure.syscall=output.error.syscall;
+   failure.cause=output.error;
+  }
+  throw failure;
+ }
  return output.stdout||"";
 }
 export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ const sourceExtension=extname(source).toLowerCase();
+ if(sourceExtension!==".atto"&&sourceExtension!==".ores")
+  throw Error("source file must use canonical .atto or legacy .ores extension");
  // Resolve directory symlinks ONCE and use that physical pathname for
  // publication, not the caller's possibly aliased directory spelling.
  // A lexical resolve() comparison alone can overwrite compiler/source
  // inputs through an alternate symlinked parent directory.
  await mkdir(dirname(output),{recursive:true});
- const [sourcePath,compilerPath,outputParent]=await Promise.all([
-  realpath(source),realpath(compiler),realpath(dirname(output))
+ // Resolve directory aliases, but keep the source leaf itself intact so
+ // readBoundedRegularFile's O_NOFOLLOW open can reject a caller-supplied
+ // symlink instead of silently following it through realpath(source).
+ const [sourceParent,compilerPath,outputParent]=await Promise.all([
+  realpath(dirname(source)),realpath(compiler),realpath(dirname(output))
  ]);
+ const sourcePath=join(sourceParent,basename(source));
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
@@ -252,19 +355,24 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
+ rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
  if(environment!==undefined&&!["browser","edge-js","edge-wasi"].includes(environment))
   throw Error("unsupported portable host environment");
  // Compile exactly the already-hashed source snapshot, not a mutable path.
- // The current scalar subset supports standalone source files; relative
- // source imports must be resolved and pinned by a future module graph gate.
+ // The current scalar subset supports standalone .atto/.ores source files;
+ // relative source imports must be resolved and pinned by a future module graph gate.
  const scratch=await mkdtemp(join(outputParent,".oreslang-wasm-"));
  const provisional=join(scratch,"guest.wasm");
  try{
- const stagedSource=join(scratch,"source.ores");
+ // Preserve the approved language suffix: the native LLVM CLI uses this
+ // extension for frontend admission. Never disguise .atto as .ores.
+ const stagedSource=join(scratch,"source"+sourceExtension);
  const stagedCompiler=join(scratch,"compiler-exact");
  await writeFile(stagedSource,sourceBytes,{mode:0o400,flag:"wx"});
  // Execute the exact compiler bytes whose SHA-256 we pinned, not a mutable
