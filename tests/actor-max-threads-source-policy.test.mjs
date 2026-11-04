@@ -128,3 +128,15 @@ test("WASM comment boundaries and multiline visibility modifiers preserve source
     'fnc main():int{return 42;} // "define supervisor S1"',
   ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
 });
+
+test("source preflight checks typed-array internal byte length and shared backing",()=>{
+  const over=new Uint8Array(1_048_577).fill(32);
+  Object.defineProperty(over,"byteLength",{value:8});
+  assert.throws(()=>rejectUnsupportedActorThreadSource(over),/exceeds 1 MiB byte budget/);
+  if(typeof SharedArrayBuffer==="function"){
+    const shared=new Uint8Array(new SharedArrayBuffer(32));
+    Object.defineProperty(shared,"buffer",{value:new ArrayBuffer(32)});
+    assert.throws(()=>rejectUnsupportedActorThreadSource(shared),/rejects shared memory/);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes("fnc main():int{return 42;}")));
+});
