@@ -30,6 +30,10 @@ test('real core Wasm is JIT-compiled and invoked in a separate Node process',asy
   const result=await runExperimentalProcessGuest(simple,opt);
   assert.equal(result.value,42n);
   assert.equal(result.admission.sha256,createHash('sha256').update(simple).digest('hex'));
+  assert.equal(Object.isFrozen(result),true);
+  assert.equal(Object.isFrozen(result.admission),true);
+  assert.equal(Object.isFrozen(result.execution),true);
+  assert.throws(()=>{result.admission.sha256='0'.repeat(64);},TypeError);
   assert.equal(result.execution.actualWasmGuestExecuted,true);
   assert.equal(result.execution.hostileSandboxCertified,false);
   assert.equal(result.execution.attolangActorExecuted,false);
