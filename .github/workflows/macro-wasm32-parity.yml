@@ -28,7 +28,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          printf 'MACRO_WASM_SOURCE_ONLY_HEAD=%s\\nTREE=%s\\n' "$EXPECTED_HEAD" "$(git rev-parse HEAD^{tree})"
+          printf 'MACRO_WASM_SOURCE_ONLY_HEAD=%s\nTREE=%s\n' "$EXPECTED_HEAD" "$(git rev-parse HEAD^{tree})"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'

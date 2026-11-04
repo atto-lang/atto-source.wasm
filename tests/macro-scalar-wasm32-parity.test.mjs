@@ -117,7 +117,7 @@ const reviewedLlvmHead="b83f540269a256e549cc9160b6b43bf37d33fb0f";
 const reviewedLlvmTree="26e85b258061b206e4a145825df6dfe11065a499";
 const sha256=bytes=>createHash("sha256").update(bytes).digest("hex");
 const blobSha=bytes=>createHash("sha1")
-    .update(Buffer.from("blob "+bytes.length+"\\0")).update(bytes).digest("hex");
+    .update(Buffer.from("blob "+bytes.length+"\0")).update(bytes).digest("hex");
 const missing=async path=>assert.rejects(stat(path),{code:"ENOENT"});
 const git=(args)=> {
  const p=spawnSync("git",args,{cwd:root,encoding:"utf8",timeout:5000,

@@ -33,7 +33,7 @@ SHA pins, outputs native binary SHA receipts, checks seven guest values of
 42n, nine typed compiler rejections, no artifacts on rejected sources, and
 compares source heads and executable bytes before/after.
 
-.NET and LLVM host exit/status conventions differ: .NET prints `42\\n`
+.NET and LLVM host exit/status conventions differ: .NET prints `42\n`
 and exits 0; LLVM native host exits 42; Wasm exports `main() -> i64` and
 the isolated runner returns `42n`. These are equivalent guest integer
 values, not interchangeable transport/exit ABIs.
