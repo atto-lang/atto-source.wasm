@@ -44,7 +44,7 @@ function stageShape(input) {
   });
   if (!((s.role === 'readable' && !s.forwardIn && s.forwardOut) ||
         (s.role === 'writable' && s.forwardIn && !s.forwardOut) ||
-        (s.role === 'transform' && s.forwardIn && s.forwardOut)))
+        ((s.role === 'transform' || s.role === 'duplex') && s.forwardIn && s.forwardOut)))
     throw new TypeError('invalid actor pipeline forward role');
   return s;
 }
