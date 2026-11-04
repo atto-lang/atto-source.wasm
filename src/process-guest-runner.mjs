@@ -44,16 +44,26 @@ function verifyResponse(message, bytes, hash, entry, maxMemoryPages) {
  * The caller MUST consciously opt into an unsafe development-only execution.
  */
 export async function runExperimentalProcessGuest(input, options = {}) {
+  // Reject accessor-backed configuration before reading any option. Snapshot
+  // each own data property once, so admission and execution cannot observe
+  // different values from getters or a mutated options object.
   if (!options || typeof options !== 'object' || Array.isArray(options) ||
-      Object.getPrototypeOf(options) !== Object.prototype ||
-      Object.keys(options).some(k => !allowed.has(k))) {
+      Object.getPrototypeOf(options) !== Object.prototype) {
     throw new TypeError('invalid process runner options');
   }
-  if (options.unsafeDevelopmentMode !== true) {
+  const descriptors = Object.getOwnPropertyDescriptors(options);
+  if (Reflect.ownKeys(descriptors).some(k =>
+    typeof k !== 'string' || !allowed.has(k) ||
+    !Object.hasOwn(descriptors[k], 'value'))) {
+    throw new TypeError('invalid process runner options');
+  }
+  const config = Object.fromEntries(Object.entries(descriptors).map(
+    ([key, d]) => [key, d.value]));
+  if (config.unsafeDevelopmentMode !== true) {
     throw Error('UNTRUSTED_PROCESS_SANDBOX_NOT_IMPLEMENTED: development opt-in required');
   }
   const {expectedSha256, entry = 'main', maxMemoryPages = 2,
-    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000} = options;
+    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000} = config;
   checkInt(timeoutMs, 1, 30000, 'timeoutMs');
   checkInt(maxModuleBytes, 8, 16 * 1024 * 1024, 'maxModuleBytes');
   checkInt(maxMemoryPages, 1, 256, 'maxMemoryPages');
@@ -72,7 +82,7 @@ export async function runExperimentalProcessGuest(input, options = {}) {
   concurrent++;
   try {
     return await new Promise((resolve, reject) => {
-      let child, timer, response, failure, finalized = false;
+      let child, timer, response, validated, failure, finalized = false;
       const kill = () => {
         if (child && child.exitCode === null && child.signalCode === null) {
           try { child.kill('SIGKILL'); } catch (err) { failure ||= err; }
@@ -86,8 +96,8 @@ export async function runExperimentalProcessGuest(input, options = {}) {
         // We reach here only on close: do not free quota while code may run.
         concurrent--;
         if (failure) return reject(failure);
-        try { resolve(verifyResponse(response, bytes.length, actualHash, entry, maxMemoryPages)); }
-        catch (err) { reject(err); }
+        if (!validated) return reject(Error('guest process response was not validated'));
+        resolve(validated);
       };
       try {
         child = spawn(process.execPath,
@@ -97,13 +107,21 @@ export async function runExperimentalProcessGuest(input, options = {}) {
         child.on('message', message => {
           if (response !== undefined) return fail(Error('duplicate process guest response'));
           response = message;
-          // A finished guest still needs child process retirement before success.
-          kill();
+          try {
+            validated = verifyResponse(message, bytes.length, actualHash, entry, maxMemoryPages);
+          } catch (err) {
+            return fail(err);
+          }
+          // Do not kill a successful child before its normal IPC disconnect.
+          // A nonzero exit after a valid reply is still an execution failure.
+          // The deadline remains active until close and kills any stuck child.
         });
         child.once('error', err => fail(new Error('guest process launch failed: ' + err.message)));
         child.once('close', (code, signal) => {
+          if (!failure && (code !== 0 || signal !== null))
+            failure = Error('guest process did not exit cleanly: ' + String(code ?? signal));
           if (response === undefined && !failure)
-            failure = Error('guest process exited without result: ' + String(code ?? signal));
+            failure = Error('guest process exited without result');
           finish();
         });
         timer = setTimeout(() => fail(Error('guest process execution deadline exceeded')), timeoutMs);
