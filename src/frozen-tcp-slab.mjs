@@ -16,6 +16,10 @@ export class FrozenTcpSlab {
   #pinCount = 0;
   #retiring = false;
   constructor(source) {
+    // Reject caller proxies before inspecting iterator/buffer properties.
+    // Arbitrary Proxy traps would otherwise execute at this ownership boundary.
+    if (types.isProxy(source))
+      throw new TypeError('TCP slab rejects Proxy byte sources');
     if (source == null || typeof source[Symbol.iterator] !== 'function')
       throw new TypeError('invalid TCP byte source');
     if (ArrayBuffer.isView(source)) {
