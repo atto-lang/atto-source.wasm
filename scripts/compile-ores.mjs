@@ -63,6 +63,30 @@ function tupleV2Tokens(sourceBytes){
  * does not own the language parser: native LLVM must also reject unimplemented
  * declarations. Scan exact declaration-head tokens only, never raw substrings.
  */
+/**
+ * Durable activity/workflow declarations have no Wasm replay/history ABI.
+ * Fail before invoking even a pinned LLVM compiler or writing guest artifacts.
+ * This only detects unsupported declaration heads; it does not parse AttoLang.
+ * Shared tokenizer ignores strings/comments and rejects malformed UTF-8.
+ */
+export function rejectUnsupportedDurableM0Source(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++) {
+  let j=i;
+  if(tokens[j]?.id&&tokens[j].text==="pub" &&
+     tokens[j+1]?.id&&tokens[j+1].text==="define")j++;
+  if(tokens[j]?.text!=="define"||!tokens[j]?.id)continue;
+  j++;
+  if(tokens[j]?.id&&tokens[j].text==="pub")j++;
+  const declaration=tokens[j];
+  if(declaration?.id &&
+     (declaration.text==="activity"||declaration.text==="workflow"))
+   throw Error("DURABLE_M0_BACKEND_UNSUPPORTED: Wasm durable "+
+      declaration.text+" requires a versioned manifest and replay ABI at offset "+
+      declaration.offset);
+ }
+}
+
 export function rejectUnsupportedStateContainerVirtualActorSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
  for(let i=0;i<tokens.length;i++) {
@@ -355,6 +379,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
+ rejectUnsupportedDurableM0Source(sourceBytes);
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);

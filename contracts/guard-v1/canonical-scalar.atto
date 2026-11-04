@@ -1,0 +1,10 @@
+// Canonical AttoLang guard v1: successful guest exit status must be 42.
+fnc bounded(int x): int {
+  guard x > 0 { return 1; }
+  guard x < 10, x != 5 { return 2; }
+  return 42;
+}
+
+pub fnc main(): int {
+  return bounded(3);
+}

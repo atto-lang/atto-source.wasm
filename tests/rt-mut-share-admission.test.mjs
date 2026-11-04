@@ -2,14 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {assertNativeMutShareDenial} from "../scripts/rt-mut-share-admission.mjs";
 
-const valid = "command failed (/tmp/private/compiler-exact): oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof";
+const denial = "oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof; refusing unsynchronized alias at byte 47";
+const valid = `command failed (/tmp/private/compiler-exact): ${denial}`;
 const evidence = {
   message:valid, status:1, signal:null, stdout:"",
-  stderr:"oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof"
+  stderr:denial
 };
 test("guarded-sharing rejection requires the exact compiler and diagnostic", () => {
   assert.equal(assertNativeMutShareDenial(evidence), true);
-  assert.equal(assertNativeMutShareDenial({...evidence,status:2}), true);
+  assert.throws(() => assertNativeMutShareDenial({...evidence,status:2}),
+    undefined, "unrelated exit(2) cannot count as controlled compiler rejection");
+  assert.throws(() => assertNativeMutShareDenial({...evidence,status:127}),
+    undefined, "shell command-not-found exit cannot count as compiler rejection");
   assert.throws(() => assertNativeMutShareDenial(new Error(valid)),
     undefined, "message-only Error is not real compiler evidence");
   assert.throws(() => assertNativeMutShareDenial({message:valid,signal:null}),
@@ -53,7 +57,7 @@ test("host failure, generic parser error and a substituted compiler fail closed"
   assert.throws(() => assertNativeMutShareDenial({...evidence,signal:"SIGKILL"}));
   for (const failure of [
     {code:"ENOENT"}, {errno:-2}, {syscall:"spawn"}, {cause:new Error("host failure")},
-    {status:0}, {status:NaN}, {status:-1}
+    {status:0}, {status:NaN}, {status:-1}, {status:2}, {status:127}
   ]) assert.throws(() => assertNativeMutShareDenial({...evidence,...failure}),
     undefined, "host failure metadata and successful status must not count as compiler denial");
 });
@@ -70,12 +74,14 @@ test("mixed diagnostics and spoofed trailing errors are never ownership proof", 
     evidence.stderr + "\nerror: missing input",
     evidence.stderr + " error: unrelated parser failure",
     evidence.stderr + "; refusing unsynchronized alias at byte invalid",
+    evidence.stderr.replace("; refusing unsynchronized alias at byte 47", ""),
+    evidence.stderr.replace("byte 47", "byte 47x"),
     evidence.stderr + "; refusing unsynchronized alias at byte 42 error: unexpected token"
   ]) {
     assert.throws(() => assertNativeMutShareDenial({...evidence, stderr}),
       undefined, "mixed failure incorrectly treated as native ownership rejection");
   }
   assert.equal(assertNativeMutShareDenial({
-    ...evidence, stderr:evidence.stderr + "; refusing unsynchronized alias at byte 47\n"
+    ...evidence, stderr:evidence.stderr + "\n"
   }), true);
 });

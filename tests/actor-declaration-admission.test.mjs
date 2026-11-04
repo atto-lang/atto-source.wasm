@@ -140,6 +140,73 @@ test("exact conformance lifecycle source fails closed before Wasm scalar compila
   );
 });
 
+test("CR-only, NEL and Unicode comment lines cannot hide unsupported actors", () => {
+  for (const separator of ["\r", "\u0085", "\u2028", "\u2029"]) {
+    const label = "U+" + separator.charCodeAt(0).toString(16);
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes("// hidden actor" + separator + "define actor Worker as end")),
+      /WASM source actor execution unsupported/, label);
+    assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes("// actor ignored" + separator + "fnc main():int{return 42;}")), label);
+  }
+});
+
+test('reserved MaxActorThreads enum is denied behind visibility modifiers',()=>{
+  for(const source of [
+    'define enum MaxActorThreads as end',
+    'define pub enum MaxActorThreads as end',
+    'define private enum MaxActorThreads as end',
+    'define pub private enum MaxActorThreads as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /WASM built-in MaxActorThreads enum unsupported/,source);
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    'define pub enum UserColors as red end')));
+});
+
+test("NEL U+0085 cannot split reserved enum tokens in scalar Wasm preflight",()=>{
+  for(const source of [
+    "define\u0085enum\u0085MaxActorThreads as end",
+    "define\u0085pub\u0085enum\u0085MaxActorThreads as end",
+    "define pub\u0085enum MaxActorThreads as end"
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /built-in MaxActorThreads enum unsupported/,source);
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    "define\u0085pub\u0085enum\u0085Color as red end")));
+});
+
+test("Wasm scalar source preflight cannot be fooled by byteLength or buffer shadowing",()=>{
+  const oversized=new Uint8Array(1_048_577);
+  Object.defineProperty(oversized,"byteLength",{get(){return 1}});
+  assert.throws(()=>rejectUnsupportedActorThreadSource(oversized),/1 MiB byte budget/);
+  if(typeof SharedArrayBuffer==="function"){
+    const shared=new Uint8Array(new SharedArrayBuffer(64));
+    Object.defineProperty(shared,"buffer",{value:new ArrayBuffer(64)});
+    assert.throws(()=>rejectUnsupportedActorThreadSource(shared),/refuses shared source backing/);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes("fnc main():int{return 42;}")));
+});
+
+test("NEL-separated actor modifiers and reserved enums retain fail-closed lexical admission",()=>{
+  for(const source of [
+    'define\u0085private\u0085enum\u0085MaxActorThreads as end',
+    'define\u0085pub\u0085private\u0085enum\u0085MaxActorThreads as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /built-in MaxActorThreads enum unsupported/,source);
+  for(const source of [
+    'define\u0085http\u0085actor\u0085Server as end',
+    'define\u0085serial\u0085http\u0085actor\u0085Server as end'
+  ])assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+    /WASM source actor execution unsupported/,source);
+});
+
+test('reserved MaxActorThreads enum cannot hide behind stacked modifiers',()=>{
+  for(const modifiers of ['shared','pub shared','private untrusted','abstract','serial']){
+    const source='define '+modifiers+' enum MaxActorThreads as end';
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+      /built-in MaxActorThreads enum unsupported/,source);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    'define pub shared enum UserColors as red end')));
+});
+
 test("shared-backed actor preflight is denied before lexing mutable bytes", () => {
   if (typeof SharedArrayBuffer === "undefined") return;
   const safe = bytes("fnc main():int{return 42;}");
@@ -147,7 +214,7 @@ test("shared-backed actor preflight is denied before lexing mutable bytes", () =
   shared.set(safe);
   assert.throws(
     () => rejectUnsupportedActorThreadSource(shared),
-    /WASM source preflight refuses shared mutable backing/
+    /WASM source preflight refuses shared source backing/
   );
   // A private copy remains valid and does not grant actor capabilities.
   assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(new Uint8Array(shared)));
@@ -194,7 +261,7 @@ test("SAB spoofed .buffer getter cannot evade source preflight", () => {
   });
   assert.throws(
     () => rejectUnsupportedActorThreadSource(unsafe),
-    /WASM source preflight refuses shared mutable backing/
+    /WASM source preflight refuses shared source backing/
   );
 });
 
