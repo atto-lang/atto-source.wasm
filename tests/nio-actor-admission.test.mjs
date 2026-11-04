@@ -155,3 +155,31 @@ test("option-count bound and prototype poisoning deny without touching Wasm inpu
     error => !/admission options|shared TCP pool|unknown core-guest/.test(error.message)
   );
 });
+
+test("Proxy option bags are refused before any trap can execute", () => {
+  let traps = 0;
+  const options = new Proxy({guestNetworkIo: false}, {
+    getPrototypeOf() { traps++; return Object.prototype; },
+    ownKeys() { traps++; return ["guestNetworkIo"]; },
+    getOwnPropertyDescriptor() { traps++; return {configurable: true, value: false}; }
+  });
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, options),
+    /admission forbids Proxy option bags/
+  );
+  assert.equal(traps, 0);
+});
+
+test("untrusted entry or SHA objects reject without coercion", () => {
+  let coercions = 0;
+  const untrusted = {toString() {coercions++; return "main";}};
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, {entry: untrusted}),
+    /invalid guest entry/
+  );
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, {expectedSha256: untrusted}),
+    /invalid pinned SHA-256/
+  );
+  assert.equal(coercions, 0, "untrusted metadata must never be coerced");
+});
