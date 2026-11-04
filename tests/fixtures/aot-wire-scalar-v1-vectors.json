@@ -1,0 +1,180 @@
+{
+  "contract": "attolang.aot-wire-scalar-fixtures/1",
+  "sourceNominal": "__root__.MatrixPayload",
+  "sourcePackageIdentityClaim": "matrix-fixture@1",
+  "positive": [
+    {
+      "id": "zero",
+      "json": "{\"number\":0,\"text\":\"\",\"active\":false}",
+      "messagePackHex": "83a66e756d626572d30000000000000000a474657874a0a6616374697665c2",
+      "expected": {
+        "i64": "0",
+        "string": "",
+        "bool": false
+      }
+    },
+    {
+      "id": "one",
+      "json": "{\"number\":1,\"text\":\"ok\",\"active\":true}",
+      "messagePackHex": "83a6616374697665c3a474657874a26f6ba66e756d626572d30000000000000001",
+      "expected": {
+        "i64": "1",
+        "string": "ok",
+        "bool": true
+      }
+    },
+    {
+      "id": "negative_one",
+      "json": "{\"number\":-1,\"text\":\"x\",\"active\":false}",
+      "messagePackHex": "83a474657874a178a66e756d626572d3ffffffffffffffffa6616374697665c2",
+      "expected": {
+        "i64": "-1",
+        "string": "x",
+        "bool": false
+      }
+    },
+    {
+      "id": "i64_min",
+      "json": "{\"number\":-9223372036854775808,\"text\":\"min\",\"active\":true}",
+      "messagePackHex": "83a66e756d626572d38000000000000000a6616374697665c3a474657874a36d696e",
+      "expected": {
+        "i64": "-9223372036854775808",
+        "string": "min",
+        "bool": true
+      }
+    },
+    {
+      "id": "i64_max",
+      "json": "{\"number\":9223372036854775807,\"text\":\"max\",\"active\":false}",
+      "messagePackHex": "83a6616374697665c2a66e756d626572d37fffffffffffffffa474657874a36d6178",
+      "expected": {
+        "i64": "9223372036854775807",
+        "string": "max",
+        "bool": false
+      }
+    },
+    {
+      "id": "utf8_rocket",
+      "json": "{\"number\":42,\"text\":\"🚀\",\"active\":true}",
+      "messagePackHex": "83a66e756d626572d3000000000000002aa474657874a4f09f9a80a6616374697665c3",
+      "expected": {
+        "i64": "42",
+        "string": "🚀",
+        "bool": true
+      }
+    },
+    {
+      "id": "str8_boundary",
+      "json": "{\"number\":127,\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"active\":false}",
+      "messagePackHex": "83a474657874d9207878787878787878787878787878787878787878787878787878787878787878a6616374697665c2a66e756d626572d3000000000000007f",
+      "expected": {
+        "i64": "127",
+        "string": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "bool": false
+      }
+    },
+    {
+      "id": "str16_boundary",
+      "json": "{\"number\":128,\"text\":\"yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy\",\"active\":true}",
+      "messagePackHex": "83a6616374697665c3a474657874da010079797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979797979a66e756d626572d30000000000000080",
+      "expected": {
+        "i64": "128",
+        "string": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+        "bool": true
+      }
+    }
+  ],
+  "negative": [
+    {
+      "id": "json_missing",
+      "format": "json",
+      "value": "{\"number\":1,\"text\":\"x\"}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "json_duplicate",
+      "format": "json",
+      "value": "{\"number\":1,\"text\":\"x\",\"active\":true,\"number\":2}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "json_unknown",
+      "format": "json",
+      "value": "{\"number\":1,\"text\":\"x\",\"active\":true,\"hidden\":3}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "json_fraction",
+      "format": "json",
+      "value": "{\"number\":1.5,\"text\":\"x\",\"active\":true}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "json_null",
+      "format": "json",
+      "value": "{\"number\":1,\"text\":null,\"active\":true}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "json_overflow",
+      "format": "json",
+      "value": "{\"number\":9223372036854775808,\"text\":\"x\",\"active\":true}",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_duplicate",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874a178a66e756d626572c3",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_unknown",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874a178a668696464656ec3",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_nil",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874a178a6616374697665c0",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_float64",
+      "format": "messagepack",
+      "hex": "83a66e756d626572cb0000000000000001a474657874a178a6616374697665c3",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_uint64",
+      "format": "messagepack",
+      "hex": "83a66e756d626572cf0000000000000001a474657874a178a6616374697665c3",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_truncated",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874a178a66163746976",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_trailing",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874a178a6616374697665c300",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_map32",
+      "format": "messagepack",
+      "hex": "df00000003a66e756d626572d30000000000000001a474657874a178a6616374697665c3",
+      "expected": "REJECT"
+    },
+    {
+      "id": "msgpack_bad_utf8",
+      "format": "messagepack",
+      "hex": "83a66e756d626572d30000000000000001a474657874d902c328a6616374697665c3",
+      "expected": "REJECT"
+    }
+  ],
+  "executionEvidence": "NOT_EXECUTED"
+}
