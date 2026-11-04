@@ -45,3 +45,13 @@ test("reads each dynamic gate flag exactly once before deciding admission", () =
   assert.equal(requiresMacroWasm32Guest(macro), true);
   assert.equal(macroReads, 1);
 });
+
+test("malformed environment carriers cannot silently disable required guest tests",()=>{
+  for(const value of [null,0,1,true,false,"1","0",[],["1"]])
+    assert.throws(()=>requiresMacroWasm32Guest(value),
+      /requires an environment record/);
+  assert.equal(requiresMacroWasm32Guest(Object.create(null)),false);
+  const explicit=Object.create(null);
+  explicit.ORESLANG_REQUIRE_REAL_COMPILER="1";
+  assert.equal(requiresMacroWasm32Guest(explicit),true);
+});
