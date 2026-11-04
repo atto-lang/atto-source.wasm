@@ -1,0 +1,2 @@
+pub fnc inc(int x): int { return x + 1; }
+pub fnc main(): int { return inc(41); }
