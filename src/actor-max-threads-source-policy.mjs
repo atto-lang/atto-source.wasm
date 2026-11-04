@@ -2,6 +2,8 @@ import {types} from "node:util";
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const intrinsicViewBuffer = Function.prototype.call.bind(
   Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get);
+const intrinsicViewSize = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get);
 
 /**
  * Capability-free source preflight for the scalar-only Wasm compiler bridge.
@@ -26,7 +28,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     throw new TypeError("WASM source preflight refuses shared mutable backing");
   // Apply the same 1 MiB byte cap as the scalar compiler frontends before
   // allocating a decoded copy or scanning long, token-free comment payloads.
-  if (snapshot.byteLength > 1_048_576)
+  if (intrinsicViewSize(snapshot) > 1_048_576)
     throw Error("WASM source preflight exceeds 1 MiB byte budget");
   const source = decoder.decode(snapshot);
   // NUL is not source trivia: it can truncate native bridge consumers,
