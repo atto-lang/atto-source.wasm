@@ -13,6 +13,10 @@ export function requiresMacroWasm32Guest(env = process.env) {
   const flags = Object.create(null);
   for (const key of ["ORESLANG_MACRO_WASM_PARITY_REQUIRED",
                      "ORESLANG_REQUIRE_REAL_COMPILER"]) {
+    // Never inherit required-test authority from a forged prototype.
+    // Refuse ambiguous carriers rather than accepting or silently skipping.
+    if (key in env && !Object.hasOwn(env,key))
+      throw Error(key + " inherited flag cannot decide native guest admission");
     const value = env[key];
     if (value !== undefined && value !== "0" && value !== "1")
       throw Error(key + " must be explicitly 0 or 1; unknown value cannot skip guest execution");
