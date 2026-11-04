@@ -94,8 +94,9 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     if (tokens[i] === "define") {
       // Visibility modifiers may precede the reserved actor-thread enum.
       let j = i + 1;
+      // Reserved actor-thread enum identity cannot hide behind stacked modifiers.
       while (j < tokens.length && j < i + 12 &&
-             (tokens[j] === "pub" || tokens[j] === "private")) j++;
+             ["pub","private","shared","untrusted","serial","abstract"].includes(tokens[j])) j++;
       if (tokens[j] === "enum" && tokens[j+1] === "MaxActorThreads")
         throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
     }
