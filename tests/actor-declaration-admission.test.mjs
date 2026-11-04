@@ -169,6 +169,18 @@ test("NEL U+0085 cannot split reserved enum tokens in scalar Wasm preflight",()=
     "define\u0085pub\u0085enum\u0085Color as red end")));
 });
 
+test("Wasm scalar source preflight cannot be fooled by byteLength or buffer shadowing",()=>{
+  const oversized=new Uint8Array(1_048_577);
+  Object.defineProperty(oversized,"byteLength",{get(){return 1}});
+  assert.throws(()=>rejectUnsupportedActorThreadSource(oversized),/1 MiB byte budget/);
+  if(typeof SharedArrayBuffer==="function"){
+    const shared=new Uint8Array(new SharedArrayBuffer(64));
+    Object.defineProperty(shared,"buffer",{value:new ArrayBuffer(64)});
+    assert.throws(()=>rejectUnsupportedActorThreadSource(shared),/refuses shared source backing/);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes("fnc main():int{return 42;}")));
+});
+
 test("NEL-separated actor modifiers and reserved enums retain fail-closed lexical admission",()=>{
   for(const source of [
     'define\u0085private\u0085enum\u0085MaxActorThreads as end',

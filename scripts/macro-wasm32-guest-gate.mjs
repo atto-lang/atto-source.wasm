@@ -4,12 +4,16 @@
  * because the narrower macro-only toggle was absent.
  */
 export function requiresMacroWasm32Guest(env = process.env) {
+  // Snapshot each flag exactly once: accessor-backed input must not change
+  // the decision between validation and execution admission.
+  const flags = Object.create(null);
   for (const key of ["ORESLANG_MACRO_WASM_PARITY_REQUIRED",
                      "ORESLANG_REQUIRE_REAL_COMPILER"]) {
     const value = env[key];
     if (value !== undefined && value !== "0" && value !== "1")
       throw Error(key + " must be explicitly 0 or 1; unknown value cannot skip guest execution");
+    flags[key] = value === "1";
   }
-  return env.ORESLANG_MACRO_WASM_PARITY_REQUIRED === "1" ||
-         env.ORESLANG_REQUIRE_REAL_COMPILER === "1";
+  return flags.ORESLANG_MACRO_WASM_PARITY_REQUIRED ||
+         flags.ORESLANG_REQUIRE_REAL_COMPILER;
 }
