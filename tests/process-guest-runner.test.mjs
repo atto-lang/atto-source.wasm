@@ -92,3 +92,13 @@ test('concurrency limit rejects fifth worker and releases all four slots after c
   }
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
+test('recursive guest stack exhaustion traps without poisoning the supervisor',async()=>{
+  // Prevent tail recursion: the result must be used after the recursive call.
+  const recursive=compile('target triple = "wasm32-unknown-unknown"\n'+
+    'define i64 @deep(i64 %x) {\nentry:\n %next = add i64 %x, 1\n'+
+    ' %res = call i64 @deep(i64 %next)\n %after = add i64 %res, 1\n'+
+    ' ret i64 %after\n}\n'+
+    'define i64 @main() {\nentry:\n %v = call i64 @deep(i64 0)\n ret i64 %v\n}\n');
+  await assert.rejects(runExperimentalProcessGuest(recursive,opt),/guest rejected or failed:.*stack/i);
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
