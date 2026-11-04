@@ -45,6 +45,13 @@ physical threads, and hidden restart/replay behavior.
 - Ordinary throw follows local catch/trap semantics.
 - raise is explicit escalation according to the language recover/defer contract.
 - panic is actor-fatal, not VM-fatal merely because one actor failed.
+- Integer overflow panics the actor. Wrapping happens only through explicitly
+  named operations.
+- Stack exhaustion, a guest trap and a turn-deadline kill are actor-fatal in the
+  same way. A backend that cannot contain one of them must not run untrusted
+  actors directly on that execution path.
+- A fault showing the memory boundary itself failed, such as an access outside
+  the tenant's memory, is VM-fatal and is never answered with a restart.
 - Structured cancellation is control flow and cannot be swallowed as an
   ordinary guest exception.
 - Host-fatal VM/linkage/thread-death class failures may be rethrown only after
@@ -135,12 +142,61 @@ Diagnostic producers never wait for diagnostic consumers.
 
 ## 9. Identity, restart and stale-mail safety
 
-- ActorRef identity is generation-bound.
-- Restart is an explicit supervisor policy, never hidden ordinary-failure behavior.
-- Mail accepted by a failed incarnation is not implicitly replayed into a new
-  incarnation. Durable replay requires an explicit protocol.
-- Lifecycle fencing prevents admission after sealing/stopping.
-- Runtime/group bookkeeping cannot resurrect a terminal actor.
+Identity:
+
+- ActorRef identity is generation-bound. A direct ref never addresses a
+  replacement incarnation, and a send through a stale ref fails as TERMINATED.
+- Supervisor-published routes, including pipeline edges, address an instance ID,
+  which resolves to its current incarnation. A restart does not change the
+  topology generation.
+- A reply is correlated to the incarnation that asked for it. A reply to a failed
+  incarnation is rejected as stale and never reaches its replacement.
+
+Restart policy:
+
+- Restart is a declared supervisor policy, never hidden behavior. The default is
+  `one_for_one` with `transient` children: an actor that fails is restarted, and
+  one that stops normally is not. Every restart is counted and reported on CONTROL.
+- A restart budget bounds restarts, with backoff between attempts. The default is
+  3 restarts in 10 seconds. Restart work is charged to the tenant's CPU budget.
+- A restart is a new incarnation with a new generation. Runtime or group
+  bookkeeping cannot resurrect a terminal incarnation.
+
+Turn commit and stored state:
+
+- The runtime stores each actor's sealed state outside memory the actor can
+  address. Stored state outlives the incarnation but not the tenant VM. Surviving
+  VM or process failure requires an explicit durable protocol.
+- A successful turn commits its state and outbound mail together. A failed turn
+  commits neither, so its private changes and unpublished sends disappear.
+- A send made during a turn reserves mailbox capacity and returns its admission
+  result immediately. The message is published at commit, and a failed turn
+  releases the reservation.
+
+Restarting a failed actor:
+
+- The new incarnation gets fresh memory, runs initialization, then loads the last
+  committed state.
+- The message being processed when the turn failed is never redelivered, because
+  it may have caused the failure. A waiting caller receives a typed actor failure,
+  and the supervisor receives a non-droppable record of the loss.
+- Mail queued but not started carries over to the new incarnation in FIFO order.
+  It never ran, so this is not replay. Durable replay of started mail requires an
+  explicit protocol.
+- Mailbox limits still apply during a restart, so sends may fail as FULL. Senders
+  do not see TERMINATED while a restart is still possible.
+
+When the restart budget is spent, the stage is terminal:
+
+- Sends to it fail as TERMINATED, and its queued mail is reported as abandoned.
+- Each downstream edge receives an upstream-failed signal after that edge's accepted
+  mail. This signal is distinct from normal completion, so partial data never looks
+  like a finished stream.
+- By default the pipeline stops through an abort barrier. A supervisor may declare
+  a different policy, and the failure escalates to its parent. The rest of the
+  tenant keeps running.
+
+Lifecycle fencing prevents admission after sealing/stopping.
 
 ## 10. Physical scheduling and memory
 
@@ -179,6 +235,21 @@ Diagnostic producers never wait for diagnostic consumers.
     create unbounded host workers or admit replacement actors past maxActors;
 20. runtime shutdown cannot retire the lifecycle-observer domain while a
     removed/in-flight actor finalization can still publish its observer bundle.
+21. stack exhaustion in one actor, including during a host call, fails only that
+    actor and leaves its siblings, other tenants and the process running;
+22. a failed turn leaves no state change and publishes no outbound mail, and it
+    releases its mailbox reservations;
+23. a restarted actor loads its last committed state, skips the failed message
+    and processes queued mail in its original order;
+24. a pipeline edge reaches the new incarnation without rewiring, while a direct
+    ref and a reply to the failed incarnation are both rejected;
+25. state that crashes the actor on every load spends the restart budget, then
+    ends the stage without starving other tenants;
+26. a consumer can tell an upstream failure from normal completion on every edge,
+    including fan-in;
+27. a fault outside the tenant's memory fails the VM and triggers no actor restart;
+28. integer overflow panics only the actor that overflowed, on every backend,
+    and sized integer types overflow at their own declared range.
 
 ## Backend status - 2026-10-17
 
