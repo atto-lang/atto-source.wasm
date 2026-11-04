@@ -92,6 +92,34 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
         name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) &&
         ["as", "{", "extends", "implements", "impl", "with", "<"].includes(following))
       throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
+    // Actor declarations cannot enter a scalar-only guest through modifiers.
+    if (tokens[i] === "define") {
+      let j = i + 1;
+      while (j < tokens.length && j < i + 12 && supervisorModifiers.has(tokens[j])) j++;
+      if (tokens[j] === "actor" || tokens[j] === "isoactor")
+        throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    }
+    // The Java frontend also accepts bare "actor A1 as ... end",
+    // "actor fnc ..." and "fnc actor ..." declaration families.
+    // A normal variable named actor or property access actor.send() is
+    // not a declaration; inspect adjacent grammar tokens, not substrings.
+    const actorToken = tokens[i] === "actor" || tokens[i] === "isoactor";
+    const next = tokens[i+1], afterNext = tokens[i+2];
+    const actorCallable = actorToken &&
+      (next === "fnc" || next === "routine" ||
+       (supervisorModifiers.has(next) &&
+        (tokens.slice(i+2,i+8).includes("fnc") ||
+         tokens.slice(i+2,i+8).includes("routine"))));
+    const bareActor = actorToken && (
+      tokens[i] === "isoactor" ||
+      (tokens[i-1] === "shared" || tokens[i-1] === "untrusted") ||
+      (next && /^[A-Za-z_][A-Za-z0-9_]*$/.test(next) &&
+       (["as","{","extends","implements","impl","<"].includes(afterNext))) ||
+      actorCallable);
+    if (bareActor ||
+        (actorToken && (tokens[i-1] === "fnc" || tokens[i-1] === "routine") &&
+         tokens[i+1] && /^[A-Za-z_]/.test(tokens[i+1])))
+      throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
   }
