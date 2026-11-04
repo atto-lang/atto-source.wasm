@@ -1,5 +1,7 @@
 // Compiler/host-only planning for proposed Actor.pipe(...) / Actor.connect(...).
 // This NEVER spawns an actor, creates a mailbox, binds capabilities, or executes guest AttoLang.
+// It validates FORWARD edges only: correlation-bound self.backward reply hops
+// remain part of the separate pipeline v1 contract and are NOT validated here.
 // Only trusted compiler-generated metadata may reach this module; JS Proxy traps are not a sandbox.
 import { ActorPipelineSelector } from "./actor-pipeline-selector.mjs";
 
