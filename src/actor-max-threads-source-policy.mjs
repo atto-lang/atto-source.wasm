@@ -11,6 +11,11 @@ const wordRest = c => /[A-Za-z_0-9]/.test(c);
 export function rejectUnsupportedActorThreadSource(snapshot) {
   if (!(snapshot instanceof Uint8Array))
     throw new TypeError("source preflight requires immutable snapshot bytes");
+  // A shared mutable backing can change between preflight and compilation,
+  // causing a checked source to differ from the executable source.
+  if (typeof SharedArrayBuffer !== "undefined" &&
+      snapshot.buffer instanceof SharedArrayBuffer)
+    throw new TypeError("WASM source preflight refuses shared mutable backing");
   // Apply the same 1 MiB byte cap as the scalar compiler frontends before
   // allocating a decoded copy or scanning long, token-free comment payloads.
   if (snapshot.byteLength > 1_048_576)
@@ -114,7 +119,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       tokens[i] === "isoactor" ||
       (tokens[i-1] === "shared" || tokens[i-1] === "untrusted") ||
       (next && /^[A-Za-z_][A-Za-z0-9_]*$/.test(next) &&
-       (["as","{","extends","implements","impl","<"].includes(afterNext))) ||
+       (["as","{","extends","implements","impl","with","<"].includes(afterNext))) ||
       actorCallable);
     if (bareActor ||
         (actorToken && (tokens[i-1] === "fnc" || tokens[i-1] === "routine") &&
