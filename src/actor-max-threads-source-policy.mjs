@@ -74,7 +74,16 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       while (j < tokens.length && j < i + 12 && actorModifiers.has(tokens[j])) j++;
       if (tokens[j] === "actor" || tokens[j] === "isoactor")
         throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+      // A supervisor is an actor authority tree, not a scalar declaration.
+      // Do not silently allow the new define supervisor syntax into Wasm IR.
+      if (tokens[j] === "supervisor")
+        throw Error("WASM source supervisor execution unsupported: no guest supervisor runtime");
     }
+    const supervisorName = tokens[i+1], supervisorBody = tokens[i+2];
+    if (tokens[i] === "supervisor" &&
+        supervisorName && /^[A-Za-z_][A-Za-z0-9_]*$/.test(supervisorName) &&
+        ["as", "{", "extends", "implements", "impl", "<"].includes(supervisorBody))
+      throw Error("WASM source supervisor execution unsupported: no guest supervisor runtime");
     // The Java frontend also accepts bare "actor A1 as ... end",
     // "actor fnc ..." and "fnc actor ..." declaration families.
     // A normal variable named actor or property access actor.send() is
