@@ -22,8 +22,8 @@ export function assertNativeMutShareDenial(error) {
   // the real exit status, signal and independent stderr/stdout streams.
   assert.equal(error.stdout, "",
     "rejected source must not emit partial IR or any stdout");
-  assert.ok(Number.isInteger(error.status) && error.status > 0,
-    "rejection requires a real nonzero compiler exit status");
+  assert.equal(error.status, 1,
+    "guarded-sharing denial requires the real compiler's controlled exit(1)");
   assert.equal(error.signal, null,
     "signal-terminated compiler is not diagnosed rejection");
   assert.match(error.stderr ?? "",
@@ -33,7 +33,7 @@ export function assertNativeMutShareDenial(error) {
   // A plausible first line followed by a parser/usage error is not proof
   // that the exact source was rejected for the guarded-sharing reason.
   assert.match(error.stderr ?? "",
-    /^oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof(?:; refusing unsynchronized alias at byte [0-9]+)?\r?\n?$/,
+    /^oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof; refusing unsynchronized alias at byte [0-9]+\r?\n?$/,
     "mixed or multiline compiler errors cannot establish guarded-sharing denial");
   assert.ok(error.code == null && error.errno == null && error.syscall == null && error.cause == null,
     "host/transport failure metadata cannot stand in for compiler rejection");
