@@ -89,3 +89,47 @@ test("unsupported TCP pooling and shared pointers reject before decoding any Was
     }),
     error => !/shared TCP pool\/lease\/pointer/.test(error.message));
 });
+
+test("hidden and accessor capability keys fail before reading untrusted guest bytes", () => {
+  const hiddenTcp = {};
+  Object.defineProperty(hiddenTcp, "sharedTcpLease", {value: false});
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, hiddenTcp),
+    /shared TCP pool\/lease\/pointer capability is unsupported/
+  );
+  const hiddenUnknown = {};
+  Object.defineProperty(hiddenUnknown, "futureCapability", {value: false});
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, hiddenUnknown),
+    /rejects unknown core-guest admission options/
+  );
+  const hiddenSymbol = {};
+  Object.defineProperty(hiddenSymbol, Symbol("secret"), {value: true});
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, hiddenSymbol),
+    /rejects unknown core-guest admission options/
+  );
+  let reads = 0;
+  const accessor = {};
+  Object.defineProperty(accessor, "guestNetworkIo", {
+    enumerable: true,
+    get() {reads++; return true;}
+  });
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, accessor),
+    /admission options must be data properties/
+  );
+  assert.equal(reads, 0, "option getters must never execute");
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, Object.create({sharedTcpPool: true})),
+    /admission requires a plain options record/
+  );
+  // A null-prototype record with an inactive option must proceed to ordinary
+  // module validation, rather than inventing a host-network capability.
+  const plain = Object.create(null);
+  plain.sharedTcpPool = false;
+  assert.throws(
+    () => compileAdmittedCoreGuest(neverAdmitted, plain),
+    error => !/shared TCP pool|unknown core-guest|plain options record/.test(error.message)
+  );
+});
