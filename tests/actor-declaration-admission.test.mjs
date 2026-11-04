@@ -69,7 +69,7 @@ test("Wasm source bridge fails closed on supervisor tree declarations", () => {
     "supervisor Root extends Parent as end"
   ]) {
     assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
-      /WASM source supervisor execution unsupported: no guest supervisor runtime/,
+      /WASM source supervisor unsupported: no typed Failure or CONTROL lowering/,
       source);
   }
 });
@@ -103,7 +103,7 @@ test("standalone policy refuses oversized source before UTF-8 decoding", () => {
   const overLimit = new Uint8Array(1024 * 1024 + 1).fill(0x20);
   assert.throws(
     () => rejectUnsupportedActorThreadSource(overLimit),
-    /source exceeds 1 MiB actor admission budget/
+    /WASM source preflight exceeds 1 MiB byte budget/
   );
   // The compiler bridge and standalone actor policy use the same byte bound.
   assert.doesNotThrow(
