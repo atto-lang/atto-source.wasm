@@ -68,3 +68,23 @@ test('guest runtime trap cannot terminate the supervisor or poison another invoc
   await assert.rejects(runExperimentalProcessGuest(wasm,opt),/guest rejected or failed:/);
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
+test('accessor, symbol and mutation-backed launch options fail closed',async()=>{
+  const accessor=Object.defineProperty({...opt},'timeoutMs',{
+    enumerable:true,get(){throw Error('hostile getter must never execute');}
+  });
+  await assert.rejects(runExperimentalProcessGuest(simple,accessor),/invalid process runner options/);
+  const unknownSymbol={...opt,[Symbol('hidden')]:1};
+  await assert.rejects(runExperimentalProcessGuest(simple,unknownSymbol),/invalid process runner options/);
+});
+test('concurrency limit rejects fifth worker and releases all four slots after confirmed exit',async()=>{
+  const spin=compile('target triple = "wasm32-unknown-unknown"\ndefine i64 @main() {\nentry:\n br label %spin\nspin:\n br label %spin\n}\n');
+  const running=Array.from({length:4},()=>runExperimentalProcessGuest(spin,{...opt,timeoutMs:900}));
+  await assert.rejects(runExperimentalProcessGuest(simple,opt),/concurrency quota exceeded/);
+  const ended=await Promise.allSettled(running);
+  assert.equal(ended.length,4);
+  for(const result of ended){
+    assert.equal(result.status,'rejected');
+    assert.match(String(result.reason),/execution deadline exceeded/);
+  }
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
