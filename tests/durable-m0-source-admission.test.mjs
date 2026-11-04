@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { rejectUnsupportedDurableM0Source } from "../scripts/compile-ores.mjs";
 
 const bytes = source => new TextEncoder().encode(source);
@@ -57,4 +58,25 @@ test("Wasm compiler bridge calls durable capability gate before compiler executi
   const staging = text.indexOf(" const scratch=await mkdtemp(");
   assert.ok(call > 0 && staging > call,
     "source admission must precede compiler staging / guest artifact writes");
+});
+
+test("Wasm M0 golden manifest reference is byte/sha-identical to LLVM and .NET contract", () => {
+  const path = new URL("../contracts/durable-m0/v1/manifest-v1.json", import.meta.url);
+  const shaPath = new URL("../contracts/durable-m0/v1/manifest-v1.sha256", import.meta.url);
+  const raw = readFileSync(path);
+  const pinned = "aa1eed7637b99d8c270c3cd7a3f15ab83acf0463b00ebaa58f0f52c8dd525784";
+  const sha = data => createHash("sha256").update(data).digest("hex");
+  assert.equal(raw.length, 1671);
+  assert.equal(sha(raw), pinned);
+  assert.equal(readFileSync(shaPath, "utf8").trim(), pinned);
+  const manifest = JSON.parse(raw.toString("utf8"));
+  assert.equal(manifest.format, "atto.durable.manifest.v1");
+  assert.deepEqual(manifest.workflows[0].commands.map(c => c.order), [0, 1, 2]);
+  assert.equal(manifest.workflows[0].commands[0].target, "Billing.PaymentProvider.charge");
+  assert.equal(manifest.workflows[0].queries[0].endpoint, "status");
+  assert.equal(JSON.stringify(manifest), raw.toString("utf8"),
+    "JSON canonical bytes cannot silently reformat or reorder");
+  const altered = Buffer.from(raw); altered[0] ^= 1;
+  assert.notEqual(sha(altered), pinned, "a one-byte mutation must invalidate digest");
+  console.log("DURABLE_M0_REFERENCE_ONLY|sha256=" + pinned + "|bytes=1671|not_guest_execution");
 });
