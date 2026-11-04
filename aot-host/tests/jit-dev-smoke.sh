@@ -68,6 +68,26 @@ if ! grep -q 'guest imports are forbidden' "$tmp/import.err"; then
   cat "$tmp/import.err" >&2
   exit 1
 fi
+# The JIT executable itself must reject non-regular and symlinked inputs.
+# Never let a FIFO block before admission; the timeout must not be the
+# mechanism by which the input is rejected.
+ln -s "$tmp/42.wasm" "$tmp/source-symlink.wasm"
+if "$cli" "$tmp/source-symlink.wasm" "$pin" > /dev/null 2>&1; then
+  echo 'JIT runner followed a symlinked guest input' >&2; exit 1
+fi
+mkfifo "$tmp/guest.fifo"
+set +e
+timeout 3s "$cli" "$tmp/guest.fifo" "$pin" > /dev/null 2>&1
+fifo_status=$?
+set -e
+if [[ "$fifo_status" == 0 || "$fifo_status" == 124 || "$fifo_status" == 137 ]]; then
+  echo 'JIT runner admitted or blocked on a FIFO guest input' >&2; exit 1
+fi
+for bad_fuel in 0 100000001 not-a-number; do
+  if "$cli" "$tmp/42.wasm" "$pin" "$bad_fuel" > /dev/null 2>&1; then
+    echo "JIT admitted invalid fuel budget: $bad_fuel" >&2; exit 1
+  fi
+done
 # Release with forced debug assertions MUST STILL refuse developer JIT.
 cargo build --release --locked --manifest-path "$crate" --bin oreslang-jit-dev \
   --features insecure-dev-jit --config profile.release.debug-assertions=true
