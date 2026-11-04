@@ -25,8 +25,10 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     const c = source[i];
     if (/\s/.test(c)) {i++;continue;}
     if (source.startsWith("//", i)) {
-      const next = source.indexOf("\n", i + 2);
-      i = next < 0 ? source.length : next + 1;
+      let next = i + 2;
+      // CR-only, NEL and Unicode separators also terminate AttoLang // comments.
+      while (next < source.length && !["\r", "\n", "\u0085", "\u2028", "\u2029"].includes(source[next])) next++;
+      i = next;
       continue;
     }
     if (source.startsWith("/*", i)) {
