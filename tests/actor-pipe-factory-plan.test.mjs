@@ -121,3 +121,12 @@ test("synthetic metadata is not a guest actor or mailbox implementation", () => 
   assert.equal(typeof p.stop, "undefined");
   assert.equal(typeof p.selector.forward, "function");
 });
+
+
+test("actor factory rejects invisible-control and bidi identifiers before routing publication",()=>{
+ for(const bad of ["worker\u202ePASS","worker\u0085PASS","worker\nPASS","worker\u2066PASS","worker\u200ePASS"]){
+  const s=stages();s[1].actorType=bad;
+  assert.throws(()=>planActorPipeFactory(s),/unsafe actor factory identifier or port/);
+  assert.throws(()=>planActorConnectEdge(s[0],s[1]),/unsafe actor factory identifier or port/);
+ }
+});

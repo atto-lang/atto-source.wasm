@@ -77,3 +77,12 @@ test('bounded metadata, malformed Unicode, duplicate and sparse arrays fail clos
 });
 
 test('duplex intermediate stage accepts a typed bidirectional shape',()=>{const s=stages();s[1].role='duplex';assert.equal(plan(s).reverseEdges.length,2);});
+
+
+test('bidirectional actor metadata rejects hidden control and bidi actor identities',()=>{
+ for(const bad of ['actor\u202ePASS','actor\u0085PASS','actor\nPASS','actor\u2066PASS','actor\u200ePASS']){
+  const v=stages();v[1].id=bad;
+  assert.throws(()=>plan(v),/unsafe actor pipeline identifier or payload/);
+  assert.throws(()=>planActorBidirectionalPipeFactory(v),/unsafe actor pipeline identifier or payload/);
+ }
+});
