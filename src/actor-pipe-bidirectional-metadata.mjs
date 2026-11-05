@@ -16,7 +16,7 @@ function ownData(input, name) {
 function checkedName(value, optional = false) {
   if (typeof value !== 'string' || (!optional && !value) || value.includes('\0'))
     throw new TypeError('invalid actor pipeline identifier or payload');
-  if (/[\u0001-\u001f\u007f-\u009f\u200e-\u200f\u2028-\u202e\u2066-\u2069]/.test(value))
+  if (/[\u0001-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u.test(value))
     throw new TypeError('unsafe actor pipeline identifier or payload');
   // Bound code units before scanning to avoid excessive work on huge inputs.
   if (value.length > MAX_BYTES) throw new RangeError('actor pipeline name byte budget');
