@@ -7,8 +7,22 @@
  * Runtime owner must assert physical child finalization and independently
  * verify any externally applied STOP effect before acknowledging it.
  */
-const validId = value => typeof value === "string" &&
-  value.length > 0 && value.length <= 128 && !value.includes("\0");
+const identifierEncoder = new TextEncoder();
+const unsafeId = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u;
+function validId(value) {
+  if (typeof value !== "string" || value.length === 0 ||
+      value.length > 128 || unsafeId.test(value)) return false;
+  // TextEncoder repairs invalid surrogate pairs. Physical identity must not
+  // acquire different bytes when copied to another compiler/backend.
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      if (++i >= value.length || value.charCodeAt(i) < 0xdc00 ||
+          value.charCodeAt(i) > 0xdfff) return false;
+    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
+  }
+  return identifierEncoder.encode(value).length <= 128;
+}
 const validGeneration = value => Number.isSafeInteger(value) && value > 0;
 
 export class SupervisorStopLedger {
