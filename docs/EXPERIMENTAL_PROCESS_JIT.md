@@ -143,3 +143,38 @@ compile the Rust Wasmtime JIT, or certify the full 14-test integration suite.
 At latest checked PR head, Actions job steps were `null`, so hosted
 compiler/guest execution is `NOT_EXECUTED`. Keep this draft behind real
 exact-head/stepful Node + Rust runs and independent sandbox review.
+
+## November 4 — actual local process-execution evidence after main reconciliation
+
+The branch was reconciled with a two-parent Git merge of upstream `main`,
+preserving the upstream tree and overlaying only the eleven PR files. It was
+checked as **mergeable, ahead of main, and zero commits behind** immediately
+after reconciliation. No force update or cross-organization source mirror was
+used.
+
+A focused local source checkout reproduced the **exact Git blob bytes**
+of the current PR's process runner and child, latest upstream snapshot and
+guest-admission modules, the three Wasm parser/ABI helpers, and the test file.
+Git `hash-object` matches were verified against the GitHub connector. The
+focused command was executed three times with Node v22.16.0 and Clang 17:
+
+```sh
+node --test tests/process-guest-runner.test.mjs
+```
+
+All three runs executed **18/18 actual Node child-process and core-Wasm tests**
+(54 passes, zero failures). This includes genuine V8 Wasm JIT execution,
+real Clang wasm32 fixtures, import refusal, guest traps and recursive stack
+exhaustion, spinning-loop termination, worker capacity reclamation,
+`AbortSignal` cancellation and a healthy process running alongside a
+nonterminating guest. The new cancellation path holds its worker slot until
+process exit and reports `AbortError` without revealing arbitrary caller
+abort reasons.
+
+**Evidence class: LOCAL_EXACT_BLOB_REAL_CORE_WASM_EXECUTION**. This is not a
+full cloned Git checkout or hosted Actions job, nor proof of real `.atto`
+compiler output, actor mailbox/ownership parity, an OS sandbox, native
+Wasmtime JIT execution, independent review, or production release admission.
+Rust was not available locally. Github Actions jobs still had `steps=null`
+on the checked head: runner admission is the blocker, not a compiler-test
+verdict. Never promote this evidence to compiler-backed actor parity.
