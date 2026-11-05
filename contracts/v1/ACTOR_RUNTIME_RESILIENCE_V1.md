@@ -153,11 +153,16 @@ Diagnostic producers never wait for diagnostic consumers.
 
 Identity:
 
-- ActorRef identity is generation-bound. A direct ref never addresses a
-  replacement incarnation, and a send through a stale ref fails as TERMINATED.
-- Supervisor-published routes, including pipeline edges, address an instance ID,
-  which resolves to its current incarnation. A restart does not change the
-  topology generation.
+- A reference from `spawn` addresses an actor instance, and resolves to its current
+  incarnation. A restart does not invalidate it, so a restart never strands the
+  actor's callers.
+- Once the instance has ended, by stopping or by spending its restart budget, a send
+  through its reference fails as TERMINATED. The reference never reaches a different
+  instance, even one reusing the same slot.
+- Supervisor-published routes, including pipeline edges, also address an instance ID.
+  A restart does not change the topology generation.
+- A backend may also offer a handle bound to one incarnation. Such a handle never
+  addresses a replacement. No current source feature requires one.
 - A reply is correlated to the incarnation that asked for it. A reply to a failed
   incarnation is rejected as stale and never reaches its replacement.
 
@@ -241,7 +246,8 @@ Lifecycle fencing prevents admission after sealing/stopping.
 13. cancellation cascades through the child tree but is not ordinary catchable
     failure;
 14. force cancellation fails closed without real isolation authority;
-15. stale-generation refs cannot address a replacement incarnation;
+15. a reference to an ended instance cannot address a later instance, and a handle
+    bound to one incarnation cannot address its replacement;
 16. shutdown/cancellation races cannot fabricate message processing;
 17. no terminal observer callback executes under the lifecycle lock;
 18. host-fatal injection still leaves best-effort terminal/fence state before rethrow;
@@ -255,8 +261,8 @@ Lifecycle fencing prevents admission after sealing/stopping.
     releases its mailbox reservations;
 23. a restarted actor loads its last committed state, skips the failed message
     and processes queued mail in its original order;
-24. a pipeline edge reaches the new incarnation without rewiring, while a direct
-    ref and a reply to the failed incarnation are both rejected;
+24. a `spawn` reference and a pipeline edge reach the new incarnation without
+    rewiring, while a reply to the failed incarnation is rejected;
 25. state that crashes the actor on every load spends the restart budget, then
     ends the stage without starving other tenants;
 26. a consumer can tell an upstream failure from normal completion on every edge,
