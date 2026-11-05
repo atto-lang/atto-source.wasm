@@ -15,10 +15,26 @@ const MAX_RECEIPTS = 64;
 function positiveId(value) {
   return Number.isSafeInteger(value) && value > 0;
 }
-function isTicket(value) {
-  return value !== null && typeof value === "object" &&
-    positiveId(value.actorId) && positiveId(value.generation) &&
-    positiveId(value.operationId);
+// Tickets are authority-bearing values. Inspect only enumerable own DATA
+// descriptors; a getter or inherited key may switch the identity between
+// validation and the physical resume/STOP transition.
+function ticketData(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return null;
+  const proto=Object.getPrototypeOf(value);
+  if (proto!==Object.prototype && proto!==null) return null;
+  const names=["actorId","generation","operationId"];
+  const keys=Reflect.ownKeys(value);
+  if(keys.length!==names.length || keys.some(key=>!names.includes(key)))
+    return null;
+  const snapshot=Object.create(null);
+  for(const key of names){
+    const descriptor=Object.getOwnPropertyDescriptor(value,key);
+    if(!descriptor?.enumerable || !Object.hasOwn(descriptor,"value") ||
+       !positiveId(descriptor.value)) return null;
+    snapshot[key]=descriptor.value;
+  }
+  return snapshot;
 }
 
 export class PinnedContinuationGate {
@@ -33,16 +49,16 @@ export class PinnedContinuationGate {
   #retired = false;
 
   constructor(ticket) {
-    if (!isTicket(ticket)) throw new TypeError("invalid continuation ticket");
-    // Snapshot values: mutations to caller objects must not redirect authority.
-    this.#ticket = Object.freeze({actorId: ticket.actorId,
-      generation: ticket.generation, operationId: ticket.operationId});
+    const identity=ticketData(ticket);
+    if (!identity) throw new TypeError("invalid continuation ticket");
+    this.#ticket = Object.freeze(identity);
   }
 
   #valid(ticket) {
-    return isTicket(ticket) && ticket.actorId === this.#ticket.actorId &&
-      ticket.generation === this.#ticket.generation &&
-      ticket.operationId === this.#ticket.operationId;
+    const identity=ticketData(ticket);
+    return !!identity && identity.actorId === this.#ticket.actorId &&
+      identity.generation === this.#ticket.generation &&
+      identity.operationId === this.#ticket.operationId;
   }
 
   get terminal() { return this.#terminal; }
