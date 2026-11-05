@@ -43,6 +43,20 @@ ORESLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc npm test
 
 A fake or stub compiler exercising the linker does **not** count as real Oreslang language parity.
 
+## Tail-call feature admission (M0)
+
+The narrow `core-wasm.i64-v1` host **does not admit** WebAssembly
+`return_call` (opcode `0x12`) or `return_call_indirect` (`0x13`).
+The instruction scanner rejects these operations **before engine validation or
+compilation**, with `WASM_TAIL_CALL_FEATURE_UNSUPPORTED`. Signed LEB immediate
+bytes with the same numeric values remain legal because scanning is
+opcode-aware. This avoids silently changing semantics between engines with
+different tail-call feature support.
+
+This is a fail-closed feature gate, **not** proper source-level TCO or a portable
+trampoline. Feature-gated lowering, exact target capability witnesses, dynamic
+routine-reentry fencing, and real 100,000-hop guest tests are still required.
+
 ## Security boundary and status
 
 **This is not yet an Oreslang actor runtime, a WASI/component-model host, or a production untrusted-code sandbox.**
