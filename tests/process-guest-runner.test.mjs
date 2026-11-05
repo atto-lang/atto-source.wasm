@@ -133,3 +133,40 @@ test('child rejects inherited ambient environment despite parent environment cha
     else process.env[key]=original;
   }
 });
+
+test('pre-aborted and forged cancellation signals fail before guest launch',async()=>{
+  const controller=new AbortController();
+  controller.abort('caller-controlled reason is not disclosed');
+  await assert.rejects(
+    runExperimentalProcessGuest(simple,{...opt,signal:controller.signal}),
+    error=>error?.name==='AbortError' && error.message==='guest process cancelled'
+  );
+  await assert.rejects(
+    runExperimentalProcessGuest(simple,{...opt,signal:{aborted:false}}),
+    /signal must be an AbortSignal/
+  );
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
+test('supervisor abort kills a noncooperative Wasm guest and returns its slot',async()=>{
+  const spin=compile('target triple = "wasm32-unknown-unknown"\n'+
+    'define i64 @main() {\nentry:\n br label %spin\nspin:\n br label %spin\n}\n');
+  const controller=new AbortController();
+  const running=runExperimentalProcessGuest(spin,{...opt,timeoutMs:2000,signal:controller.signal});
+  const timer=setTimeout(()=>controller.abort(),150);
+  try {
+    await assert.rejects(running,error=>
+      error?.name==='AbortError' && /guest process cancelled/.test(error.message));
+  } finally {
+    clearTimeout(timer);
+  }
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
+test('cancellation near launch cannot leak worker capacity',async()=>{
+  for(let i=0;i<6;i++){
+    const controller=new AbortController();
+    const running=runExperimentalProcessGuest(simple,{...opt,signal:controller.signal});
+    controller.abort();
+    await assert.rejects(running,error=>error?.name==='AbortError');
+  }
+  assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
+});
