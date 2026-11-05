@@ -31,19 +31,20 @@ export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
-export function assertGeneratorV1FrontendRejection(frontend) {
+export function assertGeneratorV1FrontendRejection(frontend,
+  expectedDiagnostic = "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering") {
   assertNativeFrontendRejection(frontend);
-  if (!String(frontend.stderr || "").includes(
-      "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"))
-    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("generator-v1 rejection did not come from the required compiler-owned gate: " +
+      String(frontend.stderr || "").slice(0,480));
   return true;
 }
 export function assertInvertedFrontendRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   const stderr = String(frontend.stderr || "");
-  if (!stderr.includes("INVERTED_BACKEND_UNSUPPORTED") &&
-      !stderr.includes("expected 'module', 'class' or 'actor'") &&
-      !stderr.includes("expected 'class', 'actor'"))
+  // A generic parse error is not evidence of intentional inverted-class
+  // denial. Require the compiler's dedicated unsupported-ABI diagnostic.
+  if (!stderr.includes("INVERTED_BACKEND_UNSUPPORTED: native inverted class requires"))
     throw Error("inverted-class source did not fail through the native declaration boundary");
   return true;
 }
@@ -268,20 +269,28 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
-    for (const [name, body] of [
-      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+    // Sync gen* has host lowering but must be rejected by the wasm32 target.
+    // Other forms retain their own exact compiler-owned unsupported gates.
+    for (const [name, body, diagnostic] of [
+      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native async gen* requires scheduler-owned async iterator continuation lowering"],
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native suspends declaration requires suspension-aware borrow checking and LLVM continuation lowering"],
+      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"]
     ]) {
       const source = join(work, "generator-v1-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      assertGeneratorV1FrontendRejection(frontendResult);
+      assertGeneratorV1FrontendRejection(frontendResult, diagnostic);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
       )).bytes) !== compilerSha256)

@@ -13,19 +13,22 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
 }, async () => {
   const dir = await mkdtemp(join(tmpdir(),"ores-wasm-structural-"));
   try {
+    // Callables are rejected by the real compiler; structural parameter
+    // and pattern forms fail earlier at dedicated WASM ABI/pattern admission.
+    // Neither a generic parser failure nor a published guest can pass.
     const cases = [
       ["callable", "structural fnc main(): int { return 1; }",
         /native structural callable requires/],
       ["routine-callable", "structural routine main(): int { return 1; }",
         /native structural callable requires/],
       ["parameter", "fnc check(structural Shape s): int { return 1; }\nfnc main(): int { return 1; }",
-        /native structural parameter requires/],
+        /wasm structural tuple v2 readonly-view ABI unsupported/],
       ["routine-parameter", "routine check(structural Shape s): int { return 1; }\nfnc main(): int { return 1; }",
-        /native structural parameter requires/],
-      ["statement-match", "fnc main(): int { match 1 over on _ -> { return 1; } end return 1; }",
-        /native structural match expression requires/],
-      ["value-match", "fnc main(): int { return match 1 over on _ -> { return 1; } end; }",
-        /native structural match expression requires/]
+        /wasm structural tuple v2 readonly-view ABI unsupported/],
+      ["statement-match", "fnc main(): int { do match 1 over on structural { id:int } v -> { return 1; } on _ -> { return 0; } end return 1; }",
+        /wasm structural pattern lowering unsupported/],
+      ["value-match", "fnc main(): int { return match 1 over on structural { id:int } v -> { return 1; } on _ -> { return 0; } end; }",
+        /wasm structural pattern lowering unsupported/]
     ];
     for (const [name,source,diagnostic] of cases) {
       const input = join(dir,name+".ores");
@@ -34,7 +37,10 @@ test("structural forms fail closed through real LLVM -> Wasm bridge", {
       await assert.rejects(
         compileOresToWasm({compiler:resolve(compiler),source:input,output}),
         diagnostic, "unsupported "+name+" must not emit Wasm");
-      await assert.rejects(stat(output),{code:"ENOENT"});
+      for (const artifact of [output, output+".provenance.json",
+                              output+".artifact.json", output+".current.json"]) {
+        await assert.rejects(stat(artifact),{code:"ENOENT"});
+      }
     }
   } finally {
     await rm(dir,{recursive:true,force:true});
