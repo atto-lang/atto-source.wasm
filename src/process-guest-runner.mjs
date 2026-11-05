@@ -8,13 +8,18 @@ import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 const MAX_CONCURRENT = 4;
 let concurrent = 0;
 const allowed = new Set(['unsafeDevelopmentMode', 'expectedSha256', 'entry',
-  'maxMemoryPages', 'maxModuleBytes', 'timeoutMs']);
+  'maxMemoryPages', 'maxModuleBytes', 'timeoutMs', 'signal']);
 const childPath = fileURLToPath(new URL('./process-guest-child.mjs', import.meta.url));
 const shaPattern = /^[a-f0-9]{64}$/;
 const ADMISSION_KEYS = new Set(['schemaVersion','profile','sha256','bytes','entry',
   'memoryInitialPages','memoryMaximumPages','imports','hostCapabilities']);
 const RESULT_KEYS = new Set(['kind','ok','value','admission']);
 
+function abortError() {
+  const error = new Error('guest process cancelled');
+  error.name = 'AbortError';
+  return error;
+}
 function checkInt(n, min, max, label) {
   if (!Number.isSafeInteger(n) || n < min || n > max) throw new TypeError(`invalid ${label}`);
 }
@@ -78,12 +83,15 @@ export async function runExperimentalProcessGuest(input, options = {}) {
     throw Error('UNTRUSTED_PROCESS_SANDBOX_NOT_IMPLEMENTED: development opt-in required');
   }
   const {expectedSha256, entry = 'main', maxMemoryPages = 2,
-    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000} = config;
+    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000, signal} = config;
   checkInt(timeoutMs, 1, 30000, 'timeoutMs');
   checkInt(maxModuleBytes, 8, 16 * 1024 * 1024, 'maxModuleBytes');
   checkInt(maxMemoryPages, 1, 256, 'maxMemoryPages');
   if (typeof entry !== 'string' || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry))
     throw new TypeError('invalid guest entry');
+  if (signal !== undefined && !(signal instanceof AbortSignal))
+    throw new TypeError('signal must be an AbortSignal');
+  if (signal?.aborted) throw abortError();
   if (expectedSha256 !== undefined &&
       (typeof expectedSha256 !== 'string' || !shaPattern.test(expectedSha256))) {
     throw new TypeError('invalid pinned SHA-256');
@@ -106,7 +114,7 @@ export async function runExperimentalProcessGuest(input, options = {}) {
   }
   try {
     return await new Promise((resolve, reject) => {
-      let child, timer, response, validated, failure, finalized = false;
+      let child, timer, response, validated, failure, abortHandler, finalized = false;
       const kill = () => {
         if (child && child.exitCode === null && child.signalCode === null) {
           try { child.kill('SIGKILL'); } catch (err) { failure ||= err; }
@@ -117,6 +125,7 @@ export async function runExperimentalProcessGuest(input, options = {}) {
         if (finalized) return;
         finalized = true;
         clearTimeout(timer);
+        if (abortHandler) signal.removeEventListener('abort', abortHandler);
         // We reach here only on close: do not free quota while code may run.
         concurrent--;
         if (failure) return reject(failure);
@@ -131,6 +140,14 @@ export async function runExperimentalProcessGuest(input, options = {}) {
           ['--max-old-space-size=64', childPath],
           {env: {}, stdio: ['ignore','ignore','ignore','ipc'],
             serialization: 'advanced', windowsHide: true});
+        // Cancellation is supervisor-owned. It must interrupt compilation or
+        // non-cooperative guest execution, and retain capacity until close.
+        if (signal) {
+          abortHandler = () => fail(abortError());
+          signal.addEventListener('abort', abortHandler, {once: true});
+          // Closes the race between preflight and listener registration.
+          if (signal.aborted) abortHandler();
+        }
         child.on('message', message => {
           if (response !== undefined) return fail(Error('duplicate process guest response'));
           response = message;
@@ -151,6 +168,7 @@ export async function runExperimentalProcessGuest(input, options = {}) {
             failure = Error('guest process exited without result');
           finish();
         });
+        if (failure) return; // cancelled before the guest was submitted
         child.send({kind: 'RUN_ONE', bytes, options: {
           expectedSha256: actualHash, entry, maxMemoryPages, maxModuleBytes
         }}, err => { if (err) fail(Error('guest process IPC failed: ' + err.message)); });
