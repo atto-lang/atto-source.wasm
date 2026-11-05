@@ -170,3 +170,15 @@ test('cancellation near launch cannot leak worker capacity',async()=>{
   }
   assert.equal((await runExperimentalProcessGuest(simple,opt)).value,42n);
 });
+test('a spinning guest cannot poison a simultaneous healthy process',async()=>{
+  const spin=compile('target triple = "wasm32-unknown-unknown"\n'+
+    'define i64 @main() {\nentry:\n br label %spin\nspin:\n br label %spin\n}\n');
+  const hung=runExperimentalProcessGuest(spin,{...opt,timeoutMs:850});
+  const healthy=runExperimentalProcessGuest(simple,opt);
+  const [a,b]=await Promise.allSettled([hung,healthy]);
+  assert.equal(a.status,'rejected');
+  assert.match(String(a.reason),/execution deadline exceeded/);
+  assert.equal(b.status,'fulfilled');
+  assert.equal(b.value.value,42n);
+  assert.equal(b.value.execution.hostileSandboxCertified,false);
+});
