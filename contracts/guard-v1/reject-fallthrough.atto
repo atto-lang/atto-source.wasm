@@ -1,0 +1,5 @@
+// Must fail at compile time: the failure block can fall through.
+pub fnc main(): int {
+  guard true { }
+  return 42;
+}

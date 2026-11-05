@@ -2,10 +2,14 @@
 // mailbox admission, Oreslang self.* lowering or reply transport is exposed.
 const encoder = new TextEncoder();
 const MAX_NAME = 256, MAX_KEY = 4096;
-function bytes(value, limit, optional = false, forbidNul = true) {
+function bytes(value, limit, optional = false, forbidNul = true, forbidFormat = false) {
   if (typeof value !== "string" || (!optional && value.length === 0) ||
       value.length > limit || (forbidNul && value.includes("\0")))
     throw new TypeError("invalid routing component");
+  // Routing keys are arbitrary application data; only compiler-owned topology
+  // names and edge types forbid hidden Unicode controls.
+  if(forbidFormat && /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u.test(value))
+    throw new TypeError("unsafe actor routing metadata");
   for (let i = 0; i < value.length; i++) {
     const n = value.charCodeAt(i);
     if (n >= 0xd800 && n <= 0xdbff) {
@@ -81,8 +85,8 @@ export class ActorPipelineSelector {
         inbound: ownData(candidate, "inbound"),
         outbound: ownData(candidate, "outbound")
       });
-      for (const n of [s.id, s.actorType]) bytes(n, MAX_NAME);
-      for (const n of [s.inbound, s.outbound]) bytes(n, MAX_NAME, true);
+      for (const n of [s.id, s.actorType]) bytes(n, MAX_NAME, false, true, true);
+      for (const n of [s.inbound, s.outbound]) bytes(n, MAX_NAME, true, true, true);
       if (ids.has(s.id)) throw new TypeError("duplicate actor instance");
       const incoming = s.inbound.length !== 0, outgoing = s.outbound.length !== 0;
       const roles = {readable: !incoming && outgoing,
@@ -103,7 +107,7 @@ export class ActorPipelineSelector {
         target: ownData(candidate, "target"),
         payload: ownData(candidate, "payload")
       });
-      for (const n of [edge.source, edge.target, edge.payload]) bytes(n, MAX_NAME);
+      for (const n of [edge.source, edge.target, edge.payload]) bytes(n, MAX_NAME, false, true, true);
       const source = ids.get(edge.source), target = ids.get(edge.target);
       if (!source || !target || source.id === target.id) throw new TypeError("invalid edge endpoints");
       if (source.role === "writable" || target.role === "readable" ||

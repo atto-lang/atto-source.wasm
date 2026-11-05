@@ -196,3 +196,25 @@ test("seeded 1000-graph DAG fuzz preserves immutable routing identity", () => {
     assert.throws(()=>selector.forwardAll(names[0]),/retired/);
   }
 });
+
+
+test("pipeline host snapshots reject getters and ignore caller array iterators",()=>{
+ let calls=0;
+ const badStages=[{...stages[0]},...stages.slice(1)];
+ Object.defineProperty(badStages[0],"id",{get(){calls++;return "source"}});
+ assert.throws(()=>new ActorPipelinePolicy(badStages,edges),/own data fields/);
+ assert.equal(calls,0);
+ const badEdges=edges.map(e=>({...e}));
+ Object.defineProperty(badEdges[0],"target",{get(){calls++;return "worker-a"}});
+ assert.throws(()=>new ActorPipelinePolicy(stages,badEdges),/own data fields/);
+ assert.equal(calls,0);
+ const stagesCopy=stages.map(s=>({...s})),edgesCopy=edges.map(e=>({...e}));
+ for(const array of [stagesCopy,edgesCopy]){
+  Object.defineProperty(array,Symbol.iterator,{value(){calls++;throw Error("caller iterator executed")}});
+ }
+ const policy=new ActorPipelinePolicy(stagesCopy,edgesCopy);
+ assert.equal(policy.forwardAll("source").length,3);
+ assert.equal(calls,0);
+ const sparse=stagesCopy.slice();delete sparse[1];
+ assert.throws(()=>new ActorPipelinePolicy(sparse,edges),/own data fields/);
+});

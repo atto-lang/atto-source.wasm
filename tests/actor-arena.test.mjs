@@ -225,3 +225,74 @@ test('arena write checks current resizable ArrayBuffer view length on every call
   arena.endTurn(turn);
   arena.retire();
 });
+
+test("retirement revokes guest authority while external lifetime lease drains", () => {
+  const arena = new ActorArena({actorId: 51, incarnation: 1});
+  const turn = arena.beginTurn();
+  const live = arena.allocPersistent(turn, 4);
+  arena.write(turn, live, Uint8Array.of(4, 3, 2, 1));
+  const pin = arena.pinLifetime(turn);
+  assert.equal(arena.pendingLifetimePins, 1);
+  assert.throws(() => arena.retire(), /active actor turn/);
+  arena.endTurn(turn);
+  arena.retire();
+  assert.equal(arena.retired, true);
+  assert.equal(arena.pendingLifetimePins, 1);
+  assert.throws(() => arena.beginTurn(), /retired/);
+  assert.throws(() => arena.read(turn, live), /retired/);
+  assert.throws(() => arena.pinLifetime(turn), /retired/);
+  arena.releaseLifetimePin(pin); // external completion after STOP
+  arena.releaseLifetimePin(pin); // duplicate completion must be neutral
+  assert.equal(arena.pendingLifetimePins, 0);
+  arena.retire(); // idempotent after final storage release
+});
+
+test("lifetime pins cannot be forged, transferred, or issued off-turn", () => {
+  const first = new ActorArena({actorId: 52, incarnation: 1});
+  const other = new ActorArena({actorId: 53, incarnation: 1});
+  const t = first.beginTurn();
+  const o = other.beginTurn();
+  const pin = first.pinLifetime(t);
+  assert.throws(() => first.pinLifetime(o), /turn authority/);
+  assert.throws(() => other.releaseLifetimePin(pin), /foreign or unissued/);
+  assert.throws(() => first.releaseLifetimePin(Object.freeze({})), /foreign or unissued/);
+  assert.equal(first.pendingLifetimePins, 1);
+  first.releaseLifetimePin(pin);
+  assert.equal(first.pendingLifetimePins, 0);
+  first.endTurn(t);
+  other.endTurn(o);
+  first.retire();
+  other.retire();
+});
+
+test("bounded external pins drain in any order without underflow", () => {
+  const arena = new ActorArena({actorId: 54, incarnation: 1});
+  const t = arena.beginTurn();
+  const pins = Array.from({length: 4096}, () => arena.pinLifetime(t));
+  assert.equal(arena.pendingLifetimePins, 4096);
+  assert.throws(() => arena.pinLifetime(t), /pin quota exhausted/);
+  arena.endTurn(t);
+  arena.retire();
+  for (let i = pins.length - 1; i >= 0; --i) {
+    arena.releaseLifetimePin(pins[i]);
+    if (i % 47 === 0) arena.releaseLifetimePin(pins[i]);
+  }
+  assert.equal(arena.pendingLifetimePins, 0);
+  assert.throws(() => arena.releaseLifetimePin(null), /foreign or unissued/);
+  assert.throws(() => arena.beginTurn(), /retired/);
+});
+
+test("released lease cannot delay restart, new incarnation rejects old pin", () => {
+  const before = new ActorArena({actorId: 55, incarnation: 1});
+  const t = before.beginTurn();
+  const pin = before.pinLifetime(t);
+  before.releaseLifetimePin(pin);
+  before.endTurn(t);
+  before.retire();
+  const after = new ActorArena({actorId: 55, incarnation: 2});
+  const u = after.beginTurn();
+  assert.throws(() => after.releaseLifetimePin(pin), /foreign or unissued/);
+  assert.equal(after.pendingLifetimePins, 0);
+  after.endTurn(u);
+  after.retire();
+});

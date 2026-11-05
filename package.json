@@ -12,6 +12,8 @@
     "run:guest": "node scripts/run-guest.mjs",
     "test:real-compiler": "node scripts/verify-real-compiler.mjs",
     "test:real-aot": "node scripts/verify-real-aot.mjs",
-    "test:refinement-admission": "node tests/refinement-admission-delegated.mjs"
+    "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
+    "test:mut-share": "ORESLANG_MUT_SHARE_PARITY_REQUIRED=1 node --test tests/rt-mut-share-source-parity.test.mjs",
+    "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs"
   }
 }

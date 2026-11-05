@@ -16,8 +16,15 @@ let activeGuestWorkers = 0;
  */
 export async function runIsolatedCoreGuest(input, {
   expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
+  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000,
+  namespaceBindings = null
 } = {}) {
+  if (namespaceBindings !== null) {
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  }
+  if (entry === "init") {
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
+  }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
