@@ -23,7 +23,7 @@ test("state-region data descriptor snapshot never invokes Proxy get traps",()=>{
  assert.equal(out.loanId,17);
  assert.equal(Object.isFrozen(out),true);
  assert.equal(gets,0);
- assert.equal(descriptors,8);
+ assert.equal(descriptors,14); // 8 required fields and 6 forbidden-authority checks.
 });
 
 test("changing get traps cannot forge matching borrow/release physical authority",()=>{
