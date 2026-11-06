@@ -577,6 +577,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn manifest_metadata_stability_detects_late_hardlink() {
+        use std::os::unix::fs::MetadataExt;
         let temp = TempDir::new();
         let file = temp.0.join("integration.json");
         fs::write(&file, valid("oreslang-source.java")).unwrap();
