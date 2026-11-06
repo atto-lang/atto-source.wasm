@@ -158,6 +158,27 @@ fn bounded_read(file: &mut fs::File) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(unix)]
+fn stable_manifest_metadata(before: &fs::Metadata, after: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // Only compare metadata that is supposed to remain stable for an
+    // immutable source declaration. Reading can change atime, so omit it.
+    // A second fstat is defense in depth against detectable concurrent
+    // mutation, not an immutable snapshot or cryptographic attestation.
+    before.is_file()
+        && after.is_file()
+        && before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.nlink() == 1
+        && after.nlink() == 1
+        && before.len() == after.len()
+        && before.mode() == after.mode()
+        && before.mtime() == after.mtime()
+        && before.mtime_nsec() == after.mtime_nsec()
+        && before.ctime() == after.ctime()
+        && before.ctime_nsec() == after.ctime_nsec()
+}
+
+#[cfg(unix)]
 fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
@@ -213,7 +234,13 @@ fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
     if opened.len() > MAX_BYTES as u64 {
         return Err(invalid("manifest exceeds size limit"));
     }
-    bounded_read(&mut manifest_fd)
+    let raw = bounded_read(&mut manifest_fd)?;
+    let after = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect manifest after read"))?;
+    if !stable_manifest_metadata(&opened, &after) {
+        return Err(invalid("manifest changed during bounded read"));
+    }
+    Ok(raw)
 }
 
 #[cfg(not(unix))]
@@ -518,6 +545,47 @@ mod tests {
         fs::write(&external, valid("oreslang-source.java")).unwrap();
         symlink(&external, root.join(".oreslang/integration.json")).unwrap();
         assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_metadata_stability_allows_unchanged_file() {
+        let temp = TempDir::new();
+        let file = temp.0.join("integration.json");
+        fs::write(&file, valid("oreslang-source.java")).unwrap();
+        let before = fs::metadata(&file).unwrap();
+        let bytes = fs::read(&file).unwrap();
+        let after = fs::metadata(&file).unwrap();
+        assert_eq!(bytes, valid("oreslang-source.java"));
+        assert!(stable_manifest_metadata(&before, &after));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_metadata_stability_detects_post_open_growth() {
+        use std::io::Write;
+        let temp = TempDir::new();
+        let file = temp.0.join("integration.json");
+        fs::write(&file, valid("oreslang-source.java")).unwrap();
+        let before = fs::metadata(&file).unwrap();
+        let mut writer = fs::OpenOptions::new().append(true).open(&file).unwrap();
+        writer.write_all(b" ").unwrap();
+        let after = fs::metadata(&file).unwrap();
+        assert!(!stable_manifest_metadata(&before, &after));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_metadata_stability_detects_late_hardlink() {
+        let temp = TempDir::new();
+        let file = temp.0.join("integration.json");
+        fs::write(&file, valid("oreslang-source.java")).unwrap();
+        let before = fs::metadata(&file).unwrap();
+        fs::hard_link(&file, temp.0.join("late-alias.json")).unwrap();
+        let after = fs::metadata(&file).unwrap();
+        assert_eq!(before.nlink(), 1);
+        assert_eq!(after.nlink(), 2);
+        assert!(!stable_manifest_metadata(&before, &after));
     }
 
     #[cfg(unix)]
