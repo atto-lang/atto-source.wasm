@@ -34,17 +34,16 @@ HOUSEKEEPING_STEPS = frozenset({
 
 
 def _evidence_label(value, limit=250):
-    # Untrusted REST display labels must be one visible line, without bidi
-    # controls or zero-width formatting. Those can visually impersonate an
-    # approved runner, CI job, or native guest test step in log/report UIs.
-    # Leading/trailing padding and exotic space separators are visually
-    # indistinguishable from ordinary job/step names in some review surfaces.
-    # Retain plain internal ASCII spaces for legitimate descriptive labels.
+    # REST display labels are security evidence, not merely presentation.
+    # Invisible combining marks (notably U+034F), private-use code points,
+    # unassigned characters and NFKC compatibility glyphs can disguise
+    # housekeeping steps or a runner identity even without bidi controls.
+    # Preserve legible precomposed Unicode (e.g. "unité", "検証").
     return (isinstance(value, str) and bool(value.strip())
             and value == value.strip() and len(value) <= limit
+            and unicodedata.normalize("NFKC", value) == value
             and not any(
-                unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
-                or (unicodedata.category(ch) == "Zs" and ch != " ")
+                ch != " " and unicodedata.category(ch)[0] in ("C", "M", "Z")
                 for ch in value))
 
 
