@@ -82,3 +82,14 @@ test('permit decoded gzip-length mismatch but still enforce body budget', async 
   response.headers.set('content-encoding', 'gzip');
   assert.deepEqual(await read_strict_github_response(response), {ok:true});
 });
+
+test('allow top-level review list only when explicitly selected', () => {
+  const list = '[{\"state\":\"APPROVED\"}]';
+  assert.throws(() => parse(list), EvidenceRejected);
+  assert.deepEqual(parse_strict_github_json(enc.encode(list), {allowArray:true}), [{state:'APPROVED'}]);
+});
+test('accept streamed reviews list only with allowArray true', async () => {
+  const data = enc.encode('[{\"state\":\"APPROVED\"}]');
+  await assert.rejects(read_strict_github_response(res([data])), EvidenceRejected);
+  assert.deepEqual(await read_strict_github_response(res([data]), {allowArray:true}), [{state:'APPROVED'}]);
+});
