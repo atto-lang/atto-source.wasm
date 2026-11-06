@@ -877,6 +877,38 @@ class RunContract(unittest.TestCase):
                                     self.run_id, job_names, step_names)
 
 
+    def test_invisible_mark_private_use_and_compatibility_spoofs_denied(self):
+        # These labels were previously considered legible useful execution
+        # names, despite invisible grapheme joiners, marks or confusable glyphs.
+        # Replay each through observed runner/job/step and pinned required names.
+        labels = ("Set\u034f up job", "Set up jo\u034fb",
+                  "Execute\u0301 test suite", "Runner\ue000name",
+                  "\uff33et up job", "\u24c8et up job")
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
+        baseline = copy.deepcopy(self.values[page])
+        try:
+            for label in labels:
+                with self.subTest(label=repr(label)):
+                    self.assertFalse(module._evidence_label(label))
+                    self.assertFalse(module.executable_step_name(label))
+                    self.values[page] = copy.deepcopy(baseline)
+                    job = self.values[page]["jobs"][0]
+                    job["runner_name"] = label
+                    self.rejected()
+                    job["runner_name"] = baseline["jobs"][0]["runner_name"]
+                    job["name"] = label
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, [label], ["Execute test suite"])
+                    job["name"] = baseline["jobs"][0]["name"]
+                    job["steps"][1]["name"] = label
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, ["unit"], [label])
+        finally:
+            self.values[page] = baseline
+
+
     def test_legible_unicode_display_names_are_not_disallowed(self):
         page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
