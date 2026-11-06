@@ -213,8 +213,17 @@ fn read_manifest_physically(_root: &Path) -> Result<Vec<u8>, String> {
 }
 
 fn verify_repository(root: &Path) -> Result<String, String> {
-    let root = fs::canonicalize(root)
-        .map_err(|e| format!("invalid repository root: {e}"))?;
+    // Do not canonicalize the root before O_NOFOLLOW: that would dereference
+    // an attacker-supplied symlinked repository-root authority alias.
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|e| format!("invalid current directory: {e}"))?
+            .join(root)
+    };
+    // Strip lexical trailing '.' components without following symlinks.
+    let root: PathBuf = absolute.components().collect();
     let expected_name = root
         .file_name()
         .and_then(|name| name.to_str())
@@ -424,6 +433,21 @@ mod tests {
         fs::write(root.join(".oreslang/integration.json"),
                   valid("oreslang-source.java")).unwrap();
         assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_even_with_valid_outside_manifest() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside = temp.0.join("outside").join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias = temp.0.join("oreslang-source.java");
+        symlink(&outside, &alias).unwrap();
+        assert!(verify_repository(&alias).is_err());
+        assert!(verify_repository(&alias.join(".")).is_err());
     }
 
     #[cfg(unix)]
