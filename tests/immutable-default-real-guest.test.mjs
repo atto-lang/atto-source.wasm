@@ -18,6 +18,7 @@ const positives = [
   ["const-colon", "const x: int = 7; return x;", 7n],
   ["typed-runtime", "int x = 7; int y = x * 3; return y;", 21n],
   ["const-dependency", "const x = 7; const y = x * 3; return y;", 21n],
+  ["let-rebinding-control", "let int x = 7; x = 8; return x;", 8n],
 ];
 const negatives = [
   "int x = 7; x = 8; return x;",
@@ -84,7 +85,18 @@ for (const [index, body] of negatives.entries()) {
     const {source, output} = await scratch(t, body);
     await assert.rejects(() => compileOresToWasm({
       compiler: resolve(compiler), source, output,
-    }));
+    }), error => {
+      // A parser rejecting all declarations/assignments is not ownership
+      // proof: the first two cases must fail with a real LLVM compiler-owned
+      // resolved-binding assignment diagnostic, never a generic syntax error.
+      if (index === 0 || index === 1) {
+        assert.match(String(error.stderr || "").toLowerCase(),
+          /assign|readonly|immutable/,
+          "expected semantic readonly-assignment diagnostic from LLVM");
+        assert.equal(error.signal, null, "compiler must not crash");
+      }
+      return true;
+    });
     await assert.rejects(stat(output), {code: "ENOENT"});
     // Generic rejection is NOT semantic immutability proof: the compiler must
     // eventually emit a resolved readonly/type/const diagnostic receipt.
