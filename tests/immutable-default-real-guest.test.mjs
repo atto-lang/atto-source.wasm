@@ -19,6 +19,7 @@ const positives = [
   ["typed-runtime", "int x = 7; int y = x * 3; return y;", 21n],
   ["const-dependency", "const x = 7; const y = x * 3; return y;", 21n],
   ["let-rebinding-control", "let int x = 7; x = 8; return x;", 8n],
+  ["runtime-const-from-readonly", "int x = 7; const y = x + 1; return y;", 8n],
 ];
 const negatives = [
   "int x = 7; x = 8; return x;",
@@ -31,7 +32,6 @@ const negatives = [
   "const x = missing_value; return x;",
   "string x = 7; return 0;",
   "int x = 7; rt mut borrow x; return x;",
-  "int x = 7; const y = x + 1; return y;",
 ];
 
 test("immutable-default real-Wasm evidence admission", async t => {
