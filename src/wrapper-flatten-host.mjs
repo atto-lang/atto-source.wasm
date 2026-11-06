@@ -35,8 +35,11 @@ export function flattenFuture(source, {signal} = {}) {
       signal?.removeEventListener('abort', onAbort);
       reject(signal.reason ?? new DOMException('Future observer cancelled', 'AbortError'));
     };
-    if (signal?.aborted) { onAbort(); return; }
-    signal?.addEventListener('abort', onAbort, {once: true});
+    // Cancellation revokes only this observer. Always observe producer failure,
+    // even when cancellation preceded registration, to avoid an unhandled
+    // rejection from abandoned work. Keep the original producer unchanged.
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, {once: true});
     source.then(value => {
       if (settled) return;
       settled = true;
@@ -50,3 +53,4 @@ export function flattenFuture(source, {signal} = {}) {
     });
   });
 }
+
