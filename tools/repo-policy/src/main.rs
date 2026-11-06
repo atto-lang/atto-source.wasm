@@ -160,15 +160,17 @@ fn bounded_read(file: &mut fs::File) -> Result<Vec<u8>, String> {
 #[cfg(unix)]
 fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
     use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::path::Component;
 
-    // The repository-root fd is the authority anchor. Resolve each child
-    // relative to the previously opened directory, never via a reusable path.
-    fn open_child(parent: &fs::File, name: &str, flags: libc::c_int) -> Result<fs::File, String> {
-        let name = std::ffi::CString::new(name)
+    // The filesystem-root fd is the authority anchor. O_NOFOLLOW on an
+    // absolute path protects only its last component, not its ancestors.
+    fn open_child(parent: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) -> Result<fs::File, String> {
+        let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| invalid("manifest component contains NUL"))?;
-        // SAFETY: parent.as_raw_fd() is valid for this call, name is a
-        // NUL-terminated CString and the returned descriptor is owned once.
+        // SAFETY: the parent's fd is live and the CString is NUL-terminated;
+        // the returned descriptor is owned exactly once by File.
         let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags, 0) };
         if fd < 0 {
             return Err(invalid("manifest component cannot be opened safely"));
@@ -176,19 +178,28 @@ fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
         Ok(unsafe { fs::File::from_raw_fd(fd) })
     }
 
-    let root_fd = fs::OpenOptions::new()
+    let directory_flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut root_fd = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(root)
-        .map_err(|_| invalid("repository root is not a secure directory"))?;
-    let parent_fd = open_child(
-        &root_fd, ".oreslang",
-        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-    )?;
+        .custom_flags(directory_flags)
+        .open("/")
+        .map_err(|_| invalid("cannot open filesystem root securely"))?;
+    // Reject symlinked directory components at every level of the supplied
+    // repository-root path, not just at its final directory.
+    for component in root.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => {
+                root_fd = open_child(&root_fd, name, directory_flags)?;
+            }
+            _ => return Err(invalid("repository root contains unsupported path component")),
+        }
+    }
+    let parent_fd = open_child(&root_fd, std::ffi::OsStr::new(".oreslang"), directory_flags)?;
     // O_NONBLOCK avoids hanging if a checked regular file is swapped for a
     // FIFO. O_NOFOLLOW denies a symlink swap before the actual open.
     let mut manifest_fd = open_child(
-        &parent_fd, "integration.json",
+        &parent_fd, std::ffi::OsStr::new("integration.json"),
         libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
     )?;
     let opened = manifest_fd.metadata()
@@ -433,6 +444,22 @@ mod tests {
         fs::write(root.join(".oreslang/integration.json"),
                   valid("oreslang-source.java")).unwrap();
         assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_ancestor() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside_parent = temp.0.join("outside-parent");
+        let outside = outside_parent.join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias_parent = temp.0.join("parent-alias");
+        symlink(&outside_parent, &alias_parent).unwrap();
+        let root = alias_parent.join("oreslang-source.java");
+        assert!(verify_repository(&root).is_err());
     }
 
     #[cfg(unix)]
