@@ -132,7 +132,8 @@ async function gh_json(path, token) {
     redirect: 'error', signal: AbortSignal.timeout(15000),
   });
   if (response.status !== 200) throw new Error('GitHub API HTTP ' + response.status);
-  return read_strict_github_response(response);
+  return read_strict_github_response(response,
+    {allowArray: path.endsWith('/reviews?per_page=100')});
 }
 
 export async function inspect_live(backend, number, expected_head, get = gh_json,
