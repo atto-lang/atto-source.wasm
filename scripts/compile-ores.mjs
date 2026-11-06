@@ -19,8 +19,20 @@ const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
 function tupleV2Tokens(sourceBytes){
+ // Exported source-admission gates can be called before the CLI's bounded file
+ // snapshot. Enforce the same byte budget before decode or token allocation.
+ if(!sourceBytes || !Number.isSafeInteger(sourceBytes.byteLength))
+  throw new TypeError("WASM source preflight requires byte input");
+ if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
+  throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
+ const MAX_SOURCE_TOKENS=100_000;
+ const pushToken=token=>{
+  if(tokens.length>=MAX_SOURCE_TOKENS)
+   throw new RangeError("WASM source preflight token budget exceeded");
+  tokens.push(token);
+ };
  const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
  for(let i=0;i<text.length;){
   const c=text[i];
@@ -51,9 +63,9 @@ function tupleV2Tokens(sourceBytes){
   }
   if(idStart(c)){
    const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
+   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
   }
-  tokens.push({text:c,offset:i,id:false});i++;
+  pushToken({text:c,offset:i,id:false});i++;
  }
  return tokens;
 }
