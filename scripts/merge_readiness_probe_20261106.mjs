@@ -5,6 +5,7 @@
  * CODEOWNER, required checks, protected policy, and guest parity need separate proof.
  */
 import { pathToFileURL } from 'node:url';
+import {read_strict_github_response} from './strict_github_evidence_20261106.mjs';
 
 export const REPOS = Object.freeze({
   java: ['ores-truffle-oreslang/oreslang-source.java', 1400792274],
@@ -131,9 +132,7 @@ async function gh_json(path, token) {
     redirect: 'error', signal: AbortSignal.timeout(15000),
   });
   if (response.status !== 200) throw new Error('GitHub API HTTP ' + response.status);
-  const buffer = await response.arrayBuffer();
-  if (buffer.byteLength > 1024 * 1024) throw new Error('oversized GitHub API evidence');
-  return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(buffer));
+  return read_strict_github_response(response);
 }
 
 export async function inspect_live(backend, number, expected_head, get = gh_json,
