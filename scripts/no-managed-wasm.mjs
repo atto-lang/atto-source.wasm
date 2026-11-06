@@ -48,6 +48,12 @@ export function assertNoManagedWasm(bytes) {
   const scanInstruction = end => {
     if (at >= end) deny("truncated instruction");
     const op = bytes[at++];
+    // Tail-call instructions require an independently authorized runtime
+    // feature profile and a portable fallback for engines lacking the
+    // extension. This scalar host currently provides neither. Reject at the
+    // actual instruction boundary (never by matching raw immediate bytes).
+    if (op === 0x12 || op === 0x13)
+      deny("WASM_TAIL_CALL_FEATURE_UNSUPPORTED: return_call/return_call_indirect not admitted");
     if (op === 0xfb) deny("Wasm-GC opcode forbidden");
     if (op >= 0xd0 && op <= 0xd6) deny("reference instruction forbidden");
     if (op === 0xfd || op === 0xfe) deny("SIMD/atomic extension not admitted");
