@@ -23,7 +23,7 @@ export class EvidenceRejected extends Error {
 
 function denied(reason) { throw new EvidenceRejected(reason); }
 
-export function parse_strict_github_json(input) {
+export function parse_strict_github_json(input, {allowArray = false} = {}) {
   if (!(input instanceof Uint8Array) || input.byteLength === 0 || input.byteLength > MAX_BYTES) {
     denied('invalid or oversized JSON bytes');
   }
@@ -131,11 +131,12 @@ export function parse_strict_github_json(input) {
   if (i !== s.length) denied('trailing JSON material');
   let value;
   try { value = JSON.parse(s); } catch { denied('JSON decode rejected'); }
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) denied('top-level GitHub evidence must be an object');
+  if (value === null || typeof value !== 'object' || (Array.isArray(value) && allowArray !== true))
+    denied('top-level GitHub evidence must be an object unless reviews list expected');
   return value;
 }
 
-export async function read_strict_github_response(response) {
+export async function read_strict_github_response(response, {allowArray = false} = {}) {
   if (!response || response.status !== 200 || !response.body || typeof response.body.getReader !== 'function') {
     denied('GitHub response is not a successful stream');
   }
@@ -170,5 +171,5 @@ export async function read_strict_github_response(response) {
   const all = new Uint8Array(total);
   let cursor = 0;
   for (const bytes of chunks) { all.set(bytes, cursor); cursor += bytes.byteLength; }
-  return parse_strict_github_json(all);
+  return parse_strict_github_json(all, {allowArray});
 }
