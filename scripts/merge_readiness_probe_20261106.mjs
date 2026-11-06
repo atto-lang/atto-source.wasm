@@ -150,7 +150,10 @@ export async function inspect_live(backend, number, expected_head, get = gh_json
     get(prefix + 'actions/runs?head_sha=' + expected_head + '&event=pull_request&per_page=100', token),
   ]);
   if (!Array.isArray(reviewPage) || reviewPage.length >= 100
-      || !Array.isArray(runPage?.workflow_runs) || runPage.total_count >= 100) {
+      || !Array.isArray(runPage?.workflow_runs)
+      || !Number.isSafeInteger(runPage.total_count)
+      || runPage.total_count !== runPage.workflow_runs.length
+      || runPage.total_count >= 100) {
     throw new Error('review/workflow pagination cannot be proven complete');
   }
   const runs = [];
