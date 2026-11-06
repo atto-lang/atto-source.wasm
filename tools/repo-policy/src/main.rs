@@ -415,6 +415,7 @@ mod tests {
         assert!(verify_bytes(&bad_note, "oreslang-source.java").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn cli_accepts_regular_manifest_with_bounded_read() {
         let temp = TempDir::new();
@@ -462,6 +463,51 @@ mod tests {
         let external = temp.0.join("external.json");
         fs::write(&external, valid("oreslang-source.java")).unwrap();
         symlink(&external, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_fifo_without_waiting_for_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let fifo = root.join(".oreslang/integration.json");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = mpsc::channel();
+        // A regression that blocks on a FIFO must not stall the test driver:
+        // the receiver has a deadline and drops the join handle on failure.
+        std::thread::spawn(move || {
+            let _ = tx.send(verify_repository(&root).is_err());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_bounded_reader_caps_growth_to_one_byte_witness() {
+        let temp = TempDir::new();
+        let large = temp.0.join("large-manifest.json");
+        fs::write(&large, vec![b'x'; MAX_BYTES * 64]).unwrap();
+        let mut fd = fs::File::open(&large).unwrap();
+        let bytes = bounded_read(&mut fd).unwrap();
+        assert_eq!(bytes.len(), MAX_BYTES + 1);
+        assert!(verify_bytes(&bytes, "oreslang-source.java").is_err());
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn cli_denies_platform_without_secure_descriptor_open() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
         assert!(verify_repository(&root).is_err());
     }
 }
