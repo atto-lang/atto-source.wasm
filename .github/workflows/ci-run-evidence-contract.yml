@@ -35,6 +35,9 @@ jobs:
           }
           git diff --quiet
           git diff --cached --quiet
+          # Proofs must reject untracked and .gitignore-hidden local payloads.
+          test -z "$(git ls-files --others --exclude-standard)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
           printf 'commit=%s\n' "$actual" >> "$GITHUB_OUTPUT"
           printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
       - name: Run all eight-repository source-free security regressions
