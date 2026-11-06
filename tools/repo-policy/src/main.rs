@@ -158,6 +158,31 @@ fn bounded_read(file: &mut fs::File) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(unix)]
+fn ensure_file_metadata_stable(before: &fs::Metadata, after: &fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    // This detects observable file mutation around bounded reading. It cannot
+    // guarantee an immutable snapshot against a malicious concurrent writer
+    // that can restore timestamps or modify bytes after this final fstat.
+    if !before.is_file()
+        || !after.is_file()
+        || before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.mode() != after.mode()
+        || before.nlink() != 1
+        || after.nlink() != 1
+        || before.len() != after.len()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+        || before.ctime() != after.ctime()
+        || before.ctime_nsec() != after.ctime_nsec()
+    {
+        return Err(invalid("manifest changed during bounded read"));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::ffi::OsStrExt;
@@ -213,7 +238,11 @@ fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
     if opened.len() > MAX_BYTES as u64 {
         return Err(invalid("manifest exceeds size limit"));
     }
-    bounded_read(&mut manifest_fd)
+    let raw = bounded_read(&mut manifest_fd)?;
+    let after = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect manifest after bounded read"))?;
+    ensure_file_metadata_stable(&opened, &after)?;
+    Ok(raw)
 }
 
 #[cfg(not(unix))]
@@ -537,6 +566,59 @@ mod tests {
             let _ = tx.send(verify_repository(&root).is_err());
         });
         assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_accepts_unchanged_file() {
+        let temp = TempDir::new();
+        let path = temp.0.join("stable.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_in_place_growth() {
+        let temp = TempDir::new();
+        let path = temp.0.join("mutated.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::write(&path, vec![b'x'; MAX_BYTES]).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_hardlink_added_after_open() {
+        let temp = TempDir::new();
+        let path = temp.0.join("pre-link.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::hard_link(&path, temp.0.join("new-alias.json")).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_mode_changed_after_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new();
+        let path = temp.0.join("permission-change.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let new_mode = if before.permissions().mode() & 0o200 == 0 { 0o600 } else { 0o400 };
+        fs::set_permissions(&path, fs::Permissions::from_mode(new_mode)).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
     }
 
     #[cfg(unix)]
