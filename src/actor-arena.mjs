@@ -19,6 +19,8 @@ const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
 const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
+const trustedArrayPush = Array.prototype.push;
+const trustedArrayPop = Array.prototype.pop;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const trustedMemoryBuffer = Object.getOwnPropertyDescriptor(
@@ -280,7 +282,7 @@ export class ActorArena {
     const offset = stack.top;
     scrub(ownedBytes(stack.memory), offset, offset + length);
     this.#stackFrames.set(frame, {execution, offset, length});
-    stack.frames.push(frame);
+    trustedApply(trustedArrayPush, stack.frames, [frame]);
     stack.top += length;
     return frame;
   }
@@ -289,7 +291,8 @@ export class ActorArena {
     const stack = this.#requireStack(turn, execution);
     const slot = this.#stackFrames.get(frame);
     if (!slot || slot.execution !== execution ||
-        stack.frames[stack.frames.length - 1] !== frame) {
+        (stack.frames.length === 0 ||
+         stack.frames[stack.frames.length - 1] !== frame)) {
       throw new Error("foreign, stale or non-top actor stack frame");
     }
     return {stack, slot};
@@ -316,7 +319,7 @@ export class ActorArena {
   popStackFrame(turn, execution, frame) {
     const {stack, slot} = this.#topStackFrame(turn, execution, frame);
     scrub(ownedBytes(stack.memory), slot.offset, slot.offset + slot.length);
-    stack.frames.pop();
+    trustedApply(trustedArrayPop, stack.frames, []);
     stack.top = slot.offset;
     this.#stackFrames.delete(frame);
   }
