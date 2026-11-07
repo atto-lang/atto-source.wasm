@@ -18,11 +18,42 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
   const byteOffset = at => Buffer.byteLength(source.slice(0, at), 'utf8');
   const failure = (reason, at) => { throw Error(reason + ' at byte ' + byteOffset(at)); };
 
+  const unsafeImportPath = path => {
+    // Reserved compiler-owned stdlib identity, including legacy spellings.
+    // Do not reject quoted text outside an import declaration.
+    let normalized = path.split(String.fromCharCode(92)).join('/');
+    if (normalized.startsWith('std/') || normalized.startsWith('ores.std/')) {
+      const parts = [];
+      for (const part of normalized.split('/')) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') {
+          if (parts.length <= 1) return true; // Cannot escape stdlib root.
+          parts.pop();
+        } else parts.push(part);
+      }
+      normalized = parts.join('/');
+    } else if (normalized.includes('/')) {
+      // A relative import may become compiler-owned after graph resolution:
+      // ./std/unsafe and pkg/../std/unsafe are not guest package names.
+      const parts = [];
+      for (const part of normalized.split('/')) {
+        if (part === '' || part === '.') continue;
+        if (part === '..') {
+          if (parts.length) parts.pop();
+        } else parts.push(part);
+      }
+      normalized = parts.join('/');
+    }
+    return ['ores.std/unsafe', 'std/unsafe', 'ores.std.unsafe',
+            'std.unsafe', 'ores.std:unsafe', 'std:unsafe'].some(root =>
+      normalized === root || normalized.startsWith(root + '/') ||
+      normalized.startsWith(root + '.'));
+  };
   function quoted(quote) {
     const at = pos++;
     while (pos < source.length) {
       if (source[pos] === '\\') { pos += 2; continue; }
-      if (source[pos++] === quote) return;
+      if (source[pos++] === quote) return source.slice(at + 1, pos - 1);
     }
     failure('unterminated quoted literal', at);
   }
@@ -59,6 +90,8 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
   }
   function code(inInterpolation, depth) {
     let braces = 0;
+    let sawImport = false;
+    let awaitingImportPath = false;
     while (pos < source.length) {
       const c = source[pos];
       if (source.startsWith('//', pos)) {
@@ -67,7 +100,18 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
         continue;
       }
       if (source.startsWith('/*', pos)) { blockComment(); continue; }
-      if (c === '"' || c === "'") { quoted(c); continue; }
+      if (c === '"' || c === "'") {
+        const at = pos, value = quoted(c);
+        // The external compiler may decode source string escapes. G0 cannot
+        // safely interpret escaped import paths, so reject them before any
+        // native compiler invocation rather than trusting a raw-byte match.
+        if (awaitingImportPath && value.includes(String.fromCharCode(92)))
+          failure('wasm escaped import path unavailable in guest domains', at);
+        if (awaitingImportPath && unsafeImportPath(value))
+          failure('wasm unsafe standard-library import unavailable in guest domains', at);
+        awaitingImportPath = false;
+        continue;
+      }
       if (c === '`') { template(depth + 1); continue; }
       // #unsafe is a Symbol literal, not executable unsafe source.
       if (c === '#') {
@@ -82,8 +126,11 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
       if (start(c)) {
         const at = pos++;
         while (pos < source.length && part(source[pos])) pos++;
-        if (source.slice(at, pos) === 'unsafe')
+        const word = source.slice(at, pos);
+        if (word === 'unsafe')
           failure('wasm unsafe boundary unsupported: effects and native grants unavailable', at);
+        if (word === 'import') sawImport = true;
+        if (word === 'from' && sawImport) awaitingImportPath = true;
         continue;
       }
       if (inInterpolation && c === '{') {
@@ -95,6 +142,7 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
         if (braces-- === 0) return;
         continue;
       }
+      if (c === ';') { sawImport = false; awaitingImportPath = false; }
       pos++;
     }
     if (inInterpolation) failure('unterminated template interpolation', pos);

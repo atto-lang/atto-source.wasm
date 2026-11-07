@@ -24,6 +24,80 @@ test('Wasm bridge rejects actual unsafe source lexemes, including nested templat
     assert.throws(() => reject(bytes(source)), /wasm unsafe boundary unsupported: effects and native grants unavailable at byte [0-9]+/);
   }
 });
+test('Unsafe stdlib imports are denied even when the package path is quoted', () => {
+  const paths = ['ores.std/unsafe', 'ores.std/unsafe/ffi', 'std/unsafe/memory',
+                 'std.unsafe.ffi', 'std:unsafe.native', 'ores.std:unsafe',
+                 'std/./unsafe/ffi', 'std/other/../unsafe/native',
+                 'ores.std//unsafe/memory'];
+  for (const path of paths) {
+    for (const before of ['import module native_ops from ',
+                          'import ns ffi as native_ops from ']) {
+      const source = before + '"' + path + '";';
+      assert.throws(() => reject(bytes(source)),
+                    /wasm unsafe standard-library import unavailable in guest domains at byte [0-9]+/);
+    }
+  }
+  // Import parsing must not misinterpret an ordinary quoted string, comments,
+  // or a distinct unsafe_tools namespace as privileged native FFI.
+  for (const source of [
+    'fnc main():string{return "std/unsafe/ffi";}',
+    '// import module ffi from "std/unsafe/ffi";\\nfnc main():int{return 42;}',
+    'import module tools from "std/unsafe_tools";',
+    'import module tools from "std/./unsafe_tools";',
+    'import module tools from "pkg:unsafe";',
+  ]) assert.doesNotThrow(() => reject(bytes(source)), source);
+});
+
+test('Canonicalized unsafe import matrix cannot be laundered by alias or comments', () => {
+  const roots = ['std/unsafe', 'ores.std/unsafe',
+                 'std.unsafe', 'ores.std.unsafe',
+                 'std:unsafe', 'ores.std:unsafe'];
+  const suffixes = ['', '/ffi', '.ffi', '/memory', '/native.ores'];
+  const prefixes = ['import module ffi from ',
+                    'import module foo as ffi from ',
+                    'import module ffi from /* inert */ ',
+                    'import module ffi from\\n'];
+  let rejected = 0;
+  for (const root of roots) for (const suffix of suffixes) {
+    const paths = [root + suffix];
+    if (root.includes('/')) paths.push(
+      root.replace('/', '/./') + suffix,
+      root.replace('/', '//') + suffix,
+      root.replace('/', '/foo/../') + suffix);
+    paths.push('./' + root + suffix,
+               '../' + root + suffix,
+               'pkg/../' + root + suffix);
+    for (const path of paths) for (const prefix of prefixes) {
+      assert.throws(() => reject(bytes(prefix + '"' + path + '";')),
+                    /wasm unsafe standard-library import unavailable in guest domains/);
+      rejected++;
+    }
+  }
+  assert.equal(rejected, 600);
+  for (const nearMiss of ['std/unsafe_tools', 'std/unsafe-math',
+                          'ores.std/safe', 'pkg:unsafe', 'std/./unsafe_tools',
+                          'std/stuff/../safe', 'ores.std:unsafe_tools',
+                          'pkg/std/unsafe/memory', 'pkg/std/unsafe_tools']) {
+    assert.doesNotThrow(() =>
+      reject(bytes('import module tools from "' + nearMiss + '";')));
+  }
+});
+
+test('Escaped import strings fail before the external compiler can decode them', () => {
+  for (const path of [
+    String.raw`std\\/unsafe/ffi`,
+    String.raw`std\\u002funsafe/ffi`,
+    String.raw`ores.std\\/unsafe/native`,
+    String.raw`std\\x2funsafe`,
+  ]) {
+    const source = 'import module ffi from "' + path + '";';
+    assert.throws(() => reject(bytes(source)),
+      /wasm escaped import path unavailable in guest domains at byte [0-9]+/);
+  }
+  assert.doesNotThrow(() =>
+    reject(bytes(String.raw`fnc main():string{return "std\\/unsafe";}`)));
+});
+
 test('CR, CRLF and LF comments cannot mask a later unsafe token', () => {
   for (const newline of ['\r', '\r\n', '\n', '\u0085', '\u2028', '\u2029']) {
     const source = 'fnc main():int{return 42;} // ignored' + newline + 'unsafe';
