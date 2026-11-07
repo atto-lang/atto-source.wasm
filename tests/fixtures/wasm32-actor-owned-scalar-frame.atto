@@ -1,0 +1,12 @@
+// Canonical .atto test: compiled WASM32 actor frame isolation, M2 scalar slice.
+// Synchronous one-actor module only; no actor scheduler, await or external FFI.
+define actor Counter as {
+  let total: int = 0;
+  pub fnc on_message(int increment): int {
+    total = total + increment;
+    return total;
+  }
+}
+pub fnc main(): int {
+  return 42;
+}
