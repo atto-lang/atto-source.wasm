@@ -22,7 +22,11 @@ jobs:
           [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git diff --quiet --exit-code
+          # Reject staged index changes and ignored shadow payloads at PR head.
+          git diff --cached --quiet --exit-code HEAD --
+          test "$(git write-tree)" = "$(git rev-parse 'HEAD^{tree}')"
           test -z "$(git ls-files --others --exclude-standard)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
           echo "PRIVATE_CI_POLICY_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Validate fail-closed export policy
         shell: bash

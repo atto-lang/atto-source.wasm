@@ -128,3 +128,20 @@ test("WASM comment boundaries and multiline visibility modifiers preserve source
     'fnc main():int{return 42;} // "define supervisor S1"',
   ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
 });
+
+test("actor callable declarations cannot hide behind arbitrarily long modifier chains", () => {
+  for (const count of [7, 12, 13, 32, 128]) {
+    const modifiers = Array(count).fill("pub").join(" ");
+    for (const keyword of ["fnc", "routine"])
+      assert.throws(
+        () => rejectUnsupportedActorThreadSource(bytes(
+          `actor ${modifiers} ${keyword} invoke():int{return 42;}`)),
+        /WASM source actor execution unsupported/,
+        `actor ${keyword} after ${count} modifiers`);
+  }
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(
+    "// actor " + Array(128).fill("pub").join(" ") +
+    " fnc hidden():int{return 1;}\nfnc main():int{return 42;}")));
+  assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(
+    "fnc main():int{let actor=42;return actor;}")));
+});

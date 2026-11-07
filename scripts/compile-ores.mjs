@@ -10,10 +10,12 @@ import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/prom
 import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreScalarEntry} from "./core-i64-abi.mjs";
+import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
+import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -36,12 +38,27 @@ export function wasmCoreCompilerArgs(source,profile="core-wasm.i64-v1") {
 
 
 function tupleV2Tokens(sourceBytes){
+ // Exported source-admission gates can be called before the CLI's bounded file
+ // snapshot. Enforce the same byte budget before decode or token allocation.
+ if(!sourceBytes || !Number.isSafeInteger(sourceBytes.byteLength))
+  throw new TypeError("WASM source preflight requires byte input");
+ if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
+  throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
+ const MAX_SOURCE_TOKENS=100_000;
+ const pushToken=token=>{
+  if(tokens.length>=MAX_SOURCE_TOKENS)
+   throw new RangeError("WASM source preflight token budget exceeded");
+  tokens.push(token);
+ };
  const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
  for(let i=0;i<text.length;){
   const c=text[i];
-  if(/\s/.test(c)){i++;continue}
+  // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
+  // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
+  // declarations can be split into punctuation tokens and evade preflight.
+  if(/\s/.test(c)||c==="\u0085"){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
    i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
@@ -68,9 +85,9 @@ function tupleV2Tokens(sourceBytes){
   }
   if(idStart(c)){
    const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
+   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
   }
-  tokens.push({text:c,offset:i,id:false});i++;
+  pushToken({text:c,offset:i,id:false});i++;
  }
  return tokens;
 }
@@ -312,8 +329,15 @@ async function withPublicationLock(published,publication,callback){
  }
 }
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
-function run(command,args,{input}={}){
- const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
+function run(command,args,{input,cwd}={}){
+ // The native source compiler and clang/lld are trusted build tools, not
+ // sandboxes. Keep their ambient environment free of CI tokens, Node hooks,
+ // cloud credentials and dynamic-loader overrides. Compile in the private
+ // scratch workspace so accidental relative writes cannot hit the checkout.
+ const output=spawnSync(command,args,{
+  input,cwd,env:restrictedBuildEnvironment(),
+  encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true
+ });
  if(output.error||output.status!==0||output.signal){
   // Keep the historic diagnostic message, but retain process evidence. A
   // rejected compiler that wrote partial IR to stdout or died by signal must
@@ -334,10 +358,11 @@ function run(command,args,{input}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",profile="core-wasm.i64-v1",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",profile="core-wasm.i64-v1",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ if (wasmLinker !== undefined) absolute(wasmLinker,"wasm linker");
  if(profile!=="core-wasm.i64-v1" && profile!=="core-wasm.f64-v1")
   throw new TypeError("unsupported core Wasm scalar profile");
  const llvmResultType=profile==="core-wasm.i64-v1"?"i64":"double";
@@ -398,6 +423,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
+ // G0 unsafe gate is independent of the caller-supplied compiler binary.
+ rejectUnsupportedUnsafeSource(sourceBytes);
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
@@ -429,7 +456,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource,profile));
+ const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource,profile),{cwd:scratch});
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -453,10 +480,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.
- run(clang,["--target=wasm32","-x","ir","-Oz","-nostdlib",
+ run(clang,[...(wasmLinker ? ["-fuse-ld="+wasmLinker] : []),
+   "--target=wasm32","-x","ir","-Oz","-nostdlib",
    "-Wl,--no-entry","-Wl,--export="+exportName,
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
-   "-o",provisional,"-"],{input:ir});
+   "-o",provisional,"-"],{input:ir,cwd:scratch});
  const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
   "linked Wasm exceeds 16 MiB artifact budget")).bytes;
  // Validate strict no-managed-guest policy before engine compilation.
@@ -479,7 +507,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,profile,importCount:imports.length,wasmBytes:wasm.length,
-  clangVersion:run(clang,["--version"]).split("\n")[0],
+  clangVersion:run(clang,["--version"],{cwd:scratch}).split("\n")[0],
   note:"Binary provenance: exact compiler executable bytes, not proof of source-repository commit or feature parity."
  };
  let manifest=null;

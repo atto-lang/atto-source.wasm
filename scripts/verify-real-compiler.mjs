@@ -163,6 +163,79 @@ export async function verifyRealCompiler({
         wasmSha256:built.wasmSha256,sourceSha256:built.sourceSha256}));
     }
 
+    // Real LLVM compiler -> wasm32 guest execution of Java strict signed64
+    // Integer.bitXor. No JS BigInt substitute and no second Wasm parser.
+    // The JSON must be the byte-identical pinned Java/GraalVM reference blob.
+    const strictContractPath = fileURLToPath(new URL(
+      "../contracts/v1/strict-named-integer-arithmetic-v1.json", import.meta.url));
+    const strictContractBytes = await readFile(strictContractPath);
+    const strictGitBlob = createHash("sha1")
+      .update(Buffer.from("blob " + strictContractBytes.length + "\0"))
+      .update(strictContractBytes).digest("hex");
+    if (strictGitBlob !== "3f65f557f06e8cd0d34a738a0d357d6c2e477665")
+      throw Error("Java signed64 reference fixture blob mismatch");
+    const signed64Suite = JSON.parse(strictContractBytes.toString("utf8"));
+    if (!Array.isArray(signed64Suite.cases) || signed64Suite.cases.length !== 26)
+      throw Error("Strict Java signed64 reference fixture inventory drift");
+    const bitXorCases = signed64Suite.cases.filter(c => c.operation === "bit_xor");
+    if (bitXorCases.length !== 4 ||
+        new Set(bitXorCases.map(c => c.id)).size !== 4)
+      throw Error("Java signed64 bit_xor vector coverage drift");
+    const signed64NamedResults = [];
+    for (const vector of bitXorCases) {
+      if (!/^xor_[a-z0-9_]+$/.test(vector.id) ||
+          !/^-?(?:0|[1-9][0-9]*)$/.test(vector.left) ||
+          !/^-?(?:0|[1-9][0-9]*)$/.test(vector.right) ||
+          !/^-?(?:0|[1-9][0-9]*)$/.test(vector.expect?.value ?? ""))
+        throw Error("Malformed strict signed64 XOR vector");
+      const expected = BigInt(vector.expect.value);
+      const source = join(work, "named-integer-" + vector.id + ".ores");
+      const output = join(work, "named-integer-" + vector.id + ".wasm");
+      const sourceBytes = Buffer.from(
+        "fnc main():int{return Integer.bitXor(" +
+        vector.left + "," + vector.right + ");}\n", "utf8");
+      await writeFile(source, sourceBytes, {flag:"wx", mode:0o400});
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source, output,
+        environment:"browser", publication:"atomic"
+      });
+      const release = await readAtomicRelease(output);
+      if (built.sourceSha256 !== sha256(sourceBytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(release.wasm) ||
+          release.manifest?.wasmSha256 !== built.wasmSha256 ||
+          release.manifest?.imports?.length !== 0)
+        throw Error("Named signed64 Wasm source/LLVM compiler/artifact mismatch");
+      const observed = await runIsolatedCoreGuest(release.wasm, {
+        expectedSha256:built.wasmSha256, timeoutMs:5000
+      });
+      if (observed.value !== expected ||
+          observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("Named signed64 Wasm guest result or isolation mismatch: " + vector.id);
+      signed64NamedResults.push(Object.freeze({
+        id:vector.id, value:observed.value.toString(),
+        sourceSha256:built.sourceSha256, wasmSha256:built.wasmSha256
+      }));
+    }
+
+    // Rejections must originate in the real pinned LLVM frontend with no IR;
+    // test cases cannot be fulfilled by the JavaScript bridge's parser.
+    for (const [id, expression] of [
+      ["arity", "Integer.bitXor(1)"],
+      ["extra-argument", "Integer.bitXor(1,2,3)"],
+      ["wrong-type", "Integer.bitXor(true,3)"],
+      ["unknown-method", "Integer.unknownStrictMethod(9,4)"]
+    ]) {
+      const source = join(work, "named-integer-deny-" + id + ".ores");
+      await writeFile(source, "fnc main():int{return " + expression + ";}\n",
+        {flag:"wx", mode:0o400});
+      const denied = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+      assertNativeFrontendRejection(denied);
+    }
+
     // Run precisely the same byte-identical signed-i64 scalar fixture sources
     // used by the independent .NET and Forge bootstrap parity gates.
     // The negative corpus is backend-specific: LLVM may implement constructs
@@ -570,6 +643,7 @@ export async function verifyRealCompiler({
       sourceSha256:published.sourceSha256, result:executed.value.toString(),
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults),
+      strictNamedIntegerBitXor:Object.freeze(signed64NamedResults),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,

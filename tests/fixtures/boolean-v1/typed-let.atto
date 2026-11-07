@@ -1,0 +1,1 @@
+pub fnc main():int{let bool flag=true;if(flag eq true){return 42;}fi return 0;}

@@ -1,0 +1,32 @@
+# Source-free runner admission diagnostic. No checkout, source files, tokens,
+# secrets, caches, artifacts, or outbound destinations are used.
+name: Source-free runner admission canary
+on:
+  push:
+    branches:
+      - ci/source-free-runner-admission
+    paths:
+      - .github/workflows/source-free-runner-admission.yml
+  pull_request:
+    paths:
+      - .github/workflows/source-free-runner-admission.yml
+  workflow_dispatch:
+permissions: {}
+jobs:
+  admission:
+    name: prove-runner-started
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Record one executed runner step without repository checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${RUNNER_NAME:-}"
+          printf 'ADMISSION_CANARY_EXECUTED=1\n'
+          printf 'RUN_ID=%s\n' "$GITHUB_RUN_ID"
+          printf 'RUN_ATTEMPT=%s\n' "$GITHUB_RUN_ATTEMPT"
+          printf 'EVENT=%s\n' "$GITHUB_EVENT_NAME"
+          printf 'HEAD_SHA=%s\n' "$GITHUB_SHA"
+          printf 'RUNNER_OS=%s\n' "$RUNNER_OS"
+          printf 'RUNNER_ARCH=%s\n' "$RUNNER_ARCH"
