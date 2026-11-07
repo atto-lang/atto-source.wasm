@@ -88,4 +88,5 @@ if "$runner" --tenant-fuel-starvation-smoke "$tmp/spin.cwasm" "$(printf '0%.0s' 
   echo 'insecure development digest mismatch was accepted' >&2; exit 1
 fi
 echo 'native_wasmtime_spinning_guest_fuel_retirement=ok'
+python3 -m unittest discover -s tests -p 'test_atto_scalar_aot_bridge.py' -v
 echo 'SCOPE=NATIVE_WASMTIME_DEV_PROTO_ONLY_NO_COMPILED_ATTO_LANG_OR_PRODUCTION_SANDBOX'
