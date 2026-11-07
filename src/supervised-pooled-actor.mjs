@@ -87,12 +87,17 @@ export class SupervisedPooledActor {
     return await this.#replacement;
   }
 
-  waitForGeneration(afterGeneration) {
+  waitForGeneration(afterGeneration, {signal} = {}) {
     if (!Number.isSafeInteger(afterGeneration) || afterGeneration < 0 ||
         afterGeneration > this.#generation)
       return Promise.reject(new RangeError("invalid awaited actor generation"));
+    if (signal !== undefined &&
+        !(typeof AbortSignal !== "undefined" && signal instanceof AbortSignal))
+      return Promise.reject(new TypeError("host AbortSignal required"));
     if (this.#closed)
       return Promise.reject(Error("supervised actor closed"));
+    if (signal?.aborted)
+      return Promise.reject(Error("supervisor generation waiter canceled"));
     if (this.#phase === "active" && this.#generation > afterGeneration)
       return Promise.resolve(this.#current);
     if (!["active", "restarting"].includes(this.#phase))
@@ -100,7 +105,29 @@ export class SupervisedPooledActor {
     if (this.#waiters.size >= 64)
       return Promise.reject(Error("supervisor waiter quota exceeded"));
     return new Promise((resolve, reject) => {
-      this.#waiters.add({afterGeneration, resolve, reject});
+      // Remove event listeners on EVERY settlement, including restart,
+      // terminal fault, explicit STOP, carrier retirement and close.
+      let subscribed = false;
+      const cleanup = () => {
+        if (subscribed) signal.removeEventListener("abort", onAbort);
+        subscribed = false;
+      };
+      const waiter = {
+        afterGeneration,
+        resolve: value => {cleanup(); resolve(value);},
+        reject: error => {cleanup(); reject(error);}
+      };
+      const onAbort = () => {
+        if (this.#waiters.delete(waiter))
+          waiter.reject(Error("supervisor generation waiter canceled"));
+      };
+      this.#waiters.add(waiter);
+      if (signal) {
+        subscribed = true;
+        signal.addEventListener("abort", onAbort, {once: true});
+        // Abort may have occurred between the first check and subscription.
+        if (signal.aborted) onAbort();
+      }
     });
   }
 
