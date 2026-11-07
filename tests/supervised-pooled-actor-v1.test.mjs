@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
+import {Worker} from "node:worker_threads";
 import {mkdtempSync, readFileSync, rmSync} from "node:fs";
 import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
@@ -346,4 +347,59 @@ test("real .atto compiler-backed actor supervisor CONTROL, restart and stale gen
     guestResumeTicketFencing:"NOT_EXECUTED",
     javaLlvmWasmFullParity:"NOT_EXECUTED"
   }));
+});
+
+
+test("forged typed CONTROL without retirement causes physical carrier exit, not restart", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1,
+    timeoutMs: 5000, terminationTimeoutMs: 5000});
+  const original = Worker.prototype.postMessage;
+  const controls = [];
+  let supervisor;
+  try {
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes), maxRestarts: 3,
+      onControl: control => controls.push(control)
+    });
+    const old = supervisor.current();
+    const awaitNext = supervisor.waitForGeneration(1);
+    let injected = false;
+    Worker.prototype.postMessage = function(message, ...rest) {
+      if (!injected && message?.kind === "send") {
+        injected = true;
+        queueMicrotask(() => this.emit("message", {
+          kind: "actor_fault", id: message.id,
+          incarnation: message.incarnation, ticket: message.ticket,
+          code: "STACK_BUDGET_EXHAUSTED_V1", result: null,
+          frame: {schemaVersion: 1, frameBytes: 16,
+            activeExecutions: 1, frameBytesInUse: 16, retired: false}
+        }));
+        return;
+      }
+      return original.call(this, message, ...rest);
+    };
+    await assert.rejects(old.send(64n),
+      /invalid actor-local fault retirement receipt/);
+    assert.equal(injected, true);
+    await assert.rejects(awaitNext, /carrier physically retired/);
+    assert.equal(supervisor.status.phase, "carrier-retired");
+    assert.equal(supervisor.status.restarts, 0);
+    assert.equal(pool.typedTerminalControlCount, 0,
+      "malformed receipt cannot mint a typed terminal-control event");
+    assert.equal(pool.isolatedGuestFaultCount, 0);
+    assert.equal(pool.actorCount, 0);
+    assert.equal(pool.activeWorkerCount, 0);
+    assert.equal(controls.length, 1);
+    assert.equal(controls[0].kind, "SUPERVISOR_CARRIER_TERMINAL_CONTROL");
+    assert.equal(controls[0].physicalExitConfirmed, true);
+    assert.equal(controls[0].restartAuthorized, false);
+    await assert.rejects(old.send(1n), /STALE_ACTOR_GENERATION/);
+  } finally {
+    Worker.prototype.postMessage = original;
+    await supervisor?.close();
+    await pool.close();
+  }
 });
