@@ -26,7 +26,10 @@ function tupleV2Tokens(sourceBytes){
  const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
  for(let i=0;i<text.length;){
   const c=text[i];
-  if(/\s/.test(c)){i++;continue}
+  // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
+  // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
+  // declarations can be split into punctuation tokens and evade preflight.
+  if(/\s/.test(c)||c==="\u0085"){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
    i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
