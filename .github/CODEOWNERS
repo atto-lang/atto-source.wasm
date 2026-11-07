@@ -11,6 +11,10 @@
 /scripts/ @ORESoftware
 /package.json @ORESoftware
 
+# Integration metadata and pinned Rust toolchain are release inputs.
+/.oreslang/ @ORESoftware
+/rust-toolchain.toml @ORESoftware
+
 /.github/workflows/ @ORESoftware
 /.github/CODEOWNERS @ORESoftware
 /.github/private-ci-approved-repositories.txt @ORESoftware
