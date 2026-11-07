@@ -131,6 +131,17 @@ export class PooledWasmActors {
           message.result < I64_MIN || message.result > I64_MAX)) ||
         (op.kind !== 'send' && message.result !== null))
       return void this.#retireCarrier(carrier, Error('invalid actor result ABI'));
+    // One synchronous WebAssembly guest turn must fully unwind its separate,
+    // actor-owned managed frame domain BEFORE the pooled carrier ACKs it.
+    // This receipt is trusted Worker bookkeeping, not proof that guest locals
+    // are compiler-lowered into managed frames or an external attestation.
+    if (!message.frame || message.frame.schemaVersion !== 1 ||
+        message.frame.frameBytes !== 16 ||
+        message.frame.activeExecutions !== 0 ||
+        message.frame.frameBytesInUse !== 0 ||
+        message.frame.retired !== (op.kind === 'stop'))
+      return void this.#retireCarrier(carrier,
+        Error('invalid managed actor frame quiescence receipt'));
     clearTimeout(carrier.timer);
     carrier.timer = null;
     carrier.active = null;
