@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'tests/boolean-source-parity-wasm32.test.mjs'
+      - 'tests/verify-boolean-wasm-evidence.test.mjs'
+      - 'scripts/verify-boolean-wasm-evidence.mjs'
       - 'tests/fixtures/boolean-v1/**'
       - 'docs/BOOLEAN_WASM32_PARITY.md'
       - 'package.json'

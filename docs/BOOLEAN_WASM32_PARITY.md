@@ -57,6 +57,42 @@ six observed i64 results and module hashes, five typed-rejection diagnostics,
 and precise fixture Git blobs.
 It **does not** contain private source bytes or license a copy to another org.
 
+## Offline evidence consistency verifier (never self-certification)
+
+After a successful authenticated GitHub Actions run, download the workflow
+artifact receipt **and independently fetch** the run, jobs and artifact metadata.
+The offline verifier accepts only bounded non-symlinked JSON files, exact
+operator-supplied Wasm HEAD/tree, a successful main-only manual workflow,
+a nonzero runner identity, executed successful steps, all 11 source-bound
+cases, and a single non-expired artifact from the same run/attempt.
+
+For a stepful run ID and the exact known Wasm commit and tree:
+
+```sh
+# Use authenticated GitHub access; save actual GitHub REST JSON, not hand-built records.
+gh api repos/ores-truffle-oreslang/oreslang-source.wasm/actions/runs/ID > run.json
+gh api repos/ores-truffle-oreslang/oreslang-source.wasm/actions/runs/ID/jobs?per_page=100 > jobs.json
+gh api repos/ores-truffle-oreslang/oreslang-source.wasm/actions/runs/ID/artifacts?per_page=100 > artifacts.json
+# Download the matching exact run-attempt ZIP separately and extract the receipt JSON.
+node scripts/verify-boolean-wasm-evidence.mjs \
+  --receipt=/absolute/path/to/boolean-wasm32-guest-receipt.json \
+  --run=/absolute/path/to/run.json \
+  --jobs=/absolute/path/to/jobs.json \
+  --artifacts=/absolute/path/to/artifacts.json \
+  --head=<expected-40-hex-Wasm-HEAD> \
+  --tree=<expected-40-hex-Wasm-tree>
+```
+
+Run-level and artifact evidence can be missing or stale; the verifier fails
+closed. Its successful classification is
+`CONSISTENT_UNTRUSTED_EXECUTION_RECORDS`, **never** a parity certificate.
+An operator must additionally authenticate the API responses against GitHub,
+the provenance of the downloaded ZIP and decoded receipt, exact workflow
+checkout tree and compiler source build, and independent Java results.
+Synthetic JSON can pass internal consistency checks and is not execution
+evidence. The 25 independent verifier regressions are discoverable via
+`npm test`; passing these tests proves only evidence-parser behavior.
+
 ## Independent verifier responsibilities
 
 The LLVM SHA/tree supplied to the Node test are **metadata**, not proof of

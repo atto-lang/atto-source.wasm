@@ -10,6 +10,8 @@ on:
       - .github/workflows/source-free-runner-canary.yml
       - .github/workflows/boolean-wasm32-source-pins.yml
       - tests/boolean-source-parity-wasm32.test.mjs
+      - tests/verify-boolean-wasm-evidence.test.mjs
+      - scripts/verify-boolean-wasm-evidence.mjs
       - tests/fixtures/boolean-v1/**
       - docs/BOOLEAN_WASM32_PARITY.md
   push:
