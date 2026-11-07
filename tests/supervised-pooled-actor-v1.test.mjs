@@ -3,10 +3,15 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
 import {mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {readFile} from "node:fs/promises";
+import {fileURLToPath} from "node:url";
+import {isAbsolute} from "node:path";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {PooledWasmActors} from "../src/pooled-actor-host.mjs";
 import {SupervisedPooledActor} from "../src/supervised-pooled-actor.mjs";
+import {compileSourceActorToWasm} from "../scripts/compile-source-actor.mjs";
+import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 
@@ -232,4 +237,113 @@ test("supervisor denies invalid restart quotas, mutable artifact and callback ty
   } finally {
     await pool.close();
   }
+});
+
+
+const compiledActorSource = fileURLToPath(
+  new URL("../contracts/actor-stack-containment-v1/recursive-sibling.atto",import.meta.url));
+const sourceBlob = "947781cddf09d8e3e08c51cff2b7d8960e2d4750";
+const realCompilerRequired = process.env.ATTO_REQUIRE_REAL_SUPERVISOR_GUEST === "1";
+
+test("real .atto compiler-backed actor supervisor CONTROL, restart and stale generation", {
+  skip: !realCompilerRequired && !process.env.ORESLANG_LLVM_COMPILER,
+  timeout: 240000
+}, async t => {
+  const compiler = process.env.ORESLANG_LLVM_COMPILER || "";
+  const expectedCompilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256 || "";
+  const sourceHead = process.env.ORESLANG_LLVM_SOURCE_SHA || "";
+  const sourceTree = process.env.ORESLANG_LLVM_SOURCE_TREE_SHA || "";
+  if (!isAbsolute(compiler) ||
+      !/^[a-f0-9]{64}$/.test(expectedCompilerSha256) ||
+      !/^[a-f0-9]{40}$/.test(sourceHead) ||
+      !/^[a-f0-9]{40}$/.test(sourceTree))
+    throw Error("real supervisor guest requires approved LLVM compiler path/hash/source HEAD/tree");
+
+  const approved = await readBoundedRegularFile(compiler, 256*1024*1024,
+    "native compiler exceeds bounded read quota");
+  assert.equal(digest(approved.bytes),expectedCompilerSha256);
+  assert.ok(approved.stat.mode & 0o111,"compiler executable required");
+  const original = await readFile(compiledActorSource);
+  assert.equal(createHash("sha1").update(Buffer.from(
+    "blob " + original.length + "\0", "ascii")).update(original).digest("hex"),
+    sourceBlob);
+
+  const guest = await compileSourceActorToWasm({
+    compiler, source:compiledActorSource,
+    checkedRecursionV1:true,expectedCompilerSha256
+  });
+  assert.equal(guest.provenance.checkedRecursionV1,true);
+  assert.equal(guest.provenance.maxGuestFrames,64);
+  assert.equal(guest.provenance.sourceSha256,digest(original));
+  assert.equal(guest.provenance.compilerSha256,expectedCompilerSha256);
+  assert.equal(guest.provenance.wasmSha256,digest(guest.wasm));
+  assert.equal(guest.provenance.guestImports,0);
+
+  const pool = new PooledWasmActors({workers:1,maxActors:3,timeoutMs:10000});
+  const seen=[];
+  let controller;
+  try {
+    const b = await pool.spawn(guest.wasm,{
+      trusted:true,expectedSha256:guest.provenance.wasmSha256
+    });
+    controller=await SupervisedPooledActor.start(pool,guest.wasm,{
+      expectedSha256:guest.provenance.wasmSha256,maxRestarts:1,
+      onControl:record=>seen.push(record)
+    });
+    const old=controller.current();
+    assert.equal(old.generation,1);
+    assert.equal(await old.send(63n),63n,"exact 64 actor-owned source frames");
+    assert.equal(await b.send(3n),3n);
+    const nextPromise=controller.waitForGeneration(1);
+    await assert.rejects(old.send(64n),/STACK_BUDGET_EXHAUSTED_V1/,
+      "65th frame must be typed actor-terminal fault, never i64 sentinel");
+    const next=await nextPromise;
+    assert.equal(next.generation,2);
+    assert.equal(controller.status.restarts,1);
+    assert.equal(pool.typedTerminalControlCount,1);
+    assert.equal(pool.activeWorkerCount,1);
+    assert.equal(pool.actorCount,2);
+    await assert.rejects(old.send(1n),/STALE_ACTOR_GENERATION/);
+    await assert.rejects(old.stop(),/STALE_ACTOR_GENERATION/);
+    assert.equal(await next.send(1n),1n,"restarted actor has a private fresh guest stack");
+    assert.equal(await b.send(2n),2n,"original B retained on same carrier");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(seen.length,1);
+    assert.equal(seen[0].faultCode,"STACK_BUDGET_EXHAUSTED_V1");
+    assert.equal(seen[0].failedGeneration,1);
+    assert.equal(seen[0].nextGeneration,2);
+    assert.equal(seen[0].restartAuthorized,true);
+    assert.equal(pool.isolatedGuestFaultCount,1);
+    await next.stop();
+    assert.equal(controller.status.phase,"stopped");
+    assert.equal(await b.send(1n),1n);
+    await b.stop();
+  } finally {
+    await controller?.close();
+    await pool.close();
+  }
+
+  // This receipt is emitted ONLY after real source/compiler/Wasm/Worker
+  // execution. It intentionally excludes unimplemented guest continuation
+  // tickets, physical supervisor recovery across carrier death and backend
+  // parity evidence.
+  t.diagnostic(JSON.stringify({
+    schema:"attolang.compiled_wasm_supervisor_control_v1",
+    kind:"REAL_ATTO_GUEST_EXECUTED",
+    fixtureGitBlob:sourceBlob,
+    sourceSha256:digest(original),
+    llvmSourceHead:sourceHead,
+    llvmSourceTree:sourceTree,
+    compilerSha256:expectedCompilerSha256,
+    wasmSha256:guest.provenance.wasmSha256,
+    guestsOnSameWorker:2,
+    firstRejectedGuestFrame:65,
+    typedTerminalControlCount:1,
+    supervisorRestarts:1,
+    oldGenerationSendDenied:true,
+    oldGenerationStopDenied:true,
+    originalSiblingSurvived:true,
+    guestResumeTicketFencing:"NOT_EXECUTED",
+    javaLlvmWasmFullParity:"NOT_EXECUTED"
+  }));
 });
