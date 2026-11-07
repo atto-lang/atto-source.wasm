@@ -161,30 +161,28 @@ export class PooledWasmActors {
       actor.outstanding = 0;
       actor.queued = false;
       ++this.#isolatedGuestFaults;
-      if (message.code === 'STACK_BUDGET_EXHAUSTED_V1') {
-        // CONTROL is host-authoritative: minted ONLY after validating the
-        // active worker's ticket/incarnation and complete frame retirement.
-        // It carries no guest memory, raw Worker authority or incarnation
-        // secret. A callback is a host-local supervisor observation, never a
-        // guest closure/channel payload or a new actor-turn on this carrier.
-        const control = Object.freeze({
-          schemaVersion: 1,
-          kind: 'ACTOR_TERMINAL_CONTROL',
-          reason: 'STACK_BUDGET_EXHAUSTED_V1',
-          actorId: actor.id,
-          terminalTicket: op.ticket,
-          actorRetired: true,
-          frameQuiescent: true,
-          carrierRetained: true
-        });
+      // CONTROL is host-authoritative: minted ONLY after validating the
+      // active Worker's ticket/incarnation and completed actor retirement.
+      // The supervisor must NOT restart from an ordinary unreachable trap;
+      // it still needs an explicit notice to revoke its now-dead handle.
+      const control = Object.freeze({
+        schemaVersion: 1,
+        kind: 'ACTOR_TERMINAL_CONTROL',
+        reason: message.code,
+        actorId: actor.id,
+        terminalTicket: op.ticket,
+        actorRetired: true,
+        frameQuiescent: true,
+        carrierRetained: true
+      });
+      if (message.code === 'STACK_BUDGET_EXHAUSTED_V1')
         ++this.#typedTerminalControls;
-        if (actor.onTerminalControl) {
-          queueMicrotask(() => {
-            // No supervisor callback may change carrier fault attribution,
-            // resurrect the retired actor or block the worker pump.
-            try {actor.onTerminalControl(control);} catch {}
-          });
-        }
+      if (actor.onTerminalControl) {
+        queueMicrotask(() => {
+          // No supervisor callback may change fault attribution, resurrect
+          // the retired actor, or block the healthy carrier's message pump.
+          try {actor.onTerminalControl(control);} catch {}
+        });
       }
       // All other actors on the healthy Worker retain their own instances,
       // memories and queues. In-flight messages for the dead actor are denied.
