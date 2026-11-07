@@ -24,12 +24,12 @@ const gitBlob = bytes => createHash("sha1")
 const required = process.env.ATTO_REQUIRE_REAL_ACTOR_RECURSION === "1";
 const compilerPath = process.env.ORESLANG_LLVM_COMPILER;
 
-function identity() {
-  const compiler = compilerPath || "";
+function identity(env = process.env) {
+  const compiler = env.ORESLANG_LLVM_COMPILER || "";
   if (!isAbsolute(compiler)) throw Error("real checked recursion requires absolute native LLVM compiler path");
-  const compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256 || "";
-  const sourceHead = process.env.ORESLANG_LLVM_SOURCE_SHA || "";
-  const sourceTree = process.env.ORESLANG_LLVM_SOURCE_TREE_SHA || "";
+  const compilerSha256 = env.ORESLANG_LLVM_COMPILER_SHA256 || "";
+  const sourceHead = env.ORESLANG_LLVM_SOURCE_SHA || "";
+  const sourceTree = env.ORESLANG_LLVM_SOURCE_TREE_SHA || "";
   if (!/^[a-f0-9]{64}$/.test(compilerSha256))
     throw Error("real checked recursion requires pinned LLVM compiler binary SHA-256");
   if (!/^[a-f0-9]{40}$/.test(sourceHead) || !/^[a-f0-9]{40}$/.test(sourceTree))
@@ -87,7 +87,7 @@ test("typed five-export actor ABI is opt-in and signature-checked", () => {
 });
 
 test("checked compiler source + binary identity cannot default to implicit trust", () => {
-  assert.throws(() => identity(), /absolute|pinned|HEAD and tree/);
+  assert.throws(() => identity({}), /absolute native LLVM compiler path/);
   assert.equal(pinnedBlob.length,40);
 });
 
