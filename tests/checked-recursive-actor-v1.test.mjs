@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
+import {Worker} from "node:worker_threads";
 import {spawnSync} from "node:child_process";
 import {mkdtempSync, readFileSync, rmSync} from "node:fs";
 import {readFile, writeFile, mkdtemp, rm} from "node:fs/promises";
@@ -39,17 +40,22 @@ function identity(env = process.env) {
 
 // These synthetic modules only exercise the host's binary ABI *admission*;
 // they are not claimed to be .atto-compiled guest or stack-parity receipts.
-function compiledSyntheticActor({statusType = "i32", statusReturn = "ret i32 0"} = {}) {
+function compiledSyntheticActor({statusType = "i32",
+  statusReturn = "ret i32 0", normalReturnWithTerminal = false} = {}) {
   const folder = mkdtempSync(join(tmpdir(), "atto-checked-actor-abi-"));
   try {
     const output = join(folder, "abi.wasm");
     const ir = [
       'target triple = "wasm32-unknown-unknown"',
+      ...(normalReturnWithTerminal ? ['@status = internal global i32 0'] : []),
       'define void @oreslang_wasm_actor_init() { ret void }',
-      'define i64 @oreslang_wasm_actor_on_message(i64 %n) { ret i64 %n }',
+      'define i64 @oreslang_wasm_actor_on_message(i64 %n) { ' +
+        (normalReturnWithTerminal ? 'store i32 1, ptr @status ' : '') +
+        'ret i64 %n }',
       'define void @oreslang_wasm_actor_teardown() { ret void }',
       'define ' + statusType + ' @oreslang_wasm_actor_frame_status() { ' +
-        (statusType === "i64" ? "ret i64 0" : statusReturn) + ' }',
+        (normalReturnWithTerminal ? '%s = load i32, ptr @status ret i32 %s' :
+          statusType === "i64" ? "ret i64 0" : statusReturn) + ' }',
       ""
     ].join("\n");
     const r = spawnSync(process.env.CLANG || "clang", [
@@ -182,4 +188,54 @@ test("real LLVM-compiled recursive .atto actor A fails at frame 65; B survives S
     supervisorControlReceipt:"NOT_EXECUTED",
     javaNativeLLVMIndependentGuestParity:"NOT_EXECUTED"
   }));
+});
+
+
+test("a checked actor cannot ACK ordinary i64 after publishing terminal status",{
+  timeout:90000
+},async()=>{
+  const wasm=compiledSyntheticActor({normalReturnWithTerminal:true});
+  const pool=new PooledWasmActors({workers:1,maxActors:1,timeoutMs:5000});
+  try{
+    const actor=await pool.spawn(wasm,{trusted:true,expectedSha256:sha256(wasm)});
+    await assert.rejects(actor.send(75n),
+      /checked actor returned ordinary i64 despite terminal frame status/,
+      "terminal frame failure must not masquerade as normal result 75");
+    assert.equal(pool.actorCount,0);
+    assert.equal(pool.isolatedGuestFaultCount,0,
+      "ordinary return with forged terminal status must quarantine carrier");
+  }finally{await pool.close()}
+});
+
+test("forged typed actor-fault receipt lacking final frame retirement never isolates",{
+  timeout:90000
+},async()=>{
+  const wasm=compiledSyntheticActor();
+  const pool=new PooledWasmActors({workers:1,maxActors:1,timeoutMs:5000});
+  const old=Worker.prototype.postMessage;
+  try{
+    const actor=await pool.spawn(wasm,{trusted:true,expectedSha256:sha256(wasm)});
+    let forged=false;
+    Worker.prototype.postMessage=function(message,...rest){
+      if(!forged&&message?.kind==="send"){
+        forged=true;
+        queueMicrotask(()=>this.emit("message",{
+          kind:"actor_fault",id:message.id,incarnation:message.incarnation,
+          ticket:message.ticket,result:null,code:"STACK_BUDGET_EXHAUSTED_V1",
+          frame:{schemaVersion:1,frameBytes:16,
+            activeExecutions:1,frameBytesInUse:16,retired:false}
+        }));
+        return;
+      }
+      return old.call(this,message,...rest);
+    };
+    await assert.rejects(actor.send(64n),
+      /invalid actor-local fault retirement receipt/);
+    assert.equal(forged,true);
+    assert.equal(pool.isolatedGuestFaultCount,0);
+    assert.equal(pool.actorCount,0);
+  }finally{
+    Worker.prototype.postMessage=old;
+    await pool.close();
+  }
 });
