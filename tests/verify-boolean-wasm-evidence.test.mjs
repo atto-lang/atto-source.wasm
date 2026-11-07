@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {assessBooleanWasmEvidence, BOOLEAN_CASES} from '../scripts/verify-boolean-wasm-evidence.mjs';
+import {createHash} from 'node:crypto';
+import {lstat, readFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {assessBooleanWasmEvidence, BOOLEAN_CASES, BOOLEAN_SOURCE_SHA256}
+  from '../scripts/verify-boolean-wasm-evidence.mjs';
 const head='a'.repeat(40),tree='b'.repeat(40),digest='c'.repeat(64);
 const positiveSteps = [
   'Require authorized private LLVM read access',
@@ -18,7 +22,7 @@ const positiveSteps = [
 function fixture() {
   const cases=BOOLEAN_CASES.map(([id,kind,value,blob])=>({
     id,kind:kind==='execute'?'EXECUTED_WASM32_GUEST':'NATIVE_LLVM_TYPE_REJECTION',
-    sourceGitBlob:blob,sourceSha256:digest,
+    sourceGitBlob:blob,sourceSha256:BOOLEAN_SOURCE_SHA256[id],
     ...(kind==='execute'?{wasmSha256:digest,expected:value,observed:value,
       imports:0,hostCapabilities:0}:{diagnostic:value,exitStatus:1,
       emittedLLVM:false,publishedArtifact:false}),
@@ -34,12 +38,16 @@ function fixture() {
         compilerSha256:digest,referenceTestGitBlob:'80056fbf9d67e3fb37a052652398c2dc3796540b'},
       executedGuests:6,nativeFrontendRejections:5,cases,
       javaDifferential:'NOT_EXECUTED',fiveBackendCertification:'NOT_CERTIFIED'},
-    run:{id:123,run_attempt:2,repository:{id:321,full_name:'ores-truffle-oreslang/oreslang-source.wasm'},
+    run:{id:123,run_attempt:2,workflow_id:456,
+      repository:{id:1419858954,full_name:'ores-truffle-oreslang/oreslang-source.wasm'},
+      head_repository:{id:1419858954,full_name:'ores-truffle-oreslang/oreslang-source.wasm'},
       head_sha:head,head_branch:'main',event:'workflow_dispatch',
       name:'Real pinned Oreslang LLVM to Wasm gate',
       path:'ores-truffle-oreslang/oreslang-source.wasm/.github/workflows/real-llvm.yml@refs/heads/main',
       status:'completed',conclusion:'success'},
-    jobs:{jobs:[{run_id:123,name:'integration',status:'completed',conclusion:'success',
+    jobs:{jobs:[{id:987,run_id:123,run_attempt:2,head_sha:head,head_branch:'main',
+      workflow_name:'Real pinned Oreslang LLVM to Wasm gate',
+      name:'integration',status:'completed',conclusion:'success',
       runner_id:789,runner_name:'GitHub Actions 1',started_at:'2026-11-07T12:00:00Z',
       completed_at:'2026-11-07T12:01:00Z',steps:positiveSteps.map((name,i)=>({
         name,number:i+1,status:'completed',conclusion:'success',
@@ -81,3 +89,48 @@ mutate('reject zero-size artifact',d=>{d.artifacts.artifacts[0].size_in_bytes=0;
 mutate('reject missing release artifact',d=>{d.artifacts.artifacts=[];});
 mutate('reject stale artifact from another head',d=>{d.artifacts.artifacts[0].workflow_run.head_sha='d'.repeat(40);});
 mutate('reject duplicate artifact for run',d=>{d.artifacts.artifacts.push({...d.artifacts.artifacts[0]});});
+
+test('11 pinned source SHA-256 values independently match real .atto fixture bytes', async()=>{
+  assert.equal(BOOLEAN_CASES.length,11);
+  assert.deepEqual(new Set(Object.keys(BOOLEAN_SOURCE_SHA256)),
+    new Set(BOOLEAN_CASES.map(([id])=>id)));
+  for(const [id,, ,blob] of BOOLEAN_CASES){
+    const path=fileURLToPath(new URL('./fixtures/boolean-v1/'+id+'.atto',import.meta.url));
+    const st=await lstat(path);
+    assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.size>0&&st.size<=8192,id+' unsafe fixture');
+    const bytes=await readFile(path);
+    const sha256=createHash('sha256').update(bytes).digest('hex');
+    const gitBlob=createHash('sha1').update(Buffer.from('blob '+bytes.length+'\\0','ascii'))
+      .update(bytes).digest('hex');
+    assert.equal(sha256,BOOLEAN_SOURCE_SHA256[id],id+' SHA-256 drift');
+    assert.equal(gitBlob,blob,id+' Git blob drift');
+  }
+});
+mutate('reject source SHA-256 with valid format but wrong bytes',d=>{
+  d.receipt.cases[0].sourceSha256='d'.repeat(64);
+});
+mutate('reject swapped valid fixture source SHA-256 values',d=>{
+  d.receipt.cases[0].sourceSha256=d.receipt.cases[1].sourceSha256;
+});
+mutate('reject lookalike source repository numeric ID',d=>{d.run.repository.id=999;});
+mutate('reject forked workflow head repository ID',d=>{d.run.head_repository.id=999;});
+mutate('reject missing workflow numeric identity',d=>{d.run.workflow_id=null;});
+mutate('reject missing job identity',d=>{d.jobs.jobs[0].id=null;});
+mutate('reject stale job attempt from older run',d=>{d.jobs.jobs[0].run_attempt=1;});
+mutate('reject job pointing to different commit',d=>{d.jobs.jobs[0].head_sha='d'.repeat(40);});
+mutate('reject job on non-main branch',d=>{d.jobs.jobs[0].head_branch='feature';});
+mutate('reject job belonging to different workflow',d=>{
+  d.jobs.jobs[0].workflow_name='Another Workflow';
+});
+mutate('reject duplicate successful step number',d=>{
+  d.jobs.jobs[0].steps[5].number=d.jobs.jobs[0].steps[4].number;
+});
+mutate('reject out-of-order required step numbers',d=>{
+  const steps=d.jobs.jobs[0].steps;
+  [steps[7],steps[8]]=[steps[8],steps[7]];
+});
+mutate('reject unnumbered extra step',d=>{
+  d.jobs.jobs[0].steps.push({name:'extra unnumbered step',status:'completed',
+    conclusion:'success',started_at:'2026-11-07T12:00:00Z',
+    completed_at:'2026-11-07T12:01:00Z'});
+});
