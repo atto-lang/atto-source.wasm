@@ -7,11 +7,12 @@ import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join, isAbsolute} from 'node:path';
+import {join, isAbsolute, extname} from 'node:path';
 import {readBoundedRegularFile} from './compile-ores.mjs';
 import {assertWasm32IrTarget} from './wasm32-ir-target.mjs';
 import {inspectWasmBytes} from './inspect-core-memory.mjs';
 import {assertScalarActorAbi} from './actor-scalar-abi.mjs';
+import {assertCompiledActorScalarFrameV1} from './actor-scalar-frame-ir-v1.mjs';
 
 const MAX_SOURCE = 1024 * 1024;
 const MAX_COMPILER = 256 * 1024 * 1024;
@@ -37,11 +38,16 @@ function invoke(exe, args, input) {
 }
 
 export async function compileSourceActorToWasm({compiler, source, clang = process.env.CLANG || 'clang',
-  expectedCompilerSha256} = {}) {
+  expectedCompilerSha256, requireActorFrameV1 = false} = {}) {
   if (!isAbsolute(compiler || '') || !isAbsolute(source || ''))
     throw TypeError('source actor bridge requires absolute compiler/source paths');
   if (expectedCompilerSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedCompilerSha256))
     throw TypeError('invalid compiler SHA-256 pin');
+  if (typeof requireActorFrameV1 !== 'boolean')
+    throw TypeError('actor-frame ABI admission flag must be boolean');
+  if (requireActorFrameV1 && (!/^[a-f0-9]{64}$/.test(expectedCompilerSha256 || '') ||
+      extname(source) !== '.atto'))
+    throw Error('M2 actor frame requires canonical .atto source and pinned LLVM compiler');
   const [sourceRead, compilerRead] = await Promise.all([
     readBoundedRegularFile(source, MAX_SOURCE, 'source exceeds 1MiB budget'),
     readBoundedRegularFile(compiler, MAX_COMPILER, 'compiler exceeds 256MiB budget')
@@ -52,7 +58,8 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     throw Error('compiler binary SHA-256 mismatch');
 
   const scratch = await mkdtemp(join(tmpdir(), 'ores-source-actor-wasm-'));
-  const stagedSource = join(scratch, 'source.ores');
+  const stagedSource = join(scratch,
+    extname(source) === '.atto' ? 'source.atto' : 'source.ores');
   const stagedCompiler = join(scratch, 'compiler-exact');
   const output = join(scratch, 'actor.wasm');
   try {
@@ -62,6 +69,8 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     await writeFile(stagedCompiler, compilerBytes, {mode: 0o500, flag: 'wx'});
     const ir = invoke(stagedCompiler, ['--target=wasm32', stagedSource]);
     assertWasm32IrTarget(ir);
+    const frameContract = requireActorFrameV1
+      ? assertCompiledActorScalarFrameV1(ir) : null;
     for (const name of exportsRequired)
       if (!ir.includes('@' + name + '(')) throw Error('missing compiler-generated actor ABI ' + name);
     if (/@oreslang_source_actor_spawn|@ores_actor_i64_heap_field/.test(ir))
@@ -103,7 +112,8 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
       provenance: Object.freeze({kind: 'real-source-pooled-actor-v0',
         sourceSha256, compilerSha256, llvmIrSha256: sha(Buffer.from(ir, 'utf8')),
         wasmSha256: sha(wasm), wasmBytes: wasm.length, guestImports: 0,
-        actorAbi: 'pooled-actor-i64-v0'})
+        actorAbi: 'pooled-actor-i64-v0',
+        ...(frameContract || {})})
     };
   } finally {await rm(scratch, {recursive: true, force: true});}
 }
