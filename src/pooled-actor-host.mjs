@@ -20,6 +20,7 @@ export class PooledWasmActors {
   #actors = new Map();
   #nextId = 0;
   #nextTicket = 0;
+  #isolatedGuestFaults = 0;
   #closed = false;
   #shutdownPromise = null;
   #maxActors;
@@ -74,6 +75,7 @@ export class PooledWasmActors {
   get workerCount() {return this.#carriers.length;}
   get actorCount() {return this.#actors.size;}
   get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}
+  get isolatedGuestFaultCount() {return this.#isolatedGuestFaults;}
 
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
@@ -119,7 +121,7 @@ export class PooledWasmActors {
     if (this.#closed || carrier.dead) return;
     const active = carrier.active;
     if (!active || !message ||
-        !['ack', 'fatal'].includes(message.kind) ||
+        !['ack', 'fatal', 'actor_fault'].includes(message.kind) ||
         message.ticket !== active.op.ticket ||
         message.id !== active.actor.id ||
         message.incarnation !== active.actor.incarnation)
@@ -127,6 +129,37 @@ export class PooledWasmActors {
     if (message.kind === 'fatal')
       return void this.#retireCarrier(carrier, Error('WASM actor trap: ' + String(message.reason).slice(0, 200)));
     const {actor, op} = active;
+    if (message.kind === 'actor_fault') {
+      // Narrowly scoped to a proven synchronous, zero-import Wasm unreachable
+      // trap after worker-local guest/managed-frame cleanup. Arbitrary traps,
+      // engine stack exhaustion, timeouts and cleanup failures stay fatal to
+      // the entire carrier. A malformed actor-fault receipt is never success.
+      if (op.kind !== 'send' || message.code !== 'WASM_UNREACHABLE_V1' ||
+          message.result !== null ||
+          !message.frame || message.frame.schemaVersion !== 1 ||
+          message.frame.frameBytes !== 16 ||
+          message.frame.activeExecutions !== 0 ||
+          message.frame.frameBytesInUse !== 0 ||
+          message.frame.retired !== true)
+        return void this.#retireCarrier(carrier,
+          Error('invalid actor-local fault retirement receipt'));
+      clearTimeout(carrier.timer);
+      carrier.timer = null;
+      carrier.active = null;
+      actor.phase = 'retired';
+      this.#actors.delete(actor.id);
+      const error = Error('WASM actor isolated fault: WASM_UNREACHABLE_V1');
+      for (const pending of actor.pending) pending.reject(error);
+      actor.pending.clear();
+      actor.queue.length = 0;
+      actor.outstanding = 0;
+      actor.queued = false;
+      ++this.#isolatedGuestFaults;
+      // All other actors on the healthy Worker retain their own instances,
+      // memories and queues. In-flight messages for the dead actor are denied.
+      this.#pump(carrier);
+      return;
+    }
     if ((op.kind === 'send' && (typeof message.result !== 'bigint' ||
           message.result < I64_MIN || message.result > I64_MAX)) ||
         (op.kind !== 'send' && message.result !== null))
