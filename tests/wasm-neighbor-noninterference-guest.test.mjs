@@ -80,6 +80,26 @@ test("noncooperative guest is terminated while two neighboring Wasm instances re
   assert.equal(resumed.admission.sha256, sha);
 });
 
+test("a trapping Wasm guest cannot corrupt either neighboring instance", {
+  timeout: 30000
+}, async () => {
+  const trapping = compileCoreWasm('target triple = "wasm32-unknown-unknown"\n' +
+    'define i64 @main() {\nentry:\n unreachable\n}\n');
+  const counter = compileCoreWasm(counterSource);
+  const trapped = assert.rejects(
+    runIsolatedCoreGuest(trapping, {timeoutMs: 10000}),
+    /guest rejected or failed:.*unreachable/
+  );
+  const neighbors = await Promise.all([
+    runIsolatedCoreGuest(counter, {timeoutMs: 10000}),
+    runIsolatedCoreGuest(counter, {timeoutMs: 10000})
+  ]);
+  assert.deepEqual(neighbors.map(result => result.value), [1n, 1n]);
+  await trapped;
+  const after = await runIsolatedCoreGuest(counter, {timeoutMs: 10000});
+  assert.equal(after.value, 1n);
+});
+
 test("forbidden host import is denied while another zero-capability guest executes", {
   timeout: 30000
 }, async () => {
