@@ -208,11 +208,7 @@ test("host continuation tickets fail closed on unexpected trap and carrier retir
       assert.equal(supervisor.status.hostContinuationTicketsPending, 0);
       assert.equal(supervisor.status.restarts, 0);
       assert.throws(() => supervisor.resumeGuestContinuation(ticket), /STALE_OR_REPLAYED/);
-      await assert.rejects(supervisor.current().send(1n), /supervised actor is not active/);
-    } catch (error) {
-      // current() is a synchronous accessor and therefore cannot be awaited
-      // as a rejected Promise. Only the expected assertion is permitted here.
-      if (!String(error).includes("supervised actor is not active")) throw error;
+      assert.throws(() => supervisor.current(), /supervised actor is not active/);
     } finally {
       await supervisor?.close();
       f.restore();
