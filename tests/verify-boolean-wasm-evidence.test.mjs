@@ -100,7 +100,7 @@ test('11 pinned source SHA-256 values independently match real .atto fixture byt
     assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.size>0&&st.size<=8192,id+' unsafe fixture');
     const bytes=await readFile(path);
     const sha256=createHash('sha256').update(bytes).digest('hex');
-    const gitBlob=createHash('sha1').update(Buffer.from('blob '+bytes.length+'\\0','ascii'))
+    const gitBlob=createHash('sha1').update(Buffer.from('blob '+bytes.length+String.fromCharCode(0),'ascii'))
       .update(bytes).digest('hex');
     assert.equal(sha256,BOOLEAN_SOURCE_SHA256[id],id+' SHA-256 drift');
     assert.equal(gitBlob,blob,id+' Git blob drift');
