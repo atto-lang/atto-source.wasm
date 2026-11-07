@@ -18,6 +18,20 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
+// A Wasm browser/Worker guest has no ambient hosted Std or allocator provider.
+// Target selection alone is NOT a capability-profile proof: require explicit
+// Core admission in every bridge publication mode. Keep this single immutable
+// argv recipe shared by the real compiler invocation and regression tests.
+export function wasmCoreCompilerArgs(stagedSource) {
+ if(typeof stagedSource!=="string"||!isAbsolute(stagedSource) ||
+    stagedSource.indexOf("\0")!==-1) throw new TypeError("absolute staged .atto/.ores source path required");
+ if(![".atto",".ores"].includes(extname(stagedSource).toLowerCase()))
+    throw new TypeError("staged guest source requires .atto or .ores extension");
+ return ["--library-profile=core","--tree-shake","--tree-shake-root=main",
+         "--target=wasm32",stagedSource];
+}
+
+
 function tupleV2Tokens(sourceBytes){
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
@@ -407,7 +421,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource));
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish

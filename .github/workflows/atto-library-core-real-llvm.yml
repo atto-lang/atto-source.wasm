@@ -69,6 +69,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      - name: Require immutable reviewed LLVM source and Core-only bridge policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'wasmCoreCompilerArgs(stagedSource)' scripts/compile-ores.mjs
+          grep -F '"--library-profile=core"' scripts/compile-ores.mjs
+          git -C llvm-source diff --quiet --exit-code
       - name: Build exact source compiler and pin executable bytes
         shell: bash
         run: |

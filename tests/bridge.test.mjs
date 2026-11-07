@@ -4,8 +4,19 @@ import {mkdtemp,writeFile,chmod,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {createHash} from "node:crypto";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,wasmCoreCompilerArgs} from "../scripts/compile-ores.mjs";
 const hash=b=>createHash("sha256").update(b).digest("hex");
+test("Wasm bridge explicitly requires Core-only compiler admission",()=>{
+ const args=wasmCoreCompilerArgs("/tmp/atto-numeric.atto");
+ assert.deepEqual(args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
+                        "--target=wasm32","/tmp/atto-numeric.atto"]);
+ assert.equal(args.filter(x=>x.startsWith("--library-profile=")).length,1);
+ assert.equal(args.filter(x=>x.startsWith("--target=")).length,1);
+ assert.ok(!args.some(x=>x==="--allocator-provider=bounded-arena"));
+ for(const bad of ["numeric.atto","/tmp/source.txt","/tmp/source.atto\0evil",null])
+  assert.throws(()=>wasmCoreCompilerArgs(bad),/(absolute staged|requires)/);
+});
+
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
  try{
