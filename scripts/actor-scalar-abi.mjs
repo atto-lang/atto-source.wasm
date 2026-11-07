@@ -8,10 +8,15 @@ const EXPECTED = Object.freeze({
   oreslang_wasm_actor_on_message: {params: [0x7e], results: [0x7e]},
   oreslang_wasm_actor_teardown: {params: [], results: []}
 });
+const CHECKED_STATUS = Object.freeze({params: [], results: [0x7f]});
+const CHECKED_NAME = 'oreslang_wasm_actor_frame_status';
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 const fail = msg => {throw Error('WASM actor ABI: ' + msg);};
 
-export function assertScalarActorAbi(bytes) {
+export function assertScalarActorAbi(bytes, {checkedRecursionV1 = false} = {}) {
+  if (typeof checkedRecursionV1 !== 'boolean') fail('invalid checked recursion ABI selector');
+  const expectedAbi = checkedRecursionV1
+    ? {...EXPECTED, [CHECKED_NAME]: CHECKED_STATUS} : EXPECTED;
   if (!(bytes instanceof Uint8Array) || bytes.length < 8 ||
       ![0,97,115,109,1,0,0,0].every((n,i) => bytes[i] === n))
     fail('invalid core module');
@@ -59,7 +64,8 @@ export function assertScalarActorAbi(bytes) {
       if (seenExports) fail('duplicate export section');
       seenExports = true;
       const count = readU32(end);
-      if (count !== 4) fail('expected three lifecycle functions and memory');
+      if (count !== (checkedRecursionV1 ? 5 : 4))
+        fail('expected exact actor lifecycle/status functions and private memory');
       for (let i = 0; i < count; i++) {
         const size = readU32(end);
         if (size > end - at) fail('truncated export name');
@@ -74,7 +80,7 @@ export function assertScalarActorAbi(bytes) {
     at = end;
   }
   if (!seenTypes || !seenFunctions || !seenExports) fail('missing function type/export section');
-  for (const [name, expected] of Object.entries(EXPECTED)) {
+  for (const [name, expected] of Object.entries(expectedAbi)) {
     const entry = exports.get(name);
     if (!entry || entry.kind !== 0) fail('missing function export: ' + name);
     const typeIndex = functions[entry.index], signature = types[typeIndex];
@@ -88,6 +94,6 @@ export function assertScalarActorAbi(bytes) {
   const memory = exports.get('memory');
   if (!memory || memory.kind !== 2 || memory.index !== 0)
     fail('expected private memory export index zero');
-  if (exports.size !== 4) fail('unexpected export');
+  if (exports.size !== (checkedRecursionV1 ? 5 : 4)) fail('unexpected export');
   return true;
 }
