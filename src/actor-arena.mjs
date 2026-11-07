@@ -21,6 +21,19 @@ const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
 const trustedArrayPush = Array.prototype.push;
 const trustedArrayPop = Array.prototype.pop;
+const trustedWasmMemory = WebAssembly.Memory;
+const trustedFreeze = Object.freeze;
+const trustedMap = Map;
+const trustedWeakMap = WeakMap;
+const trustedMapGet = Map.prototype.get;
+const trustedMapSet = Map.prototype.set;
+const trustedMapDelete = Map.prototype.delete;
+const trustedMapClear = Map.prototype.clear;
+const trustedMapForEach = Map.prototype.forEach;
+const trustedMapSize = Object.getOwnPropertyDescriptor(Map.prototype, "size").get;
+const trustedWeakMapGet = WeakMap.prototype.get;
+const trustedWeakMapSet = WeakMap.prototype.set;
+const trustedWeakMapDelete = WeakMap.prototype.delete;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const trustedMemoryBuffer = Object.getOwnPropertyDescriptor(
@@ -42,9 +55,9 @@ export class ActorArena {
   // Actor-owned, bounded managed frame stacks. A distinct, non-shared
   // WebAssembly.Memory belongs to each logical execution. Never expose it.
   // This does not replace the engine's native WebAssembly call stack.
-  #stackExecutions = new Map();
-  #stackFrames = new WeakMap();
-  #stackResumeTickets = new WeakMap();
+  #stackExecutions = new trustedMap();
+  #stackFrames = new trustedWeakMap();
+  #stackResumeTickets = new trustedWeakMap();
   #activeStack = null;
   #pendingLifetimePins = 0;
   #persistentTop = 0;
@@ -62,17 +75,17 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new trustedWasmMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
   get incarnation() { return this.#incarnation; }
   get retired() { return this.#closed; }
   get pendingLifetimePins() { return this.#pendingLifetimePins; }
-  get stackExecutionCount() { return this.#stackExecutions.size; }
+  get stackExecutionCount() { return trustedApply(trustedMapSize, this.#stackExecutions, []); }
   get stackBytesInUse() {
     let bytes = 0;
-    for (const stack of this.#stackExecutions.values()) bytes += stack.top;
+    trustedApply(trustedMapForEach, this.#stackExecutions, [stack => { bytes += stack.top; }]);
     return bytes;
   }
 
@@ -142,15 +155,15 @@ export class ActorArena {
       scrub(ownedBytes(this.#memory));
       this.#memory = null;
     }
-    for (const stack of this.#stackExecutions.values()) {
+    trustedApply(trustedMapForEach, this.#stackExecutions, [stack => {
       if (stack.memory !== null) {
         scrub(ownedBytes(stack.memory));
         stack.memory = null;
       }
-    }
-    this.#stackExecutions.clear();
-    this.#stackFrames = new WeakMap();
-    this.#stackResumeTickets = new WeakMap();
+    }]);
+    trustedApply(trustedMapClear, this.#stackExecutions, []);
+    this.#stackFrames = new trustedWeakMap();
+    this.#stackResumeTickets = new trustedWeakMap();
     this.#activeStack = null;
   }
 
@@ -246,21 +259,21 @@ export class ActorArena {
   startStack(turn) {
     this.#requireTurn(turn);
     if (this.#activeStack !== null) throw new Error("actor stack already active");
-    if (this.#stackExecutions.size >= MAX_STACK_EXECUTIONS) {
+    if (trustedApply(trustedMapSize, this.#stackExecutions, []) >= MAX_STACK_EXECUTIONS) {
       throw new RangeError("actor stack execution quota exhausted");
     }
-    const memory = new WebAssembly.Memory({initial: 1, maximum: 1});
-    const execution = Object.freeze({});
-    this.#stackExecutions.set(execution, {
+    const memory = new trustedWasmMemory({initial: 1, maximum: 1});
+    const execution = trustedFreeze({});
+    trustedApply(trustedMapSet, this.#stackExecutions, [execution, {
       memory, top: 0, frames: [], suspension: null
-    });
+    }]);
     this.#activeStack = execution;
     return execution;
   }
 
   #requireStack(turn, execution) {
     this.#requireTurn(turn);
-    const stack = this.#stackExecutions.get(execution);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
     if (!stack || this.#activeStack !== execution) {
       throw new Error("active actor stack execution authority required");
     }
@@ -278,10 +291,10 @@ export class ActorArena {
     if (length > PAGE - stack.top) {
       throw new RangeError("actor stack byte quota exhausted");
     }
-    const frame = Object.freeze({});
+    const frame = trustedFreeze({});
     const offset = stack.top;
     scrub(ownedBytes(stack.memory), offset, offset + length);
-    this.#stackFrames.set(frame, {execution, offset, length});
+    trustedApply(trustedWeakMapSet, this.#stackFrames, [frame, {execution, offset, length}]);
     trustedApply(trustedArrayPush, stack.frames, [frame]);
     stack.top += length;
     return frame;
@@ -289,7 +302,7 @@ export class ActorArena {
 
   #topStackFrame(turn, execution, frame) {
     const stack = this.#requireStack(turn, execution);
-    const slot = this.#stackFrames.get(frame);
+    const slot = trustedApply(trustedWeakMapGet, this.#stackFrames, [frame]);
     if (!slot || slot.execution !== execution ||
         (stack.frames.length === 0 ||
          stack.frames[stack.frames.length - 1] !== frame)) {
@@ -321,14 +334,14 @@ export class ActorArena {
     scrub(ownedBytes(stack.memory), slot.offset, slot.offset + slot.length);
     trustedApply(trustedArrayPop, stack.frames, []);
     stack.top = slot.offset;
-    this.#stackFrames.delete(frame);
+    trustedApply(trustedWeakMapDelete, this.#stackFrames, [frame]);
   }
 
   suspendStack(turn, execution) {
     const stack = this.#requireStack(turn, execution);
-    const ticket = Object.freeze({});
+    const ticket = trustedFreeze({});
     stack.suspension = ticket;
-    this.#stackResumeTickets.set(ticket, execution);
+    trustedApply(trustedWeakMapSet, this.#stackResumeTickets, [ticket, execution]);
     this.#activeStack = null;
     return ticket;
   }
@@ -336,12 +349,12 @@ export class ActorArena {
   resumeStack(turn, ticket) {
     this.#requireTurn(turn);
     if (this.#activeStack !== null) throw new Error("actor stack already active");
-    const execution = this.#stackResumeTickets.get(ticket);
-    const stack = this.#stackExecutions.get(execution);
+    const execution = trustedApply(trustedWeakMapGet, this.#stackResumeTickets, [ticket]);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
     if (!stack || stack.suspension !== ticket) {
       throw new Error("foreign, stale or consumed actor stack resume ticket");
     }
-    this.#stackResumeTickets.delete(ticket);
+    trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [ticket]);
     stack.suspension = null;
     this.#activeStack = execution;
     return execution;
@@ -349,10 +362,12 @@ export class ActorArena {
 
   #clearStack(execution, stack) {
     scrub(ownedBytes(stack.memory));
-    for (const frame of stack.frames) this.#stackFrames.delete(frame);
-    if (stack.suspension !== null) this.#stackResumeTickets.delete(stack.suspension);
+    for (let i = 0; i < stack.frames.length; ++i) {
+      trustedApply(trustedWeakMapDelete, this.#stackFrames, [stack.frames[i]]);
+    }
+    if (stack.suspension !== null) trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [stack.suspension]);
     stack.memory = null;
-    this.#stackExecutions.delete(execution);
+    trustedApply(trustedMapDelete, this.#stackExecutions, [execution]);
     if (this.#activeStack === execution) this.#activeStack = null;
   }
 
@@ -366,7 +381,7 @@ export class ActorArena {
 
   cancelStack(turn, execution) {
     this.#requireTurn(turn);
-    const stack = this.#stackExecutions.get(execution);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
     if (!stack) throw new Error("foreign or stale actor stack execution");
     if (this.#activeStack !== null && this.#activeStack !== execution) {
       throw new Error("another actor stack execution is active");
