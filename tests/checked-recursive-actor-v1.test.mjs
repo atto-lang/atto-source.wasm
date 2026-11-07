@@ -49,13 +49,13 @@ function compiledSyntheticActor({statusType = "i32",
       'target triple = "wasm32-unknown-unknown"',
       ...(normalReturnWithTerminal ? ['@status = internal global i32 0'] : []),
       'define void @oreslang_wasm_actor_init() { ret void }',
-      'define i64 @oreslang_wasm_actor_on_message(i64 %n) { ' +
-        (normalReturnWithTerminal ? 'store i32 1, ptr @status ' : '') +
-        'ret i64 %n }',
+      'define i64 @oreslang_wasm_actor_on_message(i64 %n) {\n' +
+        (normalReturnWithTerminal ? 'store i32 1, ptr @status\n' : '') +
+        'ret i64 %n\n}',
       'define void @oreslang_wasm_actor_teardown() { ret void }',
-      'define ' + statusType + ' @oreslang_wasm_actor_frame_status() { ' +
-        (normalReturnWithTerminal ? '%s = load i32, ptr @status ret i32 %s' :
-          statusType === "i64" ? "ret i64 0" : statusReturn) + ' }',
+      'define ' + statusType + ' @oreslang_wasm_actor_frame_status() {\n' +
+        (normalReturnWithTerminal ? '%s = load i32, ptr @status\nret i32 %s' :
+          statusType === "i64" ? "ret i64 0" : statusReturn) + '\n}',
       ""
     ].join("\n");
     const r = spawnSync(process.env.CLANG || "clang", [
