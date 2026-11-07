@@ -102,9 +102,12 @@
     "Exact-head independent Java, LLVM, Wasm compiler-backed receipts"
   ],
   "candidate_implementation": {
-    "llvm_compiler_pr": "https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1546",
+    "llvm_compiler_pr": "https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1551",
     "kind": "opt-in-iterative-64-frame-source-subset",
     "real_guest_execution": "NOT_EXECUTED",
-    "general_recursion": "UNSUPPORTED"
+    "general_recursion": "UNSUPPORTED",
+    "wasm_runtime_branch": "feat/wasm-checked-actor-trampoline-runtime-v1-20261107",
+    "typed_fault": "STACK_BUDGET_EXHAUSTED_V1",
+    "boundary": "source-checked single-helper iterative recursion, no general recursion"
   }
 }
