@@ -6,7 +6,7 @@ import {createHash} from "node:crypto";
 import {constants} from "node:fs";
 import {rename,rm,mkdir,mkdtemp,lstat,chmod,open,readdir} from "node:fs/promises";
 import {join,dirname,resolve} from "node:path";
-import {assertCoreI64Entry} from "./core-i64-abi.mjs";
+import {assertCoreScalarEntry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 const digest=b=>createHash("sha256").update(b).digest("hex");
 const hex=x=>typeof x==="string"&&/^[0-9a-f]{64}$/.test(x);
@@ -91,6 +91,10 @@ function descriptorFor(wasm,manifest,provenance){
     typeof provenance.exportName!=="string"||
     !/^[A-Za-z_][A-Za-z0-9_]*$/.test(provenance.exportName))
    fail("invalid producer record");
+ // Legacy i64 release records had no profile field. Never infer f64 from bytes.
+ const profile=provenance.profile===undefined?"core-wasm.i64-v1":provenance.profile;
+ if(profile!=="core-wasm.i64-v1" && profile!=="core-wasm.f64-v1")
+  fail("unknown scalar profile in provenance");
  const compiledModule=new WebAssembly.Module(wasm);
  if(WebAssembly.Module.imports(compiledModule).length!==0)
    fail("guest Wasm host imports forbidden");
@@ -104,14 +108,14 @@ function descriptorFor(wasm,manifest,provenance){
    item.name!==provenance.exportName &&
    !(item.name==="memory"&&item.kind==="memory"));
  if(unexpected.length)fail("unexpected guest exports");
- try{assertCoreI64Entry(wasm,provenance.exportName)}
- catch{fail("invalid core i64 entry ABI")}
+ try{assertCoreScalarEntry(wasm,provenance.exportName,profile)}
+ catch{fail("invalid core scalar entry ABI")}
  const memory=inspectWasmBytes(wasm,{maxModuleBytes:16777216,maxMemoryPages:2});
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
    fail("invalid bounded 2-page guest memory");
 
  if(manifest!==null&&(manifest?.schemaVersion!==1||
-   manifest.artifactType!=="oreslang.core-wasm.i64-v1"||
+   manifest.artifactType!=="oreslang."+profile||
    manifest.target!=="wasm32"||manifest.backend!=="wasm"||
    !["browser","edge-js","edge-wasi"].includes(manifest.environment)||
    manifest.entry!==provenance.exportName||
