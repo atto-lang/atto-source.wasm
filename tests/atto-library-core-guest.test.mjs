@@ -78,6 +78,13 @@ test("LLVM -> wasm32 canonical Atto Core guest execution and negative imports", 
       assert.match(denial.stderr || "", diagnostic, name + " missing compiler diagnostic");
     }
     assert.equal(blob(await readFile(fixture)), EXPECTED_BLOB, "source drift after execution");
+    console.log("ATTO_CANONICAL_CORE_WASM_GUEST_EXECUTED" +
+      "|result=42|host_imports=0|host_capabilities=0" +
+      "|source_git_blob=" + EXPECTED_BLOB +
+      "|wasm_sha256=" + published.wasmSha256 +
+      "|compiler_sha256=" + compilerDigest +
+      "|llvm_head=" + llvmHead +
+      "|negative_rejections=" + negative.length);
     assert.equal(sha256((await readBoundedRegularFile(
       compiler, 256 * 1024 * 1024)).bytes), compilerDigest, "compiler changed during run");
   } finally {
