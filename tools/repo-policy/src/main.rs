@@ -147,59 +147,129 @@ fn verify_bytes(raw: &[u8], repository_name: &str) -> Result<BTreeMap<String, Va
     Ok(value)
 }
 
+fn bounded_read(file: &mut fs::File) -> Result<Vec<u8>, String> {
+    // A regular file may grow after fstat. Never request more than one byte
+    // beyond MAX_BYTES, even when metadata was initially in bounds.
+    let mut raw = Vec::new();
+    file.take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|_| invalid("cannot read manifest"))?;
+    Ok(raw)
+}
+
+#[cfg(unix)]
+fn ensure_file_metadata_stable(before: &fs::Metadata, after: &fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    // This detects observable file mutation around bounded reading. It cannot
+    // guarantee an immutable snapshot against a malicious concurrent writer
+    // that can restore timestamps or modify bytes after this final fstat.
+    if !before.is_file()
+        || !after.is_file()
+        || before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.mode() != after.mode()
+        || before.nlink() != 1
+        || after.nlink() != 1
+        || before.len() != after.len()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+        || before.ctime() != after.ctime()
+        || before.ctime_nsec() != after.ctime_nsec()
+    {
+        return Err(invalid("manifest changed during bounded read"));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::path::Component;
+
+    // The filesystem-root fd is the authority anchor. O_NOFOLLOW on an
+    // absolute path protects only its last component, not its ancestors.
+    fn open_child(parent: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) -> Result<fs::File, String> {
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| invalid("manifest component contains NUL"))?;
+        // SAFETY: the parent's fd is live and the CString is NUL-terminated;
+        // the returned descriptor is owned exactly once by File.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags, 0) };
+        if fd < 0 {
+            return Err(invalid("manifest component cannot be opened safely"));
+        }
+        Ok(unsafe { fs::File::from_raw_fd(fd) })
+    }
+
+    let directory_flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut root_fd = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(directory_flags)
+        .open("/")
+        .map_err(|_| invalid("cannot open filesystem root securely"))?;
+    // Reject symlinked directory components at every level of the supplied
+    // repository-root path, not just at its final directory.
+    for component in root.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => {
+                root_fd = open_child(&root_fd, name, directory_flags)?;
+            }
+            _ => return Err(invalid("repository root contains unsupported path component")),
+        }
+    }
+    let parent_fd = open_child(&root_fd, std::ffi::OsStr::new(".oreslang"), directory_flags)?;
+    // O_NONBLOCK avoids hanging if a checked regular file is swapped for a
+    // FIFO. O_NOFOLLOW denies a symlink swap before the actual open.
+    let mut manifest_fd = open_child(
+        &parent_fd, std::ffi::OsStr::new("integration.json"),
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+    )?;
+    let opened = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect opened manifest"))?;
+    if !opened.is_file() {
+        return Err(invalid("opened manifest is not regular"));
+    }
+    if opened.nlink() != 1 {
+        return Err(invalid("manifest has unexpected hardlink aliases"));
+    }
+    if opened.len() > MAX_BYTES as u64 {
+        return Err(invalid("manifest exceeds size limit"));
+    }
+    let raw = bounded_read(&mut manifest_fd)?;
+    let after = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect manifest after bounded read"))?;
+    ensure_file_metadata_stable(&opened, &after)?;
+    Ok(raw)
+}
+
+#[cfg(not(unix))]
+fn read_manifest_physically(_root: &Path) -> Result<Vec<u8>, String> {
+    // A Windows handle/reparse-point equivalent needs a separate reviewed
+    // implementation. Never silently revert to a racy path-based read.
+    Err(invalid("secure descriptor-relative manifest reads unavailable"))
+}
+
 fn verify_repository(root: &Path) -> Result<String, String> {
-    let root = fs::canonicalize(root).map_err(|e| format!("invalid repository root: {e}"))?;
+    // Do not canonicalize the root before O_NOFOLLOW: that would dereference
+    // an attacker-supplied symlinked repository-root authority alias.
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|e| format!("invalid current directory: {e}"))?
+            .join(root)
+    };
+    // Strip lexical trailing '.' components without following symlinks.
+    let root: PathBuf = absolute.components().collect();
     let expected_name = root
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("repository root has no UTF-8 name"))?
         .to_string();
-    // A regular manifest reached through a symlinked .oreslang directory is
-    // still outside the declared repository. Check every authority-bearing
-    // path component rather than the final filename alone.
-    let parent = root.join(".oreslang");
-    let parent_metadata = fs::symlink_metadata(&parent)
-        .map_err(|_| invalid("manifest parent missing or symlinked"))?;
-    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
-        return Err(invalid("manifest parent missing or symlinked"));
-    }
-    let manifest = parent.join("integration.json");
-    let metadata = fs::symlink_metadata(&manifest)
-        .map_err(|_| invalid("manifest missing or symlinked"))?;
-    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
-        return Err(invalid("manifest missing or symlinked"));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if metadata.nlink() != 1 {
-            return Err(invalid("manifest has unexpected hardlink aliases"));
-        }
-    }
-    if metadata.len() > MAX_BYTES as u64 {
-        return Err(invalid("manifest exceeds size limit"));
-    }
-    // The source may grow after metadata admission. Read at most MAX_BYTES+1
-    // from one opened descriptor; never use an unbounded fs::read here.
-    let file = fs::File::open(&manifest)
-        .map_err(|_| invalid("cannot open manifest"))?;
-    let opened = file.metadata().map_err(|_| invalid("cannot inspect opened manifest"))?;
-    if !opened.is_file() {
-        return Err(invalid("opened manifest is not regular"));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino()
-            || opened.nlink() != 1
-        {
-            return Err(invalid("manifest identity changed during open"));
-        }
-    }
-    let mut raw = Vec::new();
-    file.take((MAX_BYTES + 1) as u64)
-        .read_to_end(&mut raw)
-        .map_err(|_| invalid("cannot read manifest"))?;
+    let raw = read_manifest_physically(&root)?;
     verify_bytes(&raw, &expected_name)?;
     Ok(expected_name)
 }
@@ -394,6 +464,7 @@ mod tests {
         assert!(verify_bytes(&bad_note, "oreslang-source.java").is_err());
     }
 
+    #[cfg(unix)]
     #[test]
     fn cli_accepts_regular_manifest_with_bounded_read() {
         let temp = TempDir::new();
@@ -402,6 +473,37 @@ mod tests {
         fs::write(root.join(".oreslang/integration.json"),
                   valid("oreslang-source.java")).unwrap();
         assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_ancestor() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside_parent = temp.0.join("outside-parent");
+        let outside = outside_parent.join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias_parent = temp.0.join("parent-alias");
+        symlink(&outside_parent, &alias_parent).unwrap();
+        let root = alias_parent.join("oreslang-source.java");
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_even_with_valid_outside_manifest() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside = temp.0.join("outside").join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias = temp.0.join("oreslang-source.java");
+        symlink(&outside, &alias).unwrap();
+        assert!(verify_repository(&alias).is_err());
+        assert!(verify_repository(&alias.join(".")).is_err());
     }
 
     #[cfg(unix)]
@@ -441,6 +543,104 @@ mod tests {
         let external = temp.0.join("external.json");
         fs::write(&external, valid("oreslang-source.java")).unwrap();
         symlink(&external, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_fifo_without_waiting_for_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let fifo = root.join(".oreslang/integration.json");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = mpsc::channel();
+        // A regression that blocks on a FIFO must not stall the test driver:
+        // the receiver has a deadline and drops the join handle on failure.
+        std::thread::spawn(move || {
+            let _ = tx.send(verify_repository(&root).is_err());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_accepts_unchanged_file() {
+        let temp = TempDir::new();
+        let path = temp.0.join("stable.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_in_place_growth() {
+        let temp = TempDir::new();
+        let path = temp.0.join("mutated.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::write(&path, vec![b'x'; MAX_BYTES]).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_hardlink_added_after_open() {
+        let temp = TempDir::new();
+        let path = temp.0.join("pre-link.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::hard_link(&path, temp.0.join("new-alias.json")).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_mode_changed_after_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new();
+        let path = temp.0.join("permission-change.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let new_mode = if before.permissions().mode() & 0o200 == 0 { 0o600 } else { 0o400 };
+        fs::set_permissions(&path, fs::Permissions::from_mode(new_mode)).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_bounded_reader_caps_growth_to_one_byte_witness() {
+        let temp = TempDir::new();
+        let large = temp.0.join("large-manifest.json");
+        fs::write(&large, vec![b'x'; MAX_BYTES * 64]).unwrap();
+        let mut fd = fs::File::open(&large).unwrap();
+        let bytes = bounded_read(&mut fd).unwrap();
+        assert_eq!(bytes.len(), MAX_BYTES + 1);
+        assert!(verify_bytes(&bytes, "oreslang-source.java").is_err());
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn cli_denies_platform_without_secure_descriptor_open() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
         assert!(verify_repository(&root).is_err());
     }
 }
