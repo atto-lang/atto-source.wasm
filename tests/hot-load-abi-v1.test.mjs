@@ -66,3 +66,40 @@ test('forged stale epochs and ETS heir receipts cannot commit', () => {
   assert.equal(queryHotLoadCapabilities().featureSupport.etsHeir, false);
 });
 
+test('Wasm UHL-1 refuses all phases without inspecting hostile transaction or heir data', () => {
+  let traps = 0;
+  const hostile = new Proxy(Object.create(null), {
+    get() { traps++; throw Error('untrusted getter must not run'); },
+    ownKeys() { traps++; throw Error('untrusted keys must not be scanned'); },
+    getPrototypeOf() { traps++; throw Error('untrusted prototype must not be read'); },
+    has() { traps++; throw Error('untrusted membership must not be checked'); },
+  });
+  for (const epoch of [0, 1, Number.MAX_SAFE_INTEGER, 1n, hostile]) {
+    assert.throws(() => stageHotUpgrade(hostile), {
+      code: 'ORES_HOT_UNSUPPORTED'
+    });
+    assert.throws(() => commitHotUpgrade(hostile, epoch), {
+      code: 'ORES_HOT_UNSUPPORTED'
+    });
+    assert.throws(() => acknowledgeEtsHeir(hostile, hostile), {
+      code: 'ORES_HOT_UNSUPPORTED'
+    });
+  }
+  assert.equal(traps, 0, 'rejection must not evaluate untrusted DATA');
+});
+
+test('unsupported capability query cannot be coerced into privileged UHL-1 access', () => {
+  let coerced = 0;
+  const hostileVersion = {
+    valueOf() { coerced++; throw Error('coercion is forbidden'); },
+    toString() { coerced++; throw Error('coercion is forbidden'); }
+  };
+  assert.throws(() => queryHotLoadCapabilities(hostileVersion), RangeError);
+  assert.equal(coerced, 0);
+  const first = queryHotLoadCapabilities();
+  for (let i = 0; i < 128; i++) {
+    assert.equal(queryHotLoadCapabilities(1), first);
+    assert.equal(queryHotLoadCapabilities().featureSupport.stateMigration, false);
+    assert.equal(queryHotLoadCapabilities().executionModes.jitToJit, false);
+  }
+});
