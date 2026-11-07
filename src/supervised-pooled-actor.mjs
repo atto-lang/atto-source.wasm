@@ -29,6 +29,7 @@ export class SupervisedPooledActor {
   #phase = "initializing";
   #current = null;
   #raw = null;
+  #lateRaw = null;
   #replacement = null;
   #waiters = new Set();
   #lastControl = null;
@@ -154,7 +155,11 @@ export class SupervisedPooledActor {
     });
     if (this.#closed) {
       // Close raced with INIT. Never publish a post-close generation.
-      try { await raw.stop(); } catch {}
+      // Retain this raw handle until STOP is acknowledged. A failed STOP
+      // is uncertainty, not evidence of physical actor retirement.
+      this.#lateRaw = raw;
+      await raw.stop();
+      this.#lateRaw = null;
       throw Error("supervised actor closed during restart");
     }
     if (this.#generation + 1 !== candidate)
@@ -249,7 +254,11 @@ export class SupervisedPooledActor {
   }
 
   async close() {
-    if (this.#closed) return;
+    if (this.#closed) {
+      if (this.#phase === "close-failed")
+        throw Error("supervised actor retirement remains unconfirmed");
+      return;
+    }
     this.#closed = true;
     this.#phase = "closing";
     this.#rejectWaiters(Error("supervised actor closed"));
@@ -261,7 +270,12 @@ export class SupervisedPooledActor {
     // awaiting INIT and revokes any late actor. Do not close the shared pool
     // or affect unrelated actors on the same physical Worker.
     if (inFlight) {
-      try {await inFlight;} catch {}
+      try {await inFlight;} catch (error) {
+        if (this.#lateRaw) {
+          this.#phase = "close-failed";
+          throw Error("supervised actor late restart STOP unconfirmed", {cause: error});
+        }
+      }
     }
     if (raw) {
       try {await raw.stop();} catch (error) {
