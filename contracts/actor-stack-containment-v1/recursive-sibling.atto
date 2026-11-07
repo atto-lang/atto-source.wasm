@@ -1,6 +1,6 @@
-// Proposed compiler-backed actor stack containment contract.
-// NOT executable by current wasm32 scalar actor subset: nested fnc calls are
-// fail-closed until checked actor-owned return/PC/operand frame lowering.
+// Experimental compiler checked iterative actor recursion v1.
+// One pure recursive helper; no general nested, async or owned calls.
+// An explicit opt-in wasm32 codegen gate owns 64 frames per instance.
 fnc descend(int depth): int {
   return depth == 0 ? 0 : 1 + descend(depth - 1);
 }
