@@ -17,7 +17,10 @@
     "llvm_native_compiler_backed": null,
     "java_compiler_backed": null,
     "wasmtime_aot": null,
-    "hosted_ci": null
+    "hosted_ci": null,
+    "supervisor_host_synthetic_wasm": null,
+    "supervisor_atto_compiler_backed": null,
+    "supervisor_control_restart_guest": null
   },
   "scenarios": [
     {
@@ -108,6 +111,12 @@
     "general_recursion": "UNSUPPORTED",
     "wasm_runtime_branch": "feat/wasm-checked-actor-trampoline-runtime-v1-20261107",
     "typed_fault": "STACK_BUDGET_EXHAUSTED_V1",
-    "boundary": "source-checked single-helper iterative recursion, no general recursion"
+    "boundary": "source-checked single-helper iterative recursion, no general recursion",
+    "supervisor_control_runtime": "src/supervised-pooled-actor.mjs",
+    "host_worker_control": "src/pooled-actor-host.mjs",
+    "supervisor_status": "AUTHORED_NOT_EXECUTED",
+    "supervisor_guest_gate": "tests/supervised-pooled-actor-v1.test.mjs",
+    "generation_handling": "fresh runtime actor, old host handles rejected; guest resume tickets unavailable",
+    "carrier_failure": "never autorerestart without typed actor local terminal; physical exit proof required"
   }
 }
