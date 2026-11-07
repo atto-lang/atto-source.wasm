@@ -13,8 +13,40 @@ test("Wasm bridge explicitly requires Core-only compiler admission",()=>{
  assert.equal(args.filter(x=>x.startsWith("--library-profile=")).length,1);
  assert.equal(args.filter(x=>x.startsWith("--target=")).length,1);
  assert.ok(!args.some(x=>x==="--allocator-provider=bounded-arena"));
- for(const bad of ["numeric.atto","/tmp/source.txt","/tmp/source.atto\0evil",null])
+ for(const bad of ["numeric.atto","/tmp/source.txt","/tmp/source.atto\0evil",null,"", "/tmp/guest.json", "/tmp/no-extension"])
   assert.throws(()=>wasmCoreCompilerArgs(bad),/(absolute staged|requires)/);
+});
+
+test("Wasm compiler argv is checked by the actually executed pinned tool",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-exact-argv-"));
+ try{
+  const compiler=join(dir,"core-argv-compiler.sh");
+  const source=join(dir,"core-guest.atto");
+  const output=join(dir,"core-guest.wasm");
+  // This script is deliberately a stub and MUST NOT be reported as
+  // compiler-backed AttoLang evidence. It verifies actual bridge invocation.
+  const lines=[
+   "#!/bin/sh",
+   "set -eu",
+   "test \"$#\" -eq 5",
+   "test \"$1\" = '--library-profile=core'",
+   "test \"$2\" = '--tree-shake'",
+   "test \"$3\" = '--tree-shake-root=main'",
+   "test \"$4\" = '--target=wasm32'",
+   "case \"$5\" in *.atto) ;; *) exit 88 ;; esac",
+   "printf 'target triple = \"wasm32-unknown-unknown\"\\\\ndefine i64 @main() { ret i64 42 }\\\\n'",
+  ].join("\n")+"\n";
+  await writeFile(compiler,lines,{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main(): int { return 42; }\n");
+  const digest=hash(await readFile(compiler));
+  const result=await compileOresToWasm({compiler,source,output,compilerSha256:digest});
+  const binary=await readFile(output);
+  assert.equal(result.compilerSha256,digest);
+  assert.equal(result.importCount,0);
+  assert.equal((new WebAssembly.Instance(new WebAssembly.Module(binary))).exports.main(),42n);
+  assert.equal(JSON.parse(await readFile(output+".provenance.json","utf8")).wasmSha256,hash(binary));
+ }finally{await rm(dir,{recursive:true,force:true})}
 });
 
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
