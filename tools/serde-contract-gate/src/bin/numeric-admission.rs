@@ -1,8 +1,9 @@
 //! Data-only numeric capability claims gate. This cannot certify guest parity.
 //! Replacement for stale Python capability assertions; preserve actual source
 //! and compiled guest execution as separate, independently evidenced gates.
+use serde::de::{self, Deserialize, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::Value;
-use std::{collections::BTreeSet, env, fs, path::Path, process::{self, Command}};
+use std::{collections::BTreeSet, env, fmt, fs, path::Path, process::{self, Command}};
 
 const FEATURES: &[&str] = &[
     "source_i64", "checked_i64_overflow", "binary64_ordering",
@@ -25,6 +26,72 @@ const CASES_BLOB: &str = "cb28b5678d380f02c5e4e43bd763da04bdb996fe";
 const SOURCE_BLOB: &str = "bbc319c19ecd007109d33592e210091eb267e5a2";
 const OVERFLOW_BLOB: &str = "2ce0b0ff5c52e54a788280fd64d67fa8dc32614a";
 
+/// Serde's ordinary Value map decoder can overwrite duplicate JSON keys.
+/// Accept JSON only with unique member names, at every nested object depth.
+struct UniqueJson(Value);
+
+impl<'de> Deserialize<'de> for UniqueJson {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct UniqueVisitor;
+        impl<'de> Visitor<'de> for UniqueVisitor {
+            type Value = UniqueJson;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("strict finite JSON without duplicate object keys")
+            }
+            fn visit_bool<E: de::Error>(self, value: bool) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Bool(value)))
+            }
+            fn visit_i64<E: de::Error>(self, value: i64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Number(value.into())))
+            }
+            fn visit_u64<E: de::Error>(self, value: u64) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Number(value.into())))
+            }
+            fn visit_f64<E: de::Error>(self, value: f64) -> Result<Self::Value, E> {
+                let number = serde_json::Number::from_f64(value)
+                    .ok_or_else(|| de::Error::custom("nonfinite JSON number"))?;
+                Ok(UniqueJson(Value::Number(number)))
+            }
+            fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::String(value.to_owned())))
+            }
+            fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::String(value)))
+            }
+            fn visit_unit<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Null))
+            }
+            fn visit_none<E: de::Error>(self) -> Result<Self::Value, E> {
+                Ok(UniqueJson(Value::Null))
+            }
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut items = Vec::new();
+                while let Some(item) = seq.next_element::<UniqueJson>()? {
+                    items.push(item.0);
+                }
+                Ok(UniqueJson(Value::Array(items)))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut values = serde_json::Map::new();
+                while let Some((key, item)) = map.next_entry::<String, UniqueJson>()? {
+                    if values.contains_key(&key) {
+                        return Err(de::Error::custom(format!("duplicate JSON key: {key}")));
+                    }
+                    values.insert(key, item.0);
+                }
+                Ok(UniqueJson(Value::Object(values)))
+            }
+        }
+        deserializer.deserialize_any(UniqueVisitor)
+    }
+}
+
+fn strict_json(bytes: &[u8]) -> Result<Value, String> {
+    let doc: UniqueJson = serde_json::from_slice(bytes)
+        .map_err(|e| format!("invalid or ambiguous strict JSON: {e}"))?;
+    Ok(doc.0)
+}
+
 fn bounded_json(root: &Path, name: &str) -> Result<Value, String> {
     let file = root.join(name);
     let meta = fs::symlink_metadata(&file).map_err(|e| format!("{name}: {e}"))?;
@@ -42,7 +109,7 @@ fn bounded_json(root: &Path, name: &str) -> Result<Value, String> {
     if bytes.len() as u64 != meta.len() {
         return Err(format!("{name}: changed during read"));
     }
-    serde_json::from_slice(&bytes).map_err(|e| format!("{name}: invalid JSON: {e}"))
+    strict_json(&bytes).map_err(|e| format!("{name}: {e}"))
 }
 
 fn pinned_blob(root: &Path, file: &str, expected: &str) -> Result<(), String> {
@@ -173,4 +240,15 @@ mod tests {
         d["backend"] = "llvm".into();
         assert!(check_manifest(&d).is_err());
     }
+    #[test]
+    fn rejects_duplicate_members_and_nonfinite_values_before_validation() {
+        assert!(strict_json(br#"{"backend":"wasm","backend":"llvm"}"#).is_err());
+        assert!(strict_json(br#"{"capabilities":{"a":1,"a":2}}"#).is_err());
+        assert!(strict_json(br#"{"scope":"ok","scope":"forged"}"#).is_err());
+        assert!(strict_json(br#"{"value":NaN}"#).is_err());
+        assert!(strict_json(br#"{"value":1e999}"#).is_err());
+        assert!(strict_json(br#"{"value":2} trailing"#).is_err());
+        assert!(strict_json(br#"{"payload":["okay",null,true,42]}"#).is_ok());
+    }
+
 }
