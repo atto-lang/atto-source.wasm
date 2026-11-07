@@ -62,3 +62,55 @@ explicit --wasm-core-abi=f64 selector before its staged source path. Both
 retain --library-profile=core and --target=wasm32. No auto-detection, host
 imports or source compiler fallbacks are permitted. LLVM PR #1517 remains
 under review. Stub bridge evidence does not establish real source parity.
+
+## Exact-head f64 approval and execution workflow (draft)
+
+The source-only PR job in `.github/workflows/f64-exact-head-guest.yml`
+executes Node regression and forged-receipt rejection tests, **without**
+private compiler source, a compiler executable, credentials or a release
+certificate. It cannot claim real compiler-backed guest execution.
+
+The **separate manual** `approved-real-guest` job requires all of:
+
+1. A protected/default-branch `workflow_dispatch`, not a PR dispatch.
+   This job cannot be used for premerge certification of PR #408 while
+   the workflow exists only on the draft branch.
+2. An independently authorized source-bearing runner with exact labels
+   `self-hosted, linux, x64, atto-f64-approved` and a configured
+   `atto-f64-guest-approval` environment with independent reviewers.
+   Merely naming the environment or assigning a runner label is not security
+   approval.
+3. A **pre-provisioned** absolute compiler path configured as repository
+   variable `ATTO_F64_APPROVED_COMPILER_PATH` and a source-owned LLVM
+   execution receipt at `ATTO_F64_APPROVED_RECEIPT_PATH`. No workflow step
+   downloads the compiler, clones the LLVM repository or transfers source.
+   Provisioning compiler bytes separately requires the source owner's
+   explicit authorization.
+4. Independently maintained environment secrets
+   `ATTO_F64_APPROVED_LLVM_HEAD`,
+   `ATTO_F64_APPROVED_LLVM_TREE`,
+   `ATTO_F64_APPROVED_COMPILER_SHA256`, and
+   `ATTO_F64_APPROVED_RECEIPT_SHA256`. Missing or stale pins fail closed;
+   the first three bind the source receipt and compiler, and the fourth binds
+   the exact receipt bytes authorized by an independent reviewer.
+5. An actual `npm run test:f64-compiler`-equivalent Node test that compiles
+   canonical `.atto` into Wasm and executes a 3.75 return in a disposable
+   Worker with **zero imports and zero host capabilities**. The same test
+   checks that an i64 entry cannot be published under the f64 profile. A
+   guest execution receipt is written only after all these checks succeed.
+
+`scripts/f64-evidence-admission.mjs` enforces source SHA, root tree SHA,
+compiler SHA-256, approved receipt digest, all three source-owned executed
+CTest IDs and the exact f64 Worker outcome. Its negative tests reject
+forged, missing, stale, skipped and overclaiming receipts.
+
+If all evidence checks succeed, the Wasm workflow publishes **hashes and
+JSON receipts only**, explicitly marking Java comparison `NOT_EXECUTED`
+and release `NOT_CERTIFIED`. Wasm binaries and the private native compiler
+are not uploaded. The experimental artifact schema in target-profiles
+PR #89 needs its own independent validation and approval.
+
+**Current status:** Neither PR-head LLVM compiler execution nor approved
+Worker execution has been observed. No approved runner/compiler-provisioning
+configuration has been established by these draft changes. A zero-step
+failed CI run is not a test failure or a test pass.
