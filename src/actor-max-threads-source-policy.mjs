@@ -127,11 +127,15 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // not a declaration; inspect adjacent grammar tokens, not substrings.
     const actorToken = tokens[i] === "actor" || tokens[i] === "isoactor";
     const next = tokens[i+1], afterNext = tokens[i+2];
+    // An unsupported actor callable must not hide after more than six
+    // repeated modifiers. The preflight token ledger is already bounded.
+    let callableCursor = i + 1;
+    if (actorToken)
+      while (callableCursor < tokens.length &&
+             supervisorModifiers.has(tokens[callableCursor])) callableCursor++;
     const actorCallable = actorToken &&
-      (next === "fnc" || next === "routine" ||
-       (supervisorModifiers.has(next) &&
-        (tokens.slice(i+2,i+8).includes("fnc") ||
-         tokens.slice(i+2,i+8).includes("routine"))));
+      (tokens[callableCursor] === "fnc" ||
+       tokens[callableCursor] === "routine");
     const bareActor = actorToken && (
       tokens[i] === "isoactor" ||
       (tokens[i-1] === "shared" || tokens[i-1] === "untrusted") ||
