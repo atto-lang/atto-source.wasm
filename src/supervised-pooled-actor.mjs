@@ -173,7 +173,8 @@ export class SupervisedPooledActor {
   }
 
   #terminal(control, generation) {
-    if (this.#closed || !["active", "stopping"].includes(this.#phase) ||
+    if (this.#closed ||
+        !["active", "stopping", "stop-failed"].includes(this.#phase) ||
         this.#generation !== generation || !this.#raw)
       return; // duplicate/late CONTROL cannot trigger another restart
     if (!control || control.schemaVersion !== 1 ||
@@ -195,7 +196,8 @@ export class SupervisedPooledActor {
     const typed = control.reason === terminalCode;
     // An explicit STOP racing behind a terminal message wins over automatic
     // restart intent. The failed STOP itself still rejects as terminal.
-    const manualStop = this.#phase === "stopping";
+    const manualStop = this.#phase === "stopping" ||
+      this.#phase === "stop-failed";
     const mayRestart = !manualStop && typed &&
       this.#restarts < this.#maxRestarts;
     const receipt = Object.freeze({
