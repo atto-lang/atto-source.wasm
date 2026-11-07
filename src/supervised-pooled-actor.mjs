@@ -133,7 +133,8 @@ export class SupervisedPooledActor {
             this.#current = null;
           }
         } catch (error) {
-          if (!this.#closed) this.#phase = "stop-failed";
+          if (!this.#closed && this.#phase === "stopping")
+            this.#phase = "stop-failed";
           throw error;
         }
       }
@@ -172,9 +173,9 @@ export class SupervisedPooledActor {
   }
 
   #terminal(control, generation) {
-    if (this.#closed || this.#phase !== "active" ||
+    if (this.#closed || !["active", "stopping"].includes(this.#phase) ||
         this.#generation !== generation || !this.#raw)
-      return; // duplicate or late event cannot trigger a second restart
+      return; // duplicate/late CONTROL cannot trigger another restart
     if (!control || control.schemaVersion !== 1 ||
         control.kind !== "ACTOR_TERMINAL_CONTROL" ||
         ![terminalCode, "WASM_UNREACHABLE_V1"].includes(control.reason) ||
@@ -192,7 +193,11 @@ export class SupervisedPooledActor {
     }
 
     const typed = control.reason === terminalCode;
-    const mayRestart = typed && this.#restarts < this.#maxRestarts;
+    // An explicit STOP racing behind a terminal message wins over automatic
+    // restart intent. The failed STOP itself still rejects as terminal.
+    const manualStop = this.#phase === "stopping";
+    const mayRestart = !manualStop && typed &&
+      this.#restarts < this.#maxRestarts;
     const receipt = Object.freeze({
       schemaVersion: 1,
       kind: "SUPERVISOR_TERMINAL_CONTROL",
@@ -223,11 +228,12 @@ export class SupervisedPooledActor {
       // retaining the exact failure for an explicit whenReady() caller.
       this.#replacement.catch(() => {});
     } else {
-      this.#phase = typed ? "restart-budget-exhausted" : "unhandled-terminal";
+      this.#phase = manualStop ? "stopped-after-terminal" :
+        typed ? "restart-budget-exhausted" : "unhandled-terminal";
       this.#replacement = null;
-      this.#rejectWaiters(Error(typed
-        ? "supervisor restart budget exhausted"
-        : "unhandled guest actor terminal fault: WASM_UNREACHABLE_V1"));
+      this.#rejectWaiters(Error(manualStop ? "supervisor stopped during terminal fault" :
+        typed ? "supervisor restart budget exhausted" :
+        "unhandled guest actor terminal fault: WASM_UNREACHABLE_V1"));
     }
     if (this.#onControl) {
       queueMicrotask(() => {
