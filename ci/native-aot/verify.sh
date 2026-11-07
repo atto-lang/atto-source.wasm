@@ -9,6 +9,11 @@ m=json.loads(Path("ci/native-aot/source-provenance.json").read_text())
 for path,sha in m["source_blobs"].items():
     actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
     if actual!=sha: raise SystemExit(f"mismatch: {path}: {actual} != {sha}")
+for path,meta in m.get("local_test_extensions",{}).items():
+    actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
+    if actual!=meta["current_sha"] or actual==meta["upstream_sha"]:
+        raise SystemExit(f"LOCAL_TEST_EXTENSION_MISMATCH: {path}")
+print(f"LOCAL_TEST_EXTENSION_BLOBS_VERIFIED={len(m.get('local_test_extensions',{}))}")
 print(f"UPSTREAM_GIT_BLOBS_VERIFIED={len(m['source_blobs'])}")
 print(f"UPSTREAM_SOURCE_HEAD={m['origin']['commit']}")
 PY
