@@ -27,6 +27,10 @@ parentPort.on('message', request => {
           admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
         throw Error('actor requires private fixed two-page memory');
       const module = new WebAssembly.Module(admitted.bytes);
+      // Signature-to-function-index validation assumes the zero-import
+      // profile; deny guest imports BEFORE reading the binary ABI tables.
+      if (WebAssembly.Module.imports(module).length)
+        throw Error('guest imports denied');
       const exported = WebAssembly.Module.exports(module);
       const checkedRecursionV1 = exported.some(e =>
         e.name === CHECKED_STATUS_NAME && e.kind === 'function');
@@ -40,7 +44,6 @@ parentPort.on('message', request => {
           (checkedRecursionV1 && !exported.some(e =>
             e.name === CHECKED_STATUS_NAME && e.kind === 'function')))
         throw Error('invalid scalar actor export ABI');
-      if (WebAssembly.Module.imports(module).length) throw Error('guest imports denied');
       const instance = new WebAssembly.Instance(module, {});
       const e = instance.exports;
       if (e.oreslang_wasm_actor_init.length !== 0 ||
