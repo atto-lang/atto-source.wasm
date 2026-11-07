@@ -177,7 +177,7 @@ export class SupervisedPooledActor {
       return; // duplicate or late event cannot trigger a second restart
     if (!control || control.schemaVersion !== 1 ||
         control.kind !== "ACTOR_TERMINAL_CONTROL" ||
-        control.reason !== terminalCode ||
+        ![terminalCode, "WASM_UNREACHABLE_V1"].includes(control.reason) ||
         control.actorRetired !== true ||
         control.frameQuiescent !== true ||
         control.carrierRetained !== true ||
@@ -191,11 +191,12 @@ export class SupervisedPooledActor {
       return;
     }
 
-    const mayRestart = this.#restarts < this.#maxRestarts;
+    const typed = control.reason === terminalCode;
+    const mayRestart = typed && this.#restarts < this.#maxRestarts;
     const receipt = Object.freeze({
       schemaVersion: 1,
       kind: "SUPERVISOR_TERMINAL_CONTROL",
-      faultCode: terminalCode,
+      faultCode: control.reason,
       failedGeneration: generation,
       actorId: control.actorId,
       terminalTicket: control.terminalTicket,
@@ -222,9 +223,11 @@ export class SupervisedPooledActor {
       // retaining the exact failure for an explicit whenReady() caller.
       this.#replacement.catch(() => {});
     } else {
-      this.#phase = "restart-budget-exhausted";
+      this.#phase = typed ? "restart-budget-exhausted" : "unhandled-terminal";
       this.#replacement = null;
-      this.#rejectWaiters(Error("supervisor restart budget exhausted"));
+      this.#rejectWaiters(Error(typed
+        ? "supervisor restart budget exhausted"
+        : "unhandled guest actor terminal fault: WASM_UNREACHABLE_V1"));
     }
     if (this.#onControl) {
       queueMicrotask(() => {
