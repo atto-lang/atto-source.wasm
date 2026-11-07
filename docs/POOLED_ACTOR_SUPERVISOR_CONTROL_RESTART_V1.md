@@ -32,9 +32,9 @@ No supervisor observer exception or rejected async notification may block the Wo
 
 ## Tests and evidence levels
 
-`tests/supervised-pooled-actor-v1.test.mjs` contains **seven tests**: six real Node/Clang **synthetic-LLVM-to-Wasm** host/Worker tests and one real source compiler-backed guest test that is skipped in a host-only lane.
+`tests/supervised-pooled-actor-v1.test.mjs` contains **eight tests**: seven real Node/Clang **synthetic-LLVM-to-Wasm** host/Worker tests and one real source compiler-backed guest test that is skipped in a host-only lane.
 
-The six host tests exercise:
+The seven host tests exercise:
 
 1. Typed terminal actor A failure, single budgeted automatic restart from generation 1 to 2, old-generation send/STOP rejection, B survival on the **same Worker**, and second failure exhausting the restart budget.
 2. Nonquota `unreachable` actor death revoking the old generation with no restart.
@@ -43,7 +43,9 @@ The six host tests exercise:
 5. Wrong restart budgets, malformed onControl callback, mutated Wasm artifact and malformed pool callback admission failing before the carrier.
 6. Forged `STACK_BUDGET_EXHAUSTED_V1` fault receipt with nonzero live frames failing closed: no typed CONTROL, no restart, physically confirmed carrier retirement, then old generation revoked.
 
-The source-org workflow `.github/workflows/wasm-pooled-supervisor-control-v1.yml` runs Node 22 and Clang, requires six host passes plus exactly one **skipped** real-compiler test, and produces an exact HEAD/tree/run-attempt artifact clearly marked `node_clang_synthetic_wasm_host_executed=true`, `atto_compiler_backed_guest_executed=false`. A step-less GitHub workflow cannot produce this evidence.
+7. Manual STOP drains the full bounded 64-generation-waiter queue without restarting the actor or leaving unresolved promise leaks.
+
+The source-org workflow `.github/workflows/wasm-pooled-supervisor-control-v1.yml` runs Node 22 and Clang, requires seven host passes plus exactly one **skipped** real-compiler test, and produces an exact HEAD/tree/run-attempt artifact clearly marked `node_clang_synthetic_wasm_host_executed=true`, `atto_compiler_backed_guest_executed=false`. A step-less GitHub workflow cannot produce this evidence.
 
 The separate mandatory real-guest gate is:
 
