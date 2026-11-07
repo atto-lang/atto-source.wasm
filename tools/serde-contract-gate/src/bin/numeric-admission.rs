@@ -99,7 +99,7 @@ fn check_manifest(d: &Value) -> Result<(), String> {
         }
     }
     if capabilities["source_i64"] != "delegated_unverified"
-        || capabilities.values().any(|v| v == "verified_compiled")
+        || capabilities.values().any(|v| v.as_str() == Some("verified_compiled"))
     {
         return Err("Wasm scalar compiler delegation is not guest parity".into());
     }
@@ -140,8 +140,8 @@ mod tests {
             "reference_fixture_git_blob_sha":CASES_BLOB,
             "source_i64_fixture_git_blob_sha":SOURCE_BLOB,
             "source_i64_overflow_fixture_git_blob_sha":OVERFLOW_BLOB,
-            "capabilities":FEATURES.iter().map(|x| (*x, "unsupported_explicit")).collect::<serde_json::Map<String,Value>>(),
-            "evidence":FEATURES.iter().map(|x| (*x, Value::Object(serde_json::Map::new()))).collect::<serde_json::Map<String,Value>>()
+            "capabilities":FEATURES.iter().map(|x| (x.to_string(), Value::String("unsupported_explicit".to_owned()))).collect::<serde_json::Map<String,Value>>(),
+            "evidence":FEATURES.iter().map(|x| (x.to_string(), Value::Object(serde_json::Map::new()))).collect::<serde_json::Map<String,Value>>()
         })
     }
     #[test]
