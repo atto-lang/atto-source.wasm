@@ -59,8 +59,10 @@ jobs:
           set -euo pipefail
           test "$(git -C llvm-source rev-parse HEAD)" = "$ORESLANG_LLVM_SOURCE_SHA"
           test "$(git -C llvm-source rev-parse 'HEAD^{tree}')" = "26e85b258061b206e4a145825df6dfe11065a499"
+          test "$(git -C llvm-source hash-object tests/native_bool_types.py)" = "80056fbf9d67e3fb37a052652398c2dc3796540b"
           test -z "$(git -C llvm-source status --porcelain)"
           echo "ORESLANG_LLVM_SOURCE_TREE=26e85b258061b206e4a145825df6dfe11065a499" >> "$GITHUB_ENV"
+          echo "ORESLANG_LLVM_REFERENCE_BOOL_PATH=$PWD/llvm-source/tests/native_bool_types.py" >> "$GITHUB_ENV"
       - name: Install required build tools
         run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang lld llvm-dev python3
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

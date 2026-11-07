@@ -94,6 +94,8 @@ const CASES = Object.freeze([
   }
 ]);
 const fixtureRoot = fileURLToPath(new URL("./fixtures/boolean-v1/", import.meta.url));
+// Exact Git blob from LLVM b83f5402... / tree 26e85b25...
+const upstreamBoolReferenceGitBlob = "80056fbf9d67e3fb37a052652398c2dc3796540b";
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const sha256 = b => createHash("sha256").update(b).digest("hex");
 const gitBlob = b => createHash("sha1")
@@ -106,6 +108,40 @@ const git = args => {
   assert.equal(result.status,0,"git source identity failure: "+String(result.stderr).slice(0,300));
   return result.stdout.trim();
 };
+
+// The canonical LLVM test corpus stores these nine programs as simple,
+ // single-quoted Python literal pairs. Parse only this pinned byte format:
+ // never execute Python or interpret an alternative semantic implementation.
+function upstreamLiteralBody(reference,id) {
+  const marker = "('"+id+"', '";
+  const at = reference.indexOf(marker);
+  if (at < 0 || reference.indexOf(marker,at+marker.length) >= 0)
+    throw Error("LLVM boolean reference missing or repeated "+id);
+  const from = at + marker.length;
+  const until = reference.indexOf("')",from);
+  if (until < 0) throw Error("LLVM boolean reference unterminated "+id);
+  const body = reference.slice(from,until);
+  if (!body || body.includes("\\") || body.includes("'"))
+    throw Error("LLVM boolean reference requires an exact simple literal "+id);
+  return body;
+}
+
+async function assertPinnedLLVMBooleanReference(path) {
+  if (!path || !isAbsolute(path))
+    throw Error("absolute LLVM native_bool_types.py reference path required");
+  const {bytes} = await readBoundedRegularFile(path,65536,
+    "LLVM boolean reference is not a bounded regular file");
+  assert.equal(gitBlob(bytes),upstreamBoolReferenceGitBlob,
+    "LLVM boolean reference Git blob mismatch");
+  const reference = bytes.toString("utf8");
+  for (const item of CASES) {
+    if (["false-fallthrough","else-branch"].includes(item.id)) continue;
+    const sourceBytes = await fixture(item);
+    assert.equal(upstreamLiteralBody(reference,item.id),sourceBytes.toString("utf8"),
+      item.id+" differs from reviewed LLVM native boolean source");
+  }
+  return upstreamBoolReferenceGitBlob;
+}
 
 async function fixture(item) {
   assert.match(item.id, /^[a-z][a-z0-9-]{1,60}$/);
@@ -127,9 +163,13 @@ function compilerIdentity(env) {
     throw Error("boolean Wasm parity requires reviewed LLVM source tree");
   if (!/^[0-9a-f]{40}$/.test(env.ORESLANG_BOOL_WASM_EXPECTED_HEAD || ""))
     throw Error("boolean Wasm parity requires exact expected Wasm checkout HEAD");
+  if (!env.ORESLANG_LLVM_REFERENCE_BOOL_PATH ||
+      !isAbsolute(env.ORESLANG_LLVM_REFERENCE_BOOL_PATH))
+    throw Error("boolean Wasm parity requires absolute LLVM reference file path");
   return {compiler:env.ORESLANG_LLVM_COMPILER,digest:env.ORESLANG_LLVM_COMPILER_SHA256,
     sourceSha:env.ORESLANG_LLVM_SOURCE_SHA,sourceTree:env.ORESLANG_LLVM_SOURCE_TREE,
-    expectedWasmHead:env.ORESLANG_BOOL_WASM_EXPECTED_HEAD};
+    expectedWasmHead:env.ORESLANG_BOOL_WASM_EXPECTED_HEAD,
+    referencePath:env.ORESLANG_LLVM_REFERENCE_BOOL_PATH};
 }
 async function notPublished(output) {
   for (const suffix of ["", ".artifact.json", ".provenance.json", ".current.json", ".releases"])
@@ -169,6 +209,17 @@ test("required compiler admission fails closed on missing identities", () => {
   assert.throws(() => compilerIdentity(validUntilTree), /reviewed LLVM source tree/);
   assert.throws(() => compilerIdentity({...validUntilTree,
     ORESLANG_LLVM_SOURCE_TREE:"c".repeat(40)}), /expected Wasm checkout HEAD/);
+  assert.throws(() => compilerIdentity({...validUntilTree,
+    ORESLANG_LLVM_SOURCE_TREE:"c".repeat(40),
+    ORESLANG_BOOL_WASM_EXPECTED_HEAD:"d".repeat(40)}), /LLVM reference file path/);
+});
+
+test("upstream boolean source parser refuses missing, duplicate and rewritten cases", () => {
+  const valid="  (\'literal-not\', \'pub fnc main():int{return 42;}\'),";
+  assert.equal(upstreamLiteralBody(valid,"literal-not"),"pub fnc main():int{return 42;}");
+  assert.throws(() => upstreamLiteralBody(valid,"nested-call"),/missing or repeated/);
+  assert.throws(() => upstreamLiteralBody(valid+"\n"+valid,"literal-not"),/missing or repeated/);
+  assert.throws(() => upstreamLiteralBody("(\'literal-not\', \'unterminated","literal-not"),/unterminated/);
 });
 
 const demand = process.env.ORESLANG_BOOL_WASM_PARITY_REQUIRED ?? "0";
@@ -179,7 +230,8 @@ const ready = Boolean(process.env.ORESLANG_LLVM_COMPILER);
 test("real pinned LLVM-to-Wasm32 bool guest and type-rejection parity", {
   skip:!ready && !required,timeout:360000
 }, async () => {
-  const {compiler,digest,sourceSha,sourceTree,expectedWasmHead} = compilerIdentity(process.env);
+  const {compiler,digest,sourceSha,sourceTree,expectedWasmHead,referencePath} = compilerIdentity(process.env);
+  const upstreamReferenceBlob = await assertPinnedLLVMBooleanReference(referencePath);
   assert.equal(git(["rev-parse","HEAD"]),expectedWasmHead,"Wasm checkout head drift");
   const wasmTree = git(["rev-parse","HEAD^{tree}"]);
   assert.match(wasmTree,/^[0-9a-f]{40}$/);
@@ -263,7 +315,7 @@ test("real pinned LLVM-to-Wasm32 bool guest and type-rejection parity", {
         head:expectedWasmHead,tree:wasmTree},
       llvm:{repository:"ores-truffle-oreslang/oreslang-source.llvm",
         sourceHeadMetadata:sourceSha,sourceTreeMetadata:sourceTree,
-        compilerSha256:digest},
+        compilerSha256:digest,referenceTestGitBlob:upstreamReferenceBlob},
       executedGuests:executed,nativeFrontendRejections:rejected,cases:caseEvidence,
       javaDifferential:"NOT_EXECUTED",fiveBackendCertification:"NOT_CERTIFIED",
       caveat:"LLVM source identity metadata requires external authenticated checkout evidence; Node Worker is not a security sandbox or native AOT."};
