@@ -49,7 +49,7 @@ jobs:
           node --version
           clang --version | head -n 1
 
-      - name: Execute six host/Worker integration tests with REAL synthetic Wasm
+      - name: Execute seven host/Worker integration tests with REAL synthetic Wasm
         shell: bash
         env:
           ATTO_REQUIRE_REAL_SUPERVISOR_GUEST: '0'
@@ -62,8 +62,8 @@ jobs:
           node --test --test-reporter=tap \
             tests/supervised-pooled-actor-v1.test.mjs \
             2>&1 | tee "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
-          grep -Fx '# tests 7' "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
-          grep -Fx '# pass 6' "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
+          grep -Fx '# tests 8' "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
+          grep -Fx '# pass 7' "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
           grep -Fx '# skipped 1' "$RUNNER_TEMP/atto-wasm-supervisor-host.log"
 
       - name: Publish honest exact-head synthetic-Wasm-only receipt
@@ -76,7 +76,7 @@ jobs:
           import json, os, pathlib, subprocess
           root = pathlib.Path(os.environ["RUNNER_TEMP"])
           log = (root / "atto-wasm-supervisor-host.log").read_text()
-          required = ("# tests 7", "# pass 6", "# skipped 1")
+          required = ("# tests 8", "# pass 7", "# skipped 1")
           if not all(log.count(s) == 1 for s in required):
               raise SystemExit("host synthetic-Wasm suite inventory did not execute")
           head = subprocess.check_output(("git","rev-parse","HEAD"),text=True).strip()
@@ -89,7 +89,7 @@ jobs:
               "run_id":int(os.environ["GITHUB_RUN_ID"]),
               "run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
               "node_clang_synthetic_wasm_host_executed":True,
-              "host_tests_passed":6, "host_tests_skipped":1,
+              "host_tests_passed":7, "host_tests_skipped":1,
               "atto_compiler_backed_guest_executed":False,
               "llvm_native_compiler_source_approved":False,
               "real_source_supervisor_restart_proven":False,
