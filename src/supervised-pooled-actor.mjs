@@ -182,6 +182,47 @@ export class SupervisedPooledActor {
         !["active", "stopping", "stop-failed"].includes(this.#phase) ||
         this.#generation !== generation || !this.#raw)
       return; // duplicate/late CONTROL cannot trigger another restart
+    if (control && control.schemaVersion === 1 &&
+        control.kind === "ACTOR_CARRIER_TERMINAL_CONTROL") {
+      if (control.reason !== "CARRIER_RETIRED" ||
+          control.actorRetired !== true ||
+          control.carrierRetained !== false ||
+          control.physicalExitConfirmed !== true ||
+          !Number.isSafeInteger(control.actorId) || control.actorId <= 0) {
+        this.#phase = "invalid-control";
+        this.#raw = null;
+        this.#current = null;
+        this.#rejectWaiters(Error("invalid carrier retirement CONTROL"));
+        return;
+      }
+      const receipt = Object.freeze({
+        schemaVersion: 1,
+        kind: "SUPERVISOR_CARRIER_TERMINAL_CONTROL",
+        faultCode: "CARRIER_RETIRED",
+        failedGeneration: generation,
+        actorId: control.actorId,
+        physicalExitConfirmed: true,
+        carrierRetained: false,
+        restartAuthorized: false,
+        nextGeneration: null
+      });
+      this.#lastControl = receipt;
+      this.#raw = null;
+      this.#current = null;
+      this.#phase = "carrier-retired";
+      this.#replacement = null;
+      this.#rejectWaiters(Error("supervised actor carrier physically retired"));
+      if (this.#onControl) {
+        queueMicrotask(() => {
+          try {
+            const observed = this.#onControl(receipt);
+            if (observed && typeof observed.then === "function")
+              Promise.resolve(observed).catch(() => {});
+          } catch {}
+        });
+      }
+      return;
+    }
     if (!control || control.schemaVersion !== 1 ||
         control.kind !== "ACTOR_TERMINAL_CONTROL" ||
         ![terminalCode, "WASM_UNREACHABLE_V1"].includes(control.reason) ||
