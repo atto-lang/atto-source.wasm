@@ -439,3 +439,158 @@ test("manual STOP rejects all 64 bounded pending generation waiters without rest
     await pool.close();
   }
 });
+
+
+test("concurrent close calls share one physical retirement barrier and exact settlement", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1});
+  let supervisor;
+  try {
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes)
+    });
+    const old = supervisor.current();
+    const first = supervisor.close();
+    const second = supervisor.close();
+    assert.strictEqual(first, second,
+      "a second close cannot return success before first STOP has settled");
+    await Promise.all([first, second]);
+    assert.equal(supervisor.status.phase, "closed");
+    assert.equal(pool.actorCount, 0);
+    assert.equal(pool.activeWorkerCount, 1);
+    await assert.rejects(old.send(1n), /STALE_ACTOR_GENERATION/);
+    await supervisor.close();
+  } finally {
+    await supervisor?.close();
+    await pool.close();
+  }
+});
+
+test("failed STOP keeps a shared rejected close barrier and never reports retired", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1,
+    timeoutMs: 5000, terminationTimeoutMs: 5000});
+  const oldPost = Worker.prototype.postMessage;
+  let supervisor;
+  try {
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes)
+    });
+    const handle = supervisor.current();
+    let sabotaged = false;
+    Worker.prototype.postMessage = function(message, ...rest) {
+      if (!sabotaged && message?.kind === "stop") {
+        sabotaged = true;
+        queueMicrotask(() => this.emit("message", {
+          kind: "fatal", id: message.id, incarnation: message.incarnation,
+          ticket: message.ticket, reason: "forced STOP carrier fault"
+        }));
+        return;
+      }
+      return oldPost.call(this, message, ...rest);
+    };
+    const first = supervisor.close();
+    const second = supervisor.close();
+    assert.strictEqual(first, second);
+    await assert.rejects(first, /forced STOP carrier fault/);
+    await assert.rejects(second, /forced STOP carrier fault/);
+    await assert.rejects(supervisor.close(), /forced STOP carrier fault/);
+    assert.equal(sabotaged, true);
+    assert.equal(supervisor.status.phase, "close-failed");
+    assert.equal(supervisor.status.closed, true);
+    assert.equal(pool.actorCount, 0);
+    assert.equal(pool.activeWorkerCount, 0);
+    await assert.rejects(handle.send(1n), /STALE_ACTOR_GENERATION/);
+  } finally {
+    Worker.prototype.postMessage = oldPost;
+    await pool.close();
+  }
+});
+
+test("invalid internal CONTROL must retain raw actor until an acknowledged STOP", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1});
+  let observer;
+  let stopCalls = 0;
+  let supervisor;
+  const original = pool.spawn;
+  try {
+    // Model-only hostile internal host callback; no guest or real carrier is
+    // involved in this test. It verifies the explicit cleanup hold.
+    pool.spawn = async (_bytes, {onTerminalControl}) => {
+      observer = onTerminalControl;
+      return {
+        send: async value => value,
+        stop: async () => {++stopCalls;}
+      };
+    };
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes)
+    });
+    const handle = supervisor.current();
+    observer({
+      schemaVersion: 1, kind: "ACTOR_TERMINAL_CONTROL",
+      reason: "STACK_BUDGET_EXHAUSTED_V1",
+      actorRetired: false, frameQuiescent: false
+    });
+    assert.equal(supervisor.status.phase, "invalid-control");
+    assert.equal(supervisor.status.restarts, 0);
+    await assert.rejects(handle.send(1n), /STALE_ACTOR_GENERATION/);
+    await supervisor.close();
+    assert.equal(stopCalls, 1,
+      "invalid CONTROL cannot discard raw resource before confirmed STOP");
+    assert.equal(supervisor.status.phase, "closed");
+  } finally {
+    pool.spawn = original;
+    await supervisor?.close();
+    await pool.close();
+  }
+});
+
+test("abortable generation waiters free bounded slots and reject canceled tickets", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1});
+  let supervisor;
+  try {
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes)
+    });
+    const generation = supervisor.current().generation;
+    const controllers = Array.from({length: 64}, () => new AbortController());
+    const waiters = controllers.map(({signal}) =>
+      supervisor.waitForGeneration(generation, {signal}));
+    const settled = Promise.allSettled(waiters);
+    await assert.rejects(supervisor.waitForGeneration(generation),
+      /waiter quota exceeded/);
+    controllers.forEach(c => c.abort());
+    const canceled = await settled;
+    assert.equal(canceled.length, 64);
+    for (const outcome of canceled) {
+      assert.equal(outcome.status, "rejected");
+      assert.match(String(outcome.reason), /generation waiter canceled/);
+    }
+    const next = supervisor.waitForGeneration(generation);
+    await supervisor.current().stop();
+    await assert.rejects(next, /supervisor explicitly stopped/);
+    const already = new AbortController();
+    already.abort();
+    await assert.rejects(supervisor.waitForGeneration(generation, {
+      signal: already.signal
+    }), /generation waiter canceled|cannot publish another generation/);
+    await assert.rejects(supervisor.waitForGeneration(generation, {
+      signal: {}
+    }), /host AbortSignal required/);
+    assert.equal(pool.actorCount, 0);
+  } finally {
+    await supervisor?.close();
+    await pool.close();
+  }
+});
