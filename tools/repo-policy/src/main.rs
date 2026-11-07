@@ -322,7 +322,10 @@ mod tests {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_nanos();
-            let path = env::temp_dir().join(format!("ores-js-manifest-{}-{stamp}-{n}", std::process::id()));
+            // macOS may expose /var or /tmp through a symlink; use its physical
+            // location for test fixtures without weakening production no-follow checks.
+            let temp_root = fs::canonicalize(env::temp_dir()).unwrap();
+            let path = temp_root.join(format!("ores-js-manifest-{}-{stamp}-{n}", std::process::id()));
             fs::create_dir(&path).unwrap();
             Self(path)
         }
@@ -543,6 +546,55 @@ mod tests {
         let external = temp.0.join("external.json");
         fs::write(&external, valid("oreslang-source.java")).unwrap();
         symlink(&external, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_denies_parent_traversal_even_if_it_would_resolve_to_valid_repo() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        fs::create_dir(temp.0.join("intermediate")).unwrap();
+        let noncanonical = temp.0.join("intermediate")
+            .join("..").join("oreslang-source.java");
+        assert!(verify_repository(&noncanonical).is_err());
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_denies_directory_at_manifest_leaf() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_enforces_executable_size_boundary() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let manifest_path = root.join(".oreslang/integration.json");
+        let mut bytes = valid("oreslang-source.java");
+        assert!(bytes.len() < MAX_BYTES);
+
+        // Trailing JSON whitespace is valid and must be admitted at 4096 bytes.
+        bytes.resize(MAX_BYTES, b' ');
+        fs::write(&manifest_path, &bytes).unwrap();
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+
+        // One additional byte must be rejected before any JSON interpretation.
+        bytes.push(b' ');
+        fs::write(&manifest_path, &bytes).unwrap();
+        assert!(verify_repository(&root).is_err());
+
+        // Empty regular files must not be accepted merely because fstat passes.
+        fs::write(&manifest_path, &[]).unwrap();
         assert!(verify_repository(&root).is_err());
     }
 
