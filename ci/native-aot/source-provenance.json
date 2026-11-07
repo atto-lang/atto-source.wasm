@@ -5,7 +5,7 @@
     "commit": "78b2a80203a3e0a977c4e75479b6c5c672904c42",
     "pull_request": 403
   },
-  "scope": "12 exact Git blobs from upstream Wasm PR #403 migrated into atto-source.wasm; limited native Wasmtime AOT guest tests, NOT compiler-generated AttoLang source or production sandbox",
+  "scope": "11 unchanged exact upstream blobs; 1 explicitly modified test blob with both upstream/current Git SHAs. Still narrow AOT native tenant smoke, no compiled AttoLang source or production security proof.",
   "source_blobs": {
     "aot-host/profile.rs": "3162e92ba188eb631c0cf816a79f8f1a77431040",
     "aot-host/io.rs": "2d50da4348c0993b46adc7ed10b0e601ecd3faa2",
@@ -13,11 +13,17 @@
     "aot-host/precompile/Cargo.toml": "e78d158dbaa16ab7c49ad283892fc3efa993f0c5",
     "aot-host/precompile/src/main.rs": "56237da2a028a4e4167ae04834c733064aacd677",
     "aot-host/precompile/src/publish.rs": "da6f62bf44a4d01b3ec212164d3c5edfe32e5d72",
-    "aot-host/precompile/src/wasm_admission.rs": "22f4721a90e2be33ebac935efd7dec9e180253eb",
     "aot-host/run/Cargo.lock": "fcddd613671074d026c8380f03356c05bc44258b",
     "aot-host/run/Cargo.toml": "a6645a1c204c362639ac65c81c55bdbe5e500f55",
     "aot-host/run/build.rs": "c42898a5a161e9c81a5c5f3dfd0b1dd310b6dfdf",
     "aot-host/run/src/main.rs": "537fd84731761c5588b0c12dea9229b52262618d",
     "aot-host/run/src/tenant_isolation.rs": "ed97df4802c576e9a8cd5aa609f6b4a6a8d2706f"
+  },
+  "local_test_extensions": {
+    "aot-host/precompile/src/wasm_admission.rs": {
+      "upstream_sha": "22f4721a90e2be33ebac935efd7dec9e180253eb",
+      "current_sha": "d29c5506caced4765121c31cdfa432676bf2bf4d",
+      "purpose": "extra Rust test rejecting actor host imports in scalar Wasmtime profile"
+    }
   }
 }
