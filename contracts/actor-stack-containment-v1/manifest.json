@@ -1,0 +1,103 @@
+{
+  "schema": "attolang.wasm.actor_stack_containment_v1",
+  "classification": "PROPOSED_NOT_EXECUTED",
+  "source_path": "contracts/actor-stack-containment-v1/recursive-sibling.atto",
+  "source_git_blob": "3461e6f3d42b639d0df5823781132bbb075ba2bc",
+  "runtime": "pooled_wasm_actors",
+  "workers": 1,
+  "actors": 2,
+  "proposed_actor_stack_limit_frames": 64,
+  "fault_code": "STACK_BUDGET_EXHAUSTED",
+  "fault_is_not_ordinary_i64_return": true,
+  "no_unchecked_wasm_engine_recursion": true,
+  "no_shared_guest_memory": true,
+  "authoritative_supervisor_control_required": true,
+  "evidence": {
+    "wasm_compiler_backed": null,
+    "llvm_native_compiler_backed": null,
+    "java_compiler_backed": null,
+    "wasmtime_aot": null,
+    "hosted_ci": null
+  },
+  "scenarios": [
+    {
+      "id": "A-OVERFLOW",
+      "actor": "A",
+      "action": "send_depth",
+      "input": 65,
+      "expected": "ACTOR_TERMINAL_STACK_BUDGET_EXHAUSTED",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A-CANCEL-QUEUED",
+      "actor": "A",
+      "action": "cancel_queued_messages_after_fault",
+      "expected": "REJECTED",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "B-PROGRESS",
+      "actor": "B",
+      "action": "send_depth",
+      "input": 2,
+      "expected_i64": "2",
+      "same_worker_as_A": true,
+      "expected": "SUCCESS",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "SUPERVISOR-CONTROL",
+      "actor": "supervisor",
+      "action": "observe_actor_A_fault",
+      "expected": "GENERATION_FENCED_TERMINAL_CONTROL",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A-RESTART",
+      "actor": "A",
+      "action": "restart",
+      "expected": "NEW_GENERATION_PRIVATE_HEAP_AND_FRAME_STORAGE",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A-STALE-MESSAGE",
+      "actor": "A-previous",
+      "action": "send_depth",
+      "input": 1,
+      "expected": "REJECTED_STALE_GENERATION",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A-STALE-RESUME",
+      "actor": "A-previous",
+      "action": "resume_ticket",
+      "expected": "REJECTED_STALE_TICKET",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "B-PRESERVED",
+      "actor": "B",
+      "action": "send_depth",
+      "input": 3,
+      "expected_i64": "3",
+      "expected": "SUCCESS",
+      "status": "NOT_EXECUTED"
+    },
+    {
+      "id": "A-FRESH",
+      "actor": "A-new",
+      "action": "send_depth",
+      "input": 1,
+      "expected_i64": "1",
+      "expected": "SUCCESS",
+      "status": "NOT_EXECUTED"
+    }
+  ],
+  "implementation_holds": [
+    "Compiler-owned PC/return/operand frames lowered to private actor memory",
+    "Quota before every nested call, no OS or Wasm engine stack exhaustion",
+    "Typed non-guest-catchable stack exhaustion terminal outcome",
+    "Actor-local cleanup and supervisor CONTROL, no sibling Worker termination",
+    "Exact-head independent Java, LLVM, Wasm compiler-backed receipts"
+  ]
+}
