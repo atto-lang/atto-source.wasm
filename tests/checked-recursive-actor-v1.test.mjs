@@ -131,8 +131,17 @@ test("real LLVM-compiled recursive .atto actor A fails at frame 65; B survives S
       assert.equal(await a.send(n),n,"64 nested frames must be admitted");
     }
     assert.equal(await b.send(5n),5n);
-    await assert.rejects(a.send(64n),/STACK_BUDGET_EXHAUSTED_V1/,
-      "65th guest frame must return a typed terminal actor fault");
+    const terminal = a.send(64n);
+    const queued = a.send(1n);
+    const queuedStop = a.stop();
+    const outcomes = await Promise.allSettled([terminal, queued, queuedStop]);
+    assert.equal(outcomes.length,3);
+    for(const outcome of outcomes){
+      assert.equal(outcome.status,"rejected",
+        "stack-faulting actor may not ACK queued DATA or STOP");
+      assert.match(String(outcome.reason),/STACK_BUDGET_EXHAUSTED_V1/,
+        "all pending operations get the typed terminal code");
+    }
     assert.equal(pool.isolatedGuestFaultCount,1);
     assert.equal(pool.actorCount,1);
     assert.equal(pool.activeWorkerCount,1,"same physical carrier survives actor A overflow");
