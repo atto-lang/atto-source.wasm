@@ -134,7 +134,7 @@ jobs:
               throw Error("Wasm source/tree provenance absent");
             await writeFile(process.env.RUNNER_TEMP+"/f64-combined-executed.json",
               JSON.stringify({...result,runId:process.env.GITHUB_RUN_ID,
-                runner:process.env.RUNNER_NAME},null,2)+"\\n",
+                runner:process.env.RUNNER_NAME},null,2)+"\n",
               {flag:"wx",mode:0o600});
           '
           test -s "$RUNNER_TEMP/f64-combined-executed.json"

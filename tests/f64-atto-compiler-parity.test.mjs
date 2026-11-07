@@ -67,7 +67,7 @@ test("pinned real AttoLang LLVM float source compiles and executes in a Wasm wor
         negativeNoPublication:true,execution:"EXECUTED",
         certification:"NOT_CERTIFIED"
       };
-      await writeFile(evidencePath,JSON.stringify(evidence,null,2)+"\\n",
+      await writeFile(evidencePath,JSON.stringify(evidence,null,2)+"\n",
         {flag:"wx",mode:0o600});
     }
   } finally {await rm(dir,{recursive:true,force:true});}
