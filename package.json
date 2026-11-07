@@ -13,6 +13,7 @@
     "test:real-compiler": "node scripts/verify-real-compiler.mjs",
     "test:real-aot": "node scripts/verify-real-aot.mjs",
     "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
-    "test:real-pooled-actors": "node scripts/verify-real-source-pooled-actor.mjs"
+    "test:real-pooled-actors": "node scripts/verify-real-source-pooled-actor.mjs",
+    "test:atto-pooled-frames": "node scripts/verify-atto-pooled-actor-frame-m2.mjs"
   }
 }
