@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {readFile, writeFile, mkdtemp, lstat, rm} from "node:fs/promises";
+import {readFile, writeFile, mkdtemp, lstat, readdir, rm} from "node:fs/promises";
 import {spawnSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join, isAbsolute} from "node:path";
@@ -151,6 +151,13 @@ test("native compiler emits bounded guest scalar frames and real pooled .atto ac
     assert.equal(denied.stdout, "", "rejected recursive actor emitted executable LLVM IR");
     assert.match(denied.stderr || "", /oreslang-llvmc:/,
       "negative must be compiler-owned diagnostic");
+    const previousFiles = (await readdir(scratch)).sort();
+    await assert.rejects(compileSourceActorToWasm({
+      compiler, source: recursivePath, expectedCompilerSha256: compilerSha256
+    }), /actor compilation command failed/,
+    "the native bridge must reject unsupported recursion before publishing Wasm");
+    assert.deepEqual((await readdir(scratch)).sort(), previousFiles,
+      "rejected .atto recursion must not publish an artifact into caller workspace");
     for (const artifact of ["recursive-actor.wasm", "recursive-actor.ll"]) {
       await assert.rejects(lstat(join(scratch, artifact)), {code: "ENOENT"});
     }
