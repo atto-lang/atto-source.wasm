@@ -182,7 +182,11 @@ fn verify(root: &Path) -> Result<(), String> {
     }
     pinned_blob(root, NUMERIC_CASES, CASES_BLOB)?;
     pinned_blob(root, "contracts/v1/numeric-parity/source-i64-cases.json", SOURCE_BLOB)?;
-    pinned_blob(root, "contracts/v1/numeric-parity/source-i64-overflow-cases.json", OVERFLOW_BLOB)?;
+    pinned_blob(
+        root,
+        "contracts/v1/numeric-parity/source-i64-overflow-cases.json",
+        OVERFLOW_BLOB,
+    )?;
     let manifest = bounded_json(root, MANIFEST)?;
     check_manifest(&manifest)
 }
@@ -207,8 +211,12 @@ mod tests {
             "reference_fixture_git_blob_sha":CASES_BLOB,
             "source_i64_fixture_git_blob_sha":SOURCE_BLOB,
             "source_i64_overflow_fixture_git_blob_sha":OVERFLOW_BLOB,
-            "capabilities":FEATURES.iter().map(|x| (x.to_string(), Value::String("unsupported_explicit".to_owned()))).collect::<serde_json::Map<String,Value>>(),
-            "evidence":FEATURES.iter().map(|x| (x.to_string(), Value::Object(serde_json::Map::new()))).collect::<serde_json::Map<String,Value>>()
+            "capabilities": FEATURES.iter()
+                .map(|x| (x.to_string(), Value::String("unsupported_explicit".to_owned())))
+                .collect::<serde_json::Map<String, Value>>(),
+            "evidence": FEATURES.iter()
+                .map(|x| (x.to_string(), Value::Object(serde_json::Map::new())))
+                .collect::<serde_json::Map<String, Value>>()
         })
     }
     #[test]
