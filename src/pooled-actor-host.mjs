@@ -181,7 +181,11 @@ export class PooledWasmActors {
         queueMicrotask(() => {
           // No supervisor callback may change fault attribution, resurrect
           // the retired actor, or block the healthy carrier's message pump.
-          try {actor.onTerminalControl(control);} catch {}
+          try {
+            const observed = actor.onTerminalControl(control);
+            if (observed && typeof observed.then === 'function')
+              Promise.resolve(observed).catch(() => {});
+          } catch {}
         });
       }
       // All other actors on the healthy Worker retain their own instances,
