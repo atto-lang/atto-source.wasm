@@ -34,7 +34,7 @@ test("Wasm compiler argv is checked by the actually executed pinned tool",async(
    "test \"$3\" = '--tree-shake-root=main'",
    "test \"$4\" = '--target=wasm32'",
    "case \"$5\" in *.atto) ;; *) exit 88 ;; esac",
-   "printf 'target triple = \"wasm32-unknown-unknown\"\\\\ndefine i64 @main() { ret i64 42 }\\\\n'",
+   "printf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'",
   ].join("\n")+"\n";
   await writeFile(compiler,lines,{mode:0o700});
   await chmod(compiler,0o700);
