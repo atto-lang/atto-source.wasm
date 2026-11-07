@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {lstat, readFile} from 'node:fs/promises';
+import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 import {fileURLToPath} from 'node:url';
 import {assessBooleanWasmEvidence, BOOLEAN_CASES, BOOLEAN_SOURCE_SHA256}
   from '../scripts/verify-boolean-wasm-evidence.mjs';
@@ -96,9 +96,9 @@ test('11 pinned source SHA-256 values independently match real .atto fixture byt
     new Set(BOOLEAN_CASES.map(([id])=>id)));
   for(const [id,, ,blob] of BOOLEAN_CASES){
     const path=fileURLToPath(new URL('./fixtures/boolean-v1/'+id+'.atto',import.meta.url));
-    const st=await lstat(path);
-    assert.ok(st.isFile()&&!st.isSymbolicLink()&&st.size>0&&st.size<=8192,id+' unsafe fixture');
-    const bytes=await readFile(path);
+    // Bounded O_NOFOLLOW snapshot avoids a stat->read path replacement.
+    const {bytes}=await readBoundedRegularFile(path,8192,id+' unsafe fixture');
+    assert.ok(bytes.length>0,id+' empty fixture');
     const sha256=createHash('sha256').update(bytes).digest('hex');
     const gitBlob=createHash('sha1').update(Buffer.from('blob '+bytes.length+String.fromCharCode(0),'ascii'))
       .update(bytes).digest('hex');
