@@ -79,6 +79,19 @@ export class PooledWasmActors {
   get isolatedGuestFaultCount() {return this.#isolatedGuestFaults;}
   get typedTerminalControlCount() {return this.#typedTerminalControls;}
 
+  #notifySupervisor(actor, control) {
+    if (!actor.onTerminalControl) return;
+    queueMicrotask(() => {
+      // Observer code is host-local and untrusted as runtime evidence. It
+      // never changes physical fault attribution or blocks the carrier.
+      try {
+        const observed = actor.onTerminalControl(control);
+        if (observed && typeof observed.then === 'function')
+          Promise.resolve(observed).catch(() => {});
+      } catch {}
+    });
+  }
+
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
       return Promise.reject(Error('actor pool retired'));
@@ -177,17 +190,7 @@ export class PooledWasmActors {
       });
       if (message.code === 'STACK_BUDGET_EXHAUSTED_V1')
         ++this.#typedTerminalControls;
-      if (actor.onTerminalControl) {
-        queueMicrotask(() => {
-          // No supervisor callback may change fault attribution, resurrect
-          // the retired actor, or block the healthy carrier's message pump.
-          try {
-            const observed = actor.onTerminalControl(control);
-            if (observed && typeof observed.then === 'function')
-              Promise.resolve(observed).catch(() => {});
-          } catch {}
-        });
-      }
+      this.#notifySupervisor(actor, control);
       // All other actors on the healthy Worker retain their own instances,
       // memories and queues. In-flight messages for the dead actor are denied.
       this.#pump(carrier);
@@ -235,6 +238,18 @@ export class PooledWasmActors {
       actor.queue.length = 0;
       actor.outstanding = 0;
       this.#actors.delete(actor.id);
+      // No carrier-failure CONTROL is minted from a failed terminate()
+      // Promise or forged EventEmitter event. This code runs only after the
+      // native Worker has independently reported a real physical exit.
+      this.#notifySupervisor(actor, Object.freeze({
+        schemaVersion: 1,
+        kind: 'ACTOR_CARRIER_TERMINAL_CONTROL',
+        reason: 'CARRIER_RETIRED',
+        actorId: actor.id,
+        actorRetired: true,
+        carrierRetained: false,
+        physicalExitConfirmed: true
+      }));
     }
     carrier.ready.length = 0;
     carrier.active = null;
