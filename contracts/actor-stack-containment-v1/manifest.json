@@ -2,7 +2,7 @@
   "schema": "attolang.wasm.actor_stack_containment_v1",
   "classification": "PROPOSED_NOT_EXECUTED",
   "source_path": "contracts/actor-stack-containment-v1/recursive-sibling.atto",
-  "source_git_blob": "3461e6f3d42b639d0df5823781132bbb075ba2bc",
+  "source_git_blob": "947781cddf09d8e3e08c51cff2b7d8960e2d4750",
   "runtime": "pooled_wasm_actors",
   "workers": 1,
   "actors": 2,
@@ -24,9 +24,10 @@
       "id": "A-OVERFLOW",
       "actor": "A",
       "action": "send_depth",
-      "input": 65,
+      "input": 64,
       "expected": "ACTOR_TERMINAL_STACK_BUDGET_EXHAUSTED",
-      "status": "NOT_EXECUTED"
+      "status": "NOT_EXECUTED",
+      "first_rejected_frame": 65
     },
     {
       "id": "A-CANCEL-QUEUED",
@@ -99,5 +100,11 @@
     "Typed non-guest-catchable stack exhaustion terminal outcome",
     "Actor-local cleanup and supervisor CONTROL, no sibling Worker termination",
     "Exact-head independent Java, LLVM, Wasm compiler-backed receipts"
-  ]
+  ],
+  "candidate_implementation": {
+    "llvm_compiler_pr": "https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1546",
+    "kind": "opt-in-iterative-64-frame-source-subset",
+    "real_guest_execution": "NOT_EXECUTED",
+    "general_recursion": "UNSUPPORTED"
+  }
 }
