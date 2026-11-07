@@ -46,7 +46,7 @@ if (!executable || !executable.startsWith('/')) {
     return m ? Number(m[1]) : -1;
   };
   const required = [
-    'real .ores actor compiles through LLVM wasm32 and runs 1000 turns on two Workers',
+    'real .atto actor compiles through LLVM wasm32 and runs 1000 turns on two Workers',
     'actual LLVM frontend rejects source spawn and send with no output IR',
     'no executable proof is claimed without a real source compiler'
   ];
