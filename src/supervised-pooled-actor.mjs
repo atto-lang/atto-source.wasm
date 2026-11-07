@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto";
 import {PooledWasmActors} from "./pooled-actor-host.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {HostContinuationTicketFenceV0} from "./host-continuation-ticket-fence-v0.mjs";
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
 const terminalCode = "STACK_BUDGET_EXHAUSTED_V1";
@@ -32,6 +33,7 @@ export class SupervisedPooledActor {
   #lateRaw = null;
   #replacement = null;
   #waiters = new Set();
+  #tickets = new HostContinuationTicketFenceV0();
   #lastControl = null;
   #closed = false;
   #closePromise = null;
@@ -70,6 +72,8 @@ export class SupervisedPooledActor {
       restarts: this.#restarts,
       maxRestarts: this.#maxRestarts,
       closed: this.#closed,
+      hostContinuationTicketsPending: this.#tickets.pendingCount,
+      guestContinuationResumeImplemented: false,
       lastControl: this.#lastControl
     });
   }
@@ -136,6 +140,37 @@ export class SupervisedPooledActor {
     this.#waiters.clear();
   }
 
+  // Pure host-side accounting API for future compiler-owned continuations.
+  // These tickets never carry guest frame storage or authorize guest resume.
+  issueHostContinuationTicket() {
+    if (this.#closed || this.#phase !== "active")
+      throw stale();
+    return this.#tickets.mint(this.#generation);
+  }
+
+  claimHostContinuationTicket(ticket) {
+    if (this.#closed || this.#phase !== "active")
+      throw stale();
+    return this.#tickets.claimHostOnly(ticket, this.#generation);
+  }
+
+  cancelHostContinuationTicket(ticket) {
+    if (this.#closed || this.#phase !== "active")
+      throw stale();
+    return this.#tickets.cancel(ticket, this.#generation);
+  }
+
+  resumeGuestContinuation(ticket) {
+    // Strict fail-closed admission: even a correctly minted, live host
+    // ticket cannot resume a guest until compiler lowering exists.
+    return this.#tickets.resumeGuest(ticket, this.#generation);
+  }
+
+  #revokeContinuationGeneration(generation) {
+    if (this.#tickets.generation === generation && !this.#tickets.retired)
+      this.#tickets.retire(generation);
+  }
+
   #authorize(generation, raw) {
     if (this.#closed || this.#phase !== "active" ||
         this.#generation !== generation || this.#raw !== raw)
@@ -154,6 +189,7 @@ export class SupervisedPooledActor {
         // Explicit manual STOP is not a terminal compiler stack failure and
         // must not consume or create a new supervisor restart generation.
         this.#phase = "stopping";
+        this.#revokeContinuationGeneration(generation);
         try {
           await raw.stop();
           if (!this.#closed && this.#generation === generation) {
@@ -193,6 +229,7 @@ export class SupervisedPooledActor {
     }
     if (this.#generation + 1 !== candidate)
       throw Error("supervisor generation advanced during INIT");
+    this.#tickets.activate(candidate);
     this.#generation = candidate;
     this.#raw = raw;
     this.#current = this.#makeHandle(candidate, raw);
@@ -219,6 +256,7 @@ export class SupervisedPooledActor {
           control.physicalExitConfirmed !== true ||
           !Number.isSafeInteger(control.actorId) || control.actorId <= 0) {
         this.#phase = "invalid-control";
+        this.#revokeContinuationGeneration(generation);
         // Invalid carrier CONTROL proves no physical retirement; keep the
         // backing actor reference pinned for a later explicit cleanup.
         this.#current = null;
@@ -237,6 +275,7 @@ export class SupervisedPooledActor {
         nextGeneration: null
       });
       this.#lastControl = receipt;
+      this.#revokeContinuationGeneration(generation);
       this.#raw = null;
       this.#current = null;
       this.#phase = "carrier-retired";
@@ -266,6 +305,7 @@ export class SupervisedPooledActor {
       // has genuinely completed (or a carrier retirement is independently
       // confirmed). Never leak an unretired actor by dropping #raw.
       this.#phase = "invalid-control";
+      this.#revokeContinuationGeneration(generation);
       this.#current = null;
       this.#rejectWaiters(Error("invalid authoritative terminal CONTROL"));
       return;
@@ -291,6 +331,7 @@ export class SupervisedPooledActor {
       nextGeneration: mayRestart ? generation + 1 : null
     });
     this.#lastControl = receipt;
+    this.#revokeContinuationGeneration(generation);
     // Revoke the old generation BEFORE scheduling any restart and before
     // notifying observers. The host pool has already retired the physical
     // old actor and rejected its outstanding DATA/STOP work.
@@ -333,6 +374,7 @@ export class SupervisedPooledActor {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
     this.#phase = "closing";
+    this.#revokeContinuationGeneration(this.#generation);
     this.#rejectWaiters(Error("supervised actor closed"));
     this.#closePromise = this.#closeOnce();
     this.#closePromise.catch(() => {}); // physical-hold errors remain awaitable
