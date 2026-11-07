@@ -76,6 +76,37 @@ test("LLVM IR prepublication rejects forged target/main before creating any Wasm
  }finally{await rm(dir,{recursive:true,force:true})}
 });
 
+test("Wasm bridge refuses commented, duplicated or metadata-only entrypoints",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-entry-forgery-"));
+ try{
+  const source=join(dir,"guest.atto");
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const invalid=[
+   ["commented",'; define i64 @main() { ret i64 42 }\n'],
+   ["metadata",'; source_filename = \"define i64 @main()\"\n'],
+   ["duplicate", 'define i64 @main() { ret i64 42 }\ndefine i64 @main() { ret i64 42 }\n'],
+   ["quoted", 'define i64 @\"main\"() { ret i64 42 }\n']
+  ];
+  for (const [label,fragment] of invalid) {
+   const compiler=join(dir,label+".sh");
+   const ir='target triple = "wasm32-unknown-unknown"\n'+fragment;
+   await writeFile(compiler,"#!/bin/sh\ncat <<'ATTO_IR'\n"+ir+"ATTO_IR\n",{mode:0o700});
+   await chmod(compiler,0o700);
+   const digest=hash(await readFile(compiler));
+   for(const publication of ["legacy","atomic"]) {
+    const output=join(dir,label+"-"+publication+".wasm");
+    await assert.rejects(()=>compileOresToWasm({
+      compiler,source,output,compilerSha256:digest,publication
+    }),/expected i64 @main\(\) export exactly once/,label+"/"+publication);
+    for(const suffix of ["",".provenance.json",".artifact.json",".current.json"]) {
+      await assert.rejects(readFile(output+suffix),{code:"ENOENT"},
+        "forged IR published "+label+publication+suffix);
+    }
+   }
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
  try{

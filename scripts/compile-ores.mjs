@@ -436,7 +436,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
  assertWasm32IrTarget(ir);
- if(!new RegExp("define\\s+i64\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected i64 @"+exportName+"() export");
+ // A substring search can be fooled by '; define i64 @main()' inside a
+ // comment or quoted metadata. Require exactly one real line-leading
+ // definition before Clang can consume the IR or publish an artifact.
+ const entryPattern=new RegExp("^\\s*define\\s+i64\\s+@"+exportName+
+   "\\s*\\(\\s*\\)", "gm");
+ const definitions=[...ir.matchAll(entryPattern)];
+ if(definitions.length!==1)
+  throw Error("compiler did not emit the expected i64 @"+exportName+"() export exactly once");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.

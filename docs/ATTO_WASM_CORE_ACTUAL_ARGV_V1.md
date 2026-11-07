@@ -22,3 +22,16 @@ Each must fail before writing a `.wasm`, provenance file or artifact
 manifest, even when the test stub has a correctly pinned SHA-256.
 This verifies the bridge's rejection boundary only; these are not real
 AttoLang compiler guest runs, and should never be reported as parity.
+
+## Exact single LLVM IR entry definition
+
+The Wasm bridge previously used an unanchored substring regex for
+`define i64 @main()`, so a commented or metadata string containing
+that text could pass the *pre-link* check. Validation now requires
+exactly one line-leading real `define i64 @main()` declaration.
+Four adversarial pinned-stub cases—comment-only, metadata-only,
+duplicate entry, and quoted symbol—are each exercised in both legacy
+and atomic publication modes (eight negative executions). Every
+failure must leave no Wasm binary, provenance, manifest, or release
+pointer. These test the bridge's fail-closed publication boundary, not
+native AttoLang LLVM compiler parity.
