@@ -1,0 +1,8 @@
+{
+  "name": "@atto-lang/browser-compiler-contract",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/browser-compiler-trust.test.mjs"
+  }
+}
