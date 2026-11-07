@@ -134,7 +134,9 @@ export class PooledWasmActors {
       // trap after worker-local guest/managed-frame cleanup. Arbitrary traps,
       // engine stack exhaustion, timeouts and cleanup failures stay fatal to
       // the entire carrier. A malformed actor-fault receipt is never success.
-      if (op.kind !== 'send' || message.code !== 'WASM_UNREACHABLE_V1' ||
+      const acceptedActorFault = message.code === 'WASM_UNREACHABLE_V1' ||
+        message.code === 'STACK_BUDGET_EXHAUSTED_V1';
+      if (op.kind !== 'send' || !acceptedActorFault ||
           message.result !== null ||
           !message.frame || message.frame.schemaVersion !== 1 ||
           message.frame.frameBytes !== 16 ||
@@ -148,7 +150,9 @@ export class PooledWasmActors {
       carrier.active = null;
       actor.phase = 'retired';
       this.#actors.delete(actor.id);
-      const error = Error('WASM actor isolated fault: WASM_UNREACHABLE_V1');
+      const error = message.code === 'STACK_BUDGET_EXHAUSTED_V1'
+        ? Error('WASM actor isolated fault: STACK_BUDGET_EXHAUSTED_V1')
+        : Error('WASM actor isolated fault: WASM_UNREACHABLE_V1');
       for (const pending of actor.pending) pending.reject(error);
       actor.pending.clear();
       actor.queue.length = 0;
