@@ -14,6 +14,8 @@
     "test:real-aot": "node scripts/verify-real-aot.mjs",
     "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
     "test:mut-share": "ORESLANG_MUT_SHARE_PARITY_REQUIRED=1 node --test tests/rt-mut-share-source-parity.test.mjs",
-    "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs"
+    "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs",
+    "test:managed-pooled-actors": "node --test tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-frame-suspension-turn-fence.test.mjs tests/actor-arena.test.mjs tests/pooled-actor-frame-turn.test.mjs tests/pooled-managed-frame-worker.test.mjs tests/pooled-actors.test.mjs tests/actor-scalar-abi.test.mjs",
+    "test:real-pooled-actors": "node scripts/verify-real-source-pooled-actor.mjs"
   }
 }
