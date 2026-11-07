@@ -99,3 +99,17 @@ test("native AOT smoke covers independent memory, trap reincarnation and pin rej
   assert.match(main, /#\[cfg\(not\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
   assert.match(main, /AOT execution is disabled unless/);
 });
+
+test("native AOT smoke uses real nonterminating Wasm guest and contains out-of-fuel tenant retirement", () => {
+  assert.match(main, /--tenant-fuel-starvation-smoke/);
+  assert.match(main, /let failure=registry\.invoke\(&offender,fuel\)/);
+  assert.match(main, /all fuel consumed/);
+  assert.match(main, /registry\.active_tenants\(\)!=1/);
+  assert.match(main, /healthy tenant lost state after neighbor fuel exhaustion/);
+  assert.match(main, /registry\.invoke\(&offender,fuel\)\.is_ok\(\)/);
+  assert.match(main, /wasmtime_tenant_fuel_starvation=ok/);
+  assert.match(smoke, /for \(;;\)/);
+  assert.match(smoke, /wasmtime_fuel_fixture_initial_turns=ok/);
+  assert.match(smoke, /--tenant-fuel-starvation-smoke/);
+  assert.match(smoke, /fuel smoke accepted an incorrect AOT digest/);
+});

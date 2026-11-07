@@ -319,4 +319,56 @@ if "$runner" --tenant-memory-growth-smoke "$tmp/tenant-memory-growth.cwasm" \
   exit 1
 fi
 
-echo 'AOT smoke: positive scalars, strict policy negatives, tenant store/memory-growth isolation and release-mode denial passed'
+# A real nonterminating Wasm guest, rather than a host-only ResourceLimiter
+# invocation. A per-Store fuel budget must interrupt the third turn while a
+# healthy tenant survives with independent guest mutable memory. The test
+# requires the Wasmtime out-of-fuel cause, not an arbitrary trap or timeout.
+cat > "$tmp/tenant-fuel-starvation.c" <<'C'
+typedef unsigned long long u64;
+static volatile u64 counter;
+long long main(void) {
+    u64 current = ++counter;
+    if (current == 3) {
+        volatile u64 busy = 0;
+        for (;;) {
+            ++busy;
+        }
+    }
+    return (long long)current;
+}
+C
+clang --target=wasm32 -x c -Wno-main-return-type -O0 -nostdlib \
+  -Wl,--no-entry -Wl,--export=main -Wl,-z,stack-size=16384 \
+  -Wl,--initial-memory=65536 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-fuel-starvation.wasm" "$tmp/tenant-fuel-starvation.c"
+node --input-type=module - "$tmp/tenant-fuel-starvation.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const wasm=readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(wasm), 'spinning fixture must be valid Wasm');
+const module=new WebAssembly.Module(wasm);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'no host imports');
+assert.deepEqual(WebAssembly.Module.exports(module).map(({name,kind})=>[name,kind]).sort(),
+  [['main','function'],['memory','memory']].sort());
+const guest=new WebAssembly.Instance(module);
+assert.deepEqual([guest.exports.main(),guest.exports.main()], [1n,2n],
+  'the first two turns must complete before the endless loop');
+console.log('wasmtime_fuel_fixture_initial_turns=ok');
+JS
+"$builder" "$tmp/tenant-fuel-starvation.wasm" \
+  "$(sha256sum "$tmp/tenant-fuel-starvation.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-fuel-starvation.cwasm" > "$tmp/tenant-fuel-starvation.meta"
+spin_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-fuel-starvation.meta")"
+[[ "$spin_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing fuel AOT digest" >&2; exit 1; }
+spin_result="$("$runner" --tenant-fuel-starvation-smoke "$tmp/tenant-fuel-starvation.cwasm" "$spin_pin" 1000000)"
+if [[ "$spin_result" != "wasmtime_tenant_fuel_starvation=ok" ]]; then
+  echo "Wasmtime fuel exhaustion isolation failed: $spin_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-fuel-starvation-smoke "$tmp/tenant-fuel-starvation.cwasm" \
+   "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "fuel smoke accepted an incorrect AOT digest" >&2
+  exit 1
+fi
+
+echo 'AOT smoke: positive scalars, strict policy negatives, tenant store/memory-growth/fuel isolation and release-mode denial passed'

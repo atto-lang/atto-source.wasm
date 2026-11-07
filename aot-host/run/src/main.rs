@@ -25,7 +25,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // This is a debug-only regression path, NEVER a tenant security-service API.
  let tenant_smoke=all_args.first().map(String::as_str)==Some("--tenant-isolation-smoke");
  let growth_smoke=all_args.first().map(String::as_str)==Some("--tenant-memory-growth-smoke");
- let args=if tenant_smoke || growth_smoke {&all_args[1..]} else {&all_args[..]};
+ let fuel_smoke=all_args.first().map(String::as_str)==Some("--tenant-fuel-starvation-smoke");
+ let args=if tenant_smoke || growth_smoke || fuel_smoke {&all_args[1..]} else {&all_args[..]};
  if args.len()!=2 && args.len()!=3{
   return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256 [FUEL]".into());
  }
@@ -56,6 +57,63 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // A guest-supplied pin or self-reported manifest is never sufficient.
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
+ if fuel_smoke {
+  // The third invocation is an intentionally nonterminating guest loop.
+  // Fuel must interrupt that guest, retire only its Store, and invalidate
+  // every handle for its old incarnation. This is a bounded-fuel check,
+  // NOT asynchronous host cancellation or a process-security proof.
+  let mut registry=tenant_isolation::TenantRegistry::new(engine,module,2)?;
+  let offender=registry.admit("spin-offender")?;
+  let healthy=registry.admit("spin-healthy")?;
+  if registry.invoke(&offender,fuel)?!=1 ||
+     registry.invoke(&offender,fuel)?!=2 ||
+     registry.invoke(&healthy,fuel)?!=1 {
+   return Err("fuel starvation fixture did not initialize independently".into());
+  }
+  let failure=registry.invoke(&offender,fuel);
+  let mut cause=match &failure {
+   Ok(_) => return Err("nonterminating Wasm tenant completed without exhausting fuel".into()),
+   Err(error) => Some(error.as_ref() as &(dyn std::error::Error + 'static)),
+  };
+  let mut out_of_fuel=false;
+  while let Some(error)=cause {
+   let message=error.to_string().to_ascii_lowercase();
+   if message.contains("all fuel consumed") || message.contains("out of fuel") {
+    out_of_fuel=true;
+    break;
+   }
+   cause=error.source();
+  }
+  if !out_of_fuel {
+   return Err("tenant loop failed without a Wasmtime out-of-fuel cause".into());
+  }
+  if registry.active_tenants()!=1 ||
+     registry.invoke(&offender,fuel).is_ok() ||
+     registry.begin_shutdown(&offender).is_ok() ||
+     registry.destroy(&offender).is_ok() {
+   return Err("fuel-exhausted tenant kept its compartment or authority".into());
+  }
+  if registry.invoke(&healthy,fuel)?!=2 {
+   return Err("healthy tenant lost state after neighbor fuel exhaustion".into());
+  }
+  let fresh=registry.admit("spin-offender")?;
+  // Both tenants intentionally spin on their third call. Healthy already
+  // returned its second value after the offender trapped, proving progress.
+  if registry.invoke(&fresh,fuel)?!=1 ||
+     registry.invoke(&fresh,fuel)?!=2 ||
+     registry.invoke(&offender,fuel).is_ok() {
+   return Err("tenant reincarnation reused stale handle or memory".into());
+  }
+  registry.begin_shutdown(&fresh)?;
+  registry.destroy(&fresh)?;
+  registry.begin_shutdown(&healthy)?;
+  registry.destroy(&healthy)?;
+  if registry.active_tenants()!=0 {
+   return Err("fuel starvation smoke leaked tenant Stores".into());
+  }
+  println!("wasmtime_tenant_fuel_starvation=ok");
+  return Ok(());
+ }
  if growth_smoke {
   // The guest declares memory 1..2 pages: memory.grow(1) is allowed
   // by the Wasm module. The STRICTER debug-only host Store limit of 1
