@@ -16,6 +16,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   canonical-core-guest:
+    # A workflow_dispatch on an unmerged PR branch cannot certify a release.
+    # Only the protected default branch may run a credentialed compiler build.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'ores-truffle-oreslang/oreslang-source.wasm'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -27,13 +30,6 @@ jobs:
           set -euo pipefail
           [[ "$ORESLANG_LLVM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "${{ github.event_name }}" = "workflow_dispatch"
-      - name: Require explicitly authorized same-org private compiler access
-        shell: bash
-        env:
-          ORESLANG_READ_TOKEN: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          test -n "$ORESLANG_READ_TOKEN" || { echo 'Missing authorized LLVM read token' >&2; exit 1; }
       - name: Checkout immutable Wasm workflow source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -48,6 +44,28 @@ jobs:
           git diff --quiet --exit-code
           printf 'WASM_SOURCE_HEAD=%s\nWASM_SOURCE_TREE=%s\n' "$EXPECTED_WASM_HEAD" "$(git rev-parse 'HEAD^{tree}')" > atto-core-real-guest-receipt.txt
           test "$(git hash-object contracts/atto-library-core-v1/core-numeric.atto)" = "395695e5b1a6c40d56db323943b34f1012b76c7c"
+      - name: Match independently approved immutable LLVM compiler head
+        shell: bash
+        run: |
+          set -euo pipefail
+          approval=".github/atto-core-approved-llvm-head.txt"
+          test -f "$approval"
+          approved="$(cat "$approval")"
+          [[ "$approved" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'No independently approved compiler head on protected main' >&2; exit 1
+          }
+          test "$approved" = "$ORESLANG_LLVM_SOURCE_SHA" || {
+            echo 'Compiler SHA does not match approved exact-head record' >&2; exit 1
+          }
+          git diff --quiet --exit-code
+          echo "APPROVED_LLVM_SOURCE_HEAD=$approved" >> atto-core-real-guest-receipt.txt
+      - name: Require explicitly authorized same-org private compiler access
+        shell: bash
+        env:
+          ORESLANG_READ_TOKEN: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$ORESLANG_READ_TOKEN" || { echo 'Missing authorized LLVM read token' >&2; exit 1; }
       - name: Checkout exact authorized LLVM compiler source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
