@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
+import {readFile} from "node:fs/promises";
 import {HostContinuationTicketFenceV0} from "../src/host-continuation-ticket-fence-v0.mjs";
 import {SupervisedPooledActor} from "../src/supervised-pooled-actor.mjs";
 import {PooledWasmActors} from "../src/pooled-actor-host.mjs";
@@ -238,4 +239,25 @@ test("closing supervisor fences all pending host continuation tickets, even befo
     f.restore();
     await f.pool.close();
   }
+});
+
+
+test("contract manifest and canonical suspended guest remain UNEXECUTED, never admitted", async () => {
+  const root = new URL("../contracts/actor-continuation-fence-v0/", import.meta.url);
+  const contract = JSON.parse(await readFile(new URL("manifest.json", root), "utf8"));
+  const source = await readFile(new URL("suspended-actor-negative.atto", root));
+  const gitBlob = createHash("sha1")
+    .update(Buffer.from("blob " + source.length + "\0", "ascii"))
+    .update(source).digest("hex");
+  assert.equal(gitBlob, "aebd40549e88b49c906fd3fa2b0569ec7800deec");
+  assert.match(source.toString("utf8"), /suspends fnc deferred/);
+  assert.equal(contract.classification, "HOST_ONLY_ADMISSION_AUTHORED_NOT_EXECUTED");
+  assert.equal(contract.guest_continuations_implemented, false);
+  assert.equal(contract.ticket.maximum_outstanding_per_supervisor, 64);
+  assert.equal(contract.ticket.claim_authorizes_guest_resume, false);
+  assert.equal(contract.scenarios.length, 9);
+  assert.equal(new Set(contract.scenarios.map(x => x.id)).size, 9);
+  assert.ok(contract.scenarios.every(x => x.status === "AUTHORED_HOST_TEST_NOT_EXECUTED"));
+  assert.ok(Object.values(contract.evidence).every(x => x === null),
+    "host inventory cannot be promoted to guest parity evidence");
 });
