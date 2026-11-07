@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 const PROTOCOL: &str = "oreslang-ecosystem-integration";
@@ -153,15 +154,52 @@ fn verify_repository(root: &Path) -> Result<String, String> {
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("repository root has no UTF-8 name"))?
         .to_string();
-    let manifest = root.join(".oreslang").join("integration.json");
-    let metadata = fs::symlink_metadata(&manifest).map_err(|_| invalid("manifest missing or symlinked"))?;
+    // A regular manifest reached through a symlinked .oreslang directory is
+    // still outside the declared repository. Check every authority-bearing
+    // path component rather than the final filename alone.
+    let parent = root.join(".oreslang");
+    let parent_metadata = fs::symlink_metadata(&parent)
+        .map_err(|_| invalid("manifest parent missing or symlinked"))?;
+    if parent_metadata.file_type().is_symlink() || !parent_metadata.is_dir() {
+        return Err(invalid("manifest parent missing or symlinked"));
+    }
+    let manifest = parent.join("integration.json");
+    let metadata = fs::symlink_metadata(&manifest)
+        .map_err(|_| invalid("manifest missing or symlinked"))?;
     if metadata.file_type().is_symlink() || !metadata.file_type().is_file() {
         return Err(invalid("manifest missing or symlinked"));
     }
-    if metadata.len() as usize > MAX_BYTES {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(invalid("manifest has unexpected hardlink aliases"));
+        }
+    }
+    if metadata.len() > MAX_BYTES as u64 {
         return Err(invalid("manifest exceeds size limit"));
     }
-    let raw = fs::read(&manifest).map_err(|e| format!("cannot read manifest: {e}"))?;
+    // The source may grow after metadata admission. Read at most MAX_BYTES+1
+    // from one opened descriptor; never use an unbounded fs::read here.
+    let file = fs::File::open(&manifest)
+        .map_err(|_| invalid("cannot open manifest"))?;
+    let opened = file.metadata().map_err(|_| invalid("cannot inspect opened manifest"))?;
+    if !opened.is_file() {
+        return Err(invalid("opened manifest is not regular"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino()
+            || opened.nlink() != 1
+        {
+            return Err(invalid("manifest identity changed during open"));
+        }
+    }
+    let mut raw = Vec::new();
+    file.take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|_| invalid("cannot read manifest"))?;
     verify_bytes(&raw, &expected_name)?;
     Ok(expected_name)
 }
@@ -354,6 +392,42 @@ mod tests {
             upstreams("oreslang-source.java").unwrap(),
         );
         assert!(verify_bytes(&bad_note, "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn cli_accepts_regular_manifest_with_bounded_read() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+                  valid("oreslang-source.java")).unwrap();
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_manifest_parent() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir(&root).unwrap();
+        let outside = temp.0.join("external");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("integration.json"), valid("oreslang-source.java")).unwrap();
+        symlink(&outside, root.join(".oreslang")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_hardlinked_manifest_authority() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let outside = temp.0.join("external.json");
+        fs::write(&outside, valid("oreslang-source.java")).unwrap();
+        fs::hard_link(&outside, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
     }
 
     #[cfg(unix)]
