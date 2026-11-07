@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "hpc-finance-guest-parity-v1",
+  "status": "authored-not-compiler-executed",
+  "origin": "ores-truffle-oreslang/oreslang-hpc-finance",
+  "origin_ref": "8c6905c44c06b7df34b326919064f37ee4d4af4d",
+  "risk_fixture_git_blob": "cec489c1f7603617797340dd1b4a71cc85acfebd",
+  "expected_risk_decisions": 180,
+  "expected_reason_distribution": [
+    2,
+    24,
+    12,
+    6,
+    60,
+    48,
+    16,
+    12
+  ],
+  "total_assertions": 182,
+  "programs": [
+    {
+      "id": "scalar_smoke",
+      "path": "tests/scalar_smoke.ores",
+      "git_blob": "29981b08f54f3f19ce5b559601724dd8e47baa9d",
+      "assertions": 4
+    },
+    {
+      "id": "scalar_overflow_atomic",
+      "path": "tests/scalar_overflow_atomic.ores",
+      "git_blob": "4d2f0d5f786c6deab923cd23c4bd11816cdd5ea6",
+      "assertions": 7
+    },
+    {
+      "id": "mean_extremes",
+      "path": "tests/mean_extremes.ores",
+      "git_blob": "f6752627af9b847c19a06bb1f59382a8c6c11f77",
+      "assertions": 5
+    },
+    {
+      "id": "batch_shape",
+      "path": "tests/batch_shape.ores",
+      "git_blob": "63f46f6fe12c752fa444db06d831869044a57255",
+      "assertions": 5
+    },
+    {
+      "id": "scalar_error_matrix",
+      "path": "tests/scalar_error_matrix.ores",
+      "git_blob": "3ee375587e28e44af7608a9d75781efbd1610f77",
+      "assertions": 12
+    },
+    {
+      "id": "risk_gate_scalar_23",
+      "path": "tests/risk_gate_scalar_23.ores",
+      "git_blob": "ac37afce06df50e2c613b3a2488350ac465d51b9",
+      "assertions": 23
+    },
+    {
+      "id": "risk_gate_cross_product",
+      "path": "tests/risk_gate_cross_product.ores",
+      "git_blob": "6b4dfdfec4749e7efb4a66c71d50d7ef407366af",
+      "assertions": 12
+    },
+    {
+      "id": "batch_shape_adversarial",
+      "path": "tests/batch_shape_adversarial.ores",
+      "git_blob": "901808f4eef08e454615e6f3c4b3f75c9f96d24c",
+      "assertions": 37
+    },
+    {
+      "id": "scalar_exact_values",
+      "path": "tests/scalar_exact_values.ores",
+      "git_blob": "a192142689ad1855285ef883f22f63474fbd7127",
+      "assertions": 24
+    },
+    {
+      "id": "scalar_failure_atomicity_matrix",
+      "path": "tests/scalar_failure_atomicity_matrix.ores",
+      "git_blob": "bc230426fc1f9352ba9eafb6c2e9b10c219616af",
+      "assertions": 19
+    },
+    {
+      "id": "risk_precedence_matrix",
+      "path": "tests/risk_precedence_matrix.ores",
+      "git_blob": "ab756101d759a1e6fbf7b41a1439ba445135140e",
+      "assertions": 34
+    }
+  ]
+}
