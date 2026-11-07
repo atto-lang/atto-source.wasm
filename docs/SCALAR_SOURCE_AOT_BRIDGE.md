@@ -1,6 +1,12 @@
 # AttoLang scalar source → Wasmtime native AOT bridge (experimental)
 
-This is a **developer-only**, closed-world compilation adapter. The backend
+This is a **developer-only**, closed-world compilation adapter.
+
+Provenance on this stacked branch: **11 unchanged upstream Rust/Cargo Git blobs**
+plus one `aot-host/precompile/src/wasm_admission.rs` test extension with both
+upstream and current Git blob SHAs recorded in
+`ci/native-aot/source-provenance.json`. The parent Wasm #1 branch retains
+its original 12 exact upstream blobs. The backend
 already has a validated strict Wasmtime AOT `main(): i64` ABI, but its
 precompiler refuses **every imported function**. The existing LLVM
 `--guest-abi=tenant-vm` actor interface imports `spawn/send/stop`; those
