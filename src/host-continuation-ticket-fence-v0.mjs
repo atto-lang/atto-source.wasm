@@ -112,10 +112,14 @@ export class HostContinuationTicketFenceV0 {
     return revoked;
   }
 
-  resumeGuest() {
-    // A compatible host ticket does NOT imply a valid compiler-generated
-    // suspension frame/ownership root/return-PC. Prevent any placeholder
-    // route from silently claiming guest continuation support.
+  resumeGuest(ticket, generation) {
+    // Check stale/replayed provenance before the unsupported capability gate.
+    // A valid host ticket does NOT imply any compiler-generated suspension
+    // frame/ownership root/return-PC, so this ALWAYS fails after admission.
+    const record = this.#record(ticket);
+    this.#requireCurrent(generation);
+    if (record.generation !== generation)
+      throw Error("STALE_ACTOR_GENERATION: host continuation ticket");
     throw Error("ATTO_GUEST_SUSPEND_RESUME_NOT_IMPLEMENTED");
   }
 }
