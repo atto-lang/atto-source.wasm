@@ -21,3 +21,16 @@ compiler binary digest, guest output and negative rejection tests.
 
 Source-only PR CI, failed runner admission, or a manual invocation on a
 feature branch is never proof of real Wasm guest parity.
+
+## Mandatory repository branch-protection gate
+
+The source repository's GitHub `GET /repos/.../branches/main` currently
+reports `protected=false`. The workflow now **queries branch metadata during
+the job before referencing private checkout credentials** and denies execution
+unless GitHub returns `protected=true` for this repository's `main`.
+Main is not made protected by modifying workflow YAML; an authorized GitHub
+administrator must configure and verify the actual required reviews/checks,
+including protection from unauthorized bypass. Even an affirmative
+`protected=true` is **necessary but not sufficient**: independent source
+SHA approval, read token authorization, exact-head credentials and executed
+step receipts remain separate mandatory gates.

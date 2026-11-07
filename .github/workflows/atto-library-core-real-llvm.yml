@@ -44,6 +44,27 @@ jobs:
           git diff --quiet --exit-code
           printf 'WASM_SOURCE_HEAD=%s\nWASM_SOURCE_TREE=%s\n' "$EXPECTED_WASM_HEAD" "$(git rev-parse 'HEAD^{tree}')" > atto-core-real-guest-receipt.txt
           test "$(git hash-object contracts/atto-library-core-v1/core-numeric.atto)" = "395695e5b1a6c40d56db323943b34f1012b76c7c"
+      - name: Reject unprotected default branch before private source authorization
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXACT_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$EXACT_REPO" = "ores-truffle-oreslang/oreslang-source.wasm"
+          test "${{ github.ref }}" = "refs/heads/main"
+          # GitHub's branch metadata must affirm configured protection.
+          # A main branch with no enforced rules allows unreviewed updates
+          # to a credentialed workflow and approval file; deny by default.
+          protected="$(curl --fail --silent --show-error --max-time 15 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$EXACT_REPO/branches/main" | jq -er '.protected')"
+          test "$protected" = "true" || {
+            echo 'Credentialed compiler job forbidden: main has no enforced protection' >&2
+            exit 1
+          }
       - name: Match independently approved immutable LLVM compiler head
         shell: bash
         run: |
