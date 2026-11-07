@@ -95,8 +95,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       // Visibility modifiers may precede the reserved actor-thread enum.
       let j = i + 1;
       // Reserved actor-thread enum identity cannot hide behind stacked modifiers.
-      while (j < tokens.length && j < i + 12 &&
-             ["pub","private","shared","untrusted","serial","abstract"].includes(tokens[j])) j++;
+      while (j < tokens.length && ["pub","private","shared","untrusted","serial","abstract"].includes(tokens[j])) j++;
       if (tokens[j] === "enum" && tokens[j+1] === "MaxActorThreads")
         throw Error("WASM built-in MaxActorThreads enum unsupported: no guest actor scheduler");
     }
@@ -106,7 +105,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // or string literals, and reject before any Wasm artifact is staged.
     if (tokens[i] === "define") {
       let j = i + 1;
-      while (j < tokens.length && j < i + 12 && supervisorModifiers.has(tokens[j])) j++;
+      while (j < tokens.length && supervisorModifiers.has(tokens[j])) j++;
       if (tokens[j] === "supervisor")
         throw Error("WASM source supervisor unsupported: no typed Failure or CONTROL lowering");
     }
@@ -118,7 +117,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // Actor declarations cannot enter a scalar-only guest through modifiers.
     if (tokens[i] === "define") {
       let j = i + 1;
-      while (j < tokens.length && j < i + 12 && supervisorModifiers.has(tokens[j])) j++;
+      while (j < tokens.length && supervisorModifiers.has(tokens[j])) j++;
       if (tokens[j] === "actor" || tokens[j] === "isoactor")
         throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     }

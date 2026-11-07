@@ -203,3 +203,23 @@ test('reserved MaxActorThreads enum cannot hide behind stacked modifiers',()=>{
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     'define pub shared enum UserColors as red end')));
 });
+
+test('long modifier prefix cannot bypass unsupported scalar actor/enum gates',()=>{
+  // Previous policy cut off at 11 modifiers. Repetition is malformed source,
+  // but the scalar preflight must still deny the unsupported declaration;
+  // never let a permissive LLVM guest bridge become the policy oracle.
+  for(const count of [12,13,32,128]){
+    const modifiers=Array(count).fill('pub').join(' ');
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(
+      'define '+modifiers+' enum MaxActorThreads as end')),
+      /built-in MaxActorThreads enum unsupported/,'enum '+count);
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(
+      'define '+modifiers+' actor Worker as end')),
+      /WASM source actor execution unsupported/,'actor '+count);
+    assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(
+      'define '+modifiers+' supervisor Root as end')),
+      /WASM source supervisor unsupported/,'supervisor '+count);
+  }
+  assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
+    'define '+Array(32).fill('pub').join(' ')+' enum UserColors as red end')));
+});
