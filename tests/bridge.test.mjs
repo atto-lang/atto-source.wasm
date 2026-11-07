@@ -5,6 +5,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {createHash} from "node:crypto";
 import {compileOresToWasm,wasmCoreCompilerArgs} from "../scripts/compile-ores.mjs";
+import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 const hash=b=>createHash("sha256").update(b).digest("hex");
 test("Wasm bridge explicitly requires Core-only compiler admission",()=>{
  const args=wasmCoreCompilerArgs("/tmp/atto-numeric.atto");
@@ -72,6 +73,33 @@ test("LLVM IR prepublication rejects forged target/main before creating any Wasm
    await assert.rejects(readFile(output),{code:"ENOENT"},label+" generated Wasm");
    await assert.rejects(readFile(output+".provenance.json"),{code:"ENOENT"},label+" published provenance");
    await assert.rejects(readFile(output+".artifact.json"),{code:"ENOENT"},label+" published manifest");
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test("valid single entry publishes and executes in legacy and atomic modes (stub compiler)",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-valid-entry-"));
+ try{
+  const compiler=join(dir,"verified-entry.sh");
+  const source=join(dir,"guest.atto");
+  const shell="#!/bin/sh\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
+  await writeFile(compiler,shell,{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const compilerSha256=hash(await readFile(compiler));
+  for (const publication of ["legacy","atomic"]) {
+   const output=join(dir,publication+".wasm");
+   const result=await compileOresToWasm({
+      compiler,source,output,publication,compilerSha256
+   });
+   const wasm=publication==="atomic"
+      ?(await readAtomicRelease(output)).wasm
+      :await readFile(output);
+   assert.equal(WebAssembly.validate(wasm),true);
+   assert.equal(new WebAssembly.Instance(new WebAssembly.Module(wasm)).exports.main(),42n);
+   assert.equal(result.importCount,0);
+   assert.equal(result.wasmSha256,hash(wasm));
+   assert.equal(result.compilerSha256,compilerSha256);
   }
  }finally{await rm(dir,{recursive:true,force:true})}
 });

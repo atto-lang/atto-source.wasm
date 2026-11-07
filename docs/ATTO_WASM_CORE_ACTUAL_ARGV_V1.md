@@ -35,3 +35,14 @@ and atomic publication modes (eight negative executions). Every
 failure must leave no Wasm binary, provenance, manifest, or release
 pointer. These test the bridge's fail-closed publication boundary, not
 native AttoLang LLVM compiler parity.
+
+## Valid-entry positive controls in both publication modes
+
+Two corresponding positive controls use a pinned, explicitly labelled
+stub compiler to produce one genuine `define i64 @main()` header.
+The real bridge must link, validate and execute the returned Wasm `42`
+guest in both **legacy** and **atomic** publication modes. Both must
+report zero host imports, hash the same published Wasm bytes and retain
+the exact pinned compiler SHA. The stub's output is not evidence that
+AttoLang source was compiled by a real LLVM compiler; the separately
+authorized real LLVM guest lane is still required.
