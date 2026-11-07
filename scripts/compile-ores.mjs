@@ -358,6 +358,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    throw Error("output or artifact metadata path overlaps a compiler/source input");
  }
  if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(exportName))throw Error("unsupported export name");
+ // The compiler invocation is hard-pinned to --tree-shake-root=main and
+ // the canonical Core guest ABI requires an i64 main entry. Accepting
+ // arbitrary named exports would claim verified rooting for a different
+ // symbol even though no such compilation contract was executed.
+ if(exportName!=="main")throw Error("Core wasm32 bridge supports only the verified main export");
  // Preflight before readFile() to avoid allocating attacker-sized compiler
  // binaries or source buffers, then check the lengths again after reading.
  const [sourceStat,compilerStat]=await Promise.all([stat(sourcePath),stat(compilerPath)]);

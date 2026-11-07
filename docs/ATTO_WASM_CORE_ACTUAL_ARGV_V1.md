@@ -46,3 +46,16 @@ report zero host imports, hash the same published Wasm bytes and retain
 the exact pinned compiler SHA. The stub's output is not evidence that
 AttoLang source was compiled by a real LLVM compiler; the separately
 authorized real LLVM guest lane is still required.
+
+## Canonical Core entry-root lock
+
+The Wasm bridge always invokes the native compiler with
+`--tree-shake-root=main`. It now denies any requested
+`exportName` other than `main`, rather than accepting an
+unverified alternate entry point and claiming main-root
+compilation as evidence for a different exported symbol.
+Five input variants are tested with an invocation sentinel;
+all must reject before executing any compiler or writing a
+published Wasm binary. Additional entry roots require
+a separately specified, verified root/ABI/ownership contract.
+This remains stub-policy evidence, not real LLVM guest parity.

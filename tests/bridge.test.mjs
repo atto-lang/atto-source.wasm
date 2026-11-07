@@ -7,6 +7,28 @@ import {createHash} from "node:crypto";
 import {compileOresToWasm,wasmCoreCompilerArgs} from "../scripts/compile-ores.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 const hash=b=>createHash("sha256").update(b).digest("hex");
+test("Core-only compiler refuses alternate entry roots before executing any tool",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-export-roots-"));
+ try {
+  const compiler=join(dir,"compiler.sh");
+  const sentinel=join(dir,"invoked");
+  const source=join(dir,"main.atto");
+  const output=join(dir,"other.wasm");
+  await writeFile(compiler,"#!/bin/sh\ntouch "+JSON.stringify(sentinel)+"\nexit 0\n",{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main(): int { return 42; }\n");
+  const compilerSha256=hash(await readFile(compiler));
+  for(const exportName of ["other","Main","_start",null,42]) {
+   await assert.rejects(()=>compileOresToWasm({
+      compiler,source,output,compilerSha256,exportName
+    }),/verified main export|unsupported export name/,
+    "unapproved export root="+String(exportName));
+   await assert.rejects(readFile(sentinel),{code:"ENOENT"});
+   await assert.rejects(readFile(output),{code:"ENOENT"});
+  }
+ } finally { await rm(dir,{recursive:true,force:true}); }
+});
+
 test("Wasm bridge explicitly requires Core-only compiler admission",()=>{
  const args=wasmCoreCompilerArgs("/tmp/atto-numeric.atto");
  assert.deepEqual(args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
