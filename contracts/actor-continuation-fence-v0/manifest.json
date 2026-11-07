@@ -2,7 +2,7 @@
   "schema": "attolang.actor_continuation_ticket_fence_v0",
   "classification": "HOST_ONLY_ADMISSION_AUTHORED_NOT_EXECUTED",
   "guest_continuations_implemented": false,
-  "requires_compiler_owned_frame_pc": false,
+  "requires_compiler_owned_frame_pc": true,
   "canonical_guest_fixture": "contracts/actor-continuation-fence-v0/suspended-actor-negative.atto",
   "ticket": {
     "representation": "opaque frozen JS object identity, no enumerable fields",
@@ -97,5 +97,7 @@
     "Do not send JS functions or opaque host tickets across actor channels",
     "zero-step CI must never be marked executed",
     "Require independently verified exact LLVM compiler HEAD, tree and binary SHA for guest parity"
-  ]
+  ],
+  "guest_frame_pc_lowering_implemented": false,
+  "cancellation_resume_scheduler_implemented": false
 }
