@@ -9,7 +9,7 @@ import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
 import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
-import {assertCoreI64Entry} from "./core-i64-abi.mjs";
+import {assertCoreScalarEntry} from "./core-i64-abi.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
@@ -317,10 +317,13 @@ function run(command,args,{input}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",profile="core-wasm.i64-v1",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ if(profile!=="core-wasm.i64-v1" && profile!=="core-wasm.f64-v1")
+  throw new TypeError("unsupported core Wasm scalar profile");
+ const llvmResultType=profile==="core-wasm.i64-v1"?"i64":"double";
  const sourceExtension=extname(source).toLowerCase();
  if(sourceExtension!==".atto"&&sourceExtension!==".ores")
   throw Error("source file must use canonical .atto or legacy .ores extension");
@@ -422,7 +425,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
  assertWasm32IrTarget(ir);
- if(!new RegExp("define\\s+i64\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected i64 @"+exportName+"() export");
+ if(!new RegExp("define\\s+"+llvmResultType+"\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected "+llvmResultType+" @"+exportName+"() export");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.
@@ -442,7 +445,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const guestExports=WebAssembly.Module.exports(module);
  if(!guestExports.some(x=>x.name===exportName&&x.kind==="function"))throw Error("guest Wasm missing requested export");
  if(!guestExports.some(x=>x.name==="memory"&&x.kind==="memory"))throw Error("guest Wasm missing required bounded memory export");
- assertCoreI64Entry(wasm,exportName);
+ assertCoreScalarEntry(wasm,exportName,profile);
  // The artifact manifest advertises an exact 2-page memory maximum. Check
  // the binary rather than relying on Clang flags or its version string.
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
@@ -451,14 +454,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
-  exportName,importCount:imports.length,wasmBytes:wasm.length,
+  exportName,profile,importCount:imports.length,wasmBytes:wasm.length,
   clangVersion:run(clang,["--version"]).split("\n")[0],
   note:"Binary provenance: exact compiler executable bytes, not proof of source-repository commit or feature parity."
  };
  let manifest=null;
  if(environment){
   manifest={
-   schemaVersion:1,artifactType:"oreslang.core-wasm.i64-v1",
+   schemaVersion:1,artifactType:"oreslang."+profile,
    target:"wasm32",environment,backend:"wasm",entry:exportName,
    wasmSha256:sha(wasm),wasmBytes:wasm.length,requiredCapabilities:[],
    imports:[],memory:{maximumPages:2},
@@ -493,7 +496,7 @@ if(calledFromCli){
  try{
   const usedOptions=new Set();
   const options=Object.fromEntries(process.argv.slice(2).map(x=>{
-   const m=/^--(compiler|source|output|export|clang|compiler-sha256|environment|publication)=(.*)$/.exec(x);
+   const m=/^--(compiler|source|output|export|profile|clang|compiler-sha256|environment|publication)=(.*)$/.exec(x);
    if(!m)throw Error("unexpected CLI option: "+x);
    if(usedOptions.has(m[1]))throw Error("duplicate CLI option: "+m[1]);
    usedOptions.add(m[1]);
@@ -502,7 +505,7 @@ if(calledFromCli){
   const record=await compileOresToWasm({
    compiler:options.compiler,source:options.source,
    output:options.output||resolve(projectRoot,"build/guest.wasm"),
-   exportName:options.export||"main",clang:options.clang||process.env.CLANG||"clang",
+   exportName:options.export||"main",profile:options.profile||"core-wasm.i64-v1",clang:options.clang||process.env.CLANG||"clang",
    compilerSha256:options["compiler-sha256"],environment:options.environment,publication:options.publication||"legacy"
   });
   console.log(JSON.stringify(record,null,2));

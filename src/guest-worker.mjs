@@ -16,7 +16,9 @@ try {
   const entry = instance.exports[admission.entry];
   if (typeof entry !== "function") throw Error("missing entry");
   const result = entry();
-  if (typeof result !== "bigint") throw Error("guest entry did not return i64");
+  if (admission.profile==="core-wasm.i64-v1" ? typeof result!=="bigint" :
+      admission.profile==="core-wasm.f64-v1" ? typeof result!=="number" : true)
+    throw Error("guest entry returned an unexpected scalar type");
   parentPort.postMessage({ok: true, result, admission});
 } catch (error) {
   parentPort.postMessage({ok: false, error: String(error?.message || error).slice(0, 500)});

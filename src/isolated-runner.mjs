@@ -8,7 +8,8 @@ const MAX_ACTIVE_GUEST_WORKERS = 4;
 let activeGuestWorkers = 0;
 
 /**
- * Run a zero-import ()->i64 guest in a disposable worker.
+ * Run a zero-import, zero-argument scalar guest in a disposable worker.
+ * The strict i64-v1 ABI is the default; f64-v1 requires explicit opt-in.
  * Full Wasm parsing, validation and compilation occur INSIDE the worker, so
  * malicious compilation cannot block the calling thread before the deadline.
  * Resolves only after the guest worker has terminated.
@@ -22,7 +23,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   const proto=Object.getPrototypeOf(options);
   if(proto!==Object.prototype && proto!==null)
     throw new TypeError("guest runner options must be plain data");
-  const fields=["expectedSha256","entry","maxMemoryPages","maxModuleBytes",
+  const fields=["expectedSha256","entry","profile","maxMemoryPages","maxModuleBytes",
                 "timeoutMs","namespaceBindings"];
   if(Reflect.ownKeys(options).some(key=>!fields.includes(key)))
     throw new TypeError("unknown guest runner option");
@@ -34,6 +35,9 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   };
   const expectedSha256=own("expectedSha256",undefined);
   const entry=own("entry","main");
+  const profile=own("profile","core-wasm.i64-v1");
+  if(profile!=="core-wasm.i64-v1" && profile!=="core-wasm.f64-v1")
+    throw new TypeError("unsupported core Wasm scalar profile");
   const maxMemoryPages=own("maxMemoryPages",2);
   const maxModuleBytes=own("maxModuleBytes",16 * 1024 * 1024);
   const timeoutMs=own("timeoutMs",2000);
@@ -96,16 +100,18 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           // environment from the trusted parent into the Wasm worker.
           execArgv: [],
           env: {},
-          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
+          workerData: {bytes, options: {expectedSha256, entry, profile, maxMemoryPages, maxModuleBytes}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
         timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
         worker.once("message", message => {
           if (!message || message.ok !== true) {
             finish(new Error("guest rejected or failed: " + String(message?.error || "invalid worker result")));
-          } else if (typeof message.result !== "bigint" || !message.admission ||
+          } else if ((profile==="core-wasm.i64-v1" ?
+                       typeof message.result!=="bigint" : typeof message.result!=="number") ||
+                     !message.admission ||
                      message.admission.schemaVersion !== 1 ||
-                     message.admission.profile !== "core-wasm.i64-v1" ||
+                     message.admission.profile !== profile ||
                      message.admission.entry !== entry ||
                      message.admission.bytes !== bytes.length ||
                      message.admission.imports !== 0 ||

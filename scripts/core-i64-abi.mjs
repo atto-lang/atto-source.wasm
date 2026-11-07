@@ -1,9 +1,12 @@
 /**
- * Fail-closed static validator for the narrow core-wasm.i64-v1 ABI.
+ * Fail-closed static validator for the opt-in scalar Wasm entry ABIs.
  * Caller must first run inspectWasmBytes (WebAssembly.validate) and reject
  * *all* imports. This reader only supports plain Wasm function types.
  */
-export function assertCoreI64Entry(bytes,entry) {
+export function assertCoreScalarEntry(bytes,entry,profile="core-wasm.i64-v1") {
+  const resultType = profile==="core-wasm.i64-v1" ? 0x7e :
+    profile==="core-wasm.f64-v1" ? 0x7c : null;
+  if(resultType===null)throw new TypeError("unsupported core Wasm scalar profile");
   let at=8;
   const u32=end=>{
     let value=0;
@@ -61,6 +64,11 @@ export function assertCoreI64Entry(bytes,entry) {
   }
   const signature=typeSignatures[exportedTypeIndex];
   if(!signature||signature.params.length!==0||
-      signature.results.length!==1||signature.results[0]!==0x7e)
-    throw Error("core Wasm entry must have exact () -> i64 signature");
+      signature.results.length!==1||signature.results[0]!==resultType)
+    throw Error("core Wasm entry must have exact () -> "+(resultType===0x7e?"i64":"f64")+" signature");
+}
+
+// Historical API and default profile remain strict i64, without auto-detection.
+export function assertCoreI64Entry(bytes,entry) {
+  return assertCoreScalarEntry(bytes,entry,"core-wasm.i64-v1");
 }
