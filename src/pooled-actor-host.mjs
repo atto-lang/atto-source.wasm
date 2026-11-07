@@ -340,7 +340,16 @@ export class PooledWasmActors {
     if (admitted.memoryCount !== 1 || !admitted.hasMemoryMaximum ||
         admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
       throw Error('actor requires private fixed two-page memory');
-    assertScalarActorAbi(admitted.bytes);
+    // Parent-side ABI preflight uses the same *exact* opt-in profile as
+    // the Worker. Never enqueue a five-export actor when the typed status
+    // has not been verified, and never grant host imports.
+    const preflightModule = new WebAssembly.Module(admitted.bytes);
+    if (WebAssembly.Module.imports(preflightModule).length)
+      throw Error('pooled actor imports denied before carrier assignment');
+    const checkedRecursionV1 = WebAssembly.Module.exports(preflightModule)
+      .some(e => e.name === 'oreslang_wasm_actor_frame_status' &&
+        e.kind === 'function');
+    assertScalarActorAbi(admitted.bytes, {checkedRecursionV1});
     const id = ++this.#nextId;
     const incarnation = randomBytes(16).toString('hex');
     const live = this.#carriers.filter(c => !c.dead);
