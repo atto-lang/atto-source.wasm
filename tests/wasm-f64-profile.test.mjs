@@ -106,7 +106,11 @@ test("f64 compiler bridge and atomic release bind LLVM double ABI to manifest (s
   try{
     const compiler=join(dir,"compiler.sh");
     const source=join(dir,"main.atto"),output=join(dir,"float.wasm");
-    await writeFile(compiler,"#!/bin/sh\n"+
+    await writeFile(compiler,"#!/bin/sh\nset -eu\ntest \"$#\" -eq 5\n"+
+      "test \"$1\" = '--library-profile=core'\n"+
+      "test \"$2\" = '--tree-shake'\n"+
+      "test \"$3\" = '--tree-shake-root=main'\n"+
+      "test \"$4\" = '--target=wasm32'\n"+
       "printf 'target triple = \"wasm32-unknown-unknown\"\\n"+
       "define double @main() { ret double 3.750000e+00 }\\n'\n",{mode:0o700});
     await writeFile(source,"define pub fnc main(): float { return 1.5 + 2.25; }\n");
@@ -137,4 +141,31 @@ test("f64 compiler bridge and atomic release bind LLVM double ABI to manifest (s
     }),/expected double @main/);
     await assert.rejects(stat(rejected+".current.json"),{code:"ENOENT"});
   }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("comment, metadata, duplicate and quoted f64 IR entry are never published",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-f64-ir-prelink-"));
+ try{
+  const source=join(dir,"main.atto");
+  await writeFile(source,"define pub fnc main(): float { return 3.75; }\\n");
+  const forged=[
+   ["comment",'; define double @main() { ret double 3.75 }\\n'],
+   ["metadata",'; source_filename = "define double @main()"\\n'],
+   ["duplicate",'define double @main() { ret double 3.75 }\\ndefine double @main() { ret double 3.75 }\\n'],
+   ["quoted",'define double @"main"() { ret double 3.75 }\\n']
+  ];
+  for(const [label,ir] of forged){
+   const compiler=join(dir,label+".sh");
+   await writeFile(compiler,"#!/bin/sh\\ncat <<'ATTO_IR'\\n"+triple+ir+"ATTO_IR\\n",{mode:0o700});
+   const compilerSha256=sha(await readFile(compiler));
+   for(const publication of ["legacy","atomic"]){
+    const output=join(dir,label+publication+".wasm");
+    await assert.rejects(compileOresToWasm({compiler,source,output,compilerSha256,
+      profile:PROFILE,environment:"browser",publication}),
+      /expected double @main\\(\\) export exactly once/);
+    for(const x of [output,output+".provenance.json",output+".artifact.json",output+".current.json"])
+     await assert.rejects(stat(x),{code:"ENOENT"});
+   }
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
 });

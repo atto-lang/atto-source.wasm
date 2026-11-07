@@ -18,6 +18,18 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
+// wasm32 alone does not prevent hosted Std or allocator provider injection.
+// Both scalar ABIs use the same explicit fail-closed Core compiler recipe.
+export function wasmCoreCompilerArgs(source) {
+ if(typeof source!=="string" || !isAbsolute(source) || source.includes("\0"))
+  throw new TypeError("absolute staged .atto/.ores source path required");
+ if(![".atto",".ores"].includes(extname(source).toLowerCase()))
+  throw new TypeError("staged guest source requires .atto or .ores extension");
+ return ["--library-profile=core","--tree-shake","--tree-shake-root=main",
+         "--target=wasm32",source];
+}
+
+
 function tupleV2Tokens(sourceBytes){
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
@@ -347,6 +359,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    throw Error("output or artifact metadata path overlaps a compiler/source input");
  }
  if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(exportName))throw Error("unsupported export name");
+ // The only verified tree-shake root for either ABI profile is main.
+ if(exportName!=="main")throw Error("Core wasm32 bridge supports only the verified main export");
  // Preflight before readFile() to avoid allocating attacker-sized compiler
  // binaries or source buffers, then check the lengths again after reading.
  const [sourceStat,compilerStat]=await Promise.all([stat(sourcePath),stat(compilerPath)]);
@@ -410,7 +424,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource));
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -425,7 +439,12 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
  assertWasm32IrTarget(ir);
- if(!new RegExp("define\\s+"+llvmResultType+"\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected "+llvmResultType+" @"+exportName+"() export");
+ // No metadata/comment spoof, quoted symbol, or duplicate IR entry may pass.
+ const entryPattern=new RegExp("^[ \\t]*define[ \\t]+"+llvmResultType+
+   "[ \\t]+@"+exportName+"[ \\t]*[(][ \\t]*[)]","gm");
+ const definitions=[...ir.matchAll(entryPattern)];
+ if(definitions.length!==1)throw Error("compiler did not emit the expected "+
+   llvmResultType+" @"+exportName+"() export exactly once");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.

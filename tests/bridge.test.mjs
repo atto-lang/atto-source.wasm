@@ -4,7 +4,7 @@ import {mkdtemp,writeFile,chmod,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {createHash} from "node:crypto";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,wasmCoreCompilerArgs} from "../scripts/compile-ores.mjs";
 const hash=b=>createHash("sha256").update(b).digest("hex");
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
@@ -71,4 +71,29 @@ test("source supervisors never invoke the native compiler or publish Wasm", asyn
       await assert.rejects(readFile(output+".provenance.json"), {code:"ENOENT"});
     }
   }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("both scalar ABIs use an explicit Core-only compiler invocation",()=>{
+ const args=wasmCoreCompilerArgs("/tmp/main.atto");
+ assert.deepEqual(args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
+  "--target=wasm32","/tmp/main.atto"]);
+ for(const bad of ["main.atto","/tmp/code.json","/tmp/main.atto\\0suffix",null,4])
+  assert.throws(()=>wasmCoreCompilerArgs(bad),/(absolute staged|requires)/);
+});
+test("arbitrary scalar export roots are rejected before compiler execution",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-core-main-root-"));
+ try{
+  const compiler=join(dir,"compiler.sh"),source=join(dir,"source.atto"),
+        output=join(dir,"out.wasm"),marker=join(dir,"invoked");
+  await writeFile(source,"pub fnc main():int{return 42;}\\n");
+  await writeFile(compiler,"#!/bin/sh\\ntouch "+JSON.stringify(marker)+"\\nexit 0\\n",{mode:0o700});
+  const compilerSha256=hash(await readFile(compiler));
+  for(const profile of ["core-wasm.i64-v1","core-wasm.f64-v1"])
+   for(const exportName of ["not_main","Main","_start",null,42]){
+    await assert.rejects(compileOresToWasm({compiler,source,output,exportName,
+      compilerSha256,profile}),/verified main export|unsupported export name/);
+    await assert.rejects(readFile(marker),{code:"ENOENT"});
+    await assert.rejects(readFile(output),{code:"ENOENT"});
+   }
+ }finally{await rm(dir,{recursive:true,force:true})}
 });

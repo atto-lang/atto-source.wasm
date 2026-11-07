@@ -40,3 +40,17 @@ Node core-Wasm host path. The separately gated
 execution when a pinned real LLVM compiler binary and exact source SHA are
 supplied. An absent toolchain is **NOT_EXECUTED**, not a pass. Independent Java
 and native LLVM guest receipts remain required for cross-backend certification.
+
+## Core-only compiler and exact LLVM entry guard
+
+The source bridge now invokes `--library-profile=core --tree-shake
+--tree-shake-root=main --target=wasm32` for both scalar ABIs. Only the
+`main` root is admitted. The pre-link checker requires exactly one
+line-leading `define i64 @main()` or `define double @main()` and rejects
+comments, metadata, quoted symbols, and duplicates. The post-link Wasm
+validator still enforces the exact signature and zero imports.
+
+Bridge shell stubs are not real AttoLang source execution evidence.
+The LLVM float draft #1517 disallows f64 `main` and has unresolved
+numeric semantics; compiler-backed f64 source parity remains
+**NOT_EXECUTED / NOT_CERTIFIED** pending a reviewed Wasm-specific entry ABI.
