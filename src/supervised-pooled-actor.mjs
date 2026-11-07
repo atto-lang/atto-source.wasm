@@ -30,6 +30,7 @@ export class SupervisedPooledActor {
   #current = null;
   #raw = null;
   #replacement = null;
+  #waiters = new Set();
   #lastControl = null;
   #closed = false;
 
@@ -82,6 +83,28 @@ export class SupervisedPooledActor {
     if (this.#phase === "active") return this.#current;
     if (!this.#replacement) throw Error("supervised actor has no permitted restart");
     return await this.#replacement;
+  }
+
+  waitForGeneration(afterGeneration) {
+    if (!Number.isSafeInteger(afterGeneration) || afterGeneration < 0 ||
+        afterGeneration > this.#generation)
+      return Promise.reject(new RangeError("invalid awaited actor generation"));
+    if (this.#closed)
+      return Promise.reject(Error("supervised actor closed"));
+    if (this.#phase === "active" && this.#generation > afterGeneration)
+      return Promise.resolve(this.#current);
+    if (!["active", "restarting"].includes(this.#phase))
+      return Promise.reject(Error("supervisor cannot publish another generation"));
+    if (this.#waiters.size >= 64)
+      return Promise.reject(Error("supervisor waiter quota exceeded"));
+    return new Promise((resolve, reject) => {
+      this.#waiters.add({afterGeneration, resolve, reject});
+    });
+  }
+
+  #rejectWaiters(reason) {
+    for (const waiter of this.#waiters) waiter.reject(reason);
+    this.#waiters.clear();
   }
 
   #authorize(generation, raw) {
@@ -139,6 +162,12 @@ export class SupervisedPooledActor {
     this.#raw = raw;
     this.#current = this.#makeHandle(candidate, raw);
     this.#phase = "active";
+    for (const waiter of this.#waiters) {
+      if (candidate > waiter.afterGeneration) {
+        this.#waiters.delete(waiter);
+        waiter.resolve(this.#current);
+      }
+    }
     return this.#current;
   }
 
@@ -158,6 +187,7 @@ export class SupervisedPooledActor {
       this.#phase = "invalid-control";
       this.#current = null;
       this.#raw = null;
+      this.#rejectWaiters(Error("invalid authoritative terminal CONTROL"));
       return;
     }
 
@@ -185,6 +215,7 @@ export class SupervisedPooledActor {
       this.#phase = "restarting";
       this.#replacement = this.#spawnNext().catch(error => {
         if (!this.#closed) this.#phase = "restart-failed";
+        this.#rejectWaiters(error);
         throw error;
       });
       // There may be no awaiter yet: avoid an unhandled rejection while
@@ -193,6 +224,7 @@ export class SupervisedPooledActor {
     } else {
       this.#phase = "restart-budget-exhausted";
       this.#replacement = null;
+      this.#rejectWaiters(Error("supervisor restart budget exhausted"));
     }
     if (this.#onControl) {
       queueMicrotask(() => {
@@ -209,6 +241,7 @@ export class SupervisedPooledActor {
     if (this.#closed) return;
     this.#closed = true;
     this.#phase = "closing";
+    this.#rejectWaiters(Error("supervised actor closed"));
     const inFlight = this.#replacement;
     const raw = this.#raw;
     this.#current = null;
