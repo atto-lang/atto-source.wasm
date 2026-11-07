@@ -34,6 +34,7 @@ export class SupervisedPooledActor {
   #waiters = new Set();
   #lastControl = null;
   #closed = false;
+  #closePromise = null;
 
   constructor(pool, bytes, {expectedSha256, maxRestarts = 1, onControl} = {}) {
     if (!(pool instanceof PooledWasmActors))
@@ -191,7 +192,8 @@ export class SupervisedPooledActor {
           control.physicalExitConfirmed !== true ||
           !Number.isSafeInteger(control.actorId) || control.actorId <= 0) {
         this.#phase = "invalid-control";
-        this.#raw = null;
+        // Invalid carrier CONTROL proves no physical retirement; keep the
+        // backing actor reference pinned for a later explicit cleanup.
         this.#current = null;
         this.#rejectWaiters(Error("invalid carrier retirement CONTROL"));
         return;
@@ -232,10 +234,12 @@ export class SupervisedPooledActor {
         control.carrierRetained !== true ||
         !Number.isSafeInteger(control.actorId) || control.actorId <= 0 ||
         !Number.isSafeInteger(control.terminalTicket) || control.terminalTicket <= 0) {
-      // An invalid host CONTROL observation never authorizes restart.
+      // Invalid CONTROL is not physical retirement proof. Revoke the public
+      // handle while retaining the raw actor authority until close()/STOP
+      // has genuinely completed (or a carrier retirement is independently
+      // confirmed). Never leak an unretired actor by dropping #raw.
       this.#phase = "invalid-control";
       this.#current = null;
-      this.#raw = null;
       this.#rejectWaiters(Error("invalid authoritative terminal CONTROL"));
       return;
     }
@@ -295,15 +299,20 @@ export class SupervisedPooledActor {
     }
   }
 
-  async close() {
-    if (this.#closed) {
-      if (this.#phase === "close-failed")
-        throw Error("supervised actor retirement remains unconfirmed");
-      return;
-    }
+  close() {
+    // Close is a single authoritative retirement barrier. Concurrent callers
+    // must observe the exact same outcome, not a premature success simply
+    // because another close() already set #closed=true.
+    if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
     this.#phase = "closing";
     this.#rejectWaiters(Error("supervised actor closed"));
+    this.#closePromise = this.#closeOnce();
+    this.#closePromise.catch(() => {}); // physical-hold errors remain awaitable
+    return this.#closePromise;
+  }
+
+  async #closeOnce() {
     const inFlight = this.#replacement;
     const raw = this.#raw;
     this.#current = null;
