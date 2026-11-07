@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
-import {join} from "node:path";
+import {join,isAbsolute} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {readAtomicRelease} from "../scripts/atomic-release.mjs";
@@ -49,5 +49,26 @@ test("pinned real AttoLang LLVM float source compiles and executes in a Wasm wor
     }),/expected double|exact \(\) -> f64/);
     await assert.rejects(stat(invalidOutput+".current.json"),{code:"ENOENT"});
     assert.equal((await readAtomicRelease(output)).releaseSha256,released.releaseSha256);
+    // Emit an execution-bound receipt only AFTER the real source-compiled
+    // binary returned 3.75 in a disposable Worker, and wrong-type publication
+    // failed. A bridge stub cannot populate this receipt.
+    if(process.env.ORESLANG_F64_GUEST_EVIDENCE_PATH!==undefined){
+      const evidencePath=process.env.ORESLANG_F64_GUEST_EVIDENCE_PATH;
+      assert.ok(isAbsolute(evidencePath),"guest evidence path must be absolute");
+      const evidence={
+        schema:"atto-f64-wasm-worker-v1",
+        compilerSha256:pin,
+        sourceSha256:built.sourceSha256,
+        wasmSha256:built.wasmSha256,
+        releaseSha256:released.releaseSha256,
+        profile:"core-wasm.f64-v1",entry:"main",value:executed.value,
+        hostImports:executed.admission.imports,
+        hostCapabilities:executed.admission.hostCapabilities,
+        negativeNoPublication:true,execution:"EXECUTED",
+        certification:"NOT_CERTIFIED"
+      };
+      await writeFile(evidencePath,JSON.stringify(evidence,null,2)+"\\n",
+        {flag:"wx",mode:0o600});
+    }
   } finally {await rm(dir,{recursive:true,force:true});}
 });
