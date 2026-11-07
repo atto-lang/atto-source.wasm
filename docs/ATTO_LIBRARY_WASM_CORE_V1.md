@@ -21,3 +21,22 @@ No private source is mirrored to another organization; the existing
 source-owned, manual LLVM/Wasm integration workflow remains the authorized
 cross-repository build pathway. Do not promote source-only or skipped tests
 to compiler-backed evidence. CI with `steps=null` is runner admission failure.
+
+## Separate manual compiler-backed evidence lane
+
+`.github/workflows/atto-library-core-real-llvm.yml` is **manual-only**:
+no `pull_request` job receives the private compiler token. An authorized
+reviewer must supply an approved immutable LLVM Git SHA, such as a reviewed
+head from LLVM #1481, and arrange the existing same-organization
+`ORESLANG_LLVM_READ_TOKEN`. The workflow checks exact Wasm and LLVM heads
+and trees, compiles the actual LLVM toolchain, pins the compiler SHA-256,
+and sets `ATTO_REQUIRE_COMPILER_GUEST=1` to make guest tests non-skippable.
+
+After successful compiler-to-Wasm execution and four compiler-rejection
+probes, the test emits a machine-readable line with the observed result,
+zero host capabilities/imports, compiler SHA-256 and Wasm artifact SHA-256.
+The workflow archives that line together with source identities. A review
+still needs to inspect run attempt, nonzero job steps, binary provenance and
+the failure-mode controls before certifying parity. Do not dispatch this
+private-source workflow on unreviewed PR code or claim success from a
+source-only workflow.
