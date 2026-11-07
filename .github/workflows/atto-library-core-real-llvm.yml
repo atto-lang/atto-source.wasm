@@ -44,6 +44,9 @@ jobs:
           git diff --quiet --exit-code
           printf 'WASM_SOURCE_HEAD=%s\nWASM_SOURCE_TREE=%s\n' "$EXPECTED_WASM_HEAD" "$(git rev-parse 'HEAD^{tree}')" > atto-core-real-guest-receipt.txt
           test "$(git hash-object contracts/atto-library-core-v1/core-numeric.atto)" = "395695e5b1a6c40d56db323943b34f1012b76c7c"
+          test "$(git hash-object contracts/guard-v1/canonical-scalar.atto)" = "c86ac476e55074031c0bcda02f5eaf3cb1399477"
+          test "$(git hash-object contracts/guard-v1/reject-fallthrough.atto)" = "1ff87aa95ed2537839347e80984c69ae46fdfa17"
+          test "$(git hash-object contracts/guard-v1/reject-else.atto)" = "b2bbee98cd3b95ac19462b4efd95a2e98b469154"
       - name: Reject unprotected default branch before private source authorization
         shell: bash
         env:
@@ -138,6 +141,37 @@ jobs:
           grep -E '^# pass 2$' atto-core-real-guest.log
           grep -E '^# skipped 0$' atto-core-real-guest.log
           echo 'ATTO_WASM_COMPILER_BACKED_TEST_EXECUTED=YES' >> atto-core-real-guest-receipt.txt
+      - name: Execute canonical guard v1 through real LLVM-to-Wasm guest
+        shell: bash
+        env:
+          ATTO_REQUIRE_GUARD_WASM_GUEST: '1'
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/guard-v1-native-guest.test.mjs 2>&1 | tee atto-guard-real-guest.log
+          grep -E '^# pass 3
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atto-core-real-wasm-source-bound
+          path: |
+            atto-core-real-guest.log
+            atto-guard-real-guest.log
+            atto-core-real-guest-receipt.txt
+          if-no-files-found: warn
+ atto-guard-real-guest.log
+          grep -E '^# skipped 0
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atto-core-real-wasm-source-bound
+          path: |
+            atto-core-real-guest.log
+            atto-core-real-guest-receipt.txt
+          if-no-files-found: warn
+ atto-guard-real-guest.log
+          test "$(grep -c '"kind":"executed-wasm-guest"' atto-guard-real-guest.log)" = "6"
+          test "$(grep -c '"kind":"native-compiler-rejection"' atto-guard-real-guest.log)" = "2"
+          echo 'ATTO_WASM_GUARD_V1_COMPILER_BACKED_TEST_EXECUTED=YES' >> atto-core-real-guest-receipt.txt
       - name: Preserve real process evidence
         if: always()
         uses: actions/upload-artifact@v4
