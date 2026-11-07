@@ -21,7 +21,7 @@ Notes on the compiler and runtime:
 - Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new Oreslang parser.
 - Build pipeline: `.atto` (canonical) or `.ores` (legacy) source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
 - Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
-- Deny all guest imports, reject start and table sections, bound private linear memory with a required `memory` export, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
+- Deny all guest imports, reject start and table sections, bound private linear memory with a required `memory` export, require an exact `main: () -> i64` entry by default (or opt-in `() -> f64`), and optionally pin module SHA-256.
 - Run admitted modules in disposable Node worker threads. Validation and JIT compilation occur inside the worker's deadline, with a module-local four-worker admission quota; the worker is terminated before returning. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
 - Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
 
@@ -41,11 +41,13 @@ For real Oreslang compiler integration, use:
 ORESLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc npm test
 ~~~
 
+For opt-in f64, see [portable guest build](docs/PORTABLE_GUEST_BUILD.md). The float source parity test is separately required through `npm run test:f64-compiler` with a reviewed, pinned LLVM compiler; ordinary `npm test` does not certify float source lowering.
+
 A fake or stub compiler exercising the linker does **not** count as real Oreslang language parity.
 
 ## Tail-call feature admission (M0)
 
-The narrow `core-wasm.i64-v1` host **does not admit** WebAssembly
+The `core-wasm.i64-v1` and opt-in `core-wasm.f64-v1` hosts **do not admit** WebAssembly
 `return_call` (opcode `0x12`) or `return_call_indirect` (`0x13`).
 The instruction scanner rejects these operations **before engine validation or
 compilation**, with `WASM_TAIL_CALL_FEATURE_UNSUPPORTED`. Signed LEB immediate
@@ -66,7 +68,7 @@ routine-reentry fencing, and real 100,000-hop guest tests are still required.
 - Deadlines are enforced by terminating a worker, not deterministic instruction fuel; cancellation and isolation are not OS guarantees.
 - The four-worker quota is module-local, not a process-wide or cross-service tenant quota; a deployment broker must enforce aggregate budgets.
 - The Node/V8 host may perform JIT compilation of WebAssembly: this is NOT a strict-no-JIT runtime.
-- The current ABI is intentionally limited to a pure `() -> i64` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
+- The current ABI admits a pure `() -> i64` guest by default, and an explicitly selected `() -> f64` guest through the experimental Node Worker profile. This is not verified float *source* parity or native Wasmtime/AOT support. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
 - Static `select` is therefore **fail-closed through the pinned LLVM frontend**, for both `{ ... }` and `over ... end` outer delimiters. The real-compiler gate requires the compiler-owned `native async/channel/select boundary unsupported` diagnostic with no LLVM IR, and the Wasm bridge must publish no release pointer for rejected select source. This repository deliberately does not maintain a second Oreslang select parser.
 - Compiler executable bytes must be trusted. A SHA-256 pin proves byte identity, not that the binary came from any particular source commit.
 - Full strict AOT requires a separate trusted precompilation stage and compatible compiler-free native runtime (planned: Wasmtime host with OS sandbox).

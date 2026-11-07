@@ -109,7 +109,8 @@ function descriptorFor(wasm,manifest,provenance){
    !(item.name==="memory"&&item.kind==="memory"));
  if(unexpected.length)fail("unexpected guest exports");
  try{assertCoreScalarEntry(wasm,provenance.exportName,profile)}
- catch{fail("invalid core scalar entry ABI")}
+ catch{fail(profile==="core-wasm.i64-v1" ?
+   "invalid core i64 entry ABI" : "invalid core f64 entry ABI")}
  const memory=inspectWasmBytes(wasm,{maxModuleBytes:16777216,maxMemoryPages:2});
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
    fail("invalid bounded 2-page guest memory");

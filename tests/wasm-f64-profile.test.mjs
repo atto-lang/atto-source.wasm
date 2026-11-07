@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {mkdtempSync,readFileSync,rmSync,writeFileSync} from "node:fs";
+import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {spawnSync} from "node:child_process";
 import {fileURLToPath} from "node:url";
+import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {readAtomicRelease,publishAtomicRelease} from "../scripts/atomic-release.mjs";
 import {admitCoreGuest} from "../src/guest-admission.mjs";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 
@@ -95,4 +98,43 @@ test("f64 CLI prints negative zero without JSON number rounding",()=>{
     assert.equal(result.resultType,"f64");
     assert.equal(result.admission.profile,PROFILE);
   }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test("f64 compiler bridge and atomic release bind LLVM double ABI to manifest (stub-only)",async()=>{
+  // This proves bridge/linker/publication wiring, NOT real AttoLang lowering.
+  const dir=await mkdtemp(join(tmpdir(),"atto-wasm-f64-bridge-"));
+  try{
+    const compiler=join(dir,"compiler.sh");
+    const source=join(dir,"main.atto"),output=join(dir,"float.wasm");
+    await writeFile(compiler,"#!/bin/sh\n"+
+      "printf 'target triple = \"wasm32-unknown-unknown\"\\n"+
+      "define double @main() { ret double 3.750000e+00 }\\n'\n",{mode:0o700});
+    await writeFile(source,"define pub fnc main(): float { return 1.5 + 2.25; }\n");
+    const pin=sha(await readFile(compiler));
+    const built=await compileOresToWasm({compiler,compilerSha256:pin,source,output,
+      profile:PROFILE,environment:"browser",publication:"atomic"});
+    assert.equal(built.profile,PROFILE);
+    const released=await readAtomicRelease(output);
+    assert.equal(released.manifest.artifactType,"oreslang."+PROFILE);
+    assert.equal(released.provenance.profile,PROFILE);
+    assert.equal(released.manifest.producer.compilerSha256,pin);
+    assert.equal((await runIsolatedCoreGuest(released.wasm,{
+      profile:PROFILE,expectedSha256:built.wasmSha256})).value,3.75);
+    const oldPointer=await readFile(output+".current.json");
+    await assert.rejects(publishAtomicRelease({
+      output:join(dir,"forged.wasm"),wasm:released.wasm,
+      manifest:{...released.manifest,artifactType:"oreslang.core-wasm.i64-v1"},
+      provenance:released.provenance
+    }),/inconsistent manifest provenance/);
+    assert.deepEqual(await readFile(output+".current.json"),oldPointer);
+    const wrong=join(dir,"wrong.sh"),rejected=join(dir,"wrong.wasm");
+    await writeFile(wrong,"#!/bin/sh\n"+
+      "printf 'target triple = \"wasm32-unknown-unknown\"\\n"+
+      "define i64 @main() { ret i64 42 }\\n'\n",{mode:0o700});
+    await assert.rejects(compileOresToWasm({
+      compiler:wrong,compilerSha256:sha(await readFile(wrong)),source,output:rejected,
+      profile:PROFILE,environment:"browser",publication:"atomic"
+    }),/expected double @main/);
+    await assert.rejects(stat(rejected+".current.json"),{code:"ENOENT"});
+  }finally{await rm(dir,{recursive:true,force:true});}
 });
