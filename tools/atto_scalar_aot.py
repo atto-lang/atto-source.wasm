@@ -92,7 +92,10 @@ def main(argv=None):
         # All compilation runs before publishing any artifact to the requested directory.
         with tempfile.TemporaryDirectory(prefix="atto-wasm-aot-") as temp:
             work = Path(temp)
-            ir, diagnostics = execute([llvmc, "--target=wasm32", str(source.resolve())])
+            # Compile the exact pinned bytes, not a mutable original path.
+            pinned_source = work / "source.atto"
+            pinned_source.write_bytes(raw_source)
+            ir, diagnostics = execute([llvmc, "--target=wasm32", str(pinned_source)])
             if not ir or b"wasm32" not in ir or b"define" not in ir or b"@main" not in ir:
                 raise NotExecuted("LLVM compiler emitted no wasm32 main IR; unsupported guest ABI")
             (work / "source.ll").write_bytes(ir)
