@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {ActorArena} from "../src/actor-arena.mjs";
+import {readFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
 import {withManagedActorTurn} from "../src/pooled-actor-frame-turn.mjs";
 
 // These tests exercise host runtime memory, not compiler-lowered .atto frames.
@@ -128,4 +130,13 @@ test("invalid actor or invocation authority is rejected",()=>{
   assert.throws(()=>withManagedActorTurn(actor,null,{resultType:"i64"}),
     /synchronous Wasm invocation required/);
   empty(actor);actor.retire();
+});
+
+test("canonical .atto source is byte-identical to legacy actor and pinned at its Git blob",async()=>{
+  const canonical=await readFile(new URL("./fixtures/wasm32-single-source-actor.atto",import.meta.url));
+  const legacy=await readFile(new URL("./fixtures/wasm32-single-source-actor.ores",import.meta.url));
+  assert.deepEqual(canonical,legacy);
+  const actual=createHash("sha1")
+    .update(Buffer.from("blob "+canonical.length+"\0","ascii")).update(canonical).digest("hex");
+  assert.equal(actual,"adfc0b43463d7ce92d32a4b1b63602f91e527329");
 });
