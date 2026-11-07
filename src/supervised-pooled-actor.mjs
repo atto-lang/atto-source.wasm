@@ -132,6 +132,7 @@ export class SupervisedPooledActor {
             this.#phase = "stopped";
             this.#raw = null;
             this.#current = null;
+            this.#rejectWaiters(Error("supervisor explicitly stopped"));
           }
         } catch (error) {
           if (!this.#closed && this.#phase === "stopping")
