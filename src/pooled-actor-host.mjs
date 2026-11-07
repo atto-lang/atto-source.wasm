@@ -21,6 +21,7 @@ export class PooledWasmActors {
   #nextId = 0;
   #nextTicket = 0;
   #isolatedGuestFaults = 0;
+  #typedTerminalControls = 0;
   #closed = false;
   #shutdownPromise = null;
   #maxActors;
@@ -76,6 +77,7 @@ export class PooledWasmActors {
   get actorCount() {return this.#actors.size;}
   get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}
   get isolatedGuestFaultCount() {return this.#isolatedGuestFaults;}
+  get typedTerminalControlCount() {return this.#typedTerminalControls;}
 
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
@@ -159,6 +161,31 @@ export class PooledWasmActors {
       actor.outstanding = 0;
       actor.queued = false;
       ++this.#isolatedGuestFaults;
+      if (message.code === 'STACK_BUDGET_EXHAUSTED_V1') {
+        // CONTROL is host-authoritative: minted ONLY after validating the
+        // active worker's ticket/incarnation and complete frame retirement.
+        // It carries no guest memory, raw Worker authority or incarnation
+        // secret. A callback is a host-local supervisor observation, never a
+        // guest closure/channel payload or a new actor-turn on this carrier.
+        const control = Object.freeze({
+          schemaVersion: 1,
+          kind: 'ACTOR_TERMINAL_CONTROL',
+          reason: 'STACK_BUDGET_EXHAUSTED_V1',
+          actorId: actor.id,
+          terminalTicket: op.ticket,
+          actorRetired: true,
+          frameQuiescent: true,
+          carrierRetained: true
+        });
+        ++this.#typedTerminalControls;
+        if (actor.onTerminalControl) {
+          queueMicrotask(() => {
+            // No supervisor callback may change carrier fault attribution,
+            // resurrect the retired actor or block the worker pump.
+            try {actor.onTerminalControl(control);} catch {}
+          });
+        }
+      }
       // All other actors on the healthy Worker retain their own instances,
       // memories and queues. In-flight messages for the dead actor are denied.
       this.#pump(carrier);
@@ -320,7 +347,11 @@ export class PooledWasmActors {
     return this.#shutdownPromise;
   }
 
-  async spawn(bytes, {expectedSha256, trusted = false} = {}) {
+  async spawn(bytes, {expectedSha256, trusted = false,
+    onTerminalControl} = {}) {
+    if (onTerminalControl !== undefined &&
+        typeof onTerminalControl !== 'function')
+      throw new TypeError('terminal CONTROL observer must be a host callback');
     if (this.#closed) throw Error('actor pool retired');
     // Do not place untrusted or noncooperating code alongside other actors.
     if (trusted !== true) throw Error('pooled WASM actors require trusted guest admission');
@@ -356,7 +387,8 @@ export class PooledWasmActors {
     if (!live.length) throw Error('no live actor carriers');
     const carrier = live[(id - 1) % live.length];
     const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
-      pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
+      pending: new Set(), outstanding: 0, queued: false, stopPromise: null,
+      onTerminalControl};
     this.#actors.set(id, actor);
     await this.#enqueue(actor, 'init', {bytes: snapshot});
     // Opaque, host-minted handle; no actor can access another actor's memory.
