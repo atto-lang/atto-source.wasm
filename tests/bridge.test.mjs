@@ -49,6 +49,33 @@ test("Wasm compiler argv is checked by the actually executed pinned tool",async(
  }finally{await rm(dir,{recursive:true,force:true})}
 });
 
+test("LLVM IR prepublication rejects forged target/main before creating any Wasm artifact",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-invalid-ir-"));
+ try{
+  const source=join(dir,"candidate.atto");
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const invalid=[
+   ["host-target",'target triple = "x86_64-unknown-linux-gnu"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["comment-only",'; target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["duplicate-triple",'target triple = "wasm32-unknown-unknown"\ntarget triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["missing-main",'target triple = "wasm32-unknown-unknown"\ndefine i64 @not_main() { ret i64 42 }\n',/expected i64 @main/]
+  ];
+  for(const [label,ir,diagnostic] of invalid){
+   const compiler=join(dir,label+".sh"),output=join(dir,label+".wasm");
+   const shell="#!/bin/sh\ncat <<'ATTO_INVALID_IR'\n"+ir+"ATTO_INVALID_IR\n";
+   await writeFile(compiler,shell,{mode:0o700});
+   await chmod(compiler,0o700);
+   const pin=hash(await readFile(compiler));
+   await assert.rejects(()=>compileOresToWasm({
+     compiler,source,output,compilerSha256:pin
+   }),diagnostic,label);
+   await assert.rejects(readFile(output),{code:"ENOENT"},label+" generated Wasm");
+   await assert.rejects(readFile(output+".provenance.json"),{code:"ENOENT"},label+" published provenance");
+   await assert.rejects(readFile(output+".artifact.json"),{code:"ENOENT"},label+" published manifest");
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
  try{
