@@ -47,6 +47,8 @@ jobs:
           test "$(git hash-object contracts/guard-v1/canonical-scalar.atto)" = "c86ac476e55074031c0bcda02f5eaf3cb1399477"
           test "$(git hash-object contracts/guard-v1/reject-fallthrough.atto)" = "1ff87aa95ed2537839347e80984c69ae46fdfa17"
           test "$(git hash-object contracts/guard-v1/reject-else.atto)" = "b2bbee98cd3b95ac19462b4efd95a2e98b469154"
+          test "$(git hash-object contracts/class-new-v1/class-scalar-constructor.atto)" = "095fb5a5abe828f83facf9688819fe6c2e401aaa"
+          test "$(git hash-object examples/class-scalar-constructor.ores)" = "095fb5a5abe828f83facf9688819fe6c2e401aaa"
       - name: Reject unprotected default branch before private source authorization
         shell: bash
         env:
@@ -156,6 +158,7 @@ jobs:
           path: |
             atto-core-real-guest.log
             atto-guard-real-guest.log
+            atto-class-new-real-guest.log
             atto-core-real-guest-receipt.txt
           if-no-files-found: warn
  atto-guard-real-guest.log
@@ -172,6 +175,36 @@ jobs:
           test "$(grep -c '"kind":"executed-wasm-guest"' atto-guard-real-guest.log)" = "6"
           test "$(grep -c '"kind":"native-compiler-rejection"' atto-guard-real-guest.log)" = "2"
           echo 'ATTO_WASM_GUARD_V1_COMPILER_BACKED_TEST_EXECUTED=YES' >> atto-core-real-guest-receipt.txt
+      - name: Prove new-only class construction through real LLVM-to-Wasm execution
+        shell: bash
+        env:
+          ATTO_REQUIRE_CLASS_NEW_WASM_GUEST: '1'
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/class-new-v1-native-wasm-guest.test.mjs 2>&1 | tee atto-class-new-real-guest.log
+          grep -E '^# pass 3
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atto-core-real-wasm-source-bound
+          path: |
+            atto-core-real-guest.log
+            atto-core-real-guest-receipt.txt
+          if-no-files-found: warn
+ atto-class-new-real-guest.log
+          grep -E '^# skipped 0
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atto-core-real-wasm-source-bound
+          path: |
+            atto-core-real-guest.log
+            atto-core-real-guest-receipt.txt
+          if-no-files-found: warn
+ atto-class-new-real-guest.log
+          test "$(grep -c '"kind":"executed-class-new-wasm"' atto-class-new-real-guest.log)" = "4"
+          test "$(grep -c '"kind":"compiler-rejected-class-call"' atto-class-new-real-guest.log)" = "3"
+          echo 'ATTO_WASM_CLASS_NEW_V1_COMPILER_BACKED_TEST_EXECUTED=YES' >> atto-core-real-guest-receipt.txt
       - name: Preserve real process evidence
         if: always()
         uses: actions/upload-artifact@v4
