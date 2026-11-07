@@ -403,3 +403,39 @@ test("forged typed CONTROL without retirement causes physical carrier exit, not 
     await pool.close();
   }
 });
+
+
+test("manual STOP rejects all 64 bounded pending generation waiters without restarting", {
+  timeout: 90000
+}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1});
+  let supervisor;
+  try {
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes), maxRestarts: 4
+    });
+    const handle = supervisor.current();
+    const waiters = Array.from({length: 64},
+      () => supervisor.waitForGeneration(handle.generation));
+    const settled = Promise.allSettled(waiters);
+    await assert.rejects(supervisor.waitForGeneration(handle.generation),
+      /waiter quota exceeded/);
+    await handle.stop();
+    const outcomes = await settled;
+    assert.equal(outcomes.length, 64);
+    for (const value of outcomes) {
+      assert.equal(value.status, "rejected");
+      assert.match(String(value.reason), /supervisor explicitly stopped/);
+    }
+    assert.equal(supervisor.status.phase, "stopped");
+    assert.equal(supervisor.status.restarts, 0);
+    assert.equal(pool.typedTerminalControlCount, 0);
+    assert.equal(pool.actorCount, 0);
+    assert.equal(pool.activeWorkerCount, 1);
+    await assert.rejects(handle.send(1n), /STALE_ACTOR_GENERATION/);
+  } finally {
+    await supervisor?.close();
+    await pool.close();
+  }
+});
