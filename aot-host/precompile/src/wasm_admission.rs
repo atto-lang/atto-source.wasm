@@ -49,6 +49,15 @@ mod tests{
   assert!(validate_scalar_module(&[1,2,3]).is_err());
  }
  #[test]
+ fn actor_host_import_must_be_rejected_not_reinterpreted_as_scalar(){
+  // Minimal core module importing env.f (func type 0). A tenant-actor
+  // module with imports must never enter the scalar Wasmtime AOT profile.
+  // This preflight runs before Wasmtime native code generation.
+  let imported=[0,97,115,109,1,0,0,0,
+                2,9,1,3,101,110,118,1,102,0,0];
+  assert!(validate_scalar_module(&imported).is_err());
+ }
+ #[test]
  fn reject_start_table_and_hidden_memory(){
   // One otherwise well-formed (but empty) Wasm memory section declares a
   // private 1..2 memory; type/code/function sections are not needed for this
