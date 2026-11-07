@@ -51,7 +51,7 @@ class ScalarBridgeNegatives(unittest.TestCase):
         self.denied(self.run_gate(source=alt), "only actual .atto")
 
     def test_denies_wrong_source_digest(self):
-        self.denied(self.run_gate(digest="0"*64), "source.atto" if False else "input SHA256")
+        self.denied(self.run_gate(digest="0"*64), "input SHA256")
 
     def test_denies_missing_compiler(self):
         self.denied(self.run_gate(tool=self.work / "missing-tool"), "missing or nonexecutable tool")
