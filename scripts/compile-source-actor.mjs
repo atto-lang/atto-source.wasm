@@ -52,7 +52,10 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     throw Error('compiler binary SHA-256 mismatch');
 
   const scratch = await mkdtemp(join(tmpdir(), 'ores-source-actor-wasm-'));
-  const stagedSource = join(scratch, 'source.ores');
+  // Preserve the source language's canonical .atto suffix through the
+  // immutable private compiler snapshot. Legacy .ores remains accepted only
+  // for explicit compatibility tests; never rewrite source bytes.
+  const stagedSource = join(scratch, source.endsWith('.atto') ? 'source.atto' : 'source.ores');
   const stagedCompiler = join(scratch, 'compiler-exact');
   const output = join(scratch, 'actor.wasm');
   try {
