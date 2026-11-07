@@ -1,0 +1,149 @@
+# The PR job is source-only. Real compiler-backed execution is MANUAL,
+# default-branch only, on an independently approved, preprovisioned runner.
+# There is NO LLVM private-source checkout, clone, mirror, or binary download.
+name: AttoLang f64 exact-head Wasm Worker evidence
+on:
+  pull_request:
+    paths:
+      - .github/workflows/f64-exact-head-guest.yml
+      - scripts/f64-evidence-admission.mjs
+      - tests/f64-evidence-admission.test.mjs
+      - tests/f64-atto-compiler-parity.test.mjs
+      - tests/wasm-f64-profile.test.mjs
+      - scripts/compile-ores.mjs
+      - scripts/atomic-release.mjs
+      - src/isolated-runner.mjs
+      - src/guest-worker.mjs
+      - package.json
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wasm-f64-exact-head-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+jobs:
+  source-only-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Verify exact Wasm source identity
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git write-tree)" = "$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          echo "WASM_HEAD=$EXPECTED_HEAD WASM_TREE=$(git rev-parse 'HEAD^{tree}')"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Run bridge, synthetic f64, and forged-receipt rejection tests
+        run: npm test
+      - name: State explicitly that no compiler-backed guest ran in this lane
+        run: |
+          echo 'WASM_F64_SOURCE_ONLY=YES'
+          echo 'WASM_F64_REAL_COMPILER_GUEST=NOT_EXECUTED'
+          echo 'WASM_F64_RELEASE=NOT_CERTIFIED'
+
+  approved-real-guest:
+    # Untrusted pull-request code never gets the approved runner or secrets.
+    # An environment without configured independent reviewers is NOT approval:
+    # the operator must configure the protected environment and approved pins.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    environment: atto-f64-guest-approval
+    runs-on: [self-hosted, linux, x64, atto-f64-approved]
+    timeout-minutes: 25
+    env:
+      ORESLANG_LLVM_SOURCE_SHA: ${{ secrets.ATTO_F64_APPROVED_LLVM_HEAD }}
+      ORESLANG_LLVM_SOURCE_TREE: ${{ secrets.ATTO_F64_APPROVED_LLVM_TREE }}
+      ORESLANG_LLVM_COMPILER_SHA256: ${{ secrets.ATTO_F64_APPROVED_COMPILER_SHA256 }}
+      ORESLANG_LLVM_RECEIPT_SHA256: ${{ secrets.ATTO_F64_APPROVED_RECEIPT_SHA256 }}
+      ORESLANG_LLVM_COMPILER: ${{ vars.ATTO_F64_APPROVED_COMPILER_PATH }}
+      ORESLANG_LLVM_RECEIPT_PATH: ${{ vars.ATTO_F64_APPROVED_RECEIPT_PATH }}
+      ORESLANG_F64_PARITY_REQUIRED: '1'
+    steps:
+      - name: Checkout only this Wasm repository at the selected immutable head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Bind Wasm root tree and reject unapproved host setup
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git write-tree)" = "$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          [[ "$ORESLANG_LLVM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ORESLANG_LLVM_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$ORESLANG_LLVM_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$ORESLANG_LLVM_RECEIPT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test -n "$RUNNER_NAME"
+          test -n "$ORESLANG_LLVM_RECEIPT_PATH"
+          test -n "$ORESLANG_LLVM_COMPILER"
+          {
+            echo "ORESLANG_WASM_SOURCE_SHA=$EXPECTED_HEAD"
+            echo "ORESLANG_WASM_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+            echo "ORESLANG_F64_GUEST_EVIDENCE_PATH=$RUNNER_TEMP/f64-worker-executed.json"
+          } >> "$GITHUB_ENV"
+      - name: Require independently pinned executed LLVM evidence and installed binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version | grep -E '^v22[.]'
+          clang --version | sed -n '1p'
+          command -v sha256sum
+          node scripts/f64-evidence-admission.mjs
+      - name: Execute the real .atto -> LLVM -> Wasm -> isolated Worker gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/f64-atto-compiler-parity.test.mjs |
+            tee "$RUNNER_TEMP/f64-worker-node.log"
+          grep -Fx '# tests 1' "$RUNNER_TEMP/f64-worker-node.log"
+          grep -Fx '# pass 1' "$RUNNER_TEMP/f64-worker-node.log"
+          grep -Fx '# fail 0' "$RUNNER_TEMP/f64-worker-node.log"
+          grep -Fx '# skipped 0' "$RUNNER_TEMP/f64-worker-node.log"
+          test -s "$RUNNER_TEMP/f64-worker-executed.json"
+      - name: Publish an exact SHA-bound execution receipt, NOT release certification
+        shell: bash
+        run: |
+          set -euo pipefail
+          digest="$(sha256sum "$ORESLANG_F64_GUEST_EVIDENCE_PATH" | cut -d' ' -f1)"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "ORESLANG_F64_GUEST_EVIDENCE_SHA256=$digest" >> "$GITHUB_ENV"
+          ORESLANG_F64_GUEST_EVIDENCE_SHA256="$digest" node --input-type=module -e '
+            import {finalizeF64Approval} from "./scripts/f64-evidence-admission.mjs";
+            import {writeFile} from "node:fs/promises";
+            const result=await finalizeF64Approval();
+            if(!/^[0-9a-f]{40}$/.test(result.wasmSourceCommit||"") ||
+                !/^[0-9a-f]{40}$/.test(result.wasmSourceTree||""))
+              throw Error("Wasm source/tree provenance absent");
+            await writeFile(process.env.RUNNER_TEMP+"/f64-combined-executed.json",
+              JSON.stringify({...result,runId:process.env.GITHUB_RUN_ID,
+                runner:process.env.RUNNER_NAME},null,2)+"\\n",
+              {flag:"wx",mode:0o600});
+          '
+          test -s "$RUNNER_TEMP/f64-combined-executed.json"
+      - name: Upload hashes/evidence only; no private source, compiler or Wasm binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-f64-approved-guest-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/f64-worker-executed.json
+            ${{ runner.temp }}/f64-combined-executed.json
+          if-no-files-found: error
+          retention-days: 7
