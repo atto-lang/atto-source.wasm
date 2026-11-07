@@ -20,13 +20,18 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 
 // wasm32 alone does not prevent hosted Std or allocator provider injection.
 // Both scalar ABIs use the same explicit fail-closed Core compiler recipe.
-export function wasmCoreCompilerArgs(source) {
+export function wasmCoreCompilerArgs(source,profile="core-wasm.i64-v1") {
  if(typeof source!=="string" || !isAbsolute(source) || source.includes("\0"))
   throw new TypeError("absolute staged .atto/.ores source path required");
  if(![".atto",".ores"].includes(extname(source).toLowerCase()))
   throw new TypeError("staged guest source requires .atto or .ores extension");
- return ["--library-profile=core","--tree-shake","--tree-shake-root=main",
-         "--target=wasm32",source];
+ if(profile!=="core-wasm.i64-v1" && profile!=="core-wasm.f64-v1")
+  throw new TypeError("unsupported core Wasm scalar profile");
+ const args=["--library-profile=core","--tree-shake","--tree-shake-root=main",
+             "--target=wasm32"];
+ if(profile==="core-wasm.f64-v1")args.push("--wasm-core-abi=f64");
+ args.push(source);
+ return args;
 }
 
 
@@ -424,7 +429,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource));
+ const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource,profile));
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish

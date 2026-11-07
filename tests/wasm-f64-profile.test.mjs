@@ -106,11 +106,13 @@ test("f64 compiler bridge and atomic release bind LLVM double ABI to manifest (s
   try{
     const compiler=join(dir,"compiler.sh");
     const source=join(dir,"main.atto"),output=join(dir,"float.wasm");
-    await writeFile(compiler,"#!/bin/sh\nset -eu\ntest \"$#\" -eq 5\n"+
+    await writeFile(compiler,"#!/bin/sh\nset -eu\ntest \"$#\" -eq 6\n"+
       "test \"$1\" = '--library-profile=core'\n"+
       "test \"$2\" = '--tree-shake'\n"+
       "test \"$3\" = '--tree-shake-root=main'\n"+
       "test \"$4\" = '--target=wasm32'\n"+
+      "test \"$5\" = '--wasm-core-abi=f64'\n"+
+      "case \"$6\" in *.atto) ;; *) exit 89 ;; esac\n"+
       "printf 'target triple = \"wasm32-unknown-unknown\"\\n"+
       "define double @main() { ret double 3.750000e+00 }\\n'\n",{mode:0o700});
     await writeFile(source,"define pub fnc main(): float { return 1.5 + 2.25; }\n");

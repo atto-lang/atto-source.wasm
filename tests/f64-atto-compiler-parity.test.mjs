@@ -25,7 +25,7 @@ test("pinned real AttoLang LLVM float source compiles and executes in a Wasm wor
   const dir=await mkdtemp(join(tmpdir(),"atto-f64-real-guest-"));
   try{
     const source=join(dir,"main.atto"),output=join(dir,"float.wasm");
-    const positive="define pub fnc main(): float { return 1.5 + 2.25; }\n";
+    const positive="pub fnc main(): float { return 1.5 + 2.25; }\n";
     await writeFile(source,positive);
     const built=await compileOresToWasm({compiler,compilerSha256:pin,source,output,
       profile:"core-wasm.f64-v1",environment:"browser",publication:"atomic"});
@@ -42,7 +42,7 @@ test("pinned real AttoLang LLVM float source compiles and executes in a Wasm wor
     assert.equal(executed.admission.hostCapabilities,0);
     // An i64 source MUST NOT be published under the binary64 ABI.
     const invalidOutput=join(dir,"wrong-type.wasm");
-    await writeFile(source,"define pub fnc main(): int { return 42; }\n");
+    await writeFile(source,"pub fnc main(): int { return 42; }\n");
     await assert.rejects(()=>compileOresToWasm({
       compiler,compilerSha256:pin,source,output:invalidOutput,
       profile:"core-wasm.f64-v1",environment:"browser",publication:"atomic"

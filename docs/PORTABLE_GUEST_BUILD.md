@@ -54,3 +54,11 @@ Bridge shell stubs are not real AttoLang source execution evidence.
 The LLVM float draft #1517 disallows f64 `main` and has unresolved
 numeric semantics; compiler-backed f64 source parity remains
 **NOT_EXECUTED / NOT_CERTIFIED** pending a reviewed Wasm-specific entry ABI.
+
+## Pinned native f64 Core compiler argv
+
+The i64 profile uses the established five compiler arguments; f64 adds the
+explicit --wasm-core-abi=f64 selector before its staged source path. Both
+retain --library-profile=core and --target=wasm32. No auto-detection, host
+imports or source compiler fallbacks are permitted. LLVM PR #1517 remains
+under review. Stub bridge evidence does not establish real source parity.

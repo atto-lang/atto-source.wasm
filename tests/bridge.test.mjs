@@ -77,6 +77,11 @@ test("both scalar ABIs use an explicit Core-only compiler invocation",()=>{
  const args=wasmCoreCompilerArgs("/tmp/main.atto");
  assert.deepEqual(args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
   "--target=wasm32","/tmp/main.atto"]);
+ const f64args=wasmCoreCompilerArgs("/tmp/main.atto","core-wasm.f64-v1");
+ assert.deepEqual(f64args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
+  "--target=wasm32","--wasm-core-abi=f64","/tmp/main.atto"]);
+ assert.throws(()=>wasmCoreCompilerArgs("/tmp/main.atto","core-wasm.f32-v1"),
+  /unsupported core Wasm scalar profile/);
  for(const bad of ["main.atto","/tmp/code.json","/tmp/main.atto\\0suffix",null,4])
   assert.throws(()=>wasmCoreCompilerArgs(bad),/(absolute staged|requires)/);
 });
