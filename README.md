@@ -103,3 +103,25 @@ incorrect signed-i64 results fail. The local SHA self-test uses a fake binary
 only to prove tamper detection and is **not** guest parity evidence. Workflows
 with `steps=[]`/zero executed steps remain infrastructure failures.
 CPU/GPU execution expressions, nested placement and `nb`/stream parity: see [proposed v1 contract](docs/CPU_GPU_NB_GRAPH_V1.md). This is **not** a claim that the backend executes GPU or streamed source blocks.
+## ODB1 scalar-shift Wasm bridge gate (draft)
+
+The canonical OresDB WAL frame encoder uses signed `int >> 8` rather than
+`int / 256` (which yields floating point in the Java/Graal reference).
+`npm run test:real-odb1-shr8` is a **required, no-skip** test using a pinned
+real `oreslang-llvmc` binary, a clean exact LLVM compiler source commit/tree,
+Clang wasm32 code generation, atomic artifact provenance, and eight actual
+zero-import, `() -> i64` core-Wasm guests through the Node Worker runner.
+Three invalid scalar sources must reject without a release.
+
+Set absolute `ORESLANG_LLVM_COMPILER` and `ORESLANG_LLVM_SOURCE_ROOT` and the
+lowercase hex `ORESLANG_LLVM_COMPILER_SHA256` (64 chars),
+`ORESLANG_LLVM_SOURCE_SHA` and `ORESLANG_LLVM_SOURCE_TREE` (40 chars each).
+`npm test` has separate host-only admission checks; those must not count as
+real compiler or Wasmtime evidence. The optional test fails nonzero if the
+required real compiler or source provenance is missing.
+
+This is *not* an OresDB WAL guest: current Wasm has no `List<int>`, `Result`,
+`Frame`, stdout ABI, actor-isolate filesystem capability, fsync, or replay.
+Node Worker execution is **not Wasmtime OS isolation or a production tenant
+sandbox**. Full source-level ODB1 and durability parity require real
+Wasm32/Wasmtime artifacts and guest-to-host capability contracts separately.
