@@ -102,3 +102,4 @@ missing/malformed digest, executable hash drift, missing guest execution or
 incorrect signed-i64 results fail. The local SHA self-test uses a fake binary
 only to prove tamper detection and is **not** guest parity evidence. Workflows
 with `steps=[]`/zero executed steps remain infrastructure failures.
+CPU/GPU execution expressions, nested placement and `nb`/stream parity: see [proposed v1 contract](docs/CPU_GPU_NB_GRAPH_V1.md). This is **not** a claim that the backend executes GPU or streamed source blocks.
