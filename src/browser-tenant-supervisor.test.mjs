@@ -122,7 +122,7 @@ test('parent: bounded pending lane and fail-closed deadline', async () => {
   const ref = await started;
   const unresolved = Array.from({length: 64}, () => s.send(ref, 1n).catch(x => x));
   await assert.rejects(s.send(ref, 2n), /mailbox budget exceeded/);
-  await assert.rejects(unresolved[0], /deadline expired/);
+  assert.match(String(await unresolved[0]), /deadline expired/);
   const others = await Promise.all(unresolved);
   assert.equal(others.length, 64);
   assert.ok(others.every(e => e instanceof Error));
