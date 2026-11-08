@@ -58,13 +58,18 @@ export function assess(snapshot, backend, number, expected_head) {
     for (const r of reviews) {
       const login = r?.user?.login;
       if (!name_ok(login) || !name_ok(r?.state)) { deny('MALFORMED_REVIEW'); continue; }
-      latest.set(login.toLowerCase(), r);
+      // GitHub COMMENTED does not revoke a prior APPROVED/CHANGES_REQUESTED state.
+      // DISMISSED and later submitted decisive reviews do supersede it.
+      if (r.state !== 'COMMENTED') latest.set(login.toLowerCase(), r);
     }
-    const owner = latest.get('oresoftware');
-    if (!owner || author.toLowerCase() === 'oresoftware'
-        || owner.state !== 'APPROVED' || owner.commit_id !== expected_head) {
-      deny('MISSING_INDEPENDENT_EXACT_HEAD_APPROVAL');
-    }
+    // Exactly one of the designated reviewers may approve, but never the author.
+    // The diagnostic remains advisory and cannot authorize merging.
+    const approved = ['oresoftware', 'the1mills'].some(login => {
+      const r = latest.get(login);
+      return login !== author.toLowerCase()
+        && r?.state === 'APPROVED' && r.commit_id === expected_head;
+    });
+    if (!approved) deny('MISSING_INDEPENDENT_EXACT_HEAD_APPROVAL');
     if ([...latest.values()].some(r => r.state === 'CHANGES_REQUESTED')) {
       deny('OUTSTANDING_CHANGE_REQUEST');
     }
