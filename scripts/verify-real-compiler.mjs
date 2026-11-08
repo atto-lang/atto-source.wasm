@@ -31,11 +31,21 @@ export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
-export function assertGeneratorV1FrontendRejection(frontend) {
+export function assertGeneratorV1FrontendRejection(
+  frontend,
+  expectedDiagnostic =
+    "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+  return true;
+}
+export function assertGeneratorV1WasmRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   if (!String(frontend.stderr || "").includes(
-      "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"))
-    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+      "native generator v1 is not yet admitted for wasm32/Cortex-M targets"))
+    throw Error("generator-v1 rejection did not come from the required wasm32 compiler gate");
   return true;
 }
 export function assertInvertedFrontendRejection(frontend) {
@@ -349,20 +359,31 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
-    for (const [name, body] of [
-      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+    for (const [name, body, expectedDiagnostic] of [
+      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-min", "pub gen* values(): Iterator<int> { yield -9223372036854775808; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-max", "pub gen* values(): Iterator<int> { yield 9223372036854775807; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native async gen* requires scheduler-owned async iterator continuation lowering"],
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native suspend gen* requires scheduler-owned async iterator continuation lowering"],
+      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"]
     ]) {
       const source = join(work, "generator-v1-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      assertGeneratorV1FrontendRejection(frontendResult);
+      if (name.startsWith("sync")) assertGeneratorV1WasmRejection(frontendResult);
+      else assertGeneratorV1FrontendRejection(frontendResult, expectedDiagnostic);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
       )).bytes) !== compilerSha256)
