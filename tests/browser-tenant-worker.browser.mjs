@@ -33,7 +33,7 @@ test('real Chromium: one tenant Worker with two private Wasm32 actor instances',
   const source=join(scratch,'actor.c'),out=join(scratch,'actor.wasm');
   await writeFile(source,`static long long state;
 __attribute__((export_name("oreslang_wasm_actor_init"))) void initialize(void){state=0;}
-__attribute__((export_name("oreslang_wasm_actor_on_message"))) long long receive(long long v){state+=v;return state;}
+__attribute__((export_name("oreslang_wasm_actor_on_message"))) long long receive(long long v){if(v==-1)__builtin_trap();state+=v;return state;}
 __attribute__((export_name("oreslang_wasm_actor_teardown"))) void teardown(void){state=0;}
 `);
   const compiler=spawnSync('clang',['--target=wasm32','-nostdlib','-O1',source,
@@ -42,6 +42,7 @@ __attribute__((export_name("oreslang_wasm_actor_teardown"))) void teardown(void)
   assert.equal(compiler.status,0,'real Clang wasm32 required: '+(compiler.stderr||compiler.error));
   const binary=stripUnusedClangTable(await readFile(out));
   const html=`<!doctype html><meta charset="utf-8"><body data-result="pending"><script type="module">
+import {BrowserTenantSupervisor} from '/src/browser-tenant-supervisor.mjs';
 const bytes=Uint8Array.from(atob('${binary.toString('base64')}'),c=>c.charCodeAt(0));
 const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),
   b=>b.toString(16).padStart(2,'0')).join('');
@@ -76,6 +77,35 @@ try {
    throw Error('stale actor handle was not rejected');
  if((await ask(1,'send',{value:3n})).result!==3n)throw Error('old actor state leaked');
  if((await ask(2,'send',{value:1n})).result!==12n)throw Error('neighbor state lost');
+ // Real browser parent supervisor: two actors in ONE tenant Worker; a third
+ // actor in a DIFFERENT Worker. A pinned synthetic fixture is trusted in this
+ // test only. User-supplied hashes are never production authorization.
+ const manifest=[{name:'reviewed-fixture',bytes,sha256:digest}];
+ const tenantA=new BrowserTenantSupervisor({workerUrl:'/src/browser-tenant-worker.mjs',
+   manifest,deadlineMs:2500});
+ const tenantB=new BrowserTenantSupervisor({workerUrl:'/src/browser-tenant-worker.mjs',
+   manifest,deadlineMs:2500});
+ try {
+   const x=await tenantA.spawn(1,'reviewed-fixture');
+   const y=await tenantA.spawn(2,'reviewed-fixture');
+   const z=await tenantB.spawn(1,'reviewed-fixture');
+   if(await tenantA.send(x,5n)!==5n || await tenantA.send(y,10n)!==10n ||
+      await tenantA.send(x,2n)!==7n || await tenantA.send(y,1n)!==11n ||
+      await tenantB.send(z,3n)!==3n)throw Error('supervised actors leaked state');
+   let crossDenied=false;
+   try {await tenantB.send(x,1n);}catch{crossDenied=true;}
+   if(!crossDenied)throw Error('cross-tenant capability was accepted');
+   let faultDenied=false;
+   try {await tenantA.send(x,-1n);}catch(e){faultDenied=/actor-local/.test(String(e));}
+   if(!faultDenied || tenantA.closed)throw Error('actor-local fault poisoned whole tenant');
+   if(await tenantA.send(y,1n)!==12n)throw Error('neighbor corrupted by actor fault');
+   if(await tenantB.send(z,1n)!==4n)throw Error('second tenant corrupted by fault');
+   const replacement=await tenantA.spawn(1,'reviewed-fixture');
+   let staleDenied=false;
+   try {await tenantA.send(x,1n);}catch{staleDenied=true;}
+   if(!staleDenied || await tenantA.send(replacement,3n)!==3n)
+     throw Error('retired actor identity or memory was reused');
+ } finally {tenantA.close();tenantB.close();}
  document.body.dataset.result='pass';
 } catch(e) {document.body.dataset.result='fail';document.body.textContent=String(e?.message||e);}
 finally{worker.terminate();}
