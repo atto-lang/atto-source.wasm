@@ -280,6 +280,11 @@ if "$runner" --tenant-lifetime-fuel-smoke "$tmp/tenant-counter.cwasm" \
   echo "lifetime fuel smoke accepted incorrect native AOT digest" >&2
   exit 1
 fi
+if "$runner" --tenant-lifetime-fuel-smoke "$tmp/tenant-counter.cwasm" \
+   "$tenant_pin" 1 > /dev/null 2>&1; then
+  echo "lifetime fuel smoke silently changed its 128-unit test slice" >&2
+  exit 1
+fi
 
 
 
