@@ -19,6 +19,8 @@
     "test:bool-wasm32": "ORESLANG_BOOL_WASM_PARITY_REQUIRED=1 node --test tests/boolean-source-parity-wasm32.test.mjs",
     "test:browser-tenant": "node --test tests/browser-tenant-worker.browser.mjs",
     "test:browser-tenant-node": "node --test tests/browser-tenant-node-smoke.mjs",
-    "test:browser-atto-tenant-node": "node --test tests/browser-atto-tenant-node-smoke.mjs"
+    "test:browser-atto-tenant-node": "node --test tests/browser-atto-tenant-node-smoke.mjs",
+    "test:browser-atto-compiler-node": "node --test tests/browser-atto-compiler-parity.mjs",
+    "test:browser-atto-compiler-chromium": "node --test tests/browser-atto-compiler-chromium.mjs"
   }
 }
