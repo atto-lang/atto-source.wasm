@@ -21,7 +21,7 @@ const name_ok = s => typeof s === 'string' && /^[\x20-\x7e]{1,180}$/.test(s)
 const housekeeping = new Set(['set up job', 'complete job', 'initialize containers',
   'start containers', 'stop containers']);
 const meaningful = s => name_ok(s) && !housekeeping.has(s.toLowerCase())
-  && !/^(pre|post)\s/i.test(s);
+  && !/^(?:pre|post)(?:[\s:_-]|$)/i.test(s);
 const own = (o, k) => o !== null && typeof o === 'object'
   && Object.prototype.hasOwnProperty.call(o, k);
 
@@ -95,6 +95,7 @@ export function assess(snapshot, backend, number, expected_head) {
         continue;
       }
       const jobIds = new Set();
+      const jobNames = new Set();
       for (const job of jobs) {
         if (!job || !Number.isSafeInteger(job.id) || job.id < 1
             || jobIds.has(job.id) || job.run_id !== run?.id
@@ -105,6 +106,11 @@ export function assess(snapshot, backend, number, expected_head) {
           deny('UNVERIFIED_JOB_OR_RUNNER');
         }
         if (job?.id) jobIds.add(job.id);
+        if (name_ok(job?.name)) {
+          const key = job.name.toLowerCase();
+          if (jobNames.has(key)) deny('DUPLICATE_JOB_NAME');
+          jobNames.add(key);
+        }
         const steps = job?.steps;
         if (!Array.isArray(steps) || steps.length === 0 || steps.length > 200
             || !steps.some(s => s && meaningful(s.name)
