@@ -53,6 +53,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          NODE_PATH: ''
+          NODE_OPTIONS: ''
         run: |
           set -euo pipefail
           node scripts/run_merge_readiness_exact_head.mjs "$EXPECTED_HEAD" \
