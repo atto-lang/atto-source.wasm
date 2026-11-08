@@ -13,12 +13,21 @@ jobs:
   integration:
     # Credentialed build may execute only from the protected default branch.
     # Never dispatch private compiler source into arbitrary PR-controlled code.
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.ref_protected
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       ORESLANG_LLVM_SOURCE_SHA: b83f540269a256e549cc9160b6b43bf37d33fb0f
     steps:
+      - name: Reject unprotected or non-manual source invocation before secret access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_ACTIONS" = 'true'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_REF_PROTECTED" = 'true'
+          test "$GITHUB_REPOSITORY" = 'ores-truffle-oreslang/oreslang-source.wasm'
       - name: Require authorized private LLVM read access
         shell: bash
         env:
@@ -42,6 +51,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test -z "$(git status --porcelain --untracked-files=no)"
           echo "ORESLANG_BOOL_WASM_EXPECTED_HEAD=$EXPECTED_HEAD" >> "$GITHUB_ENV"
+          echo "ORESLANG_BOOL_WASM_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_ENV"
           echo "ORESLANG_BOOL_WASM_RECEIPT_PATH=$RUNNER_TEMP/boolean-wasm32-guest-receipt.json" >> "$GITHUB_ENV"
           echo "WASM_SOURCE_HEAD=$EXPECTED_HEAD TREE=$(git rev-parse 'HEAD^{tree}')"
       - name: Check out immutable private LLVM compiler source
@@ -85,6 +95,25 @@ jobs:
         run: npm run test:real-compiler
       - name: Execute mandatory pinned boolean Wasm32 guest and type rejection matrix
         run: npm run test:bool-wasm32
+      - name: Require five compiler-owned negative rejections and positive IR evidence
+        shell: bash
+        env:
+          ATTO_NATIVE_NEGATIVE_REQUIRED: '1'
+          ATTO_NATIVE_NEGATIVE_RECEIPT_PATH: ${{ runner.temp }}/atto-native-negative-frontend.json
+        run: |
+          set -euo pipefail
+          test -n "${ORESLANG_LLVM_COMPILER:-}"
+          test -n "${ORESLANG_LLVM_COMPILER_SHA256:-}"
+          npm run test:real-negative-frontend | tee "$RUNNER_TEMP/atto-native-negative-frontend.tap"
+          test -s "$ATTO_NATIVE_NEGATIVE_RECEIPT_PATH"
+          node scripts/verify-native-negative-receipt.mjs "$ATTO_NATIVE_NEGATIVE_RECEIPT_PATH"
+      - name: Upload source-local compiler-negative evidence (not guest or AOT certification)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wasm-native-frontend-negative-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/atto-native-negative-frontend.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload source-bound boolean guest evidence (not Java certification)
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
