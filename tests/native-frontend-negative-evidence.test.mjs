@@ -8,17 +8,11 @@ import {tmpdir} from 'node:os';
 import {join, isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
+import {NEGATIVE_FIXTURES as negative, POSITIVE_FIXTURE as positive,
+  evaluateNativeNegativeReceipt} from '../scripts/verify-native-negative-receipt.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fixtures = new URL('./fixtures/boolean-v1/', import.meta.url);
-const negative = Object.freeze([
-  ['bool-as-int', '0211a57f7f8108ca467ff76f3b8c9e6e834178aa', 'native function return requires int, got bool'],
-  ['truthy-int', '2f917d5683fc501c282e55bccec1d52a0b2118ba', 'native guarded return condition requires bool, got int'],
-  ['bool-arithmetic', '26c4cb3ca196f5d88ed756645138c75841e50e05', 'arithmetic requires int, got bool'],
-  ['comparison-type', '49d6d800fb043bdf06c224c8894ee997087b7ea5', 'equality operands require the same scalar type'],
-  ['not-integer', 'd3c8dd38ecf218f32b64df8acf785acdfe0309a4', "logical '!' requires bool, got int"]
-]);
-const positive = ['literal-not', 'b241dc1838f88e55c1e54e1774d0863fba4c8011'];
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const blobSha = bytes => createHash('sha1')
   .update(Buffer.from('blob ' + bytes.length + '\0', 'utf8'))
@@ -42,7 +36,10 @@ export function requireCompilerIdentity(env) {
       !validSha(env.ORESLANG_LLVM_COMPILER_SHA256,64) ||
       !validSha(env.ORESLANG_LLVM_SOURCE_SHA,40) ||
       !validSha(env.ORESLANG_LLVM_SOURCE_TREE,40) ||
-      !validSha(env.ORESLANG_BOOL_WASM_EXPECTED_HEAD,40)) {
+      !validSha(env.ORESLANG_BOOL_WASM_EXPECTED_HEAD,40) ||
+      (env.ATTO_NATIVE_NEGATIVE_RECEIPT_PATH &&
+       (!validSha(env.ORESLANG_BOOL_WASM_SOURCE_TREE,40) ||
+        !isAbsolute(env.ATTO_NATIVE_NEGATIVE_RECEIPT_PATH)))) {
     throw Error('NOT_EXECUTED: pinned native compiler, source tree and Wasm head required');
   }
   return env;
@@ -88,7 +85,8 @@ test('missing, malformed or relative compiler evidence fails closed (HOST ONLY)'
     ORESLANG_LLVM_COMPILER_SHA256:'c'.repeat(64),
     ORESLANG_LLVM_SOURCE_SHA:'a'.repeat(40),
     ORESLANG_LLVM_SOURCE_TREE:'b'.repeat(40),
-    ORESLANG_BOOL_WASM_EXPECTED_HEAD:'d'.repeat(40)};
+    ORESLANG_BOOL_WASM_EXPECTED_HEAD:'d'.repeat(40),
+    ORESLANG_BOOL_WASM_SOURCE_TREE:'e'.repeat(40)};
   assert.equal(requireCompilerIdentity(good),good);
   for (const [key,value] of [
     ['ORESLANG_LLVM_COMPILER','./compiler'],
@@ -102,9 +100,10 @@ test('missing, malformed or relative compiler evidence fails closed (HOST ONLY)'
 const demand = process.env.ATTO_NATIVE_NEGATIVE_REQUIRED ?? '0';
 if (!['0','1'].includes(demand)) throw Error('ATTO_NATIVE_NEGATIVE_REQUIRED must be 0 or 1');
 const required = demand === '1';
-const ready = Boolean(process.env.ORESLANG_LLVM_COMPILER);
+// Never let a compiler path alone turn ordinary PR/npm host checks into a
+// credentialed compiler execution claim. The required integration step opts in.
 test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR control', {
-  skip: !ready && !required,
+  skip: !required,
   timeout: 180000
 }, async () => {
   const env = requireCompilerIdentity(process.env);
@@ -120,6 +119,14 @@ test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR 
   assert.equal(checkout.status,0);
   assert.equal(checkout.stdout.trim(),env.ORESLANG_BOOL_WASM_EXPECTED_HEAD,
     'Wasm checkout differs from expected exact head');
+  const tree = spawnSync('git',['rev-parse','HEAD^{tree}'],{
+    cwd:root,encoding:'utf8',timeout:5000,maxBuffer:65536
+  });
+  assert.ifError(tree.error);
+  assert.equal(tree.status,0);
+  if (env.ATTO_NATIVE_NEGATIVE_RECEIPT_PATH)
+    assert.equal(tree.stdout.trim(),env.ORESLANG_BOOL_WASM_SOURCE_TREE,
+      'Wasm tree differs from protected checkout evidence');
   const dir = await mkdtemp(join(tmpdir(),'atto-native-negative-'));
   try {
     // Execute an immutable copy of the pinned executable, never its mutable path.
@@ -131,6 +138,7 @@ test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR 
     });
     const goodPath = fileURLToPath(new URL(positive[0]+'.atto',fixtures));
     const goodSource = await fixture(...positive);
+    const negativeReceipts=[];
     const good = run(goodPath);
     assert.ifError(good.error);
     assert.equal(good.signal,null);
@@ -141,10 +149,45 @@ test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR 
     assert.equal(blobSha(goodSource),positive[1]);
     for (const [id,sha,diagnostic] of negative) {
       const path = fileURLToPath(new URL(id+'.atto',fixtures));
-      await fixture(id,sha);
-      assertFrontendRejection(run(path),diagnostic);
+      const input=await fixture(id,sha);
+      const result=run(path);
+      assertFrontendRejection(result,diagnostic);
+      negativeReceipts.push(Object.freeze({
+        id,sourceGitBlob:sha,sourceSha256:sha256(input),
+        diagnostic,compilerExit:result.status,signal:result.signal,
+        stdoutBytes:Buffer.byteLength(result.stdout),emittedIr:false,
+        nativeCompiler:true,compilerSha256:env.ORESLANG_LLVM_COMPILER_SHA256,
+        runAttempt:process.env.GITHUB_RUN_ATTEMPT||'',
+        jobId:process.env.GITHUB_JOB||''
+      }));
       assert.equal(blobSha((await readBoundedRegularFile(path,8192)).bytes),sha,
         'fixture mutated after compiler');
+    }
+    if (env.ATTO_NATIVE_NEGATIVE_RECEIPT_PATH) {
+      const receipt={
+        schema:'atto.native-negative.frontend/1',
+        classification:'COMPILER_FRONTEND_ONLY',result:'EXECUTED',
+        guestExecuted:false,guestAotCertified:false,hostOnly:false,
+        wasmHead:checkout.stdout.trim(),wasmTree:tree.stdout.trim(),
+        llvmHead:env.ORESLANG_LLVM_SOURCE_SHA,
+        llvmTree:env.ORESLANG_LLVM_SOURCE_TREE,
+        compilerSha256:env.ORESLANG_LLVM_COMPILER_SHA256,
+        runId:process.env.GITHUB_RUN_ID||'',
+        runAttempt:process.env.GITHUB_RUN_ATTEMPT||'',
+        jobId:process.env.GITHUB_JOB||'',
+        positive:{
+          id:positive[0],sourceGitBlob:positive[1],
+          sourceSha256:sha256(goodSource),llvmIrSha256:sha256(Buffer.from(good.stdout)),
+          compilerExit:good.status,signal:good.signal,
+          emittedIr:true,stdoutBytes:Buffer.byteLength(good.stdout),
+          nativeCompiler:true
+        },negatives:negativeReceipts
+      };
+      const evaluated=evaluateNativeNegativeReceipt(receipt,process.env);
+      assert.equal(evaluated.classification,'LOCAL_NATIVE_FRONTEND_CASES_RECORDED',
+        'protected source-local receipt context not satisfied');
+      await writeFile(env.ATTO_NATIVE_NEGATIVE_RECEIPT_PATH,
+        JSON.stringify(receipt)+'\n',{flag:'wx',mode:0o600});
     }
     console.log('COMPILER_OWNED_NEGATIVE_5=EXECUTED; WASM_GUEST=NOT_EXECUTED; AOT=NOT_CERTIFIED');
   } finally { await rm(dir,{recursive:true,force:true}); }
