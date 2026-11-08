@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {BatchedCooperationMeter} from '../src/batched-cooperation.mjs';
+import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
 
 test('slow checkpoint is never executed on nonboundary iterations', () => {
   for (const interval of [128, 512]) {
@@ -122,4 +123,18 @@ test('seeded differential batch sizes preserve exact work/phase boundaries', () 
     }
     assert.equal(count, Math.floor(total / interval));
   }
+});
+
+test('unimplemented Wasm guest checkpoint options fail closed before worker creation', async () => {
+  // A host-side batching meter must not be accepted as proof that a raw
+  // wasm32 guest was instrumented. No input is compiled by these negatives.
+  const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
+  await assert.rejects(
+    runIsolatedCoreGuest(bytes, {checkpointInterval: 128}),
+    /unknown guest runner option/
+  );
+  await assert.rejects(
+    runIsolatedCoreGuest(bytes, {actorPhysicalTurns: 1}),
+    /unknown guest runner option/
+  );
 });
