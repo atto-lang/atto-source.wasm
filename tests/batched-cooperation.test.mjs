@@ -154,3 +154,20 @@ test('asynchronous checkpoint callback cannot silently pretend to yield', () => 
   meter.commit_batch(1, () => {later++;});
   assert.equal(later, 1);
 });
+
+
+test('external callers cannot raise or suppress the fixed 512-work threshold', () => {
+  assert.ok(Object.isFrozen(BatchedCooperationMeter));
+  assert.equal(BatchedCooperationMeter.DISPATCH_BUDGET, 512);
+  assert.throws(() => {BatchedCooperationMeter.DISPATCH_BUDGET = 1_000_000;}, TypeError);
+  assert.throws(() => Object.defineProperty(BatchedCooperationMeter, 'DISPATCH_BUDGET', {value: -1}),
+    TypeError);
+  const meter = new BatchedCooperationMeter();
+  let count = 0;
+  for (let i = 0; i < 512; ++i)
+    meter.commit_batch(1, ({overdue}) => {
+      count++;
+      assert.equal(overdue, i >= 511);
+    });
+  assert.equal(count, 4);
+});
