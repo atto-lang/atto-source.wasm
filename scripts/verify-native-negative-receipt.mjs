@@ -122,7 +122,16 @@ export function readNativeNegativeReceipt(filename) {
       n+=got;
     }
     if (n<1 || n>65536) throw Error('receipt length exceeded 64 KiB');
-    return JSON.parse(bytes.toString('utf8',0,n));
+    // The source-owned writer emits JSON.stringify(receipt) + one LF.
+    // Parsing last-wins duplicate keys or replacing malformed UTF-8 would
+    // allow contradictory evidence to reach the local receipt evaluator.
+    const raw=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true})
+      .decode(bytes.subarray(0,n));
+    const parsed=JSON.parse(raw);
+    const canonical=raw.endsWith('\n')?raw.slice(0,-1):raw;
+    if(canonical!==JSON.stringify(parsed))
+      throw Error('noncanonical or ambiguous receipt JSON');
+    return parsed;
   } finally {closeSync(fd);}
 }
 
