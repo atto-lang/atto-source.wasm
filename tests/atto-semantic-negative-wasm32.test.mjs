@@ -5,6 +5,7 @@ import {mkdtemp,writeFile,readFile,stat,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {compileOresToWasm} from '../scripts/compile-ores.mjs';
+import {readAtomicRelease} from '../scripts/atomic-release.mjs';
 import {semanticCompilerRejection} from '../src/oresllm-compiler-evidence.mjs';
 
 // Wasm uses an independently pinned *LLVM* compiler binary. This does not
@@ -124,8 +125,12 @@ for(const [id,source,want] of positives){
     });
     assert.equal(result.compilerSha256,pin);
     assert.equal(result.sourceSha256,sha256(bytes));
-    const wasm=await readFile(output);
+    const release=await readAtomicRelease(output);
+    const wasm=release.wasm;
+    assert.equal(release.manifest.wasmSha256,result.wasmSha256);
     assert.equal(result.wasmSha256,sha256(wasm));
+    assert.deepEqual(release.manifest.imports,[]);
+    assert.deepEqual(release.manifest.requiredCapabilities,[]);
     const {instance}=await WebAssembly.instantiate(wasm,{});
     assert.equal(typeof instance.exports.main,'function');
     assert.equal(instance.exports.main(),want);
