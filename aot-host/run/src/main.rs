@@ -27,7 +27,10 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let tenant_smoke=all_args.first().map(String::as_str)==Some("--tenant-isolation-smoke");
  let growth_smoke=all_args.first().map(String::as_str)==Some("--tenant-memory-growth-smoke");
  let fuel_smoke=all_args.first().map(String::as_str)==Some("--tenant-fuel-starvation-smoke");
- let args=if tenant_smoke || growth_smoke || fuel_smoke {&all_args[1..]} else {&all_args[..]};
+ let lifetime_smoke=all_args.first().map(String::as_str)==Some("--tenant-lifetime-fuel-smoke");
+ let args=if tenant_smoke || growth_smoke || fuel_smoke || lifetime_smoke {
+  &all_args[1..]
+ } else {&all_args[..]};
  if args.len()!=2 && args.len()!=3{
   return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256 [FUEL]".into());
  }
@@ -58,6 +61,66 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // A guest-supplied pin or self-reported manifest is never sufficient.
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
+ if lifetime_smoke {
+  // Real compiled guest, no mock budget calls. Every successful return
+  // consumes Wasmtime fuel and resumes the SAME tenant incarnation.
+  // The test-only 512 ceiling makes depletion deterministic and cheap.
+  let mut registry=tenant_isolation::TenantRegistry::new_for_fuel_lifetime_smoke(
+   engine,module,2)?;
+  let offender=registry.admit("lifetime-offender")?;
+  let healthy=registry.admit("lifetime-healthy")?;
+  if registry.invoke(&healthy,128)?!=1 {
+   return Err("healthy lifetime tenant did not initialize".into());
+  }
+  let mut successful_turns=0_i64;
+  loop {
+   match registry.invoke(&offender,128) {
+    Ok(value)=>{
+     successful_turns+=1;
+     if value!=successful_turns || successful_turns>512 {
+      return Err("lifetime quota guest counter or upper bound violated".into());
+     }
+    }
+    Err(error)=>{
+     let message=error.to_string().to_ascii_lowercase();
+     let mut cause=error.source();
+     let mut fuel_failure=message.contains("fuel");
+     while let Some(item)=cause {
+      fuel_failure |= item.to_string().to_ascii_lowercase().contains("fuel");
+      cause=item.source();
+     }
+     if !fuel_failure || successful_turns<5 {
+      return Err("lifetime guest did not exhaust fuel after real successful turns".into());
+     }
+     break;
+    }
+   }
+  }
+  if registry.active_tenants()!=1 ||
+     registry.invoke(&offender,128).is_ok() ||
+     registry.begin_shutdown(&offender).is_ok() ||
+     registry.destroy(&offender).is_ok() {
+   return Err("lifetime-exhausted tenant retained a live Store or handle".into());
+  }
+  if registry.invoke(&healthy,128)?!=2 {
+   return Err("healthy sibling lost progress after lifetime exhaustion".into());
+  }
+  let fresh=registry.admit("lifetime-offender")?;
+  if registry.invoke(&fresh,128)?!=1 ||
+     registry.invoke(&offender,128).is_ok() ||
+     registry.invoke(&healthy,128)?!=3 {
+   return Err("reincarnated tenant inherited exhausted incarnation authority".into());
+  }
+  registry.begin_shutdown(&fresh)?;
+  registry.destroy(&fresh)?;
+  registry.begin_shutdown(&healthy)?;
+  registry.destroy(&healthy)?;
+  if registry.active_tenants()!=0 {
+   return Err("lifetime fuel smoke leaked tenant compartments".into());
+  }
+  println!("wasmtime_tenant_lifetime_fuel_nonrenewal=ok");
+  return Ok(());
+ }
  if fuel_smoke {
   // The third invocation is an intentionally nonterminating guest loop.
   // Fuel must interrupt that guest, retire only its Store, and invalidate
