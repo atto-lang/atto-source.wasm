@@ -5,23 +5,28 @@ import {admitBrowserActor} from './browser-tenant-admission.mjs';
 const actors = new Map();
 const MAX_ACTORS = 16;
 let poisoned = false;
+let lastTicket = 0;
 const MIN = -(1n<<63n), MAX = (1n<<63n)-1n;
 const asId = id => Number.isSafeInteger(id) && id>0 && id<=0x7fffffff;
+const asIncarnation = value => typeof value==='string' && /^[a-f0-9]{32}$/.test(value);
+class ProtocolReject extends Error {}
 
 async function handle(data) {
   const ticket = data?.ticket;
   if (poisoned) return; // Parent must terminate this carrier.
   try {
-    if (!Number.isSafeInteger(ticket) || ticket<=0 ||
-        !asId(data?.id) || !['spawn','send','stop'].includes(data?.kind))
-      throw Error('invalid tenant operation');
-    const {kind,id} = data;
+    if (!Number.isSafeInteger(ticket) || ticket<=lastTicket ||
+        !asId(data?.id) || !asIncarnation(data?.incarnation) ||
+        !['spawn','send','stop'].includes(data?.kind))
+      throw new ProtocolReject('invalid or replayed tenant operation');
+    lastTicket = ticket; // A replay cannot become authoritative after reincarnation.
+    const {kind,id,incarnation} = data;
     if (kind==='spawn') {
-      if (actors.has(id)) throw Error('duplicate actor ID');
-      if (actors.size>=MAX_ACTORS) throw Error('tenant actor capacity exceeded');
+      if (actors.has(id)) throw new ProtocolReject('duplicate actor ID');
+      if (actors.size>=MAX_ACTORS) throw new ProtocolReject('tenant actor capacity exceeded');
       // This is a reference host for reviewed/trusted artifacts only. A hash
       // supplied by the guest itself does not authenticate source provenance.
-      if (data.trusted!==true) throw Error('untrusted browser actor pooling is unsupported');
+      if (data.trusted!==true) throw new ProtocolReject('untrusted browser actor pooling unsupported');
       const module = await admitBrowserActor(data.bytes, data.approvedSha256);
       const instance = await WebAssembly.instantiate(module, {});
       if (instance.exports.oreslang_wasm_actor_init()!==undefined) throw Error('actor init ABI mismatch');
@@ -30,15 +35,16 @@ async function handle(data) {
           (typeof SharedArrayBuffer !== 'undefined' && memory.buffer instanceof SharedArrayBuffer) ||
           memory.buffer.byteLength!==131072)
         throw Error('actor memory boundary mismatch');
-      actors.set(id,{instance,memory});
-      self.postMessage({ticket,id,kind:'ack',result:null});
+      actors.set(id,{instance,memory,incarnation});
+      self.postMessage({ticket,id,incarnation,kind:'ack',result:null});
       return;
     }
     const actor = actors.get(id);
-    if (!actor) throw Error('unknown or retired actor ID');
+    if (!actor || actor.incarnation!==incarnation)
+      throw new ProtocolReject('unknown or stale actor incarnation');
     if (kind==='send') {
       if (typeof data.value!=='bigint' || data.value<MIN || data.value>MAX)
-        throw Error('actor message must be signed i64');
+        throw new ProtocolReject('actor message must be signed i64');
       let value;
       try {value=actor.instance.exports.oreslang_wasm_actor_on_message(data.value);}
       catch (e) {
@@ -47,21 +53,27 @@ async function handle(data) {
         if (!(e instanceof WebAssembly.RuntimeError) || e.message!=='unreachable') throw e;
         actors.delete(id);
         new Uint8Array(actor.memory.buffer).fill(0);
-        self.postMessage({ticket,id,kind:'actor_fault',code:'WASM_UNREACHABLE_V1'});
+        self.postMessage({ticket,id,incarnation,kind:'actor_fault',code:'WASM_UNREACHABLE_V1'});
         return;
       }
       if (typeof value!=='bigint' || value<MIN || value>MAX) throw Error('actor reply ABI mismatch');
-      self.postMessage({ticket,id,kind:'ack',result:value});
+      self.postMessage({ticket,id,incarnation,kind:'ack',result:value});
       return;
     }
     actors.delete(id); // Never re-enter a partially torn down actor.
     if (actor.instance.exports.oreslang_wasm_actor_teardown()!==undefined)
       throw Error('actor teardown ABI mismatch');
     new Uint8Array(actor.memory.buffer).fill(0);
-    self.postMessage({ticket,id,kind:'ack',result:null});
+    self.postMessage({ticket,id,incarnation,kind:'ack',result:null});
   } catch (e) {
+    if(e instanceof ProtocolReject){
+      self.postMessage({ticket,id:data?.id,incarnation:data?.incarnation,
+        kind:'rejected',reason:e.message.slice(0,160)});
+      return;
+    }
     poisoned=true;
-    self.postMessage({ticket,id:data?.id,kind:'fatal',reason:String(e?.message||e).slice(0,160)});
+    self.postMessage({ticket,id:data?.id,incarnation:data?.incarnation,
+      kind:'fatal',reason:String(e?.message||e).slice(0,160)});
     // Never claim retirement or recovery from a fatal trap. The supervising
     // parent must terminate the Worker and wait for its termination receipt.
   }
@@ -76,13 +88,13 @@ self.onmessage = ({data}) => {
   if (poisoned) return;
   if (++pending > 64) {
     poisoned = true;
-    self.postMessage({ticket:data?.ticket,id:data?.id,kind:'fatal',
-      reason:'tenant mailbox admission exhausted'});
+    self.postMessage({ticket:data?.ticket,id:data?.id,incarnation:data?.incarnation,
+      kind:'fatal',reason:'tenant mailbox admission exhausted'});
     return;
   }
   lane = lane.then(() => handle(data)).catch(error => {
     poisoned = true;
-    self.postMessage({ticket:data?.ticket,id:data?.id,kind:'fatal',
-      reason:String(error?.message || error).slice(0,160)});
+    self.postMessage({ticket:data?.ticket,id:data?.id,incarnation:data?.incarnation,
+      kind:'fatal',reason:String(error?.message || error).slice(0,160)});
   }).finally(() => {pending--;});
 };
