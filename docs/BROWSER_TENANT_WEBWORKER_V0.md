@@ -32,6 +32,87 @@ Reusing the same validated `WebAssembly.Module` for multiple **different `Instan
 
 **Important limitations:** the worker is an in-Worker execution component, not the parent supervisor. Production admission must authenticate compiler/source/ABI independently, queue/spawn commands by authenticated tenant and actor generation, meter total allocations, cap stdout and mailbox bytes, and use parent-owned deadlines, cancellation and termination receipts. A synchronous infinite loop monopolizes a Worker: **only its parent can terminate the Worker**, and termination loses *all* actors sharing that Worker. Logical actor-local stack overflow containment has **not** been proved; do not catch arbitrary engine stack exhaustion and pretend only one actor died. Browser Workers are not OS isolation domains for hostile mutually distrusting tenants.
 
+## Rust compiler `.atto` actor ABI adapter (staged, source-only)
+
+The existing import-free `oreslang_wasm_actor_* / fixed-two-page` protocol and the
+Rust playground's integrated guest ABI **are different contracts**. Do not
+silently reinterpret scalar-bytecode as compiler-produced AttoLang actors.
+
+The new `src/browser-atto-actor-admission.mjs` checks the Rust
+`atto-lang/atto-source.rs` emitted contract against actual Wasm function-type
+sections, import signatures, optional private memory, global exports and
+named actor receivers:
+
+- Exact `main(): i64`, `panic_code` global index zero,
+  `atto_actor_receive_<id>(i64): i64`, and optional exported fixed-max
+  `memory` (at most **16 × 64 KiB Wasm32 pages**).
+- Only `atto` function imports with exactly verified scalar signatures:
+  `print_i64`, `print_bool`, `print_str`, `print_newline`,
+  `actor_spawn`, `actor_send`, `actor_join`.
+- Imported memories, tables, start/element sections, shared or memory64,
+  managed GC/reference types, SIMD/threads and unsupported instruction
+  extensions are rejected. This profile opts into the existing no-managed-Wasm
+  *instruction* scanner **only after** validating every function import.
+- `src/browser-atto-tenant-worker.mjs` instantiates the approved guest **once
+  per actor** under a single tenant module Worker. It NEVER calls `main()`;
+  all nested actor and stdio imports are explicitly denied in actor receives.
+  Each `Instance` has private mutable globals and, **when the compiler emits
+  linear memory**, a private bounded heap. Absence of a memory section is
+  legitimate for scalar-only actors; do not pretend it proves an arena/stack.
+- The parent `BrowserTenantSupervisor` pins
+  `profile='atto.browser.actor.integrated.v1'` and `actorId` in its trusted
+  artifact manifest. The actor's request cannot choose an arbitrary handler.
+  Wrong profile/identity fails closed; legacy scalar workers remain unchanged.
+
+**Still missing:** compiler-proven logical stack/continuation limits,
+preemptive CPU quotas, browser OS sandboxing, and a complete typed actor API.
+One busy synchronous actor can monopolize its tenant Worker, so the parent
+supervisor quarantines that **whole tenant** on deadline. No browser
+`Worker.terminate()` OS completion receipt exists.
+
+### Source-free and real compiler gates
+
+`npm test` includes ABI-section negative tests using an **independently
+hand-encoded synthetic Wasm guest** with two `atto_actor_receive_*` exports,
+private mutable state, an import that must not be called, and real V8 Wasm
+execution. More expensive opt-in gates:
+
+```sh
+npm run test:browser-atto-tenant-node   # real Node Workers, synthetic integrated ABI guest
+npm run test:browser-tenant            # real Chromium via CDP, both Wasm ABI profiles
+```
+
+For an **actual `.atto` source compilation proof**, provide an independently
+reviewed Rust compiler-as-Wasm artifact on a secure, authorized machine; the
+repository will NOT download/mirror/release it automatically:
+
+```sh
+export ATTO_COMPILER_WASM=/approved/atto_compiler.wasm
+export ATTO_COMPILER_SHA256=<independently-approved-64-char-lowercase-digest>
+export ATTO_COMPILER_SOURCE_HEAD=<reviewed-40-char-commit-sha>
+export ATTO_COMPILER_SOURCE_TREE=<reviewed-40-char-tree-sha>
+npm run test:browser-atto-compiler-node
+npm run test:browser-atto-compiler-chromium
+```
+
+The real-compiler Node gate uses compiler ABI 2, compiles two source-level
+actors, then runs separate actor instances in one tenant Worker alongside an
+independent tenant Worker. The **Chromium gate recompiles the same `.atto`
+source inside the real browser compiler-as-Wasm**, compares the generated
+guest SHA-256 with independently generated Node output, and executes two
+actors in one tenant Worker. Both enforce stale-capability and neighboring
+actor/tenant continuity. An absent approved artifact is a **hard test
+failure**, never a silent skip. Binary digest plus manually supplied head/tree
+values are not self-authenticating provenance; CI/release reviewers must
+independently verify the source tree and build before counting receipts.
+
+**Evidence status at authoring:** staged code and synthetic local checks only;
+the real-compiler Node/Chromium integration gates have **not executed** on
+an approved compiler binary, and source repository CI has encountered
+zero-step runner admission failures. Keep the draft and the public playground
+release hold; do not change the `/play/` pinned compiler receipt or publish
+private compiler artifacts merely to run these tests.
+
 ## Running the gates
 
 ```sh
