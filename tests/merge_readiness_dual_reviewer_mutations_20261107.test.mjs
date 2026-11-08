@@ -5,16 +5,18 @@ import { REPOS, assess } from '../scripts/merge_readiness_probe_20261106.mjs';
 // This is a source-only, read-only *advisory* gate. It never authorizes
 // an actual merge, private source export, or guest compiler conformance.
 const HEAD = 'c'.repeat(40);
+const BASE = 'b'.repeat(40);
 const OTHER = 'd'.repeat(40);
 function fixture(backend, author = 'ORESoftware', approver = 'the1mills') {
   const [slug, id] = REPOS[backend];
   return {
     repo: { id, full_name: slug, private: true, archived: false, disabled: false },
-    main: { name: 'main', protected: true },
+    main: { name: 'main', protected: true, commit: { sha: BASE } },
     pr: { number: 73, state: 'open', draft: false, mergeable: true,
-      base: { ref: 'main', repo: { id } },
+      base: { ref: 'main', repo: { id }, sha: BASE },
       head: { sha: HEAD, repo: { id } }, user: { login: author } },
-    reviews: [{ user: { login: approver }, state: 'APPROVED', commit_id: HEAD }],
+    reviews: [{ user: { login: approver }, state: 'APPROVED', commit_id: HEAD,
+      id: 501, submitted_at: '2026-11-07T20:00:00Z' }],
     runs: [{ run: { id: 91, head_sha: HEAD, event: 'pull_request',
       status: 'completed', conclusion: 'success', run_attempt: 2,
       repository: { id }, head_repository: { id } },
@@ -57,13 +59,15 @@ for (const backend of Object.keys(REPOS)) {
   });
   test(backend + ': COMMENTED after an approval does not revoke it', () => {
     isAdvisory(assessMutation(backend, x => {
-      x.reviews.push({ user: { login: 'the1mills' }, state: 'COMMENTED', commit_id: HEAD });
+      x.reviews.push({ user: { login: 'the1mills' }, state: 'COMMENTED', commit_id: HEAD,
+        id: 502, submitted_at: '2026-11-07T20:01:00Z' });
     }));
   });
   test(backend + ': fresh alternate designated approval survives a stale one', () => {
     isAdvisory(assessMutation(backend, x => {
       x.pr.user.login = 'maintainer';
-      x.reviews.push({ user: { login: 'ORESoftware' }, state: 'APPROVED', commit_id: OTHER });
+      x.reviews.push({ user: { login: 'ORESoftware' }, state: 'APPROVED', commit_id: OTHER,
+        id: 502, submitted_at: '2026-11-07T20:01:00Z' });
     }));
   });
   const negativeCases = [
