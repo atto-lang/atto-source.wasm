@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
 
 // Real validated Wasm modules, not JavaScript spin loops or mocked callbacks.
@@ -25,4 +26,29 @@ test('unbounded Wasm loop is terminated; next isolated worker is still usable',
     assert.equal(result.value, 42n);
     assert.equal(result.admission.imports, 0);
     assert.equal(result.admission.memoryMaximumPages, 2);
+  });
+
+test('repeated runaway worker termination does not leak worker admissions',
+  {timeout: 15_000}, async () => {
+    // Every call must await actual worker termination before releasing its
+    // concurrency credit; a loop in one incarnation cannot poison the next.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await assert.rejects(runIsolatedCoreGuest(looping, {timeoutMs: 250}),
+        /guest execution deadline exceeded/);
+    }
+    const recovered = await runIsolatedCoreGuest(benign, {timeoutMs: 5000});
+    assert.equal(recovered.value, 42n);
+  });
+
+test('pinned exact input bytes distinguish the approved worker program',
+  {timeout: 10_000}, async () => {
+    const approved = createHash('sha256').update(benign).digest('hex');
+    const mismatch = createHash('sha256').update(looping).digest('hex');
+    assert.notEqual(approved, mismatch);
+    const result = await runIsolatedCoreGuest(benign,
+      {timeoutMs: 5000, expectedSha256: approved});
+    assert.equal(result.value, 42n);
+    assert.equal(result.admission.sha256, approved);
+    await assert.rejects(runIsolatedCoreGuest(benign,
+      {timeoutMs: 1000, expectedSha256: mismatch}), /SHA-256 mismatch/);
   });
