@@ -10,7 +10,7 @@ export class BatchedCooperationMeter {
   #completed = 0;
   #servicingCheckpoint = false;
   #interval;
-  static DISPATCH_BUDGET = 512;
+  static get DISPATCH_BUDGET() { return 512; }
 
   constructor(interval = 128) {
     if (interval !== 128 && interval !== 512)
@@ -67,3 +67,6 @@ export class BatchedCooperationMeter {
     return due;
   }
 }
+
+// Do not permit a guest/plugin to mutate the budget advertised to observers.
+Object.freeze(BatchedCooperationMeter);
