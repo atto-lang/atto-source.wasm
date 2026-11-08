@@ -68,3 +68,58 @@ test('dispatch reset and actor state are independent', () => {
   b.commit_batch(1, () => calls++);
   assert.equal(calls, 2);
 });
+
+
+test('checkpoint callbacks cannot recursively charge or reset their own dispatch', () => {
+  const meter = new BatchedCooperationMeter();
+  let seen = 0;
+  meter.commit_batch(128, receipt => {
+    seen++;
+    assert.ok(Object.isFrozen(receipt), 'receipt is an immutable snapshot');
+    assert.throws(() => meter.commit_batch(1, () => {}), /reentrant cooperation charge/);
+    assert.throws(() => meter.begin_dispatch(), /reentrant cooperation dispatch reset/);
+    assert.equal(meter.completed, 128);
+    assert.equal(meter.phase, 0);
+  });
+  assert.equal(seen, 1);
+  meter.commit_batch(127, () => {throw new Error('premature poll');});
+  assert.equal(seen, 1);
+  meter.commit_batch(1, () => {seen++;});
+  assert.equal(seen, 2);
+});
+
+test('a throwing slow-path callback cannot replay the same checkpoint', () => {
+  const meter = new BatchedCooperationMeter();
+  assert.throws(() => meter.commit_batch(128, () => { throw Error('scheduler exception'); }),
+    /scheduler exception/);
+  assert.equal(meter.completed, 128);
+  assert.equal(meter.phase, 0);
+  let polls = 0;
+  meter.commit_batch(127, () => {polls++;});
+  assert.equal(polls, 0);
+  meter.commit_batch(1, () => {polls++;});
+  assert.equal(polls, 1);
+});
+
+test('seeded differential batch sizes preserve exact work/phase boundaries', () => {
+  for (const interval of [128, 512]) {
+    const meter = new BatchedCooperationMeter(interval);
+    let seed = 0x12345678;
+    let total = 0, count = 0;
+    for (let i = 0; i < 10000; i++) {
+      seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+      const work = (seed >>> 0) % interval + 1;
+      const before = total;
+      const due = meter.commit_batch(work, ({completed, overdue}) => {
+        count++;
+        assert.equal(completed, before + work);
+        assert.equal(overdue, completed >= 512);
+      });
+      total += work;
+      assert.equal(due, Math.floor(total / interval) !== Math.floor(before / interval));
+      assert.equal(meter.completed, total);
+      assert.equal(meter.phase, total % interval);
+    }
+    assert.equal(count, Math.floor(total / interval));
+  }
+});
