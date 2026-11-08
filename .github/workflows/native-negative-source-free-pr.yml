@@ -1,0 +1,95 @@
+# Credential-free source-free PR verification only. Never treat this as LLVM
+# compiler execution, a guest receipt, AOT proof or private-source admission.
+name: Wasm native negative source-free PR checks (NO compiler)
+on:
+  pull_request:
+    paths:
+      - 'tests/native-frontend-negative-evidence.test.mjs'
+      - 'tests/native-negative-receipt.test.mjs'
+      - 'scripts/verify-native-negative-receipt.mjs'
+      - 'scripts/compile-ores.mjs'
+      - 'package.json'
+      - '.github/workflows/real-llvm.yml'
+      - '.github/workflows/native-negative-source-free-pr.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/native-frontend-negative-evidence.test.mjs'
+      - 'tests/native-negative-receipt.test.mjs'
+      - 'scripts/verify-native-negative-receipt.mjs'
+      - 'scripts/compile-ores.mjs'
+      - 'package.json'
+      - '.github/workflows/real-llvm.yml'
+      - '.github/workflows/native-negative-source-free-pr.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  source-free-negative-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact unprivileged PR head (no persisted credentials)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify exact checkout head and clean tracked files
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet --exit-code
+          git diff --cached --quiet --exit-code
+          printf 'SOURCE_FREE_ONLY_HEAD=%s TREE=%s\n' "$EXPECTED_HEAD" "$(git rev-parse 'HEAD^{tree}')"
+      - name: Install Node 22 (no compiler or private checkout)
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Require exact host-only suite with one explicitly skipped compiler test
+        shell: bash
+        env:
+          ATTO_NATIVE_NEGATIVE_REQUIRED: '0'
+          ORESLANG_LLVM_COMPILER: ''
+          ATTO_NATIVE_NEGATIVE_RECEIPT_PATH: ''
+        run: |
+          set -euo pipefail
+          node --version
+          node --test --test-reporter=tap \
+            tests/native-negative-receipt.test.mjs \
+            tests/native-frontend-negative-evidence.test.mjs \
+            > "$RUNNER_TEMP/atto-native-negative-source-free.tap" 2>&1
+          cat "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# tests 20' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# pass 19' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# fail 0' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# skipped 1' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Eq '^ok [0-9]+ - five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR control # SKIP' \
+            "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          echo 'HOST_MODEL_19_PASS_1_COMPILER_SKIPPED=SOURCE_FREE_ONLY'
+      - name: Require native-compiler mode to FAIL without authorized compiler
+        shell: bash
+        env:
+          ATTO_NATIVE_NEGATIVE_REQUIRED: '1'
+          ORESLANG_LLVM_COMPILER: ''
+          ORESLANG_LLVM_COMPILER_SHA256: ''
+          ORESLANG_LLVM_SOURCE_SHA: ''
+          ORESLANG_LLVM_SOURCE_TREE: ''
+        run: |
+          set -euo pipefail
+          set +e
+          node --test --test-reporter=tap tests/native-frontend-negative-evidence.test.mjs \
+            > "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap"
+          test "$rc" -ne 0
+          grep -Fq 'NOT_EXECUTED: pinned native compiler' "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap"
+          grep -Fxq '# tests 4' "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap"
+          grep -Fxq '# fail 1' "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap"
+          grep -Fxq '# skipped 0' "$RUNNER_TEMP/atto-no-compiler-fail-closed.tap"
+          echo 'REQUIRED_COMPILER_MISSING=EXPECTED_FAIL_CLOSED'
