@@ -116,3 +116,117 @@ test('explicit pool close does not acknowledge pending guest work before termina
   assert.equal(pool.actorCount, 0);
   await assert.rejects(actor.send(4n), /not accepting/);
 });
+
+test('synchronous carrier termination fault retains actor identity and fails close', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1});
+  const actor = await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  assert.equal(await actor.send(1n), 1n);
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {
+      held = this;
+      throw Error('injected synchronous termination fault');
+    };
+    await assert.rejects(pool.close(), /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1, 'unconfirmed actor lease must not be released');
+    await assert.rejects(actor.send(1n), /not accepting/);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
+
+test('void carrier termination receipt does not release an actor lease', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 1});
+  await pool.spawn(wasm, {trusted: true, expectedSha256: pin(wasm)});
+  const original = Worker.prototype.terminate;
+  let held;
+  try {
+    Worker.prototype.terminate = function () {held = this; return undefined;};
+    await assert.rejects(pool.close(), /carrier termination unconfirmed/);
+    assert.equal(pool.actorCount, 1);
+  } finally {
+    Worker.prototype.terminate = original;
+    if (held) await original.call(held);
+  }
+});
+
+test('invalid actor admission preserves existing healthy actors on shared carriers', async () => {
+  const good = compile(), malformed = compile({invalidImport: true});
+  const pool = new PooledWasmActors({workers: 1, maxActors: 3});
+  try {
+    const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await healthy.send(3n), 3n);
+    await assert.rejects(pool.spawn(malformed, {trusted: true,
+      expectedSha256: pin(malformed)}), /host imports denied/);
+    assert.equal(pool.actorCount, 1);
+    assert.equal(await healthy.send(4n), 7n);
+    const next = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await next.send(1n), 1n);
+    await healthy.stop();
+    await next.stop();
+  } finally {await pool.close();}
+});
+
+test('one noncooperating carrier fails without terminating healthy actors on a second carrier', async () => {
+  const stalled = compile({spin: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, timeoutMs: 250});
+  try {
+    const stuck = await pool.spawn(stalled, {trusted: true, expectedSha256: pin(stalled)});
+    const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    const colocated = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(pool.activeWorkerCount, 2);
+    const stuckWork = stuck.send(1n);
+    const queuedColocated = colocated.send(1n);
+    assert.equal(await healthy.send(2n), 2n);
+    await assert.rejects(stuckWork, /deadline exceeded/);
+    await assert.rejects(queuedColocated, /deadline exceeded/);
+    assert.equal(pool.activeWorkerCount, 1);
+    assert.equal(pool.actorCount, 1);
+    assert.equal(await healthy.send(3n), 5n);
+    const successor = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await successor.send(9n), 9n);
+    await healthy.stop();
+    await successor.stop();
+  } finally {await pool.close();}
+});
+
+test('failed carrier cannot settle admitted work before delayed physical termination receipt', async () => {
+  const {Worker} = await import('node:worker_threads');
+  const stalled = compile({spin: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, timeoutMs: 250});
+  const stuck = await pool.spawn(stalled, {trusted: true, expectedSha256: pin(stalled)});
+  const healthy = await pool.spawn(good, {trusted: true, expectedSha256: pin(good)});
+  const original = Worker.prototype.terminate;
+  let release, signal;
+  const physicallyTerminated = new Promise(resolve => {signal = resolve;});
+  try {
+    Worker.prototype.terminate = function () {
+      return original.call(this).then(code => new Promise(resolve => {
+        release = () => resolve(code);
+        signal();
+      }));
+    };
+    let settled = false;
+    const pending = stuck.send(1n);
+    pending.catch(() => {settled = true;});
+    await physicallyTerminated;
+    assert.equal(settled, false, 'receipt withheld: admitted work must remain unsettled');
+    assert.equal(pool.actorCount, 2, 'failed actor lease must remain pinned');
+    assert.equal(await healthy.send(3n), 3n, 'healthy carrier remains available');
+    assert.equal(settled, false);
+    release();
+    await assert.rejects(pending, /deadline exceeded/);
+    assert.equal(pool.actorCount, 1);
+    await healthy.stop();
+  } finally {
+    Worker.prototype.terminate = original;
+    if (release) release();
+    await pool.close();
+  }
+});

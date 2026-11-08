@@ -1,0 +1,12 @@
+// Compiler-generated actor guest; no native scheduler or source ActorRef.
+// A dedicated browser Worker owns exactly one instance and its private state.
+define actor Counter as {
+  let total: int = 0;
+  pub fnc on_message(int increment): int {
+    total = total + increment;
+    return total;
+  }
+}
+pub fnc main(): int {
+  return 42;
+}
