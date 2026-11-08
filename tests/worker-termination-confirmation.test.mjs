@@ -34,3 +34,15 @@ test('invalid worker/confirmation callback cannot fabricate termination receipt'
   await assert.rejects(confirmWorkerTermination({}, () => {}), /invalid trusted/);
   await assert.rejects(confirmWorkerTermination({terminate() {}}, null), /invalid trusted/);
 });
+
+test('non-Promise termination receipt and hostile then getter never refund credit', async () => {
+  let confirmations = 0;
+  await assert.rejects(confirmWorkerTermination(
+    {terminate() { return undefined; }}, () => confirmations++),
+    /missing async worker termination confirmation/);
+  await assert.rejects(confirmWorkerTermination(
+    {terminate() {
+      return Object.defineProperty({}, 'then', {get() { throw Error('hostile then'); }});
+    }}, () => confirmations++), /hostile then/);
+  assert.equal(confirmations, 0);
+});
