@@ -7,6 +7,7 @@ import {join, resolve} from 'node:path';
 import {spawn, spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
 import {fileURLToPath} from 'node:url';
+import {makeSyntheticAttoActorGuest} from './fixtures/synthetic-atto-integrated-actor.mjs';
 
 const ROOT=resolve(fileURLToPath(new URL('..',import.meta.url)));
 function stripUnusedClangTable(input) {
@@ -41,6 +42,7 @@ __attribute__((export_name("oreslang_wasm_actor_teardown"))) void teardown(void)
     '-Wl,--max-memory=131072','-o',out],{encoding:'utf8'});
   assert.equal(compiler.status,0,'real Clang wasm32 required: '+(compiler.stderr||compiler.error));
   const binary=stripUnusedClangTable(await readFile(out));
+  const sourceAbiBase64=Buffer.from(makeSyntheticAttoActorGuest()).toString('base64');
   const html=`<!doctype html><meta charset="utf-8"><body data-result="pending"><script type="module">
 import {BrowserTenantSupervisor} from '/src/browser-tenant-supervisor.mjs';
 const bytes=Uint8Array.from(atob('${binary.toString('base64')}'),c=>c.charCodeAt(0));
@@ -106,6 +108,47 @@ try {
    if(!staleDenied || await tenantA.send(replacement,3n)!==3n)
      throw Error('retired actor identity or memory was reused');
  } finally {tenantA.close();tenantB.close();}
+ // The separate Rust integrated actor ABI is tested in actual Chromium with
+ // source-shaped, hand-encoded Wasm. No Rust compiler-produced binary is
+ // distributed or claimed by this synthetic fixture.
+ const attoBytes=Uint8Array.from(atob('${sourceAbiBase64}'),c=>c.charCodeAt(0));
+ const attoDigest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',attoBytes)),
+   b=>b.toString(16).padStart(2,'0')).join('');
+ const attoManifest=[
+   {name:'handler-zero',bytes:attoBytes,sha256:attoDigest,
+     profile:'atto.browser.actor.integrated.v1',actorId:0},
+   {name:'handler-one',bytes:attoBytes,sha256:attoDigest,
+     profile:'atto.browser.actor.integrated.v1',actorId:1}
+ ];
+ const sourceTenantA=new BrowserTenantSupervisor({workerUrl:'/src/browser-atto-tenant-worker.mjs',
+   manifest:attoManifest,deadlineMs:2500});
+ const sourceTenantB=new BrowserTenantSupervisor({workerUrl:'/src/browser-atto-tenant-worker.mjs',
+   manifest:attoManifest,deadlineMs:2500});
+ try {
+   const a=await sourceTenantA.spawn(1,'handler-zero');
+   const b=await sourceTenantA.spawn(2,'handler-one');
+   const c=await sourceTenantB.spawn(1,'handler-zero');
+   if(await sourceTenantA.send(a,5n)!==5n ||
+      await sourceTenantA.send(b,10n)!==10n ||
+      await sourceTenantA.send(a,2n)!==7n ||
+      await sourceTenantA.send(b,1n)!==11n ||
+      await sourceTenantB.send(c,3n)!==3n)
+     throw Error('source-shaped Atto actor receiver state isolation failed');
+   let cross=false;
+   try {await sourceTenantB.send(a,1n);}catch{cross=true;}
+   if(!cross)throw Error('integrated actor capability crossed tenant');
+   let fault=false;
+   try {await sourceTenantA.send(a,-1n);}catch(e){fault=/actor-local/.test(String(e));}
+   if(!fault||sourceTenantA.closed)throw Error('integrated actor fault poisoned neighbor');
+   if(await sourceTenantA.send(b,1n)!==12n ||
+      await sourceTenantB.send(c,1n)!==4n)
+     throw Error('healthy integrated actor did not survive neighbor trap');
+   const revived=await sourceTenantA.spawn(1,'handler-zero');
+   let stale=false;
+   try {await sourceTenantA.send(a,1n);}catch{stale=true;}
+   if(!stale || await sourceTenantA.send(revived,3n)!==3n)
+     throw Error('integrated actor reincarnation leaked old state');
+ } finally {sourceTenantA.close();sourceTenantB.close();}
  document.body.dataset.result='pass';
 } catch(e) {document.body.dataset.result='fail';document.body.textContent=String(e?.message||e);}
 finally{worker.terminate();}
@@ -124,16 +167,66 @@ finally{worker.terminate();}
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const url=`http://127.0.0.1:${server.address().port}/`;
-  const browser=await new Promise((resolveDone,reject)=>{
-    const child=spawn('chromium',['--headless','--no-sandbox','--disable-gpu',
-      '--disable-dev-shm-usage','--virtual-time-budget=5000','--dump-dom',url]);
-    let stdout='',stderr='',complete=false;
-    const timer=setTimeout(()=>child.kill('SIGKILL'),9000);
-    child.stdout.on('data',chunk=>{if(stdout.length<1_000_000)stdout+=chunk.toString()});
-    child.stderr.on('data',chunk=>{if(stderr.length<4000)stderr+=chunk.toString()});
-    child.on('error',error=>{if(!complete){complete=true;clearTimeout(timer);reject(error)}});
-    child.on('exit',status=>{if(!complete){complete=true;clearTimeout(timer);resolveDone({status,stdout,stderr})}});
-  });
-  assert.equal(browser.status,0,'real Chromium required: '+browser.stderr);
-  assert.match(browser.stdout,/data-result="pass"/,'Chromium actor gate failed: '+browser.stdout.slice(-800));
+  // CDP polling waits for actual async Worker completion instead of relying
+  // on --dump-dom's virtual-time snapshot of a still-running page.
+  const profile=join(scratch,'chromium-profile');
+  const chrome=spawn(process.env.CHROME_BIN||'chromium',[
+    '--headless=new','--no-sandbox','--disable-gpu',
+    '--disable-dev-shm-usage','--no-first-run','--no-proxy-server',
+    '--disable-background-networking','--remote-debugging-port=0',
+    '--user-data-dir='+profile,'about:blank'],{stdio:['ignore','ignore','pipe']});
+  let stderr='',ws=null;
+  chrome.stderr.on('data',chunk=>{stderr=(stderr+chunk.toString()).slice(-4000);});
+  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  try {
+    let port=0;
+    for(let i=0;i<100;i++) {
+      if(chrome.exitCode!==null)throw Error('Chromium exited: '+stderr);
+      try{
+        port=Number((await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\\n')[0]);
+        if(port>0)break;
+      }catch{}
+      await sleep(100);
+    }
+    if(!port)throw Error('Chromium CDP not ready: '+stderr);
+    const targets=await (await fetch('http://127.0.0.1:'+port+'/json/list')).json();
+    const page=targets.find(x=>x.type==='page'&&x.webSocketDebuggerUrl);
+    assert.ok(page,'Chromium page target required');
+    ws=new WebSocket(page.webSocketDebuggerUrl);
+    await new Promise((resolve,reject)=>{
+      ws.addEventListener('open',resolve,{once:true});
+      ws.addEventListener('error',reject,{once:true});
+    });
+    let serial=0;
+    const pending=new Map();
+    ws.addEventListener('message',event=>{
+      const r=JSON.parse(event.data);
+      if(!pending.has(r.id))return;
+      const entry=pending.get(r.id);pending.delete(r.id);
+      if(r.error)entry.reject(Error(r.error.message));else entry.resolve(r.result);
+    });
+    const command=(method,params={})=>new Promise((resolve,reject)=>{
+      const id=++serial;pending.set(id,{resolve,reject});
+      ws.send(JSON.stringify({id,method,params}));
+    });
+    const evaluate=async expression=>{
+      const r=await command('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});
+      if(r.exceptionDetails)throw Error(r.exceptionDetails.text);
+      return r.result?.value;
+    };
+    await command('Page.enable');await command('Runtime.enable');
+    const nav=await command('Page.navigate',{url});
+    assert.ok(!nav.errorText,nav.errorText||'navigation failed');
+    let status='pending';
+    for(let i=0;i<200;i++){
+      status=await evaluate('document.body?.dataset?.result');
+      if(status==='pass'||status==='fail')break;
+      await sleep(100);
+    }
+    const reason=await evaluate('document.body?.textContent?.slice(0,1500)');
+    assert.equal(status,'pass','real Chromium multi-tenant browser test: '+status+' '+reason);
+  } finally {
+    try{ws?.close();}catch{}
+    chrome.kill('SIGKILL');
+  }
 });
