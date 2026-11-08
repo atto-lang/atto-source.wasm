@@ -79,7 +79,7 @@ fn admitted_call_fuel(remaining: u64, requested: u64) -> Result<u64, &'static st
 }
 
 fn debit_used_fuel(remaining: &mut u64, granted: u64, unused: u64) -> Result<(), &'static str> {
-    if unused > granted { return Err("invalid Wasmtime fuel accounting"); }
+    if granted == 0 || unused > granted { return Err("invalid Wasmtime fuel accounting"); }
     *remaining = remaining.checked_sub(granted - unused)
         .ok_or("tenant fuel accounting underflow")?;
     Ok(())
@@ -333,6 +333,22 @@ mod tests {
         assert_eq!(admitted_call_fuel(other_tenant, 512).unwrap(), 192);
         assert!(debit_used_fuel(&mut other_tenant, 64, 65).is_err());
         assert_eq!(other_tenant, 192);
+    }
+
+    #[test]
+    fn invalid_fuel_debits_are_atomic_and_never_forge_credit() {
+        let mut remaining = 9_u64;
+        for (grant, unused) in [(0, 0), (1, 2), (10, 0), (u64::MAX, 0)] {
+            assert!(debit_used_fuel(&mut remaining, grant, unused).is_err());
+            assert_eq!(remaining, 9, "invalid debit changed the tenant balance");
+        }
+        let granted = admitted_call_fuel(remaining, 100).unwrap();
+        assert_eq!(granted, 9, "request cannot mint more than lifetime balance");
+        debit_used_fuel(&mut remaining, granted, 8).unwrap();
+        assert_eq!(remaining, 8);
+        debit_used_fuel(&mut remaining, 8, 0).unwrap();
+        assert_eq!(remaining, 0);
+        assert!(admitted_call_fuel(remaining, 1).is_err());
     }
 
     #[test]
