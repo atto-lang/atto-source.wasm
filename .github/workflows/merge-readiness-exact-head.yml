@@ -6,6 +6,7 @@ on:
       - .github/workflows/merge-readiness-exact-head.yml
       - scripts/merge_readiness_probe_20261106.mjs
       - scripts/strict_github_evidence_20261106.mjs
+      - scripts/run_merge_readiness_exact_head.mjs
       - tests/merge_readiness_*.test.mjs
 
 permissions:
@@ -48,28 +49,12 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
-      - name: Execute 608 exact-head merge-readiness tests
+      - name: Execute and independently classify 608 local source-model tests
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          node --version
-          [[ "$(node --version)" =~ ^v22\. ]]
-          node --test --test-reporter=tap \
-            tests/merge_readiness_probe_20261106.test.mjs \
-            tests/merge_readiness_dual_reviewer_mutations_20261107.test.mjs \
-            tests/merge_readiness_job_name_collision_20261107.test.mjs \
-            tests/merge_readiness_readback_setup_only_20261107.test.mjs \
-            | tee "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# tests 608' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# pass 608' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# fail 0' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# skipped 0' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# cancelled 0' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          grep -Fx '# todo 0' "$RUNNER_TEMP/merge-readiness-node22.tap"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          test -z "$(git status --porcelain --untracked-files=normal)"
-          printf 'MERGE_READINESS_TESTS_EXECUTED=608 head=%s tree=%s node=%s\n' \
-            "$EXPECTED_HEAD" "$(git rev-parse 'HEAD^{tree}')" "$(node --version)"
-          echo 'Source-model regression execution only; no compiled AttoLang guest or merge approval.' >> "$GITHUB_STEP_SUMMARY"
+          node scripts/run_merge_readiness_exact_head.mjs "$EXPECTED_HEAD" \
+            | tee "$RUNNER_TEMP/merge-readiness-node22-local-receipt.json"
+          echo 'Local-only source-model receipt; GitHub step execution must be verified separately.' >> "$GITHUB_STEP_SUMMARY"
