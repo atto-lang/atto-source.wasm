@@ -27,7 +27,10 @@ export function makeSyntheticAttoActorGuest({
   if(withActor1)exports.push(...exp('atto_actor_receive_1',0,3));
   const exportSec=section(7,[withActor1?5:4,...exports]);
   const start=withStart?section(8,[1]):[];
-  const receive=[0x23,1,0x20,0,0x7c,0x24,1,0x23,1,0x0b];
+  // i64(-1) triggers an actual Wasm unreachable trap. Other messages update
+  // an instance-private mutable i64 global; no host imports are invoked.
+  const receive=[0x20,0,0x42,0x7f,0x51,0x04,0x40,0x00,0x0b,
+    0x23,1,0x20,0,0x7c,0x24,1,0x23,1,0x0b];
   const code=section(10,[funcs,...body([0x42,0,0x0b]),
     ...body(receive),...(withActor1?body(receive):[])]);
   return Uint8Array.from([0,97,115,109,1,0,0,0,...type,...imports,
