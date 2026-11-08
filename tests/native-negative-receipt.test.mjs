@@ -169,6 +169,36 @@ test('regular receipt JSON reads; directories, symlinks and oversized data rejec
     assert.throws(()=>readNativeNegativeReceipt(''));
   } finally {rmSync(root,{recursive:true,force:true});}
 });
+test('receipt file reader rejects duplicate keys, ambiguous encoding and noncanonical JSON',()=>{
+  const root=mkdtempSync(join(tmpdir(),'atto-ambiguous-negative-receipt-'));
+  const file=join(root,'receipt.json');
+  try {
+    const valid=JSON.stringify(receipt());
+    // Source-owned compiler writer emits one LF; this remains admissible.
+    writeFileSync(file,valid+'\n');
+    assert.deepEqual(readNativeNegativeReceipt(file),receipt());
+    const forged=[
+      valid.replace('"result":"EXECUTED"',
+        '"result":"NOT_EXECUTED","result":"EXECUTED"'),
+      valid.replace('"compilerExit":1',
+        '"compilerExit":0,"compilerExit":1'),
+      valid.replace('"result":"EXECUTED"',
+        '"res\\u0075lt":"NOT_EXECUTED","result":"EXECUTED"'),
+      JSON.stringify(receipt(),null,2),
+      '\ufeff'+valid,
+    ];
+    for(const raw of forged){
+      assert.notEqual(raw,valid,'mutation must actually change receipt bytes');
+      writeFileSync(file,raw);
+      assert.throws(()=>readNativeNegativeReceipt(file),
+        /noncanonical|ambiguous|Unexpected|position|JSON/);
+    }
+    // Node Buffer.toString('utf8') silently substitutes replacement chars.
+    writeFileSync(file,Buffer.from([0x7b,0x22,0x78,0x22,0x3a,0x22,0xc3,0x28,0x22,0x7d]));
+    assert.throws(()=>readNativeNegativeReceipt(file),/encoded|UTF-8|valid|decode/i);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
 test('source-free synthetic fixture manifest has distinct case IDs/blobs',()=>{
   const ids=[...NEGATIVE_FIXTURES.map(c=>c[0]),POSITIVE_FIXTURE[0]];
   const shas=[...NEGATIVE_FIXTURES.map(c=>c[1]),POSITIVE_FIXTURE[1]];
