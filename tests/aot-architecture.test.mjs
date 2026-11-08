@@ -86,6 +86,15 @@ test("tenant lifetime hard fuel is not renewed by repeated Wasmtime dispatches",
   assert.match(tenant,/pub fn new_for_fuel_lifetime_smoke\(/);
   assert.match(runtime,/--tenant-lifetime-fuel-smoke/);
   assert.match(runtime,/successful_turns<5/);
+  assert.match(tenant,/pub fn remaining_lifetime_fuel_for_smoke\(/);
+  assert.match(runtime,/remaining_lifetime_fuel_for_smoke\(&offender\)/);
+  assert.match(runtime,/after>=before/,
+    "completed guest invocations must deduct actual lifetime fuel");
+  assert.match(runtime,/before>128/,
+    "per-call fuel failure cannot masquerade as exhausted aggregate quota");
+  assert.match(runtime,/begin_shutdown\(&healthy\)/);
+  assert.match(runtime,/healthy_restart/,
+    "supervisor-style restarts must issue new tenant incarnations");
   assert.match(runtime,/wasmtime_tenant_lifetime_fuel_nonrenewal=ok/);
   assert.match(smoke,/--tenant-lifetime-fuel-smoke/);
   assert.match(smoke,/timeout 15s/);
