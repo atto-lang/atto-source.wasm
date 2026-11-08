@@ -64,8 +64,8 @@ jobs:
             tests/native-frontend-negative-evidence.test.mjs \
             > "$RUNNER_TEMP/atto-native-negative-source-free.tap" 2>&1
           cat "$RUNNER_TEMP/atto-native-negative-source-free.tap"
-          grep -Fxq '# tests 20' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
-          grep -Fxq '# pass 19' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# tests 21' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
+          grep -Fxq '# pass 20' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
           grep -Fxq '# fail 0' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
           grep -Fxq '# skipped 1' "$RUNNER_TEMP/atto-native-negative-source-free.tap"
           grep -Eq '^ok [0-9]+ - five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR control # SKIP' \
