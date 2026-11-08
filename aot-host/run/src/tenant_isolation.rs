@@ -241,6 +241,19 @@ impl TenantRegistry {
         outcome
     }
 
+    // Debug smoke-only observation of the trusted host's lifetime ledger.
+    // This is never exposed through the guest ABI or a production host API.
+    #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
+    pub fn remaining_lifetime_fuel_for_smoke(
+        &mut self, handle: &TenantHandle
+    ) -> Result<u64, Failure> {
+        let tenant = self.checked_mut(handle)?;
+        if tenant.phase != Phase::Running {
+            return Err("lifetime fuel probe on quiescing tenant".into());
+        }
+        Ok(tenant.lifetime_fuel.remaining)
+    }
+
     pub fn begin_shutdown(&mut self, handle: &TenantHandle) -> Result<(), Failure> {
         let tenant = self.checked_mut(handle)?;
         if tenant.phase != Phase::Running {
