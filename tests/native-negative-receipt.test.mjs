@@ -65,7 +65,7 @@ test('Node host-like process.env object accepted without weakening receipt check
   const env=Object.assign(Object.create(null),context());
   assert.equal(evaluateNativeNegativeReceipt(receipt(env),env).classification,
     'LOCAL_NATIVE_FRONTEND_CASES_RECORDED');
-  rejected(Object.assign(Object.create(null),receipt(),{result:'SKIPPED'}),env);
+  rejected({...receipt(),result:'SKIPPED'},env);
 });
 test('missing protected main or wrong repository/event/job is rejected',()=>{
   for(const [key,value] of [
