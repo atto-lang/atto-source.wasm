@@ -84,6 +84,9 @@ pub struct TenantRegistry {
     next_generation: u64,
     max_tenants: usize,
     memory_limit_bytes: usize,
+    // Trusted host admission ceiling. Production uses MAX_FUEL. The
+    // insecure debug smoke may lower it to exercise exhaustion quickly.
+    lifetime_fuel_limit: u64,
 }
 
 fn valid_tenant_id(id: &str) -> bool {
@@ -97,22 +100,37 @@ fn valid_tenant_id(id: &str) -> bool {
 
 impl TenantRegistry {
     pub fn new(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
-        Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES)
+        Self::with_limits(engine, module, max_tenants, GUEST_MEMORY_BYTES, MAX_FUEL)
     }
 
     // Debug-only regression: guest may grow to two pages but its Store is
     // restricted to one. Do not expose a custom Store cap in production.
     #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
     pub fn new_for_growth_smoke(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
-        Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES / 2)
+        Self::with_limits(engine, module, max_tenants, GUEST_MEMORY_BYTES / 2, MAX_FUEL)
     }
 
-    fn with_memory_limit(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize) -> Result<Self, Failure> {
+    // Small lifetime fuel is deliberately accessible ONLY to the insecure
+    // test binary. It still drives actual Wasmtime compiled guest code.
+    #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
+    pub fn new_for_fuel_lifetime_smoke(
+        engine: Engine, module: Module, max_tenants: usize
+    ) -> Result<Self, Failure> {
+        Self::with_limits(engine, module, max_tenants, GUEST_MEMORY_BYTES, 512)
+    }
+
+    fn with_limits(
+        engine: Engine, module: Module, max_tenants: usize,
+        memory_limit_bytes: usize, lifetime_fuel_limit: u64
+    ) -> Result<Self, Failure> {
         if !(1..=MAX_TENANTS).contains(&max_tenants) {
             return Err("invalid tenant admission capacity".into());
         }
         if memory_limit_bytes != GUEST_MEMORY_BYTES && memory_limit_bytes != GUEST_MEMORY_BYTES / 2 {
             return Err("invalid tenant memory limit".into());
+        }
+        if !(1..=MAX_FUEL).contains(&lifetime_fuel_limit) {
+            return Err("invalid tenant lifetime fuel limit".into());
         }
         // In addition to trusted precompile-time byte admission, refuse host
         // imports, shared exported memory and unexpected exported capabilities.
@@ -124,6 +142,7 @@ impl TenantRegistry {
             next_generation: 1,
             max_tenants,
             memory_limit_bytes,
+            lifetime_fuel_limit,
         })
     }
 
@@ -156,7 +175,7 @@ impl TenantRegistry {
         store.limiter(|limits| limits);
         // Instantiation consumes from the SAME lifetime quota. Per-invoke
         // slice replacement below may not replenish this aggregate.
-        store.set_fuel(MAX_FUEL)?;
+        store.set_fuel(self.lifetime_fuel_limit)?;
         let instance = Instance::new(&mut store, &self.module, &[])?;
         let lifetime_fuel =
             LifetimeFuelBudget::from_instantiated_store(store.get_fuel()?);
