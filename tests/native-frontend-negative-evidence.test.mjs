@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
-import {readFile, mkdtemp, writeFile, rm} from 'node:fs/promises';
+import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -50,7 +50,9 @@ export function requireCompilerIdentity(env) {
 
 async function fixture(id, expectedBlob) {
   assert.match(id,/^[a-z][a-z0-9-]{1,50}$/);
-  const bytes = await readFile(new URL(id+'.atto', fixtures));
+  const {bytes} = await readBoundedRegularFile(
+    fileURLToPath(new URL(id+'.atto', fixtures)),8192,
+    'canonical .atto fixture must be bounded and non-symlinked');
   assert.ok(bytes.length > 20 && bytes.length < 8192);
   assert.equal(blobSha(bytes),expectedBlob,id+' original .atto fixture mutated');
   return bytes;
@@ -135,13 +137,14 @@ test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR 
     assert.equal(good.status,0,good.stderr);
     assert.match(good.stdout,/\bdefine\b/, 'positive source did not emit LLVM IR');
     assert.ok(good.stdout.length <= 4*1024*1024);
-    assert.equal(blobSha(await readFile(goodPath)),positive[1]);
+    assert.equal(blobSha((await readBoundedRegularFile(goodPath,8192)).bytes),positive[1]);
     assert.equal(blobSha(goodSource),positive[1]);
     for (const [id,sha,diagnostic] of negative) {
       const path = fileURLToPath(new URL(id+'.atto',fixtures));
       await fixture(id,sha);
       assertFrontendRejection(run(path),diagnostic);
-      assert.equal(blobSha(await readFile(path)),sha,'fixture mutated after compiler');
+      assert.equal(blobSha((await readBoundedRegularFile(path,8192)).bytes),sha,
+        'fixture mutated after compiler');
     }
     console.log('COMPILER_OWNED_NEGATIVE_5=EXECUTED; WASM_GUEST=NOT_EXECUTED; AOT=NOT_CERTIFIED');
   } finally { await rm(dir,{recursive:true,force:true}); }
