@@ -102,7 +102,9 @@ try {
       res.setHeader('Content-Type','application/wasm');
       res.end(compiler);return;
     }
-    if(!/^\\/(?:src|scripts)\\/[a-z0-9-]+\\.mjs$/.test(url)){
+    const parts=url.split('/');
+    if(parts.length!==3||!['src','scripts'].includes(parts[1])||
+       !/^[a-z0-9-]+[.]mjs$/.test(parts[2])){
       res.writeHead(404).end();return;
     }
     const file=resolve(ROOT,'.'+url);
