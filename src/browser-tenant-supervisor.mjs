@@ -63,11 +63,20 @@ export class BrowserTenantSupervisor {
       // mistakenly admitted many independently large artifacts.
       if (item.bytes.byteLength > 8_388_608 - this.#manifestBytes)
         throw Error('trusted manifest total byte budget exceeded');
+      // Per-manifest handler selection is pinned by trusted application
+      // provenance, not chosen by the untrusted actor message payload.
+      const profile = item.profile ?? 'oreslang.scalar.actor.v0';
+      if (!['oreslang.scalar.actor.v0', 'atto.browser.actor.integrated.v1'].includes(profile) ||
+          (profile === 'atto.browser.actor.integrated.v1' &&
+           (!Number.isInteger(item.actorId) || item.actorId < 0 || item.actorId > 1024)) ||
+          (profile !== 'atto.browser.actor.integrated.v1' && item.actorId !== undefined))
+        throw Error('unsupported artifact ABI profile or unpinned actor handler');
       this.#manifestBytes += item.bytes.byteLength;
       // Snapshot before any async operation; never use caller-controlled bytes
       // for a subsequent spawn after manifest admission.
       this.#manifest.set(item.name, {
-        sha256: item.sha256, bytes: Uint8Array.from(item.bytes)
+        sha256: item.sha256, bytes: Uint8Array.from(item.bytes),
+        profile, actorId: item.actorId
       });
     }
     this.#deadlineMs = deadlineMs;
@@ -186,7 +195,8 @@ export class BrowserTenantSupervisor {
     this.#refs.set(ref, actor);
     try {
       await this.#issue('spawn', actor, {
-        bytes: artifact.bytes, approvedSha256: artifact.sha256, trusted: true
+        bytes: artifact.bytes, approvedSha256: artifact.sha256, trusted: true,
+        profile: artifact.profile, actorId: artifact.actorId
       }, artifact.bytes.byteLength + 256);
       if (this.#closed) throw this.#reason;
       actor.state = 'active';
