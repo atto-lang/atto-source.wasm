@@ -9,6 +9,7 @@ import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
 import {once} from 'node:events';
 import {PooledWasmActors} from './pooled-actor-host.mjs';
+import {NativeWasmActorRegistry} from './actorref-registry-v0.mjs';
 import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 import {REQUEST_SCHEMA, RESPONSE_SCHEMA, ACK_SCHEMA,
   MAX_FRAME_BYTES, encodeNativeWasmPair, decodeNativeWasmPair,
@@ -35,7 +36,7 @@ export async function runTrustedNativeWasmLoop({
   if (sha(native) !== expectedNativeSha256) throw Error('native peer hash mismatch');
   const tmp = await mkdtemp(join(tmpdir(), 'ores-native-wasm-loop-'));
   const staged = join(tmp, 'native-exact');
-  let pool, child, failure, stderr = '', exitCode = null, exitPromise;
+  let pool, registry, child, failure, stderr = '', exitCode = null, exitPromise;
   let timer;
   try {
     await writeFile(staged, native, {mode: 0o500, flag: 'wx'});
@@ -43,8 +44,9 @@ export async function runTrustedNativeWasmLoop({
       throw Error('staged native peer digest mismatch');
     pool = new PooledWasmActors({workers:2,maxActors:actorCount,
       mailboxCapacity:2,timeoutMs:Math.min(5000,timeoutMs)});
+    registry = new NativeWasmActorRegistry({pool,maxActors:actorCount,maxPendingPerActor:2});
     const actors = await Promise.all(Array.from({length:actorCount}, () =>
-      pool.spawn(wasm,{expectedSha256:expectedWasmSha256,trusted:true})));
+      registry.spawn(wasm,{expectedSha256:expectedWasmSha256,trusted:true})));
 
     child = spawn(staged,[String(turns),String(actorCount)],{
       stdio:['pipe','pipe','pipe'],shell:false,env:{PATH:process.env.PATH||''}
@@ -73,7 +75,9 @@ export async function runTrustedNativeWasmLoop({
           if (msg.ticket !== nextRequest || msg.value !== 1n)
             throw Error('unexpected/replayed native actor request');
           const index = Number((msg.ticket - 1n) % BigInt(actorCount));
-          const result = await actors[index].send(msg.value);
+          // Target authority stays in the host-only registry; no ActorRef or
+          // supervisor CONTROL can be reconstructed from native DATA bytes.
+          const result = await registry.send(actors[index],msg.ticket,msg.value);
           const expected = (msg.ticket - 1n) / BigInt(actorCount) + 1n;
           if (result !== expected) throw Error('WASM actor state or routing mismatch');
           pending = {ticket:msg.ticket, expectedAck:result+100n};
@@ -98,7 +102,7 @@ export async function runTrustedNativeWasmLoop({
     if (pending !== null || nextRequest !== BigInt(turns+1) ||
         nextAck !== BigInt(turns+1))
       throw Error('incomplete native/WASM DATA exchange');
-    await Promise.all(actors.map(a=>a.stop()));
+    await Promise.all(actors.map(a=>registry.stop(a)));
     return Object.freeze({turns, actorCount, workerCount:pool.workerCount,
       wasmSha256:expectedWasmSha256,nativeSha256:expectedNativeSha256,
       protocol:'trusted-local-MessagePack-v2-i64-tuple'});
@@ -110,7 +114,8 @@ export async function runTrustedNativeWasmLoop({
     throw e;
   } finally {
     clearTimeout(timer);
-    if (pool) await pool.close();
+    if (registry) await registry.close();
+    else if (pool) await pool.close();
     await rm(tmp,{recursive:true,force:true});
   }
 }
