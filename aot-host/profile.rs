@@ -28,3 +28,26 @@ pub fn check_abi(m:&Module)->Result<(),Box<dyn std::error::Error>> {
  if entry!=1||memories!=1{return Err("guest must export main and memory once".into());}
  Ok(())
 }
+
+#[cfg(test)]
+mod fuel_admission_tests {
+ use super::engine;
+ use wasmtime::Store;
+
+ #[test]
+ fn hard_fuel_is_enabled_and_isolated_per_wasmtime_store() {
+  // A mutation removing consume_fuel(true) causes set_fuel to fail. This
+  // protects the independent hard trap while guest 128-edge polling matures.
+  let engine=engine().expect("fuel-enabled engine");
+  let mut offender=Store::new(&engine,());
+  let mut healthy=Store::new(&engine,());
+  offender.set_fuel(128).expect("hard fuel must be enabled");
+  healthy.set_fuel(512).expect("independent hard fuel");
+  assert_eq!(offender.get_fuel().unwrap(),128);
+  assert_eq!(healthy.get_fuel().unwrap(),512);
+  offender.set_fuel(0).unwrap();
+  assert_eq!(offender.get_fuel().unwrap(),0);
+  assert_eq!(healthy.get_fuel().unwrap(),512,
+    "one tenant's fuel exhaustion must not mutate a sibling Store");
+ }
+}
