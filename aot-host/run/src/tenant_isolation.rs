@@ -35,12 +35,44 @@ enum Phase {
     Quiescing,
 }
 
+// A Store's set_fuel() resets its slice on every invocation. Keep a second
+// host-owned lifetime ledger so a cooperative actor cannot replenish its
+// immutable per-incarnation execution quota by yielding/reentering.
+#[derive(Debug)]
+struct LifetimeFuelBudget {
+    remaining: u64,
+}
+impl LifetimeFuelBudget {
+    fn from_instantiated_store(remaining: u64) -> Self {
+        Self { remaining }
+    }
+    fn grant(&self, requested: u64) -> Result<u64, Failure> {
+        if !(1..=MAX_FUEL).contains(&requested) {
+            return Err("tenant fuel outside admission bounds".into());
+        }
+        let authorized = requested.min(self.remaining);
+        if authorized == 0 {
+            return Err("tenant lifetime execution fuel exhausted".into());
+        }
+        Ok(authorized)
+    }
+    fn charge(&mut self, authorized: u64, unspent: u64) -> Result<(), Failure> {
+        if authorized == 0 || unspent > authorized {
+            return Err("invalid Wasmtime fuel accounting".into());
+        }
+        self.remaining = self.remaining.checked_sub(authorized - unspent)
+            .ok_or("tenant lifetime fuel ledger underflow")?;
+        Ok(())
+    }
+}
+
 struct Tenant {
     generation: u64,
     identity: Arc<()>,
     phase: Phase,
     store: Store<StoreLimits>,
     instance: Instance,
+    lifetime_fuel: LifetimeFuelBudget,
     // Not guest-reachable. Scheduler-issued actor capability required before use.
     durable: DurableLockQueues,
 }
@@ -122,10 +154,12 @@ impl TenantRegistry {
             .build();
         let mut store = Store::new(&self.engine, limits);
         store.limiter(|limits| limits);
-        // Fuel applies during instantiation as well. The admitted scalar
-        // profile forbids start sections; each call resets its own budget.
+        // Instantiation consumes from the SAME lifetime quota. Per-invoke
+        // slice replacement below may not replenish this aggregate.
         store.set_fuel(MAX_FUEL)?;
         let instance = Instance::new(&mut store, &self.module, &[])?;
+        let lifetime_fuel =
+            LifetimeFuelBudget::from_instantiated_store(store.get_fuel()?);
         let identity = Arc::new(());
         let handle = TenantHandle {
             id: id.to_string(),
@@ -139,6 +173,7 @@ impl TenantRegistry {
             phase: Phase::Running,
             store,
             instance,
+            lifetime_fuel,
             durable,
         });
         self.next_generation = next;
@@ -165,14 +200,16 @@ impl TenantRegistry {
             return Err("tenant is quiescing".into());
         }
         // All errors after the host has authorized an execution attempt
-        // must pass through one cleanup path. In particular, do NOT use
-        // '?' directly on set_fuel or get_typed_func outside the closure:
-        // doing so skips the Store retirement below.
+        // must pass through one cleanup path, including exhausted lifetime
+        // fuel, inconsistent Store accounting and Wasmtime traps.
         let outcome = (|| -> Result<i64, Failure> {
-            tenant.store.set_fuel(fuel)?;
+            let authorized = tenant.lifetime_fuel.grant(fuel)?;
+            tenant.store.set_fuel(authorized)?;
             let main = tenant.instance
                 .get_typed_func::<(), i64>(&mut tenant.store, "main")?;
-            Ok(main.call(&mut tenant.store, ())?)
+            let answer = main.call(&mut tenant.store, ())?;
+            tenant.lifetime_fuel.charge(authorized, tenant.store.get_fuel()?)?;
+            Ok(answer)
         })();
 
         // Always retire a compartment after a failed invocation, whether
@@ -266,6 +303,44 @@ mod tests {
         );
         let error = result.expect_err("host quota must deny guest-permitted growth");
         assert!(error.to_string().contains("forcing trap when growing memory"));
+    }
+
+    #[test]
+    fn hard_fuel_is_never_replenished_by_successful_dispatches() {
+        let mut lifetime = LifetimeFuelBudget::from_instantiated_store(512);
+        for _ in 0..4 {
+            let grant = lifetime.grant(128).unwrap();
+            assert_eq!(grant, 128);
+            lifetime.charge(grant, 0).unwrap();
+        }
+        assert_eq!(lifetime.remaining, 0);
+        assert!(lifetime.grant(128).is_err(),
+            "new invoke must not renew exhausted incarnation fuel");
+
+        let mut partial = LifetimeFuelBudget::from_instantiated_store(512);
+        let first = partial.grant(128).unwrap();
+        partial.charge(first, 127).unwrap();
+        assert_eq!(partial.remaining, 511);
+        let last = partial.grant(512).unwrap();
+        assert_eq!(last, 511, "slice must be capped by total remaining");
+        partial.charge(last, 0).unwrap();
+        assert!(partial.grant(1).is_err());
+
+        let sibling = LifetimeFuelBudget::from_instantiated_store(512);
+        assert_eq!(sibling.grant(512).unwrap(), 512,
+            "one tenant's quota must never drain a sibling incarnation");
+    }
+
+    #[test]
+    fn fuel_ledger_rejects_untrusted_or_inconsistent_accounting() {
+        let mut ledger = LifetimeFuelBudget::from_instantiated_store(128);
+        assert!(ledger.grant(0).is_err());
+        assert!(ledger.grant(MAX_FUEL + 1).is_err());
+        assert!(ledger.charge(128, 129).is_err());
+        assert!(ledger.charge(0, 0).is_err());
+        assert_eq!(ledger.remaining, 128);
+        ledger.charge(128, 0).unwrap();
+        assert_eq!(ledger.remaining, 0);
     }
 
     #[test]
