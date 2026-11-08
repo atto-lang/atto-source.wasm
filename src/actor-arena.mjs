@@ -24,6 +24,15 @@ const ownedBytes = memory => new trustedBytes(trustedApply(trustedMemoryBuffer, 
 const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])) =>
   trustedApply(trustedFill, bytes, [0, start, end]);
 
+// Host-only Option shape; not a guest Option<T> object or a borrowed view.
+const NO_RANGE = Object.freeze({kind: "None"});
+function strictIndex(value, label) {
+  if (typeof value === "bigint") return value;
+  if (typeof value === "number" && Number.isSafeInteger(value) &&
+      !Object.is(value, -0)) return BigInt(value);
+  throw new TypeError(label + " requires an exact integer");
+}
+
 export class ActorArena {
   #memory;
   #actor;
@@ -189,6 +198,21 @@ export class ActorArena {
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
     return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
+  }
+
+  // Recoverable bounds check for an actor-owned byte span. The exact physical
+  // turn and unforgeable allocation handle are checked EVEN on a missing
+  // index. A hit returns an owned copy, never a retained alias into Wasm.
+  tryReadBytes(turn, handle, start, count) {
+    const {offset, length} = this.#slot(turn, handle);
+    const i = strictIndex(start, "slice start");
+    const n = strictIndex(count, "slice length");
+    if (i < 0n || n < 0n || i > BigInt(length) ||
+        n > BigInt(length) - i) return NO_RANGE;
+    const lower = offset + Number(i);
+    const upper = lower + Number(n);
+    const value = trustedApply(trustedSlice, this.#bytes(), [lower, upper]);
+    return Object.freeze({kind: "Some", value});
   }
 
   write(turn, handle, data) {
