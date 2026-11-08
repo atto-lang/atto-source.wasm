@@ -73,8 +73,8 @@ fn valid_tenant_id(id: &str) -> bool {
 // tenant quota. Both the scheduler and the guest are unable to increase it.
 fn admitted_call_fuel(remaining: u64, requested: u64) -> Result<u64, &'static str> {
     if !(1..=MAX_FUEL).contains(&requested) { return Err("tenant fuel outside admission bounds"); }
-    remaining.min(requested).checked_sub(0).filter(|value| *value != 0)
-        .ok_or("tenant fuel exhausted")
+    let granted = remaining.min(requested);
+    if granted == 0 { Err("tenant fuel exhausted") } else { Ok(granted) }
 }
 
 fn debit_used_fuel(remaining: &mut u64, granted: u64, unused: u64) -> Result<(), &'static str> {
