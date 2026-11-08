@@ -12,6 +12,11 @@ import {
 } from '../scripts/verify-native-negative-receipt.mjs';
 
 const H = n => (n===64?'e':'a').repeat(n);
+const cleanChildEnv = () => {
+  const env={...process.env,...context()};
+  delete env.NODE_TEST_CONTEXT;
+  return env;
+};
 const context = () => ({
   GITHUB_ACTIONS:'true',
   GITHUB_REF_PROTECTED:'true',
@@ -178,7 +183,7 @@ test('actual Node CLI accepts synthetic receipt but never emits certification',(
     const file=join(root,'receipt.json');
     writeFileSync(file,JSON.stringify(receipt()),{flag:'wx',mode:0o600});
     const cli=fileURLToPath(new URL('../scripts/verify-native-negative-receipt.mjs',import.meta.url));
-    const env={...process.env,...context()};
+    const env=cleanChildEnv();
     const run=(vars,path=file)=>spawnSync(process.execPath,[cli,path],{
       env:{...env,...vars},encoding:'utf8',timeout:10000,maxBuffer:64*1024
     });
@@ -227,7 +232,7 @@ test('CLI prevents forged host-only or skipped receipts from becoming a recorded
       const file=join(root,kind+'.json');
       writeFileSync(file,JSON.stringify({...receipt(),...change}));
       const run=spawnSync(process.execPath,[cli,file],{
-        env:{...process.env,...context()},encoding:'utf8',timeout:10000,maxBuffer:64*1024
+        env:cleanChildEnv(),encoding:'utf8',timeout:10000,maxBuffer:64*1024
       });
       assert.ifError(run.error);
       assert.equal(run.status,1,kind);
