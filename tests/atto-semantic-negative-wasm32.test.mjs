@@ -15,7 +15,7 @@ const cases=[
   ['removed-caret','pub fnc main(): int { return 2 ^ 3; }\n',
     '6889c7e83c8d94b906fbfe78723caee9580da6aa',/(\^|caret).*(operator|removed)|(operator|removed).*(\^|caret)/i,'SEMANTIC_REJECT'],
   ['removed-double-caret','pub fnc main(): int { return 2 ^^ 3; }\n',
-    '7ee99948018e927cce74c9ad0ed1975e4251689',/(\^\^|double caret).*(operator|removed)|(operator|removed).*(\^\^|double caret)/i,'SEMANTIC_REJECT'],
+    '7ee99948018e927cce74c9ad0edc1975e4251689',/(\^\^|double caret).*(operator|removed)|(operator|removed).*(\^\^|double caret)/i,'SEMANTIC_REJECT'],
   ['type-first-reassignment','pub fnc main(): int { int x = 7; x = 8; return x; }\n',
     'b118f53e68565dcb9e6acd58deb8ee47dca67606',null,'UNSUPPORTED_NOT_SEMANTIC_PROOF'],
   ['typed-const-reassignment','pub fnc main(): int { const int x = 7; x = 8; return x; }\n',
