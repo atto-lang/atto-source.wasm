@@ -245,6 +245,63 @@ export async function verifyRealCompiler({
       });
       assertNativeFrontendRejection(denied);
     }
+    // Six additional unchanged canonical Oreslang scalar programs from the
+    // cross-backend corpus. Unlike the inventory audit, each is compiled
+    // by the pinned *real* LLVM compiler and executed in the Wasm guest.
+    const portableRoot = fileURLToPath(new URL("../tests/portable-scalar/", import.meta.url));
+    const portableNames = [
+      "32-grouping-multiplication",
+      "33-subtraction-precedence",
+      "34-unary-plus-digit-separator",
+      "35-upper-bound-difference",
+      "36-lower-bound-cancellation",
+      "37-named-bitxor"
+    ];
+    const portableManifest = (await readFile(join(portableRoot,"oracles.tsv"),"utf8")).trimEnd().split("\n");
+    if (portableManifest.length !== portableNames.length)
+      throw Error("portable scalar manifest must contain exactly six cases");
+    const portableScalarFixtures = [];
+    for (let i=0;i<portableNames.length;i++) {
+      const name = portableNames[i];
+      const match = /^tests\/portable-scalar\/([0-9]{2}-[a-z0-9-]+\.ores)\|42\|([0-9a-f]{40})$/.exec(portableManifest[i]);
+      if (!match || match[1] !== name+".ores")
+        throw Error("unknown, duplicated or reordered portable scalar fixture");
+      const source = join(portableRoot,match[1]);
+      const bytes = (await readBoundedRegularFile(source,1048576,
+        "portable Oreslang guest source must be a bounded regular file")).bytes;
+      const gitBlob = createHash("sha1").update("blob "+bytes.length+"\0").update(bytes).digest("hex");
+      if (gitBlob !== match[2])
+        throw Error("portable Oreslang source is not the reviewed Git blob: "+name);
+      const pinnedSource = join(work,"portable-"+name+".ores");
+      await writeFile(pinnedSource,bytes,{flag:"wx",mode:0o400});
+      const output = join(work,"portable-"+name+".wasm");
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler,compilerSha256,source:pinnedSource,output,
+        environment:"browser",publication:"atomic"
+      });
+      const release = await readAtomicRelease(output);
+      if (built.sourceSha256 !== sha256(bytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(release.wasm) ||
+          release.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("portable Oreslang artifact source/compiler/Wasm identity mismatch: "+name);
+      const observed = await runIsolatedCoreGuest(release.wasm,{
+        expectedSha256:built.wasmSha256,timeoutMs:5000
+      });
+      if (observed.value !== 42n || observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("portable Oreslang wasm guest result or zero-capability ABI mismatch: "+name);
+      const after = (await readBoundedRegularFile(source,1048576,
+        "portable source changed during guest execution")).bytes;
+      if (sha256(after)!==sha256(bytes))
+        throw Error("portable Oreslang source mutated during execution: "+name);
+      portableScalarFixtures.push(Object.freeze({
+        name,expected:"42",value:observed.value.toString(),
+        sourceGitBlob:gitBlob,sourceSha256:built.sourceSha256,wasmSha256:built.wasmSha256
+      }));
+    }
+    if (portableScalarFixtures.length!==6)
+      throw Error("no complete six-case portable Wasm guest execution");
 
     // Run precisely the same byte-identical signed-i64 scalar fixture sources
     // used by the independent .NET and Forge bootstrap parity gates.
@@ -665,6 +722,7 @@ export async function verifyRealCompiler({
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults),
       strictNamedIntegerBitXor:Object.freeze(signed64NamedResults),
+      portableScalarFixtures:Object.freeze(portableScalarFixtures),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,

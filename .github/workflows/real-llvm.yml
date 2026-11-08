@@ -34,6 +34,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Bind protected Wasm main checkout
+      - name: Verify exact Wasm checkout and reviewed portable scalar source blobs
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.sha }}
@@ -44,6 +45,8 @@ jobs:
           echo "ORESLANG_BOOL_WASM_EXPECTED_HEAD=$EXPECTED_HEAD" >> "$GITHUB_ENV"
           echo "ORESLANG_BOOL_WASM_RECEIPT_PATH=$RUNNER_TEMP/boolean-wasm32-guest-receipt.json" >> "$GITHUB_ENV"
           echo "WASM_SOURCE_HEAD=$EXPECTED_HEAD TREE=$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain -- tests/portable-scalar)"
+          node --test tests/portable-scalar-inventory.test.mjs
       - name: Check out immutable private LLVM compiler source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
