@@ -18,9 +18,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
-import {createHash} from 'node:crypto';
 import {Worker} from 'node:worker_threads';
+import {compileApprovedAttoSource} from './helpers/approved-atto-compiler.mjs';
 import {BrowserTenantSupervisor} from '../src/browser-tenant-supervisor.mjs';
 import {admitAttoBrowserActor,ATTO_ACTOR_ABI}
   from '../src/browser-atto-actor-admission.mjs';
@@ -38,55 +37,9 @@ class NodeModuleWorker {
   postMessage(data){this.#worker.postMessage(data);}
   terminate(){void this.#worker.terminate();}
 }
-const SOURCE=[
-  'define actor Worker as receive(msg: int) -> int { return msg + 1; } end',
-  'pub fnc main(): int {',
-  '  val first = spawn Worker();',
-  '  val second = spawn Worker();',
-  '  return 0;',
-  '}',
-].join('\n');
-const hex40=x=>typeof x==='string'&&/^[0-9a-f]{40}$/.test(x);
-const hex64=x=>typeof x==='string'&&/^[0-9a-f]{64}$/.test(x);
-
 test('review-gated compiler: actual .atto actor guest runs in two instances/tenant',async t=>{
-  const {
-    ATTO_COMPILER_WASM:file,
-    ATTO_COMPILER_SHA256:approved,
-    ATTO_COMPILER_SOURCE_HEAD:head,
-    ATTO_COMPILER_SOURCE_TREE:tree
-  }=process.env;
-  assert.ok(typeof file==='string'&&file.length>0&&hex64(approved)&&
-    hex40(head)&&hex40(tree),'reviewed compiler path, digest, source HEAD and tree REQUIRED; no skip');
-  const compilerBytes=await readFile(file);
-  assert.ok(compilerBytes.length>0&&compilerBytes.length<=10*1024*1024,
-    'bounded compiler Wasm required');
-  const actual=createHash('sha256').update(compilerBytes).digest('hex');
-  assert.equal(actual,approved,'exact binary digest must match independent pin');
-  const compilerModule=await WebAssembly.compile(compilerBytes);
-  assert.deepEqual(WebAssembly.Module.imports(compilerModule),[],
-    'unapproved compiler host imports');
-  const compiler=await WebAssembly.instantiate(compilerModule,{});
-  const api=compiler.exports;
-  assert.equal(api.abi_version(),2);
-  const source=new TextEncoder().encode(SOURCE);
-  assert.ok(source.length<=api.input_capacity());
-  const mem=()=>new Uint8Array(api.memory.buffer);
-  const input=api.input_ptr();
-  assert.ok(Number.isSafeInteger(input)&&input+source.length<=mem().length);
-  mem().set(source,input);
-  const result=api.compile(source.length);
-  if(result!==0){
-    const bytes=mem(),at=api.error_ptr();
-    let until=at;
-    while(until<bytes.length&&bytes[until]&&until-at<256)until++;
-    assert.fail('real Atto compiler rejected source: '+new TextDecoder().decode(bytes.subarray(at,until)));
-  }
-  const begin=api.result_ptr(),count=api.result_length();
-  assert.ok(Number.isSafeInteger(begin)&&Number.isSafeInteger(count)&&
-    count>0&&count<=1_048_576&&begin+count<=mem().length);
-  const guest=Uint8Array.from(mem().subarray(begin,begin+count));
-  const guestDigest=createHash('sha256').update(guest).digest('hex');
+  const {guest,sourceHead:head,sourceTree:tree,
+    compilerSha256:actual,guestSha256:guestDigest}=await compileApprovedAttoSource();
   const admitted=await admitAttoBrowserActor(guest,guestDigest,0);
   assert.equal(admitted.abi.actorId,0);
   const manifest=[{name:'reviewed-atto-guest',bytes:guest,sha256:guestDigest,
