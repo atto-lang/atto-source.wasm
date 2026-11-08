@@ -1,5 +1,7 @@
 # Oreslang source-to-WebAssembly backend
 
+**Role:** This is an experimental **native LLVM/Clang-to-Wasm32 bridge plus JavaScript/Node host**. It is **not** the Rust compiler currently vendored at `atto-lang.github.io/play/` (that is `atto-lang/atto-source.rs`). The separate `aot-host` is a **native Rust Wasmtime** prototype, not a browser runtime. Browser Workers use browsers' built-in `WebAssembly` engine, never Wasmtime. See [browser tenant prototype and honest limitations](docs/BROWSER_TENANT_WEBWORKER_V0.md).
+
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
 Compare with oreslang-source.* repos.
 
