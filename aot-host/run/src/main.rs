@@ -62,6 +62,11 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
  if lifetime_smoke {
+  // Pin the test slice to the intended 128 reduction budget so a caller
+  // cannot silently change this acceptance proof to a different cadence.
+  if fuel!=128 {
+   return Err("lifetime fuel smoke requires exactly 128 fuel per call".into());
+  }
   // Real compiled guest, no mock budget calls. Every successful return
   // consumes Wasmtime fuel and resumes the SAME tenant incarnation.
   // The test-only 512 ceiling makes depletion deterministic and cheap.
