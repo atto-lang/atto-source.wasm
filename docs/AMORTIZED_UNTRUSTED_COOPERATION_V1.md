@@ -18,3 +18,24 @@ Wasmtime hard fuel stays mandatory and separately tested per Store. Rust host qu
 Add bounded guest backedge instrumentation before wasm32 binary emission, keep fuel enabled, and run actual Wasmtime infinite-loop and critical no-yield fixtures.
 
 Acceptance: a pinned exact-head test run must execute real guest loops, recursion, cancellation, critical sections, 127/128/129/511/512/513 boundaries, overflow/saturation, tenant coexistence, and negative mutations where removing a checkpoint causes admission failure. Source-free or host-only tests are not guest execution evidence; steps=null/[] is runner admission failure, not a test pass or failure.
+
+
+## Hard fuel and actor reincarnation ledger (P0)
+
+The AOT debug-only tenant Store now has **two** budgets:
+
+1. `Store.set_fuel(slice)` enforces Wasmtime instruction fuel for **one**
+   synchronous call and hard-traps a runaway guest.
+2. The host-owned `LifetimeFuelBudget` starts with the Store fuel **remaining
+   after instantiation** and is decremented by actually consumed fuel after
+   each completed guest call. `slice=min(requested, remaining)` cannot
+   replenish the lifetime quota, even if a guest returns or cooperates
+   repeatedly. On exhausted, invalid or inconsistent fuel accounting,
+   the existing tenant retirement path revokes that incarnation's Store.
+
+These are independent from the 128-edge **advisory fairness** counter. The
+lifetime budget never resets on a dispatch; only a new admitted tenant
+incarnation can receive a new quota. Dedicated Rust regression tests cover
+multiple full/partial calls, the 512/128 boundary, sibling independence and
+untrusted fuel accounting. Production OS isolation, authenticated AOT
+artifacts, and compiler-injected Wasm guest safepoints remain mandatory.
