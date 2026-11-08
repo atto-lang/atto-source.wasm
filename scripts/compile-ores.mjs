@@ -225,6 +225,54 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
  }
 }
 
+/** Actor pipeline transport is not lowered by the scalar Wasm bridge.
+ * This is a source admission gate, NOT successful guest actor execution.
+ * The tokenized check ignores quoted strings, comments, normal identifiers
+ * named pipe, and functional |> composition.
+ */
+export function rejectUnsupportedActorPipeSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ const reservedBefore=new Set([
+  "fnc","routine","method","define","pub","static","val",
+  "let","const","final","return","spawn","pipe","as","case"
+ ]);
+ const forbiddenNext=new Set(["then","fi","end","else","as","case","over"]);
+ for(let i=0;i<tokens.length;i++) {
+  const current=tokens[i];
+  if(!current.id||current.text!=="pipe")continue;
+  const prev=tokens[i-1],next=tokens[i+1];
+  const classCall=prev?.text==="." && tokens[i-2]?.id &&
+      tokens[i-2].text==="ActorUtils";
+  const classColonCall=prev?.text===":" &&
+      tokens[i-2]?.text===":" &&
+      tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
+  const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
+      [")","]","}"].includes(prev.text));
+  const rightStart=next && ((next.id&&!forbiddenNext.has(next.text)) ||
+      ["(","["].includes(next.text));
+  if(classCall||classColonCall||(leftEnd&&rightStart))
+    throw Error("wasm actor pipe source lowering unsupported at byte "+current.offset);
+ }
+}
+/** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
+export function rejectUnsupportedActorPubSubSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const current=tokens[i];
+  const actorGroupCall=
+    current?.id && current.text==="actor" &&
+    tokens[i+1]?.text==="." && tokens[i+2]?.id &&
+    tokens[i+2].text==="group";
+  const typedHandle=
+    current?.id && (current.text==="Topic" || current.text==="Subscription") &&
+    tokens[i+1]?.text==="<";
+  const typedTopicCall=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
+  if(actorGroupCall || typedHandle || typedTopicCall)
+   throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -399,6 +447,10 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
+ // Reject before invoking LLVM or staging any guest artifact.
+ rejectUnsupportedActorPubSubSource(sourceBytes);
+ rejectUnsupportedActorPipeSource(sourceBytes);
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
  // G0 unsafe gate is independent of the caller-supplied compiler binary.
