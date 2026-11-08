@@ -69,6 +69,10 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   // even when this API is invoked without an external expectedSha256 pin.
   const submittedSha256 = createHash("sha256").update(bytes).digest("hex");
   activeGuestWorkers++;
+  // A termination error makes the worker's lifetime uncertain. Preserve its
+  // admission credit permanently rather than accidentally admitting another
+  // untrusted guest while the original could still be executing.
+  let workerMayBeRunning = false;
   try {
     return await new Promise((resolve, reject) => {
       let worker;
@@ -85,7 +89,13 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           return;
         }
         Promise.resolve().then(() => worker.terminate()).then(
-          () => error ? reject(error) : resolve(payload),
+          () => {
+            // The host confirmed the worker actually terminated: it is now
+            // safe for the outer finally to restore admission capacity.
+            workerMayBeRunning = false;
+            if (error) reject(error);
+            else resolve(payload);
+          },
           e => reject(new Error("guest worker termination failed: " + String(e?.message || e)))
         );
       };
@@ -99,6 +109,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
+        workerMayBeRunning = true;
         timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
         worker.once("message", message => {
           if (!message || message.ok !== true) {
@@ -131,6 +142,8 @@ export async function runIsolatedCoreGuest(input, options = {}) {
       }
     });
   } finally {
-    activeGuestWorkers--;
+    // Fail closed if worker.terminate() rejected: retaining one credit is
+    // intentional and safer than falsely freeing possibly live execution.
+    if (!workerMayBeRunning) activeGuestWorkers--;
   }
 }
