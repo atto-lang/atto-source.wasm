@@ -166,3 +166,27 @@ test('parent: invalid manifest and unchecked artifact bytes are rejected before 
   }))}), /total byte budget exceeded/);
   assert.equal(w.current(), undefined, 'invalid manifest cannot create a Worker');
 });
+
+test('parent: integrated Atto actor ID and ABI are pinned by manifest, not request', async () => {
+  const w=fakeWorker();
+  const s=create(w,{manifest:[{
+    name:'rust-actor-handler',
+    profile:'atto.browser.actor.integrated.v1',actorId:0,
+    sha256:'a'.repeat(64),bytes:Uint8Array.of(0,97,115,109,1,0,0,0)
+  }]});
+  try {
+    const ref=await s.spawn(1,'rust-actor-handler');
+    const sent=w.current().messages[0];
+    assert.equal(sent.profile,'atto.browser.actor.integrated.v1');
+    assert.equal(sent.actorId,0);
+    assert.equal(await s.send(ref,1n),1n);
+  } finally {s.close();}
+  assert.throws(()=>create(fakeWorker(),{manifest:[{
+    name:'no-handler',profile:'atto.browser.actor.integrated.v1',
+    sha256:'a'.repeat(64),bytes:Uint8Array.of(0,97,115,109,1,0,0,0)
+  }]}),/unsupported artifact ABI/);
+  assert.throws(()=>create(fakeWorker(),{manifest:[{
+    name:'unexpected-handler',actorId:0,
+    sha256:'a'.repeat(64),bytes:Uint8Array.of(0,97,115,109,1,0,0,0)
+  }]}),/unsupported artifact ABI/);
+});
