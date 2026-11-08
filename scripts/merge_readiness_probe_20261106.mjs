@@ -217,7 +217,44 @@ export async function inspect_live(backend, number, expected_head, get = gh_json
         || page.total_count >= 100) throw new Error('incomplete job pagination');
     runs.push({run, jobs: page.jobs});
   }
-  return assess({repo, main, pr, reviews: reviewPage, runs}, backend, number, expected_head);
+  const decision = assess({repo, main, pr, reviews: reviewPage, runs},
+    backend, number, expected_head);
+  if (decision.decision === 'BLOCKED') return decision;
+
+  // The first five GETs are concurrent and the jobs are read later. An old
+  // approval, moved head or a successful older run attempt can otherwise
+  // combine into an advisory-positive snapshot that never existed together.
+  // This is a bounded readback, NOT a transactional GitHub snapshot, required
+  // check enforcement, or an authorization to merge.
+  const evidenceIdentity = (r, m, p, reviews, page) => {
+    const canonical = (items, project) => Array.isArray(items)
+      ? items.map(project).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+      : null;
+    return JSON.stringify({
+      repo: [r?.id, r?.full_name, r?.private, r?.archived, r?.disabled],
+      main: [m?.name, m?.protected, m?.commit?.sha],
+      pr: [p?.number, p?.state, p?.draft, p?.mergeable,
+        p?.base?.ref, p?.base?.sha, p?.base?.repo?.id,
+        p?.head?.sha, p?.head?.repo?.id, p?.user?.login],
+      reviews: canonical(reviews, x =>
+        [x?.id, x?.user?.login, x?.state, x?.commit_id, x?.submitted_at]),
+      runs: [page?.total_count, canonical(page?.workflow_runs, x =>
+        [x?.id, x?.head_sha, x?.event, x?.status, x?.conclusion,
+          x?.run_attempt, x?.repository?.id, x?.head_repository?.id])],
+    });
+  };
+  const initial = evidenceIdentity(repo, main, pr, reviewPage, runPage);
+  const [lastRepo, lastMain, lastPr, lastReviews, lastRuns] = await Promise.all([
+    get(prefix.slice(0, -1), token), get(prefix + 'branches/main', token),
+    get(prefix + 'pulls/' + number, token),
+    get(prefix + 'pulls/' + number + '/reviews?per_page=100', token),
+    get(prefix + 'actions/runs?head_sha=' + expected_head + '&event=pull_request&per_page=100', token),
+  ]);
+  if (initial !== evidenceIdentity(lastRepo, lastMain, lastPr,
+      lastReviews, lastRuns)) {
+    throw new Error('MERGE_DIAGNOSTIC_UNVERIFIED: GitHub evidence changed during collection');
+  }
+  return decision;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
