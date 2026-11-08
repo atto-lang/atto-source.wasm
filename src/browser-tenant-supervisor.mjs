@@ -32,6 +32,7 @@ function message(error) {
 export class BrowserTenantSupervisor {
   #worker;
   #manifest = new Map();
+  #manifestBytes = 0;
   #refs = new WeakMap();
   #actors = new Map();
   #pending = new Map();
@@ -58,6 +59,11 @@ export class BrowserTenantSupervisor {
           item.bytes.byteLength < 8 || item.bytes.byteLength > MAX_ARTIFACT_BYTES ||
           this.#manifest.has(item.name))
         throw Error('invalid or duplicate trusted manifest entry');
+      // Bound total manifest snapshots even if the trusted application has
+      // mistakenly admitted many independently large artifacts.
+      if (item.bytes.byteLength > 8_388_608 - this.#manifestBytes)
+        throw Error('trusted manifest total byte budget exceeded');
+      this.#manifestBytes += item.bytes.byteLength;
       // Snapshot before any async operation; never use caller-controlled bytes
       // for a subsequent spawn after manifest admission.
       this.#manifest.set(item.name, {
@@ -139,7 +145,9 @@ export class BrowserTenantSupervisor {
       this.#quarantine(Error('tenant Worker reported fatal: ' + String(reply.reason).slice(0,160)));
       return;
     }
-    if (reply.kind === 'actor_fault' && entry.kind !== 'send') {
+    if (reply.kind === 'actor_fault' &&
+        (entry.kind !== 'send' || reply.code !== 'WASM_UNREACHABLE_V1' ||
+         Object.hasOwn(reply, 'result'))) {
       this.#quarantine(Error('invalid actor fault receipt'));
       return;
     }
