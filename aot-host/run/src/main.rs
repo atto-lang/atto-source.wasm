@@ -79,11 +79,16 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
   }
   let mut successful_turns=0_i64;
   loop {
+   let before=registry.remaining_lifetime_fuel_for_smoke(&offender)?;
+   if before>512 || before==0 {
+    return Err("invalid lifetime fuel read-back before offender dispatch".into());
+   }
    match registry.invoke(&offender,128) {
     Ok(value)=>{
      successful_turns+=1;
-     if value!=successful_turns || successful_turns>512 {
-      return Err("lifetime quota guest counter or upper bound violated".into());
+     let after=registry.remaining_lifetime_fuel_for_smoke(&offender)?;
+     if after>=before || value!=successful_turns || successful_turns>512 {
+      return Err("compiled Wasm guest failed to decrease lifetime fuel on every completed turn".into());
      }
     }
     Err(error)=>{
@@ -94,8 +99,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
       fuel_failure |= item.to_string().to_ascii_lowercase().contains("fuel");
       cause=item.source();
      }
-     if !fuel_failure || successful_turns<5 {
-      return Err("lifetime guest did not exhaust fuel after real successful turns".into());
+     if !fuel_failure || successful_turns<5 || before>128 {
+      return Err("lifetime guest did not exhaust the depleted aggregate quota after real successful turns".into());
      }
      break;
     }
@@ -107,19 +112,39 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
      registry.destroy(&offender).is_ok() {
    return Err("lifetime-exhausted tenant retained a live Store or handle".into());
   }
-  if registry.invoke(&healthy,128)?!=2 {
-   return Err("healthy sibling lost progress after lifetime exhaustion".into());
+  let healthy_before=registry.remaining_lifetime_fuel_for_smoke(&healthy)?;
+  if registry.invoke(&healthy,128)?!=2 ||
+     registry.remaining_lifetime_fuel_for_smoke(&healthy)?>=healthy_before {
+   return Err("healthy sibling lost progress or shared offender fuel accounting".into());
   }
   let fresh=registry.admit("lifetime-offender")?;
   if registry.invoke(&fresh,128)?!=1 ||
      registry.invoke(&offender,128).is_ok() ||
-     registry.invoke(&healthy,128)?!=3 {
+     registry.invoke(&healthy,128)?!=3 ||
+     registry.active_tenants()!=2 {
    return Err("reincarnated tenant inherited exhausted incarnation authority".into());
   }
+  // Supervisor-style orderly sibling shutdown must not grant another slice.
+  registry.begin_shutdown(&healthy)?;
+  if registry.invoke(&healthy,128).is_ok() ||
+     registry.remaining_lifetime_fuel_for_smoke(&healthy).is_ok() {
+   return Err("quiescing tenant continued executing or exposed live fuel authority".into());
+  }
+  registry.destroy(&healthy)?;
+  if registry.invoke(&healthy,128).is_ok() ||
+     registry.begin_shutdown(&healthy).is_ok() {
+   return Err("destroyed tenant retained authority".into());
+  }
+  let healthy_restart=registry.admit("lifetime-healthy")?;
+  if registry.invoke(&healthy_restart,128)?!=1 ||
+     registry.invoke(&healthy,128).is_ok() ||
+     registry.invoke(&fresh,128)?!=2 {
+   return Err("healthy tenant restart reused stale incarnation or corrupted peer".into());
+  }
+  registry.begin_shutdown(&healthy_restart)?;
+  registry.destroy(&healthy_restart)?;
   registry.begin_shutdown(&fresh)?;
   registry.destroy(&fresh)?;
-  registry.begin_shutdown(&healthy)?;
-  registry.destroy(&healthy)?;
   if registry.active_tenants()!=0 {
    return Err("lifetime fuel smoke leaked tenant compartments".into());
   }
