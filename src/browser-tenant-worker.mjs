@@ -27,7 +27,11 @@ async function handle(data) {
       // This is a reference host for reviewed/trusted artifacts only. A hash
       // supplied by the guest itself does not authenticate source provenance.
       if (data.trusted!==true) throw new ProtocolReject('untrusted browser actor pooling unsupported');
-      const module = await admitBrowserActor(data.bytes, data.approvedSha256);
+      // Invalid source/ABI/hash is rejected before allocating any instance.
+      // It must not kill healthy actors already admitted to this tenant.
+      let module;
+      try { module = await admitBrowserActor(data.bytes, data.approvedSha256); }
+      catch { throw new ProtocolReject('actor artifact admission denied'); }
       const instance = await WebAssembly.instantiate(module, {});
       if (instance.exports.oreslang_wasm_actor_init()!==undefined) throw Error('actor init ABI mismatch');
       const memory = instance.exports.memory;
