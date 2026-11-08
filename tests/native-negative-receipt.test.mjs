@@ -282,8 +282,8 @@ test('source-free PR workflow never has secrets or native compiler execution',()
   assert.match(workflow,/ATTO_NATIVE_NEGATIVE_REQUIRED: '0'/);
   assert.match(workflow,/ATTO_NATIVE_NEGATIVE_REQUIRED: '1'/);
   assert.match(workflow,/REQUIRED_COMPILER_MISSING=EXPECTED_FAIL_CLOSED/);
-  assert.match(workflow,/# tests 20/);
-  assert.match(workflow,/# pass 19/);
+  assert.match(workflow,/# tests 21/);
+  assert.match(workflow,/# pass 20/);
   assert.match(workflow,/# skipped 1/);
   assert.doesNotMatch(workflow,/\bsecrets\.|ORESLANG_LLVM_READ_TOKEN|pull_request_target|workflow_run:|repository: ores-truffle-oreslang\/oreslang-source\.llvm/);
   assert.doesNotMatch(workflow,/npm run test:real-compiler|npm run test:real-negative-frontend/);
