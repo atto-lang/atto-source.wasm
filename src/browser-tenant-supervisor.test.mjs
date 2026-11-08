@@ -141,3 +141,28 @@ test('parent: immutable artifact bytes are copied at manifest ingestion', async 
     assert.equal(await s.send(ref, 1n), 1n);
   } finally {s.close();}
 });
+
+test('parent: fabricated actor fault code cannot retire actor as success', async () => {
+  const w = fakeWorker({autoAck: false}), s = create(w);
+  const starting = s.spawn(1, 'reviewed-v0');
+  w.current().reply(w.current().messages.at(-1), 'ack');
+  const ref = await starting;
+  const pending = s.send(ref, 1n);
+  w.current().reply(w.current().messages.at(-1), 'actor_fault', {code: 'FAKE_FAULT'});
+  await assert.rejects(pending, /invalid actor fault receipt/);
+  assert.equal(s.closed, true);
+  assert.equal(w.current().terminated, true);
+});
+
+test('parent: invalid manifest and unchecked artifact bytes are rejected before Worker construction', () => {
+  const w = fakeWorker();
+  assert.throws(() => create(w, {manifest: [
+    {name:'unreviewed', sha256:'not-a-digest',
+     bytes:Uint8Array.of(0,97,115,109,1,0,0,0)}
+  ]}), /invalid or duplicate/);
+  assert.throws(() => create(w, {manifest: Array.from({length:9}, (_,i) => ({
+    name:'mod-'+i, sha256:'a'.repeat(64),
+    bytes:new Uint8Array(1_048_576)
+  }))}), /total byte budget exceeded/);
+  assert.equal(w.current(), undefined, 'invalid manifest cannot create a Worker');
+});
