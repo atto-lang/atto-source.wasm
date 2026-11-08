@@ -32,7 +32,10 @@ const reject = reason => Object.freeze({
 });
 
 export function evaluateNativeNegativeReceipt(receipt, context) {
-  if (!object(receipt) || !object(context))
+  // Node's process.env is a host-backed object with a non-Object.prototype
+  // prototype; unlike parsed receipts it must not be restricted to plain JSON.
+  if (!object(receipt) || context===null || typeof context!=='object' ||
+      Array.isArray(context))
     return reject('invalid receipt/context objects');
   if (context.GITHUB_ACTIONS!=='true' ||
       context.GITHUB_REF_PROTECTED!=='true' ||
