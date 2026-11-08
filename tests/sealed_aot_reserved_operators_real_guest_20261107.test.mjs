@@ -45,6 +45,119 @@ function matchesReservedOperatorDiagnostic(stderr, token) {
   });
 }
 
+
+// Real compiler provenance must be verified by GitHub's Sigstore-backed CLI,
+// not by a source SHA supplied in an environment variable or unsigned JSON.
+// The signer workflow must BUILD and ATTEST the binary at that source revision.
+const upstreamLLVM='ores-truffle-oreslang/oreslang-source.llvm';
+const upstreamLLVMID='1410897874';
+const trustedBuilder='ores-truffle-oreslang/oreslang-source.llvm/.github/workflows/atto-llvm-compiler-attestation.yml';
+function assertSignedAttestationResult(results,digest) {
+  assert.ok(Array.isArray(results) && results.length>0 && results.length<=30,
+    'no bounded verified compiler attestations');
+  assert.ok(results.some(({verificationResult:v}={}) => {
+    const cert=v?.signature?.certificate;
+    const statement=v?.statement;
+    return String(cert?.sourceRepositoryIdentifier??'')===upstreamLLVMID
+      && Array.isArray(v?.verifiedTimestamps) && v.verifiedTimestamps.length>0
+      && statement?.predicateType==='https://slsa.dev/provenance/v1'
+      && Array.isArray(statement?.subject) && statement.subject.length===1
+      && statement.subject[0]?.digest?.sha256===digest;
+  }), 'verified attestation lacks the pinned LLVM repo identity, subject digest or signed timestamp');
+}
+function verifySignedLLVMCompiler({compiler,digest,sourceSha,run=spawnSync,environment=process.env}) {
+  assert.match(digest,/^[0-9a-f]{64}$/,'invalid compiler SHA-256');
+  assert.match(sourceSha,/^[0-9a-f]{40}$/,'invalid reviewed LLVM source SHA');
+  assert.ok(isAbsolute(compiler),'attested compiler path must be absolute');
+  // Always fetch signed attestations from the live GitHub repo. A local JSON
+  // or offline bundle cannot substitute for current repository identity.
+  const args=['attestation','verify',compiler,'--repo',upstreamLLVM,
+    '--signer-workflow',trustedBuilder,'--source-ref','refs/heads/main',
+    '--source-digest',sourceSha,'--signer-digest',sourceSha,
+    '--deny-self-hosted-runners','--format','json'];
+  const token=environment.GH_TOKEN??environment.GITHUB_TOKEN;
+  const result=run('/usr/bin/gh',args,{
+    cwd:'/',encoding:'utf8',timeout:45000,maxBuffer:1024*1024,
+    env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8',LC_ALL:'C.UTF-8',
+      GH_HOST:'github.com',...(token?{GH_TOKEN:token}:{})}
+  });
+  assert.ok(!result.error && !result.signal && result.status===0
+      && typeof result.stdout==='string' && result.stdout.length<=1024*1024,
+    'GitHub cryptographic source-to-binary attestation missing or failed');
+  let verified;
+  try{verified=JSON.parse(result.stdout)}
+  catch{throw new Error('GitHub attestation verification returned malformed JSON')}
+  assertSignedAttestationResult(verified,digest);
+  return Object.freeze({repository:upstreamLLVM,sourceSha,compilerSha256:digest,
+    signerWorkflow:trustedBuilder,scope:'verified-signed-compiler-provenance'});
+}
+
+// Isolated adversarial policy cases: mocked CLI output is NOT a signed receipt.
+const fakeAttestation=d=>[{
+  verificationResult:{
+    signature:{certificate:{sourceRepositoryIdentifier:upstreamLLVMID}},
+    verifiedTimestamps:[{timestamp:'2026-11-07T00:00:00Z'}],
+    statement:{predicateType:'https://slsa.dev/provenance/v1',
+      subject:[{name:'oreslang-llvmc',digest:{sha256:d}}]}
+  }
+}];
+const fakeDigest='f'.repeat(64), fakeSource='a'.repeat(40);
+test('signed compiler provenance: correct verified envelope is structurally accepted (MOCK ONLY)',()=>{
+  assert.doesNotThrow(()=>assertSignedAttestationResult(fakeAttestation(fakeDigest),fakeDigest));
+});
+const badAttestationCases=[
+  ['empty',a=>a.splice(0)],['empty timestamps',a=>a[0].verificationResult.verifiedTimestamps=[]],
+  ['wrong repository ID',a=>a[0].verificationResult.signature.certificate.sourceRepositoryIdentifier='0'],
+  ['missing certificate',a=>delete a[0].verificationResult.signature.certificate],
+  ['wrong predicate',a=>a[0].verificationResult.statement.predicateType='not-slsa'],
+  ['wrong binary digest',a=>a[0].verificationResult.statement.subject[0].digest.sha256='0'.repeat(64)],
+  ['missing binary digest',a=>delete a[0].verificationResult.statement.subject[0].digest.sha256],
+  ['extra subject',a=>a[0].verificationResult.statement.subject.push({name:'forged'})],
+  ['no subjects',a=>a[0].verificationResult.statement.subject=[]],
+  ['no verification result',a=>delete a[0].verificationResult]
+];
+for(const [name,mutate] of badAttestationCases)
+  test('signed compiler provenance: reject '+name+' (MOCK ONLY)',()=>{
+    const sample=fakeAttestation(fakeDigest); mutate(sample);
+    assert.throws(()=>assertSignedAttestationResult(sample,fakeDigest));
+  });
+test('signed compiler provenance: fixed authenticated gh CLI parameters (MOCK ONLY)',()=>{
+  let invocations=0;
+  const result=verifySignedLLVMCompiler({compiler:'/tmp/pinned-llvmc',digest:fakeDigest,
+    sourceSha:fakeSource,environment:{GH_TOKEN:'test-placeholder',NODE_OPTIONS:'malicious'},
+    run:(program,args,options)=>{
+      invocations++;
+      assert.equal(program,'/usr/bin/gh');
+      assert.deepEqual(args,['attestation','verify','/tmp/pinned-llvmc',
+        '--repo',upstreamLLVM,'--signer-workflow',trustedBuilder,
+        '--source-ref','refs/heads/main','--source-digest',fakeSource,
+        '--signer-digest',fakeSource,'--deny-self-hosted-runners','--format','json']);
+      assert.equal(options.env.GH_TOKEN,'test-placeholder');
+      assert.equal(options.env.NODE_OPTIONS,undefined);
+      return {status:0,stdout:JSON.stringify(fakeAttestation(fakeDigest))};
+    }});
+  assert.equal(invocations,1); assert.equal(result.compilerSha256,fakeDigest);
+});
+for(const [name,report] of [
+  ['failed signature',()=>({status:1,stdout:JSON.stringify(fakeAttestation(fakeDigest))})],
+  ['process signal',()=>({status:null,signal:'SIGKILL',stdout:''})],
+  ['invalid JSON',()=>({status:0,stdout:'not JSON'})],
+  ['forged repo',()=>{const a=fakeAttestation(fakeDigest);
+    a[0].verificationResult.signature.certificate.sourceRepositoryIdentifier='0';
+    return {status:0,stdout:JSON.stringify(a)}}]
+]) test('signed compiler provenance: deny '+name+' (MOCK ONLY)',()=>{
+  assert.throws(()=>verifySignedLLVMCompiler({compiler:'/tmp/pinned-llvmc',digest:fakeDigest,
+    sourceSha:fakeSource,run:report}));
+});
+test('signed compiler provenance: deny malformed SHA before invoking CLI',()=>{
+  let called=false;
+  assert.throws(()=>verifySignedLLVMCompiler({compiler:'/tmp/pinned-llvmc',
+    digest:fakeDigest,sourceSha:'a'.repeat(39),run:()=>{
+      called=true;return {status:0,stdout:JSON.stringify(fakeAttestation(fakeDigest))};
+    }}));
+  assert.equal(called,false);
+});
+
 test('pinned .atto corpus includes an executable positive and five operator rejections (SOURCE ONLY)', () => {
   assert.equal(cases.length,6);
   assert.deepEqual(cases.map(c=>c.id),[
@@ -127,6 +240,14 @@ test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emittin
   try {
     const compiler=join(temp,'pinned-llvmc');
     await writeFile(compiler,snapshot,{flag:'wx',mode:0o500});
+    // The actual staged digest was already checked above. Verify the same
+    // binary against a GitHub-signed LLVM main workflow and exact source SHA.
+    // No unsigned build record or local source transfer can satisfy this.
+    const provenCompiler=verifySignedLLVMCompiler({
+      compiler,digest:expectedDigest,sourceSha
+    });
+    assert.equal(provenCompiler.compilerSha256,expectedDigest);
+    assert.equal(provenCompiler.sourceSha,sourceSha);
     for(const c of cases) {
       const input=join(temp,c.id+'.atto'),output=join(temp,c.id+'.wasm');
       const source=bytesFor(c);
