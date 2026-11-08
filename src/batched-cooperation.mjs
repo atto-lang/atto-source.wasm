@@ -8,6 +8,7 @@
 export class BatchedCooperationMeter {
   #phase = 0;
   #completed = 0;
+  #servicingCheckpoint = false;
   #interval;
   static DISPATCH_BUDGET = 512;
 
@@ -23,6 +24,8 @@ export class BatchedCooperationMeter {
 
   // Reset only on an actual scheduler dispatch, not on an inner loop or await.
   begin_dispatch() {
+    if (this.#servicingCheckpoint)
+      throw new Error('reentrant cooperation dispatch reset');
     this.#phase = 0;
     this.#completed = 0;
   }
@@ -31,6 +34,8 @@ export class BatchedCooperationMeter {
   // arbitrary skip. Reject batches larger than the interval: otherwise a
   // single charge could cross multiple mandatory checkpoint boundaries.
   commit_batch(work, on_checkpoint) {
+    if (this.#servicingCheckpoint)
+      throw new Error('reentrant cooperation charge');
     if (!Number.isSafeInteger(work) || work < 1 || work > this.#interval)
       throw new RangeError('invalid bounded cooperation batch');
     if (typeof on_checkpoint !== 'function')
@@ -41,10 +46,17 @@ export class BatchedCooperationMeter {
     // Saturate instead of wrapping: an overdue dispatch never becomes fresh.
     this.#completed = Math.min(Number.MAX_SAFE_INTEGER, this.#completed + work);
     if (due) {
-      on_checkpoint({
-        completed: this.#completed,
-        overdue: this.#completed >= BatchedCooperationMeter.DISPATCH_BUDGET
-      });
+      // Keep the phase committed if a trusted scheduler callback throws.
+      // A failed callback must not be replayed at the same boundary.
+      this.#servicingCheckpoint = true;
+      try {
+        on_checkpoint(Object.freeze({
+          completed: this.#completed,
+          overdue: this.#completed >= BatchedCooperationMeter.DISPATCH_BUDGET
+        }));
+      } finally {
+        this.#servicingCheckpoint = false;
+      }
     }
     return due;
   }
