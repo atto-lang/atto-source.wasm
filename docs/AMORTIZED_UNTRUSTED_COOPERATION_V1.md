@@ -60,3 +60,20 @@ both account for Wasmtime instantiation using the Store's remaining fuel.
 This is genuine guest execution evidence only when `smoke.sh` itself runs
 to completion on an assigned CI worker. The production runner remains
 disabled until artifact authentication and process isolation are available.
+
+
+## Lifetime fuel, shutdown and restart acceptance
+
+The debug-only compiled-guest smoke now reads the **host-owned** remaining
+lifetime fuel before and after each successful Wasmtime call; the amount
+must strictly decrease on every turn. The exhaustion case must occur
+after multiple successful guest results, with remaining aggregate quota
+no greater than the 128-unit dispatch slice. A healthy sibling keeps
+its independent counter and fuel. The test then quiesces the sibling,
+rejects calls and fuel-ledger read-back while quiescing, destroys its
+Store, rejects old handles, and admits a fresh incarnation with its
+own memory/identity/initial result while the other reincarnated
+offender continues. No guest-exposed lifetime fuel introspection was
+added; read-back is present only in the already-insecure debug smoke
+build. Genuine success still requires an executed native Wasmtime
+AOT smoke with exact-head provenance, not a Node Wasm fixture pass.
