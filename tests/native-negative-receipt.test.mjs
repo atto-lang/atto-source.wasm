@@ -1,7 +1,9 @@
 // All evidence in this file is intentionally synthetic; no compiler executes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, writeFileSync, symlinkSync, rmSync} from 'node:fs';
+import {mkdtempSync, writeFileSync, symlinkSync, rmSync, readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {
@@ -168,4 +170,68 @@ test('source-free synthetic fixture manifest has distinct case IDs/blobs',()=>{
   assert.equal(new Set(ids).size,6);
   assert.equal(new Set(shas).size,6);
   assert.ok(shas.every(s=>/^[0-9a-f]{40}$/.test(s)));
+});
+
+test('actual Node CLI accepts synthetic receipt but never emits certification',()=>{
+  const root=mkdtempSync(join(tmpdir(),'atto-native-negative-cli-'));
+  try {
+    const file=join(root,'receipt.json');
+    writeFileSync(file,JSON.stringify(receipt()),{flag:'wx',mode:0o600});
+    const cli=fileURLToPath(new URL('../scripts/verify-native-negative-receipt.mjs',import.meta.url));
+    const env={...process.env,...context()};
+    const run=(vars,path=file)=>spawnSync(process.execPath,[cli,path],{
+      env:{...env,...vars},encoding:'utf8',timeout:10000,maxBuffer:64*1024
+    });
+    const ok=run({});
+    assert.ifError(ok.error);
+    assert.equal(ok.status,0,ok.stderr);
+    assert.equal(JSON.parse(ok.stdout).classification,'LOCAL_NATIVE_FRONTEND_CASES_RECORDED');
+    assert.equal(JSON.parse(ok.stdout).compilerExecutionCertified,false);
+    assert.equal(JSON.parse(ok.stdout).guestAotCertified,false);
+    const skipped=run({GITHUB_REF_PROTECTED:'false'});
+    assert.equal(skipped.status,1);
+    assert.equal(JSON.parse(skipped.stdout).classification,'NOT_VERIFIED');
+    const absent=run({},join(root,'missing.json'));
+    assert.equal(absent.status,2);
+    assert.match(absent.stderr,/NOT_VERIFIED/);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+test('workflow never gives private LLVM credential to PR-head execution',()=>{
+  const file=fileURLToPath(new URL('../.github/workflows/real-llvm.yml',import.meta.url));
+  const workflow=readFileSync(file,'utf8');
+  assert.match(workflow,/on:\n  workflow_dispatch:/);
+  assert.match(workflow,/github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow,/github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow,/github\.ref_protected/);
+  assert.match(workflow,/GITHUB_REF_PROTECTED.*?true/);
+  assert.match(workflow,/persist-credentials: false/);
+  assert.match(workflow,/ATTO_NATIVE_NEGATIVE_REQUIRED: '1'/);
+  assert.match(workflow,/npm run test:real-negative-frontend/);
+  assert.match(workflow,/node scripts\/verify-native-negative-receipt\.mjs/);
+  assert.ok(workflow.indexOf('Require authorized private LLVM read access') <
+    workflow.indexOf('Check out immutable private LLVM compiler source'));
+  assert.ok(workflow.indexOf('Check out immutable private LLVM compiler source') <
+    workflow.indexOf('Require five compiler-owned negative rejections'));
+});
+test('CLI prevents forged host-only or skipped receipts from becoming a recorded check',()=>{
+  const root=mkdtempSync(join(tmpdir(),'atto-negative-tamper-cli-'));
+  try {
+    const cli=fileURLToPath(new URL('../scripts/verify-native-negative-receipt.mjs',import.meta.url));
+    for(const [kind,change] of [
+      ['skipped',{result:'SKIPPED'}],
+      ['host',{hostOnly:true}],
+      ['guest-aot',{guestAotCertified:true}],
+      ['missing-matrix',{negatives:[]}],
+      ['wrong-attempt',{runAttempt:'1'}]
+    ]) {
+      const file=join(root,kind+'.json');
+      writeFileSync(file,JSON.stringify({...receipt(),...change}));
+      const run=spawnSync(process.execPath,[cli,file],{
+        env:{...process.env,...context()},encoding:'utf8',timeout:10000,maxBuffer:64*1024
+      });
+      assert.ifError(run.error);
+      assert.equal(run.status,1,kind);
+      assert.equal(JSON.parse(run.stdout).classification,'NOT_VERIFIED');
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
 });
