@@ -50,10 +50,16 @@ export class BatchedCooperationMeter {
       // A failed callback must not be replayed at the same boundary.
       this.#servicingCheckpoint = true;
       try {
-        on_checkpoint(Object.freeze({
+        const outcome = on_checkpoint(Object.freeze({
           completed: this.#completed,
           overdue: this.#completed >= BatchedCooperationMeter.DISPATCH_BUDGET
         }));
+        // Ignoring an asynchronous scheduler result could let guest code
+        // continue after an apparent yield. No thenable property is read;
+        // opaque callback results are rejected without running getters.
+        if (outcome !== null &&
+            (typeof outcome === 'object' || typeof outcome === 'function'))
+          throw new TypeError('asynchronous checkpoint callback unsupported');
       } finally {
         this.#servicingCheckpoint = false;
       }
