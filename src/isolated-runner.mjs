@@ -1,6 +1,7 @@
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {confirmWorkerTermination} from "./worker-termination-confirmation.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
 // also enforce an aggregate per-tenant/process-level limit at its broker.
@@ -88,14 +89,11 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           reject(error || Error("guest worker was not created"));
           return;
         }
-        Promise.resolve().then(() => worker.terminate()).then(
-          () => {
-            // The host confirmed the worker actually terminated: it is now
-            // safe for the outer finally to restore admission capacity.
-            workerMayBeRunning = false;
-            if (error) reject(error);
-            else resolve(payload);
-          },
+        Promise.resolve().then(() => confirmWorkerTermination(worker, () => {
+          // The callback only runs after successful Worker.terminate().
+          workerMayBeRunning = false;
+        })).then(
+          () => error ? reject(error) : resolve(payload),
           e => reject(new Error("guest worker termination failed: " + String(e?.message || e)))
         );
       };
