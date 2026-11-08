@@ -47,13 +47,14 @@ const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',byte
   b=>b.toString(16).padStart(2,'0')).join('');
 const worker=new Worker('/src/browser-tenant-worker.mjs',{type:'module'});
 let ticket=0;
+const incarnation=new Map([[1,'1'.repeat(32)],[2,'2'.repeat(32)]]);
 function ask(id,kind,extra={}){return new Promise((resolve,reject)=>{
  const t=++ticket;
  const timeout=setTimeout(()=>reject(Error('worker request deadline')),1500);
  const onMessage=({data})=>{if(data.ticket!==t)return;
    worker.removeEventListener('message',onMessage);clearTimeout(timeout);resolve(data);};
  worker.addEventListener('message',onMessage);
- worker.postMessage({ticket:t,id,kind,...extra});
+ worker.postMessage({ticket:t,id,incarnation:incarnation.get(id),kind,...extra});
 });}
 try {
  for(const id of [1,2]){
@@ -68,8 +69,11 @@ try {
  }
  if(results.join('|')!=='5|10|7|11')throw Error('cross-actor state leak: '+results.join('|'));
  if((await ask(1,'stop')).kind!=='ack')throw Error('stop not acknowledged');
+ incarnation.set(1,'3'.repeat(32));
  if((await ask(1,'spawn',{bytes,approvedSha256:digest,trusted:true})).kind!=='ack')
    throw Error('reincarnation not acknowledged');
+ if((await ask(1,'send',{incarnation:'1'.repeat(32),value:100n})).kind!=='rejected')
+   throw Error('stale actor handle was not rejected');
  if((await ask(1,'send',{value:3n})).result!==3n)throw Error('old actor state leaked');
  if((await ask(2,'send',{value:1n})).result!==12n)throw Error('neighbor state lost');
  document.body.dataset.result='pass';
