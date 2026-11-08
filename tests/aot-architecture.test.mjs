@@ -68,6 +68,32 @@ test("native runtime has guest resource limits and finite fuel",()=>{
   assert.match(smoke,/invalid fuel budget was admitted/);
 });
 
+test("tenant lifetime hard fuel is not renewed by repeated Wasmtime dispatches",()=>{
+  const tenant=source("aot-host/run/src/tenant_isolation.rs");
+  const profile=source("aot-host/profile.rs");
+  const runtime=runner;
+  assert.match(profile,/config\.consume_fuel\(true\)/,
+    "hard Wasmtime fuel must remain independent of cooperative polling");
+  assert.match(tenant,/struct LifetimeFuelBudget/);
+  assert.match(tenant,/let authorized = tenant\.lifetime_fuel\.grant\(fuel\)\?/);
+  assert.match(tenant,/tenant\.store\.set_fuel\(authorized\)\?/);
+  assert.match(tenant,/tenant\.lifetime_fuel\.charge\(authorized, tenant\.store\.get_fuel\(\)\?\)\?/);
+  assert.match(tenant,/LifetimeFuelBudget::from_instantiated_store\(store\.get_fuel\(\)\?\)/);
+  assert.match(tenant,/self\.tenants\.remove\(&handle\.id\)/,
+    "failed actor invocation must terminally retire its Store");
+  assert.doesNotMatch(tenant,/tenant\.store\.set_fuel\(fuel\)/,
+    "an unchecked per-call set_fuel silently renews lifetime quotas");
+  assert.match(tenant,/pub fn new_for_fuel_lifetime_smoke\(/);
+  assert.match(runtime,/--tenant-lifetime-fuel-smoke/);
+  assert.match(runtime,/successful_turns<5/);
+  assert.match(runtime,/wasmtime_tenant_lifetime_fuel_nonrenewal=ok/);
+  assert.match(smoke,/--tenant-lifetime-fuel-smoke/);
+  assert.match(smoke,/timeout 15s/);
+  assert.match(smoke,/lifetime fuel smoke accepted incorrect native AOT digest/);
+  assert.match(smoke,/tenant-counter\.cwasm/,
+    "smoke must execute a compiled guest artifact, not only a synthetic ledger");
+});
+
 test("committed independent Cargo locks pin Wasmtime without native runtime compiler",()=>{
   const precompileLock=source("aot-host/precompile/Cargo.lock");
   const runtimeLock=source("aot-host/run/Cargo.lock");
