@@ -263,6 +263,25 @@ if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.
   exit 1
 fi
 
+# Exact real-guest lifetime quota regression. Re-enter a single compiled
+# tenant-counter Store until the cumulative 512-unit debug test quota is
+# exhausted. Its final failed call must revoke only that Store; the healthy
+# sibling and a newly admitted incarnation must keep independent counters.
+# This catches an accidental mutation back to set_fuel(requested) on EVERY
+# invoke, which would let the offender finish hundreds of successful turns.
+lifetime_result="$(timeout 15s "$runner" --tenant-lifetime-fuel-smoke \
+  "$tmp/tenant-counter.cwasm" "$tenant_pin" 128)"
+if [[ "$lifetime_result" != 'wasmtime_tenant_lifetime_fuel_nonrenewal=ok' ]]; then
+  echo "Wasmtime real-guest lifetime fuel nonrenewal failed: $lifetime_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-lifetime-fuel-smoke "$tmp/tenant-counter.cwasm" \
+   "$(printf '0%.0s' {1..64})" 128 > /dev/null 2>&1; then
+  echo "lifetime fuel smoke accepted incorrect native AOT digest" >&2
+  exit 1
+fi
+
+
 
 # Real guest-memory-growth trap regression: the declared private memory is
 # 1..2 pages. On turn 4 the guest requests one additional page: standard Wasm
@@ -371,4 +390,4 @@ if "$runner" --tenant-fuel-starvation-smoke "$tmp/tenant-fuel-starvation.cwasm" 
   exit 1
 fi
 
-echo 'AOT smoke: positive scalars, strict policy negatives, tenant store/memory-growth/fuel isolation and release-mode denial passed'
+echo 'AOT smoke: positive scalars, strict policy negatives, tenant lifetime-fuel nonrenewal/store/memory-growth/fuel isolation and release-mode denial passed'
