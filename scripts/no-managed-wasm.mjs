@@ -8,7 +8,7 @@
  * JavaScript/V8/Node can still GC; guest compiler/linker/import audit and
  * ownership/drop proofs remain separate requirements.
  */
-export function assertNoManagedWasm(bytes) {
+export function assertNoManagedWasm(bytes, {allowFunctionImports = false} = {}) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 8 ||
       ![0, 97, 115, 109, 1, 0, 0, 0].every((x, i) => bytes[i] === x)) {
     throw Error("no-managed-Wasm: invalid core module header");
@@ -121,7 +121,10 @@ export function assertNoManagedWasm(bytes) {
     // separate host import/table/start guard. Never let an unsupported
     // managed-ref-bearing section bypass standalone preflight.
     if (id > 13) deny("unknown extension section not admitted");
-    if ([2, 4, 8, 9, 13].includes(id))
+    // This opt-in mode is ONLY safe after a separate strict import parser
+    // verifies every imported function and signature (the Atto browser ABI
+    // gate does so). The standalone no-managed contract remains fail-closed.
+    if ([4, 8, 9, 13].includes(id) || (id === 2 && !allowFunctionImports))
       deny("host import, table, start, element or tag section forbidden");
     if (id === 1) {
       if (sawType) deny("duplicate type section");
