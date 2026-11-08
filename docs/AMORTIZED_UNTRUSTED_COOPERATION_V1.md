@@ -39,3 +39,24 @@ incarnation can receive a new quota. Dedicated Rust regression tests cover
 multiple full/partial calls, the 512/128 boundary, sibling independence and
 untrusted fuel accounting. Production OS isolation, authenticated AOT
 artifacts, and compiler-injected Wasm guest safepoints remain mandatory.
+
+## Real compiled-guest lifetime fuel regression
+
+`aot-host/tests/smoke.sh` compiles a zero-import, bounded-memory Wasm
+counter module and precompiles it with the same AOT pipeline as the tenant
+store-isolation smoke. A debug-only, feature-gated
+`--tenant-lifetime-fuel-smoke` entry uses a hard 512-fuel **incarnation
+ceiling** to make the actual guest exhaustion observable in a short test.
+The runner repeatedly invokes one offender with per-call 128-unit slices,
+proving multiple successful guest calls first, then a real fuel-origin error,
+Store retirement, stale-handle rejection, healthy sibling progress and
+clean reincarnation. Replacing the lifetime ledger with an unconditional
+`Store.set_fuel(requested)` renewal must make this regression fail.
+
+The 512 ceiling is available **only** with the explicit insecure Cargo
+debug profile/feature and is not configurable from untrusted source. The
+ordinary registry uses the independently enforced fixed MAX_FUEL ceiling;
+both account for Wasmtime instantiation using the Store's remaining fuel.
+This is genuine guest execution evidence only when `smoke.sh` itself runs
+to completion on an assigned CI worker. The production runner remains
+disabled until artifact authentication and process isolation are available.
