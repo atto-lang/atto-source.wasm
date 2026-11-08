@@ -58,6 +58,7 @@ pub struct TenantRegistry {
     next_generation: u64,
     max_tenants: usize,
     memory_limit_bytes: usize,
+    initial_fuel: u64,
 }
 
 fn valid_tenant_id(id: &str) -> bool {
@@ -89,6 +90,13 @@ impl TenantRegistry {
         Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES)
     }
 
+    // Debug-only guest execution: a small lifetime budget makes repeated
+    // successful calls measurably exhaust the same finite Store quota.
+    #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
+    pub fn new_for_fuel_conservation_smoke(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
+        Self::with_resource_limits(engine, module, max_tenants, GUEST_MEMORY_BYTES, 1_024)
+    }
+
     // Debug-only regression: guest may grow to two pages but its Store is
     // restricted to one. Do not expose a custom Store cap in production.
     #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
@@ -97,6 +105,13 @@ impl TenantRegistry {
     }
 
     fn with_memory_limit(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize) -> Result<Self, Failure> {
+        Self::with_resource_limits(engine, module, max_tenants, memory_limit_bytes, MAX_FUEL)
+    }
+
+    fn with_resource_limits(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize, initial_fuel: u64) -> Result<Self, Failure> {
+        if initial_fuel == 0 || initial_fuel > MAX_FUEL {
+            return Err("invalid initial tenant fuel".into());
+        }
         if !(1..=MAX_TENANTS).contains(&max_tenants) {
             return Err("invalid tenant admission capacity".into());
         }
@@ -113,6 +128,7 @@ impl TenantRegistry {
             next_generation: 1,
             max_tenants,
             memory_limit_bytes,
+            initial_fuel,
         })
     }
 
@@ -145,7 +161,7 @@ impl TenantRegistry {
         store.limiter(|limits| limits);
         // Fuel applies during instantiation as well. The admitted scalar
         // profile forbids start sections; each call resets its own budget.
-        store.set_fuel(MAX_FUEL)?;
+        store.set_fuel(self.initial_fuel)?;
         let instance = Instance::new(&mut store, &self.module, &[])?;
         // Preserve any instantiation charge instead of assigning fresh fuel.
         let remaining_fuel = store.get_fuel()?;
