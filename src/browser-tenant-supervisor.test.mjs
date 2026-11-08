@@ -21,7 +21,7 @@ function fakeWorker({autoAck = true} = {}) {
       this.onmessage?.({data: {
         ticket: message.ticket, id: message.id,
         incarnation: message.incarnation, kind,
-        result: kind === 'ack' ? (message.kind === 'send' ? message.value : null) : undefined,
+        ...(kind === 'ack' ? {result: message.kind === 'send' ? message.value : null} : {}),
         ...extra
       }});
     }
