@@ -7,6 +7,7 @@ import {readFile, mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, isAbsolute} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const fixtures = new URL('./fixtures/boolean-v1/', import.meta.url);
@@ -105,8 +106,9 @@ test('five compiler-owned negative diagnostics, zero IR plus a positive LLVM IR 
   timeout: 180000
 }, async () => {
   const env = requireCompilerIdentity(process.env);
-  const compilerBytes = await readFile(env.ORESLANG_LLVM_COMPILER);
-  assert.ok(compilerBytes.length > 0 && compilerBytes.length <= 256*1024*1024);
+  const {bytes:compilerBytes} = await readBoundedRegularFile(
+    env.ORESLANG_LLVM_COMPILER, 256*1024*1024,
+    'native LLVM compiler must be a bounded regular file');
   assert.equal(sha256(compilerBytes),env.ORESLANG_LLVM_COMPILER_SHA256,
     'executed compiler must match pinned source-binary digest');
   const checkout = spawnSync('git',['rev-parse','HEAD'],{
