@@ -2,7 +2,7 @@
 
 ## Contract
 
-- Default slow-poll interval: **128 completed guest reductions**. The compiler's hot path uses an integer counter/increment and a predictable branch. A clock read, scheduler inspection, cancellation delivery, or runtime FFI is never performed on every iteration.
+- Default slow-poll interval: **128 completed guest reductions**. The instrumented hot path uses a small integer countdown and a predictable branch; 64-bit aggregate accounting occurs only on the 128th reduction. A clock read, scheduler inspection, cancellation delivery, or runtime FFI is never performed on every iteration.
 - A 512-backedge value is a *fairness handoff target*, not the hard tenant execution quota. After 512, slow polls remain at 128-edge boundaries; do not change to a slow poll on every overdue iteration. A separate safe critical-section exit may request one immediate poll.
 - Replenishing a fairness slice must **never replenish hard tenant fuel**. Counter overflow saturates total accounting without disabling the independent window counter.
 - Only committed backedges and compiler-verified call sites count. Untrusted source cannot mutate or bypass compiler-private counter state. Optimizer/codegen must retain checkpoint coverage; uninstrumented loop/cycle admission must fail closed.
@@ -11,9 +11,7 @@
 
 ## Current backend status (2026-11-07)
 
-Wasmtime Store fuel is the hard isolation guard; the new Rust quantum is a tested host-side contract, NOT a guest .wasm loop instrumentation pass.
-
-Relevant files: aot-host/run/src/amortized_cooperation.rs; aot-host/run/src/tenant_isolation.rs; aot-host/profile.rs.
+Wasmtime hard fuel stays mandatory and separately tested per Store. Rust host quantum uses a 128-tick countdown with saturation and million-tick regressions. Guest wasm32 checkpoint instrumentation is NOT yet implemented; production AOT tenant execution remains fail-closed absent authenticated artifact provenance and OS isolation.
 
 ## Missing compiler-backed gate
 
