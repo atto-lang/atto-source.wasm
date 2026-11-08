@@ -183,7 +183,7 @@ finally{worker.terminate();}
     for(let i=0;i<100;i++) {
       if(chrome.exitCode!==null)throw Error('Chromium exited: '+stderr);
       try{
-        port=Number((await readFile(join(profile,'DevToolsActivePort'),'utf8')).split('\\n')[0]);
+        port=Number((await readFile(join(profile,'DevToolsActivePort'),'utf8')).split(String.fromCharCode(10))[0]);
         if(port>0)break;
       }catch{}
       await sleep(100);
