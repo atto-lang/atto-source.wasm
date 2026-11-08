@@ -160,7 +160,8 @@ impl TenantRegistry {
         let mut store = Store::new(&self.engine, limits);
         store.limiter(|limits| limits);
         // Fuel applies during instantiation as well. The admitted scalar
-        // profile forbids start sections; each call resets its own budget.
+        // profile forbids start sections. Each call gets no more than the
+        // tenant's unspent lifetime balance; it never resets tenant fuel.
         store.set_fuel(self.initial_fuel)?;
         let instance = Instance::new(&mut store, &self.module, &[])?;
         // Preserve any instantiation charge instead of assigning fresh fuel.
