@@ -7,7 +7,6 @@ on:
       - scripts/merge_readiness_probe_20261106.mjs
       - scripts/strict_github_evidence_20261106.mjs
       - tests/merge_readiness_*.test.mjs
-  workflow_dispatch: {}
 
 permissions:
   contents: read
