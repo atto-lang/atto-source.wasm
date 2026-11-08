@@ -2,6 +2,7 @@
 #[path="../../io.rs"] mod io;
 mod tenant_isolation;
 mod durable_lock_queues;
+mod amortized_cooperation; // host-only contract; guest hard fuel stays enabled
 use std::env;
 use sha2::{Digest,Sha256};
 use wasmtime::{Engine,Instance,Module,Precompiled,Store,StoreLimitsBuilder};
