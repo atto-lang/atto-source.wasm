@@ -14,11 +14,20 @@ const TESTS = Object.freeze([
   'tests/merge_readiness_job_name_collision_20261107.test.mjs',
   'tests/merge_readiness_readback_setup_only_20261107.test.mjs',
 ]);
+const SOURCE_FILES = Object.freeze([
+  'scripts/merge_readiness_probe_20261106.mjs',
+  'scripts/strict_github_evidence_20261106.mjs',
+  'scripts/run_merge_readiness_exact_head.mjs',
+  ...TESTS,
+]);
 const SHA = /^[a-f0-9]{40}$/;
+const GIT = '/usr/bin/git';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 function command(args, timeout=10_000) {
-  const p = spawnSync('git', args, {cwd:ROOT, encoding:'utf8', timeout, maxBuffer:1024*1024,
-    env:{PATH:process.env.PATH??'/usr/bin:/bin', LANG:'C', LC_ALL:'C'}});
+  const p = spawnSync(GIT, ['-c','core.fsmonitor=false',...args], {
+    cwd:ROOT, encoding:'utf8', timeout, maxBuffer:1024*1024,
+    env:{PATH:'/usr/bin:/bin', LANG:'C', LC_ALL:'C', GIT_OPTIONAL_LOCKS:'0',
+      GIT_CONFIG_NOSYSTEM:'1', GIT_CONFIG_GLOBAL:'/dev/null'}});
   assert.ifError(p.error);
   assert.equal(p.signal,null,'Git operation interrupted');
   assert.equal(p.status,0,'Git operation failed: '+String(p.stderr).slice(0,300));
@@ -33,10 +42,12 @@ function clean(expected) {
   assert.match(tree,SHA);
   assert.equal(command(['status','--porcelain','--untracked-files=all']),'',
     'tracked or untracked repository bytes are dirty');
+  assert.equal(command(['ls-files','--others','--ignored','--exclude-standard']),'',
+    'ignored untracked files are forbidden in the tested repository');
   return {head,tree};
 }
 function blobs() {
-  return TESTS.map(path=>{
+  return SOURCE_FILES.map(path=>{
     const abs=join(ROOT,path);
     const info=lstatSync(abs);
     assert.ok(info.isFile()&&!info.isSymbolicLink(),path+' must be a regular file');
@@ -60,12 +71,15 @@ async function main(){
   const expected=process.argv[2];
   assert.match(expected,SHA,'reviewed HEAD must be an exact 40-character lowercase Git SHA');
   assert.match(process.version,/^v22\./,'Node 22 is required');
+  for(const key of ['NODE_OPTIONS','NODE_PATH'])
+    assert.equal(process.env[key]??'','',key+' injection is forbidden');
   const before=clean(expected);
   const sources=blobs();
   const result=spawnSync(process.execPath,[
     '--test','--test-reporter=tap',...TESTS],{
     cwd:ROOT, encoding:'utf8', timeout:180_000,maxBuffer:8*1024*1024,
-    env:{...process.env,NODE_ENV:'test'}
+    env:{PATH:'/usr/bin:/bin',LANG:'C.UTF-8',LC_ALL:'C.UTF-8',
+      TZ:'UTC',NODE_ENV:'test',CI:'true'}
   });
   assert.ifError(result.error);
   assert.equal(result.signal,null,'Node test subprocess signalled or timed out');
