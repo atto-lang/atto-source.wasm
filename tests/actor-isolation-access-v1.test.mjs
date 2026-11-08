@@ -51,3 +51,25 @@ test("highest compressed32 word and boundary arithmetic cannot wrap", () => {
   assert.throws(() => new ActorIsolationAccessV1(1, 1, 1, maxSpan + 1n), /invalid/);
   assert.throws(() => new ActorIsolationAccessV1(0, 1, 1, 8n), /invalid/);
 });
+
+test("intrinsic monkeypatch cannot forge allocation grants or bypass live overlap", () => {
+  const a = new ActorIsolationAccessV1(1, 2, 3, 64n);
+  const grant = a.issueAllocation(8n, 16n);
+  const oldGet = WeakMap.prototype.get;
+  const oldDelete = WeakMap.prototype.delete;
+  const oldIterator = Set.prototype[Symbol.iterator];
+  try {
+    WeakMap.prototype.get = () => ({start: 0n, end: 64n});
+    WeakMap.prototype.delete = () => true;
+    Set.prototype[Symbol.iterator] = function* () {};
+    assert.throws(() => a.checkedOffset(Object.freeze({}), 1n, 8n), /foreign/);
+    assert.throws(() => a.issueAllocation(16n, 8n), /overlapping/);
+    assert.equal(a.checkedOffset(grant, 2n, 16n), 8n);
+    a.release(grant);
+    assert.throws(() => a.checkedOffset(grant, 2n, 8n), /stale/);
+  } finally {
+    WeakMap.prototype.get = oldGet;
+    WeakMap.prototype.delete = oldDelete;
+    Set.prototype[Symbol.iterator] = oldIterator;
+  }
+});
