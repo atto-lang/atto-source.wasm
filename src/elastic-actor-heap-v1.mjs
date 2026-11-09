@@ -56,6 +56,7 @@ export class ElasticActorHeapPoolV1 {
   #idle = [];
   #active = new Set();
   #activeIdentities = new Set();
+  #activeActorIds = new Set();
   #closed = false;
   constructor({maxPages = 1024, processLedger, tenantLedger = processLedger} = {}) {
     if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES ||
@@ -79,11 +80,13 @@ export class ElasticActorHeapPoolV1 {
       throw new TypeError('invalid actor/incarnation');
     }
     const identity = `${actorId}:${incarnation}`;
-    if (this.#activeIdentities.has(identity)) throw new Error('actor incarnation already leased');
+    if (this.#activeIdentities.has(identity) || this.#activeActorIds.has(actorId))
+      throw new Error('actor incarnation already leased');
     const memory = this.#idle.pop() ?? new TrustedMemory({initial: 0, maximum: this.#maxPages});
     const heap = new ElasticActorHeapV1(this, memory, actorId, incarnation);
     this.#active.add(heap);
     this.#activeIdentities.add(identity);
+    this.#activeActorIds.add(actorId);
     return heap;
   }
   grow(heap, memory, count) {
@@ -108,6 +111,7 @@ export class ElasticActorHeapPoolV1 {
     zero(nativeBytes(memory));
     this.#active.delete(heap);
     this.#activeIdentities.delete(`${heap.actorId}:${heap.incarnation}`);
+    this.#activeActorIds.delete(heap.actorId);
     this.#idle.push(memory); // Accounting remains charged, backing remains reusable.
   }
   retire() {
