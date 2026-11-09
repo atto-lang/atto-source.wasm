@@ -102,6 +102,7 @@ test('tenant budget is independently enforced without bypassing process budget',
 test('actor incarnation is unique while leased and memory.grow prototype spoofing fails', () => {
   const manager=pool(3); const a=manager.lease(11,4);
   assert.throws(()=>manager.lease(11,4), /already leased/);
+  assert.throws(()=>manager.lease(11,5), /already leased/);
   const t=a.beginTurn(); const root=a.allocate(t,8);
   a.write(t,root,new Uint8Array(8).fill(23));
   const grow = WebAssembly.Memory.prototype.grow;
