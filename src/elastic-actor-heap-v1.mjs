@@ -8,6 +8,8 @@ const PAGE = 65536;
 const MAX_PAGES = 1024; // Explicit v1 ceiling: 64 MiB, not a ref32 width limit.
 const MAX_HANDLES = 4096;
 const trustedIsUint8Array = types.isUint8Array;
+const TrustedMemory = WebAssembly.Memory;
+const trustedGrow = WebAssembly.Memory.prototype.grow;
 const TrustedUint8Array = Uint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const taPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -53,6 +55,7 @@ export class ElasticActorHeapPoolV1 {
   #tenantLedger;
   #idle = [];
   #active = new Set();
+  #activeIdentities = new Set();
   #closed = false;
   constructor({maxPages = 1024, processLedger, tenantLedger = processLedger} = {}) {
     if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES ||
@@ -75,9 +78,12 @@ export class ElasticActorHeapPoolV1 {
         !Number.isSafeInteger(incarnation) || incarnation <= 0) {
       throw new TypeError('invalid actor/incarnation');
     }
-    const memory = this.#idle.pop() ?? new WebAssembly.Memory({initial: 0, maximum: this.#maxPages});
+    const identity = `${actorId}:${incarnation}`;
+    if (this.#activeIdentities.has(identity)) throw new Error('actor incarnation already leased');
+    const memory = this.#idle.pop() ?? new TrustedMemory({initial: 0, maximum: this.#maxPages});
     const heap = new ElasticActorHeapV1(this, memory, actorId, incarnation);
     this.#active.add(heap);
+    this.#activeIdentities.add(identity);
     return heap;
   }
   grow(heap, memory, count) {
@@ -89,7 +95,7 @@ export class ElasticActorHeapPoolV1 {
       throw new RangeError('process page budget exhausted');
     }
     try {
-      memory.grow(count);
+      apply(trustedGrow, memory, [count]);
     } catch (error) {
       // WebAssembly.Memory.grow is all-or-nothing on exception.
       if (separate) this.#ledger.rollback(count);
@@ -98,8 +104,10 @@ export class ElasticActorHeapPoolV1 {
     }
   }
   recycle(heap, memory) {
-    if (this.#closed || !this.#active.delete(heap)) throw new Error('foreign/duplicate actor retirement');
+    if (this.#closed || !this.#active.has(heap)) throw new Error('foreign/duplicate actor retirement');
     zero(nativeBytes(memory));
+    this.#active.delete(heap);
+    this.#activeIdentities.delete(`${heap.actorId}:${heap.incarnation}`);
     this.#idle.push(memory); // Accounting remains charged, backing remains reusable.
   }
   retire() {
