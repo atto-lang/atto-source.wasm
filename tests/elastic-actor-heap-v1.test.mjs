@@ -98,3 +98,23 @@ test('tenant budget is independently enforced without bypassing process budget',
   assert.equal(tenant.chargedPages,1); assert.equal(process.chargedPages,1);
   a.endTurn(t); a.retire(); manager.retire();
 });
+
+test('actor incarnation is unique while leased and memory.grow prototype spoofing fails', () => {
+  const manager=pool(3); const a=manager.lease(11,4);
+  assert.throws(()=>manager.lease(11,4), /already leased/);
+  const t=a.beginTurn(); const root=a.allocate(t,8);
+  a.write(t,root,new Uint8Array(8).fill(23));
+  const grow = WebAssembly.Memory.prototype.grow;
+  try {
+    WebAssembly.Memory.prototype.grow = function () { throw new Error('poisoned grow'); };
+    const next=a.allocate(t,65536);
+    assert.equal(a.committedPages,2);
+    assert.equal(a.read(t,root)[0],23);
+    assert.equal(a.read(t,next)[0],0);
+  } finally {
+    WebAssembly.Memory.prototype.grow = grow;
+  }
+  a.endTurn(t); a.retire();
+  const b=manager.lease(11,4); // prior incarnation identity is no longer active.
+  const tb=b.beginTurn(); b.endTurn(tb); b.retire(); manager.retire();
+});
