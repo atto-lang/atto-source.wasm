@@ -119,3 +119,46 @@ test('actor incarnation is unique while leased and memory.grow prototype spoofin
   const b=manager.lease(11,4); // prior incarnation identity is no longer active.
   const tb=b.beginTurn(); b.endTurn(tb); b.retire(); manager.retire();
 });
+
+test('seeded churn: grow/drop/reuse preserves values and isolation under a hard cap', () => {
+  const manager=pool(4,4); const a=manager.lease(81,1), t=a.beginTurn();
+  let seed=0x12345678;
+  const rng=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;};
+  const live=[];
+  for(let i=0;i<4000;i++) {
+    const shouldDrop=live.length>0 && (live.length>70 || rng()%3===0);
+    if(shouldDrop) {
+      const index=rng()%live.length; const entry=live.splice(index,1)[0];
+      assert.equal(a.read(t,entry.handle)[0],entry.value);
+      a.drop(t,entry.handle);
+      assert.throws(()=>a.read(t,entry.handle),/foreign or stale/);
+    } else {
+      const length=1+(rng()%1024);
+      try {
+        const handle=a.allocate(t,length);
+        const value=(rng()%254)+1;
+        a.write(t,handle,new Uint8Array(length).fill(value));
+        live.push({handle,value});
+      } catch(error) {
+        assert.match(String(error),/hard quota|page budget/);
+        assert.ok(manager.chargedPages<=4);
+      }
+    }
+    if(live.length && i%31===0) {
+      const probe=live[rng()%live.length];
+      assert.equal(a.read(t,probe.handle)[0],probe.value);
+    }
+  }
+  for(const entry of live) {
+    assert.equal(a.read(t,entry.handle)[0],entry.value);
+    a.drop(t,entry.handle);
+  }
+  assert.equal(a.liveAllocations,0);
+  assert.ok(manager.chargedPages<=4);
+  assert.throws(()=>manager.retire(),/still active/);
+  a.endTurn(t); a.retire();
+  const b=manager.lease(81,2),tb=b.beginTurn();
+  const fresh=b.allocate(tb,512);
+  assert.deepEqual([...b.read(tb,fresh)],Array(512).fill(0));
+  b.endTurn(tb); b.retire(); manager.retire();
+});
