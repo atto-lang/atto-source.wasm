@@ -21,7 +21,7 @@ untrusted direct JS callbacks, or asynchronous work to this prototype.
   an access capability** and native pointers are never exposed.
 - Growth retains stable logical offsets and old live contents. Every read and
   write **reacquires the current memory buffer**; an old typed-array view
-  cannot survive through the public interface. Native byte-array and Wasm
+  cannot survive through the public interface. The locally executed suite also includes 4,000 seeded allocation, drop, restart, and quota operations. Native byte-array and Wasm
   memory intrinsics are captured once to resist poisoned prototypes.
 - A turn token, actor ID, incarnation and issued allocation handle are
   required for access. Concurrent uses of one actor ID, even under different
@@ -68,12 +68,12 @@ untrusted direct JS callbacks, or asynchronous work to this prototype.
 ## Evidence and exact source
 
 Local Node 22.16.0:
-`node --test tests/elastic-actor-heap-v1.test.mjs` — **7 passed, 0 failed**.
+`node --test tests/elastic-actor-heap-v1.test.mjs` — **8 passed, 0 failed**.
 
 Local `git hash-object` of the executed files matched their GitHub blobs:
 
 - Runtime: `7326d684dd5324fc8ab8e278d0c892fa366a53d1`
-- Tests: `492f6bea73f21b7f102f324ca663da52f8939e3c`
+- Tests: `a2625320f9323f5be8ca8429a9a80e2c7a22442a`
 
 This is **host-only Node execution**, not a hosted GitHub Actions test, not a
 real AttoLang guest, and not proof of actor-heap parity. Exact-head
