@@ -70,14 +70,14 @@ untrusted direct JS callbacks, or asynchronous work to this prototype.
 Historical source-matching local Node 22.16.0 on the previous eight-test head:
 `node --test tests/elastic-actor-heap-v1.test.mjs` — **8 passed, 0 failed**.
 
-Current nine-test head: **9/9 passed only in an isolated V8 test harness with an emulated `WebAssembly.Memory`**, not real Wasm memory and not the real Node test runner. Exact-head Node, real WebAssembly and compiled AttoLang guest tests remain **NOT_EXECUTED**.
+Current ten-test head: **10/10 passed only in an isolated V8 test harness with an emulated `WebAssembly.Memory`**, not real Wasm memory and not the real Node test runner. Exact-head Node, real WebAssembly and compiled AttoLang guest tests remain **NOT_EXECUTED**.
 
 Local `git hash-object` of the executed files matched their GitHub blobs:
 
 - Previously Node-executed runtime: `7326d684dd5324fc8ab8e278d0c892fa366a53d1`
 - Previously Node-executed tests: `a2625320f9323f5be8ca8429a9a80e2c7a22442a`
-- Current nine-test runtime (not Node executed): `0cdbc2a936145b1f59ef3c56aeed71e70706ee25`
-- Current nine-test file (not Node executed): `54382bcfd7d0cb07a9ef2b4485afb35febac7b9b`
+- Current ten-test runtime (not Node executed): `fc11a69711d77d1a95a7e540fde6ebf3081c0e7c`
+- Current ten-test file (not Node executed): `09e083ef84be0a84d43cf2ceb1d2887626859af4`
 
 This is **host-only Node execution**, not a hosted GitHub Actions test, not a
 real AttoLang guest, and not proof of actor-heap parity. Exact-head
@@ -89,3 +89,9 @@ and [platform #643](https://github.com/ores-truffle-oreslang/oreslang-platform-c
 ## API admission repair
 
 Pool page growth and memory recycle are private class operations and are reachable only from per-heap captured closures; neither can be invoked through the returned pool object. A client cannot pass a foreign memory object or a forged page count to charge/refund a trusted ledger, and growth independently validates the actor's hard maximum before reserving pages. The ninth test verifies that public-property monkeypatches cannot affect these operations. No guest or malicious-same-realm authorization claim follows from this host-only repair.
+
+## 2026-11-10 bounded recycler hardening
+
+Actor pool construction accepts `maxActors` (default 64, maximum 4096). It preallocates a fixed-length **host-only** idle-memory reference table and rejects additional concurrent actor leases at the explicit limit. Pool recycling now uses fixed indexed storage instead of `Array.push`, avoiding retirement-time dynamic idle-list expansion. The actor's retired/invalidated state is published only after full scrub and accepted recycle; a failed admission cannot strand a logically retired actor in an active identity set. The tenth test covers active-pool admission, scrubbed reuse, and hostile `Array.prototype.push` patching.
+
+The first **eight-test** revision was executed with real Node 22.16.0. The **current ten-test** revision has only isolated V8 simulated-memory execution (10/10 pass); **real Node/WebAssembly execution of this exact source head is still NOT_EXECUTED**, as is compiler-created guest actor heap usage. No test title or successful synthetic carrier receipt upgrades this status.
