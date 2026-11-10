@@ -83,14 +83,24 @@ export class ElasticActorHeapPoolV1 {
     if (this.#activeIdentities.has(identity) || this.#activeActorIds.has(actorId))
       throw new Error('actor incarnation already leased');
     const memory = this.#idle.pop() ?? new TrustedMemory({initial: 0, maximum: this.#maxPages});
-    const heap = new ElasticActorHeapV1(this, memory, actorId, incarnation);
+    const heap = new ElasticActorHeapV1(
+      this, memory, actorId, incarnation,
+      count => this.#grow(heap, memory, count),
+      () => this.#recycle(heap, memory)
+    );
     this.#active.add(heap);
     this.#activeIdentities.add(identity);
     this.#activeActorIds.add(actorId);
     return heap;
   }
-  grow(heap, memory, count) {
+  #grow(heap, memory, count) {
     if (this.#closed || !this.#active.has(heap)) throw new Error('actor pool authority denied');
+    // Full native page extent is bounded independently of ledger balance.
+    // No externally supplied memory or relocation count can reach this path.
+    const currentPages = apply(getMemoryBuffer, memory, []).byteLength / PAGE;
+    if (!Number.isSafeInteger(count) || count < 1 ||
+        count > this.#maxPages - currentPages)
+      throw new RangeError('actor linear-memory hard quota');
     if (!this.#tenantLedger.reserve(count)) throw new RangeError('tenant page budget exhausted');
     const separate = this.#tenantLedger !== this.#ledger;
     if (separate && !this.#ledger.reserve(count)) {
@@ -106,7 +116,7 @@ export class ElasticActorHeapPoolV1 {
       throw error;
     }
   }
-  recycle(heap, memory) {
+  #recycle(heap, memory) {
     if (this.#closed || !this.#active.has(heap)) throw new Error('foreign/duplicate actor retirement');
     zero(nativeBytes(memory));
     this.#active.delete(heap);
@@ -126,6 +136,8 @@ export class ElasticActorHeapPoolV1 {
 class ElasticActorHeapV1 {
   #pool;
   #memory;
+  #growBacking;
+  #recycleBacking;
   #actor;
   #incarnation;
   #turn = null;
@@ -134,9 +146,11 @@ class ElasticActorHeapV1 {
   #free = [];
   #live = 0;
   #retired = false;
-  constructor(pool, memory, actor, incarnation) {
+  constructor(pool, memory, actor, incarnation, growBacking, recycleBacking) {
     this.#pool = pool;
     this.#memory = memory;
+    this.#growBacking = growBacking;
+    this.#recycleBacking = recycleBacking;
     this.#actor = actor;
     this.#incarnation = incarnation;
   }
@@ -184,7 +198,7 @@ class ElasticActorHeapV1 {
     if (offset > maxBytes || length > maxBytes - offset) throw new RangeError('actor heap hard quota');
     const requiredPages = Math.ceil((offset + length) / PAGE);
     const currentPages = this.committedPages;
-    if (requiredPages > currentPages) this.#pool.grow(this, this.#memory, requiredPages - currentPages);
+    if (requiredPages > currentPages) this.#growBacking(requiredPages - currentPages);
     // Stage zeroing before publishing the cursor or any handle.
     zero(new TrustedUint8Array(apply(getMemoryBuffer, this.#memory, []), offset, length));
     if (consumed) {
@@ -241,6 +255,6 @@ class ElasticActorHeapV1 {
     this.#live = 0;
     const memory = this.#memory;
     this.#memory = null;
-    this.#pool.recycle(this, memory);
+    this.#recycleBacking();
   }
 }
