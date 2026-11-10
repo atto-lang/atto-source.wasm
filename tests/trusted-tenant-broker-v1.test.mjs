@@ -190,3 +190,26 @@ test('invalid tenant identities and missing quotas fail closed', () => {
     denied(()=>broker.admitTenant(host,'valid-name',opts),'INVALID_TENANT_LIMITS');
   }
 });
+
+test('self-directed actor reserve counts one actor once under a one-inflight limit', async() => {
+  const host=Object.freeze({});
+  const broker=new TrustedTenantBrokerV1({hostAuthority:host});
+  const tenant=broker.admitTenant(host,'self',limits({maxInflight:1}));
+  let deliveries=0;
+  const actor=broker.registerActor(host,tenant,async n=>{deliveries++;return n+1n;});
+  const capability=broker.authorize(host,actor,actor);
+  assert.equal(await broker.dispatch(host,actor,capability,4n),5n);
+  assert.equal(deliveries,1);
+  const snapshot=broker.snapshot(host,tenant);
+  assert.equal(snapshot.usedMessages,1);
+  assert.equal(snapshot.inflight,0);
+  assert.equal(snapshot.reservedMemoryBytes,0);
+});
+
+test('guest ticket replay cannot exploit reusable capability allowances', () => {
+  const t=setup();
+  denied(()=>t.broker.authorize(t.host,t.aSender,t.bReceiver,{maxUses:2}),
+    'ONE_SHOT_CAPABILITY_REQUIRED');
+  const minted=t.grant();
+  assert.equal(Object.keys(minted).length,0,'opaque host-only capability carries no serializable authority');
+});
