@@ -125,3 +125,9 @@ This is *not* an OresDB WAL guest: current Wasm has no `List<int>`, `Result`,
 Node Worker execution is **not Wasmtime OS isolation or a production tenant
 sandbox**. Full source-level ODB1 and durability parity require real
 Wasm32/Wasmtime artifacts and guest-to-host capability contracts separately.
+
+## Canonical on-device browser compilation
+
+`src/canonical-browser-compiler.mjs` provides the compiler-ABI bridge to the exact artifact built from `oreslang-source.rs/browser` ([integration #52](https://github.com/ores-truffle-oreslang/oreslang-source.rs/pull/52)). Verify compiler SHA-256 and size first, then `createCompiler(bytes).compile(source)` emits core Wasm in the browser; `compile(source, "javascript")` uses the same checked frontend and emits ESM. This explicitly selected browser path is separate from the existing native LLVM/Clang bridge and its zero-import scalar ABI. It does not relax that older host admission policy.
+
+The canonical compiler emits `atto.browser.guest.v2`: bounded print imports, actor_spawn/send, actor_init/receive and private fixed wasm32 memory. New test-support receipts bind the compiled artifact to canonical source head/tree/path. The focused canonical-browser-compiler tests execute identical source actors as ESM and Wasm, comparing stdout and private instance memory. `browser-tenant-runtime.mjs` is an experimental host for compiler-emitted ESM in a disposable tenant Worker; the parent must enforce its deadline. JS temporaries use engine-managed memory, and Web Workers are not OS isolation. Native LLVM actor syntax/parity and old-host actor admission remain separate incomplete work.
