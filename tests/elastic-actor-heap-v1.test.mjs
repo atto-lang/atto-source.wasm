@@ -184,3 +184,43 @@ test('private pool growth and recycle cannot be invoked or spoofed by clients', 
   assert.equal(manager.idleCount,1);
   manager.retire();
 });
+
+test('bounded actor pool recycles scrubbed idle memory without dynamic array append', () => {
+  const ledger = new ElasticHeapPageLedgerV1(4);
+  const manager = new ElasticActorHeapPoolV1({
+    maxPages: 2, maxActors: 2, processLedger: ledger
+  });
+  const a = manager.lease(1,1), b = manager.lease(2,1);
+  assert.throws(() => manager.lease(3,1), /pool capacity exhausted/);
+  const first = a.beginTurn();
+  const root = a.allocate(first,32);
+  a.write(first,root,new Uint8Array(32).fill(31));
+  a.endTurn(first);
+
+  // A retirement-time capacity append would allow host prototype poisoning
+  // or an allocation failure to leave a scrubbed actor half-retired.
+  const push = Array.prototype.push;
+  try {
+    Array.prototype.push = function (...args) {
+      if (args.some(x => x instanceof WebAssembly.Memory))
+        throw new Error('dynamic Wasm memory append during retirement');
+      return Reflect.apply(push, this, args);
+    };
+    a.retire();
+  } finally {
+    Array.prototype.push = push;
+  }
+  assert.equal(manager.idleCount,1);
+  assert.equal(manager.activeCount,1);
+  const replacement = manager.lease(3,1);
+  const turn = replacement.beginTurn();
+  const fresh = replacement.allocate(turn,32);
+  assert.equal(replacement.read(turn,fresh)[0],0);
+  assert.throws(()=>replacement.read(turn,root),/foreign or stale/);
+  replacement.endTurn(turn);
+  replacement.retire(); b.retire();
+  assert.equal(manager.activeCount,0);
+  assert.equal(manager.idleCount,2);
+  manager.retire();
+  assert.equal(manager.idleCount,0);
+});
