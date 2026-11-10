@@ -11,6 +11,10 @@ const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").
 const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteLength").get;
 // Capture byte operations before untrusted or plugin code can mutate globals.
 // A no-op monkeypatch of .fill must never bypass actor-memory zeroization.
+// Capture the constructor itself, not only the Memory.prototype.buffer
+// getter. A late host/plugin monkeypatch of the global WebAssembly.Memory
+// must not substitute a fake backing store for a new actor arena.
+const trustedWasmMemory = WebAssembly.Memory;
 const trustedBytes = Uint8Array;
 const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
@@ -19,7 +23,7 @@ const trustedSet = Uint8Array.prototype.set;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const trustedMemoryBuffer = Object.getOwnPropertyDescriptor(
-  WebAssembly.Memory.prototype, "buffer").get;
+  trustedWasmMemory.prototype, "buffer").get;
 const ownedBytes = memory => new trustedBytes(trustedApply(trustedMemoryBuffer, memory, []));
 const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])) =>
   trustedApply(trustedFill, bytes, [0, start, end]);
@@ -59,7 +63,7 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new trustedWasmMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
