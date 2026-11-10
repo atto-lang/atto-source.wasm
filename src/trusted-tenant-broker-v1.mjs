@@ -247,7 +247,10 @@ export class TrustedTenantBrokerV1 {
       if (signal?.aborted) deny('DISPATCH_CANCELLED');
       this.#auth(host);
       this.#actor(senderActor);
-      this.#capability(capability); // Recheck revocation immediately before dispatch.
+      fail(!grant.revoked, 'REVOKED_CAPABILITY'); // Recheck before dispatch; admission already consumed one use.
+      fail(grant.source.generation === grant.sourceGeneration &&
+        grant.target.generation === grant.targetGeneration,
+        'STALE_CAPABILITY_GENERATION');
       fail(grant.target.active && grant.target.generation === grant.target.account.generation,
         'STALE_TARGET_BEFORE_DISPATCH');
       enteredDispatch = true;
