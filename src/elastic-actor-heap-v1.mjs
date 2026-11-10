@@ -7,6 +7,7 @@ import { types } from 'node:util';
 const PAGE = 65536;
 const MAX_PAGES = 1024; // Explicit v1 ceiling: 64 MiB, not a ref32 width limit.
 const MAX_HANDLES = 4096;
+const MAX_ACTORS = 4096; // Bounded host actor and recycled-memory metadata.
 const trustedIsUint8Array = types.isUint8Array;
 const TrustedMemory = WebAssembly.Memory;
 const trustedGrow = WebAssembly.Memory.prototype.grow;
@@ -51,26 +52,31 @@ export class ElasticHeapPageLedgerV1 {
 
 export class ElasticActorHeapPoolV1 {
   #maxPages;
+  #maxActors;
   #ledger;
   #tenantLedger;
-  #idle = [];
+  #idle;
+  #idleCount = 0;
   #active = new Set();
   #activeIdentities = new Set();
   #activeActorIds = new Set();
   #closed = false;
-  constructor({maxPages = 1024, processLedger, tenantLedger = processLedger} = {}) {
+  constructor({maxPages = 1024, maxActors = 64, processLedger, tenantLedger = processLedger} = {}) {
     if (!Number.isSafeInteger(maxPages) || maxPages < 1 || maxPages > MAX_PAGES ||
+        !Number.isSafeInteger(maxActors) || maxActors < 1 || maxActors > MAX_ACTORS ||
         !(processLedger instanceof ElasticHeapPageLedgerV1) ||
         !(tenantLedger instanceof ElasticHeapPageLedgerV1)) {
       throw new RangeError('bounded actor pages and process ledger required');
     }
     this.#maxPages = maxPages;
+    this.#maxActors = maxActors;
+    this.#idle = new Array(maxActors); // No hot-path free-list array expansion.
     this.#ledger = processLedger;
     this.#tenantLedger = tenantLedger;
   }
   get chargedPages() { return this.#ledger.chargedPages; }
   get tenantChargedPages() { return this.#tenantLedger.chargedPages; }
-  get idleCount() { return this.#idle.length; }
+  get idleCount() { return this.#idleCount; }
   get activeCount() { return this.#active.size; }
   get maxPages() { return this.#maxPages; }
   lease(actorId, incarnation) {
@@ -79,10 +85,16 @@ export class ElasticActorHeapPoolV1 {
         !Number.isSafeInteger(incarnation) || incarnation <= 0) {
       throw new TypeError('invalid actor/incarnation');
     }
+    if (this.#active.size >= this.#maxActors)
+      throw new RangeError('actor heap pool capacity exhausted');
     const identity = `${actorId}:${incarnation}`;
     if (this.#activeIdentities.has(identity) || this.#activeActorIds.has(actorId))
       throw new Error('actor incarnation already leased');
-    const memory = this.#idle.pop() ?? new TrustedMemory({initial: 0, maximum: this.#maxPages});
+    const memory = this.#idleCount > 0
+      ? this.#idle[--this.#idleCount]
+      : new TrustedMemory({initial: 0, maximum: this.#maxPages});
+    if (this.#idleCount < this.#maxActors)
+      this.#idle[this.#idleCount] = undefined;
     const heap = new ElasticActorHeapV1(
       this, memory, actorId, incarnation,
       count => this.#grow(heap, memory, count),
@@ -122,7 +134,7 @@ export class ElasticActorHeapPoolV1 {
     // If backing/view creation or idle publication fails, the actor remains
     // active and its retirement can be retried without a half-retired heap.
     zero(nativeBytes(memory));
-    this.#idle.push(memory); // Accounting remains charged, backing remains reusable.
+    this.#idle[this.#idleCount++] = memory; // Fixed backing slots, no push/allocation.
     this.#active.delete(heap);
     this.#activeIdentities.delete(`${heap.actorId}:${heap.incarnation}`);
     this.#activeActorIds.delete(heap.actorId);
@@ -132,7 +144,8 @@ export class ElasticActorHeapPoolV1 {
     this.#closed = true;
     // Retained pages are NOT refunded here: the JS engine, not our allocator,
     // controls physical reclamation. Process/tenant ledger is conservative.
-    this.#idle.length = 0;
+    for (let i = 0; i < this.#idleCount; ++i) this.#idle[i] = undefined;
+    this.#idleCount = 0;
   }
 }
 
