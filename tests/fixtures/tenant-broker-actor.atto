@@ -1,0 +1,13 @@
+// AttoLang source actor used for the compiler-produced, trusted-only bridge.
+// The compiler currently exports actor lifecycle i64 only, not spawn/send or a
+// host broker import. The host must bind tenant identity to this actor's output.
+define actor TenantCounter as {
+  let total: int = 0;
+  pub fnc on_message(int increment): int {
+    total = total + increment;
+    return total;
+  }
+}
+pub fnc main(): int {
+  return 42;
+}
