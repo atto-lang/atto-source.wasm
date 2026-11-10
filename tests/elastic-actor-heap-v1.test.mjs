@@ -162,3 +162,25 @@ test('seeded churn: grow/drop/reuse preserves values and isolation under a hard 
   assert.deepEqual([...b.read(tb,fresh)],Array(512).fill(0));
   b.endTurn(tb); b.retire(); manager.retire();
 });
+
+test('private pool growth and recycle cannot be invoked or spoofed by clients', () => {
+  const manager = pool(2,2), actor = manager.lease(101,1);
+  assert.equal(manager.grow, undefined, 'no public grow escape hatch');
+  assert.equal(manager.recycle, undefined, 'no public retire/recycle escape hatch');
+  // Poisoning public properties cannot replace private class methods.
+  manager.grow = () => { throw new Error('poisoned public growth method'); };
+  manager.recycle = () => { throw new Error('poisoned public recycle method'); };
+  const turn = actor.beginTurn();
+  const root = actor.allocate(turn,16);
+  actor.write(turn,root,new Uint8Array(16).fill(37));
+  const tail = actor.allocate(turn,65536);
+  assert.equal(actor.committedPages,2);
+  assert.equal(actor.read(turn,root)[0],37);
+  assert.equal(actor.read(turn,tail)[0],0);
+  assert.throws(()=>actor.allocate(turn,1), /hard quota/);
+  assert.equal(manager.activeCount,1);
+  actor.endTurn(turn);actor.retire();
+  assert.equal(manager.activeCount,0);
+  assert.equal(manager.idleCount,1);
+  manager.retire();
+});
