@@ -65,6 +65,7 @@ function commit(account) {
   account.usage.usedCpuUnits++;
 }
 function fresh_tenant(account) {
+  fail(Number.isSafeInteger(account.generation + 1), 'TENANT_GENERATION_EXHAUSTED');
   account.generation++;
   account.active = true;
   return account;
@@ -184,7 +185,9 @@ export class TrustedTenantBrokerV1 {
   authorize(host, sourceActor, targetActor, {maxUses = 1} = {}) {
     this.#auth(host);
     const source = this.#actor(sourceActor), target = this.#actor(targetActor);
-    fail(valid_count(maxUses, 1024), 'INVALID_CAPABILITY_USES');
+    // One DATA ticket authorizes exactly one delivery attempt. Reusable
+    // capabilities need a separate per-message nonce/deduplication protocol.
+    fail(maxUses === 1, 'ONE_SHOT_CAPABILITY_REQUIRED');
     const record = {source, target, sourceGeneration:source.generation,
       targetGeneration:target.generation, maxUses, used:0, revoked:false};
     const handle = fresh();
@@ -218,28 +221,28 @@ export class TrustedTenantBrokerV1 {
     const target = grant.target;
     const accounts = sender.account === target.account ? [sender.account] :
       [sender.account, target.account];
-    fail(sender.inflight < sender.account.limits.maxInflight &&
-      target.inflight < target.account.limits.maxInflight,
-    'ACTOR_INFLIGHT_QUOTA');
+    const actors = sender === target ? [sender] : [sender,target];
+    fail(actors.every(actor => actor.inflight < actor.account.limits.maxInflight),
+      'ACTOR_INFLIGHT_QUOTA');
     fail(accounts.every(within), 'TENANT_AGGREGATE_QUOTA');
     // No await between quota inspection and reservation: atomic in this host
     // event loop. Multi-process deployments must move this to a linearizable
     // broker service, not rely on process-local maps.
     for (const a of accounts) bump(a, +1);
-    sender.inflight++; target.inflight++;
+    for (const actor of actors) actor.inflight++;
     grant.used++; // Nonce/one-shot right cannot be replayed after admission.
     let settled = false, enteredDispatch = false;
     const refund = () => {
       if (settled) return;
       settled = true;
       for (const a of accounts) bump(a, -1);
-      sender.inflight--;target.inflight--;
+      for (const actor of actors) actor.inflight--;
     };
     const acknowledge = () => {
       if (settled) return;
       settled = true;
       for (const a of accounts) commit(a);
-      sender.inflight--;target.inflight--;
+      for (const actor of actors) actor.inflight--;
     };
     try {
       if (signal?.aborted) deny('DISPATCH_CANCELLED');
