@@ -67,3 +67,50 @@ test("scratch span expires at actor turn and cannot reappear on next turn", () =
   a.endTurn(next);
   a.retire();
 });
+
+test("late WebAssembly.Memory constructor override cannot replace actor backing pages", () => {
+  // The arena module is already imported above. A plugin that mutates
+  // WebAssembly.Memory afterwards must not affect newly created actors.
+  const original = WebAssembly.Memory;
+  let poisonCalls = 0;
+  try {
+    WebAssembly.Memory = class HostileMemory {
+      constructor() { poisonCalls++; throw new Error("fake actor memory"); }
+    };
+    const arena = new ActorArena({actorId: 705, incarnation: 1});
+    const turn = arena.beginTurn();
+    const handle = arena.allocPersistent(turn, 3);
+    arena.write(turn, handle, Uint8Array.of(7, 4, 2));
+    const copied = arena.tryReadBytes(turn, handle, 0, 3);
+    assert.deepEqual([...copied.value], [7, 4, 2]);
+    copied.value[0] = 99;
+    assert.deepEqual([...arena.read(turn, handle)], [7, 4, 2]);
+    arena.endTurn(turn);
+    arena.retire();
+  } finally {
+    WebAssembly.Memory = original;
+  }
+  assert.equal(poisonCalls, 0,
+    "new actor arena must not invoke a late-replaced memory constructor");
+});
+
+test("retirement fences byte access while a lifetime pin remains outstanding", () => {
+  const arena = new ActorArena({actorId: 706, incarnation: 2});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 1);
+  arena.write(turn, handle, Uint8Array.of(42));
+  const pin = arena.pinLifetime(turn);
+  assert.equal(arena.pendingLifetimePins, 1);
+  arena.endTurn(turn);
+  arena.retire();
+  assert.equal(arena.retired, true);
+  assert.equal(arena.pendingLifetimePins, 1);
+  assert.throws(() => arena.beginTurn(), /retired/);
+  assert.throws(() => arena.tryReadBytes(turn, handle, -1, 1), /retired/);
+  assert.throws(() => arena.tryReadBytes(turn, handle, 0, 1), /retired/);
+  arena.releaseLifetimePin(pin);
+  arena.releaseLifetimePin(pin);
+  assert.equal(arena.pendingLifetimePins, 0);
+  assert.throws(() => arena.releaseLifetimePin(Object.freeze({})), /unissued/);
+  arena.retire();
+});
