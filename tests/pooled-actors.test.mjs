@@ -7,17 +7,32 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
-function compile({spin = false, invalidImport = false} = {}) {
+function compile({spin = false, stackOverflow = false, invalidImport = false} = {}) {
   const path = mkdtempSync(join(tmpdir(), 'ores-wasm-pool-'));
   const output = join(path, 'actor.wasm');
   const ir = [
     'target triple = "wasm32-unknown-unknown"',
     '@counter = internal global i64 0',
     ...(invalidImport ? ['declare i64 @forbidden()'] : []),
+    ...(stackOverflow ? [
+      // Keep the recursive call live at -O0; a real Wasm call stack trap,
+      // not a fabricated JS Error or merely a memory arena quota failure.
+      'define i64 @overflow_recurse(i64 %v) noinline {',
+      'entry:',
+      '%next = add i64 %v, 1',
+      '%r = call i64 @overflow_recurse(i64 %next)',
+      '%s = add i64 %r, 1',
+      'ret i64 %s',
+      '}'
+    ] : []),
     'define void @oreslang_wasm_actor_init() { ret void }',
     'define i64 @oreslang_wasm_actor_on_message(i64 %value) {',
     'entry:',
     ...(spin ? ['br label %spin', 'spin:', 'br label %spin'] :
+      stackOverflow ? [
+        '%result = call i64 @overflow_recurse(i64 %value)',
+        'ret i64 %result'
+      ] :
       invalidImport ? ['%x = call i64 @forbidden()', 'ret i64 %x'] : [
       '%old = load i64, ptr @counter',
       '%next = add i64 %old, %value',
@@ -91,6 +106,42 @@ test('noncooperating turn times out and kills its entire shared carrier', async 
   await pool.close();
 });
 
+
+
+test('real Wasm call-stack overflow exposes shared-carrier blast radius (NOT actor-only)', async () => {
+  const recursive = compile({stackOverflow: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, maxActors: 4, timeoutMs: 7000});
+  try {
+    // Deterministic round-robin assignment: fatal and colocated share
+    // a carrier; healthy is assigned the other carrier.
+    const fatal = await pool.spawn(recursive,
+      {trusted: true, expectedSha256: pin(recursive)});
+    const healthy = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    const colocated = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await healthy.send(1n), 1n);
+    const overflowing = fatal.send(42n);
+    const acceptedColocated = colocated.send(1n);
+    await assert.rejects(overflowing, /WASM actor trap:.*stack/i);
+    await assert.rejects(acceptedColocated, /WASM actor trap:.*stack/i);
+    assert.equal(pool.activeWorkerCount, 1,
+      'a guest stack trap currently retires the entire affected carrier');
+    assert.equal(pool.actorCount, 1,
+      'colocated actor is collateral damage: NOT actor-only containment');
+    await assert.rejects(fatal.send(1n), /not accepting/);
+    await assert.rejects(colocated.send(1n), /not accepting/);
+    assert.equal(await healthy.send(2n), 3n,
+      'another carrier and its independent instance remain live');
+    const replacement = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await replacement.send(5n), 5n);
+    await healthy.stop();
+    await replacement.stop();
+  } finally {
+    await pool.close();
+  }
+});
 
 test('stop drains already admitted DATA before teardown and seals new admission', async () => {
   const wasm = compile();
