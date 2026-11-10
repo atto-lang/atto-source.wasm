@@ -118,11 +118,14 @@ export class ElasticActorHeapPoolV1 {
   }
   #recycle(heap, memory) {
     if (this.#closed || !this.#active.has(heap)) throw new Error('foreign/duplicate actor retirement');
+    // Scrub and stage the reusable backing BEFORE releasing actor ownership.
+    // If backing/view creation or idle publication fails, the actor remains
+    // active and its retirement can be retried without a half-retired heap.
     zero(nativeBytes(memory));
+    this.#idle.push(memory); // Accounting remains charged, backing remains reusable.
     this.#active.delete(heap);
     this.#activeIdentities.delete(`${heap.actorId}:${heap.incarnation}`);
     this.#activeActorIds.delete(heap.actorId);
-    this.#idle.push(memory); // Accounting remains charged, backing remains reusable.
   }
   retire() {
     if (this.#active.size !== 0) throw new Error('actor turns/leases still active');
@@ -249,12 +252,14 @@ class ElasticActorHeapV1 {
     if (this.#turn !== null) throw new Error('active actor turn blocks retirement');
     // No guest instance, async callback, FFI alias, memory/view exports or
     // continuation is allowed in this HOST-ONLY prototype.
+    // Commit retirement only after the pool has scrubbed and accepted the
+    // backing. A failed publication must not strand a retired actor in the
+    // active identity set with an unusable heap reference.
+    this.#recycleBacking();
     this.#retired = true;
     this.#slots = new WeakMap();
     this.#free = [];
     this.#live = 0;
-    const memory = this.#memory;
     this.#memory = null;
-    this.#recycleBacking();
   }
 }
