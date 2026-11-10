@@ -77,6 +77,9 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         const payload=await x.source.send(3n);
         assert.equal(await x.broker.dispatch(x.host,x.sender,x.authorize(),payload),3n);
         assert.equal(x.delivered(),1);
+        // Confirm a real compiled actor has stopped before authorizing its replacement.
+        // Rotating the broker handle alone is not an actual guest restart.
+        await x.source.stop();
         x.broker.retireActor(x.host,x.sender);
         x.broker.retireTenant(x.host,x.a);
         const nextTenant=x.broker.admitTenant(x.host,'source-tenant',
