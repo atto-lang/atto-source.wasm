@@ -177,7 +177,7 @@ test('private pool growth and recycle cannot be invoked or spoofed by clients', 
   assert.equal(actor.committedPages,2);
   assert.equal(actor.read(turn,root)[0],37);
   assert.equal(actor.read(turn,tail)[0],0);
-  assert.throws(()=>actor.allocate(turn,1), /hard quota/);
+  assert.throws(()=>actor.allocate(turn,65536), /hard quota/);
   assert.equal(manager.activeCount,1);
   actor.endTurn(turn);actor.retire();
   assert.equal(manager.activeCount,0);
