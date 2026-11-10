@@ -13,7 +13,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {isAbsolute} from 'node:path';
+import {isAbsolute, join} from 'node:path';
+import {readFile, writeFile, copyFile, mkdir} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {TrustedTenantBrokerV1} from '../src/trusted-tenant-broker-v1.mjs';
 
@@ -67,6 +69,7 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
       return {host,broker,a,b,source,receiver,sender,target,delivered:()=>delivered,
         authorize:()=>broker.authorize(host,sender,target)};
     };
+    const passed = [];
     try {
       await assert.rejects(poolA.spawn(built.wasm,{
         expectedSha256:built.provenance.wasmSha256,trusted:false
@@ -90,6 +93,7 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         const nextPayload=await replacement.send(1n);
         await rejects(x.broker.dispatch(x.host,restarted,cap,nextPayload),'TENANT_AGGREGATE_QUOTA');
         assert.equal(x.delivered(),1);
+        passed.push('tenant_aggregate_quota_survives_restart');
       });
       await t.test('revocation wins before compiler-produced receiver dispatch',async()=>{
         const x=await setup();
@@ -100,6 +104,7 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         }),'REVOKED_CAPABILITY');
         assert.equal(x.delivered(),0);
         assert.equal(x.broker.snapshot(x.host,x.a).reservedMessages,0);
+        passed.push('revoked_capability_denied_at_dispatch');
       });
       await t.test('forged foreign ActorRef and capability denied before guest delivery',async()=>{
         const x=await setup();
@@ -109,6 +114,7 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         await rejects(x.broker.dispatch(x.host,Object.freeze({tenant:'source-tenant'}),
           x.authorize(),payload),'STALE_OR_FORGED_ACTORREF');
         assert.equal(x.delivered(),0);
+        passed.push('forged_cross_tenant_actorref_denied');
       });
       await t.test('authorized compiler-produced output delivers once to a second guest actor',async()=>{
         const x=await setup();
@@ -118,6 +124,7 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         assert.equal(x.delivered(),1);
         await rejects(x.broker.dispatch(x.host,x.sender,cap,payload),
           'REPLAYED_OR_EXHAUSTED_CAPABILITY');
+        passed.push('authorized_broker_delivery_exactly_once');
       });
       await t.test('tenant B continues when A exhausted',async()=>{
         const x=await setup(budget({maxMessages:1,maxBytes:8,maxCpuUnits:1}));
@@ -130,7 +137,52 @@ test('actual Atto source guest turns feed host-authenticated two-tenant broker a
         const emitted=await bSenderGuest.send(2n);
         assert.equal(await x.broker.dispatch(x.host,bSender,bTicket,emitted),3n);
         assert.equal(x.delivered(),2);
+        passed.push('unrelated_tenant_survives_denial');
       });
+      // No artifact may be emitted unless every actual compiled-guest bridge
+      // scenario completed and was independently asserted by the host test.
+      assert.deepEqual(passed, [
+        'tenant_aggregate_quota_survives_restart',
+        'revoked_capability_denied_at_dispatch',
+        'forged_cross_tenant_actorref_denied',
+        'authorized_broker_delivery_exactly_once',
+        'unrelated_tenant_survives_denial'
+      ]);
+      const destination = process.env.TENANT_BRIDGE_EVIDENCE_DIR;
+      if (destination) {
+        assert.ok(isAbsolute(destination), 'trusted evidence root must be absolute');
+        await mkdir(destination, {recursive:true,mode:0o700});
+        const sourceBytes = await readFile(fixture);
+        await writeFile(join(destination,'source.atto'),sourceBytes,{flag:'wx',mode:0o600});
+        await copyFile(compiler,join(destination,'compiler.bin'));
+        await writeFile(join(destination,'guest.wasm'),built.wasm,{flag:'wx',mode:0o600});
+        const hash = bytes=>createHash('sha256').update(bytes).digest('hex');
+        assert.equal(hash(sourceBytes),built.provenance.sourceSha256);
+        assert.equal(hash(await readFile(join(destination,'compiler.bin'))),compilerPin);
+        assert.equal(hash(await readFile(join(destination,'guest.wasm'))),built.provenance.wasmSha256);
+        const manifest = {
+          schema:'atto.trusted-tenant-bridge.evidence.v1',
+          classification:'COMPILER_PRODUCED_TRUSTED_GUEST_HOST_BRIDGE_ONLY',
+          enforcement_status:'NOT_VERIFIED',
+          guest_initiated_broker_import:false,
+          untrusted_guest_admitted:false,
+          wasmtime_store_isolation_executed:false,
+          origin:'atto-source-compiler-trusted-host-bridge',
+          compiler_source_sha:compilerSource,
+          wasm_source_head_sha:process.env.WASM_BROKER_SOURCE_HEAD || null,
+          source_sha256:built.provenance.sourceSha256,
+          compiler_sha256:built.provenance.compilerSha256,
+          guest_sha256:built.provenance.wasmSha256,
+          llvm_ir_sha256:built.provenance.llvmIrSha256,
+          carrier_head_sha:process.env.GITHUB_SHA || null,
+          github_run_id:process.env.GITHUB_RUN_ID || null,
+          github_job:process.env.GITHUB_JOB || null,
+          tenants:['source-tenant','receiver-tenant'],
+          cases:passed.map(id=>({id,result:'pass',execution:'trusted-source-guest-host-broker-bridge'}))
+        };
+        await writeFile(join(destination,'execution.json'),
+          JSON.stringify(manifest,null,2)+'\n',{flag:'wx',mode:0o600});
+      }
     } finally {
       await Promise.all([poolA.close(),poolB.close()]);
     }
