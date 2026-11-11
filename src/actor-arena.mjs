@@ -26,6 +26,7 @@ const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])
 
 export class ActorArena {
   #memory;
+  #byteView = null;
   #actor;
   #incarnation;
   #turn = null;
@@ -51,6 +52,10 @@ export class ActorArena {
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
     this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    // Fixed max=initial means the backing can never grow/detach. Capture
+    // exactly one private view at actor construction instead of allocating
+    // a fresh JS typed-array wrapper on every read/write/scratch operation.
+    this.#byteView = ownedBytes(this.#memory);
   }
 
   get actorId() { return this.#actor; }
@@ -60,7 +65,7 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return ownedBytes(this.#memory);
+    return this.#byteView;
   }
 
   #requireTurn(token) {
@@ -116,7 +121,8 @@ export class ActorArena {
     if (this.#memory === null) return;
     // This zeroes guest-visible bytes and severs the host reference. The JS
     // engine, not Oreslang, decides when physical backing pages are reclaimed.
-    scrub(ownedBytes(this.#memory));
+    scrub(this.#byteView);
+    this.#byteView = null;
     this.#memory = null;
   }
 
@@ -186,22 +192,42 @@ export class ActorArena {
     return entry;
   }
 
+  // A caller-owned destination avoids allocating a JS copy for each read.
+  // The arena never publishes its live backing view.
+  readInto(turn, handle, destination) {
+    const {offset, length} = this.#slot(turn, handle);
+    this.#requireExternalBytes(destination, length);
+    const src = this.#bytes();
+    // Copy directly, avoiding the temporary subarray wrapper of .set().
+    for (let i = 0; i < length; ++i) destination[i] = src[offset + i];
+  }
+
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
     return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
   }
 
+  #requireExternalBytes(data, length) {
+    // Native internal slots prevent instance property overrides from
+    // changing precise length and shared-memory admission checks.
+    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
+      throw new TypeError("arena copy requires exact-size Uint8Array");
+    }
+    const backing = trustedApply(nativeBuffer, data, []);
+    if (trustedIsSharedArrayBuffer(backing)) {
+      throw new TypeError("arena copy rejects shared backing memory");
+    }
+    // A trusted host must not smuggle another view of this arena's backing
+    // into the copy API. This is not protection against arbitrary JS host
+    // code, but fences accidental self-alias and authority confusion.
+    if (backing === trustedApply(nativeBuffer, this.#byteView, [])) {
+      throw new TypeError("arena copy rejects private backing alias");
+    }
+  }
+
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    // Native internal slots prevent instance property overrides from changing
-    // the exact-size and shared-memory admission checks.
-    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
-      throw new TypeError("arena write requires exact-size Uint8Array");
-    }
-    if (trustedIsSharedArrayBuffer(trustedApply(nativeBuffer, data, []))) {
-      throw new TypeError("arena write rejects shared backing memory");
-    }
-    // Never return live memory views; callers cannot retain a raw alias.
+    this.#requireExternalBytes(data, length);
     trustedApply(trustedSet, this.#bytes(), [data, offset]);
   }
 
