@@ -1,5 +1,3 @@
-import {types} from "node:util";
-
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
 // Guest source arena lowering and shared-domain regions are separate gates.
@@ -20,8 +18,27 @@ const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
 const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
-const trustedIsUint8Array = types.isUint8Array;
-const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
+// Browser/Web Worker compatible, intrinsic brand checks. Do not import
+// node:util: production actor arenas must load in browsers as native ESM.
+// The %TypedArray%.prototype Symbol.toStringTag getter reads the actual
+// Uint8Array internal slot, ignoring user-provided toStringTag properties,
+// fake prototypes, proxies, and cross-realm constructor identity.
+const nativeTypedArrayTag = Object.getOwnPropertyDescriptor(
+  typedArrayProto, Symbol.toStringTag).get;
+// ArrayBuffer.prototype.byteLength rejects SharedArrayBuffer via internal
+// slots (also cross-realm). Any non-ArrayBuffer/detached backing fails closed.
+const nativeArrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype, "byteLength").get;
+const trustedIsUint8Array = value => {
+  try { return trustedApply(nativeTypedArrayTag, value, []) === "Uint8Array"; }
+  catch { return false; }
+};
+const trustedIsSharedArrayBuffer = value => {
+  try {
+    trustedApply(nativeArrayBufferByteLength, value, []);
+    return false;
+  } catch { return true; }
+};
 const trustedIsSafeInteger = Number.isSafeInteger;
 const trustedObjectIs = Object.is;
 const trustedBigInt = BigInt;
