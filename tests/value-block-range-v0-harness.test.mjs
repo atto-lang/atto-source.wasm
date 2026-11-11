@@ -30,6 +30,7 @@ test('harness rejects nonexistent guest compiler instead of accepting model evid
   env.ATTO_VBR_COMPILE_ARGV_JSON=JSON.stringify(['__nonexistent_atto_compiler__','{source}','{artifact}']);
   env.ATTO_VBR_RUN_ARGV_JSON=JSON.stringify(['{artifact}']);
   env.ATTO_VBR_TYPECHECK_ARGV_JSON=JSON.stringify(['__nonexistent_atto_compiler__','--typecheck-json','{source}']);
+  env.ATTO_VBR_PARSE_ARGV_JSON=JSON.stringify(['__nonexistent_atto_compiler__','--parse','{source}']);
   const r=spawnSync(process.execPath,
     [new URL('../scripts/run-value-block-range-v0.mjs',import.meta.url).pathname],
     {encoding:'utf8',env,timeout:30000});
@@ -37,4 +38,23 @@ test('harness rejects nonexistent guest compiler instead of accepting model evid
   const report=JSON.parse(r.stdout);
   assert.equal(report.passed,0);
   assert.equal(report.failed,manifest.cases.length);
+});
+
+test('all ten backends fail closed with no real compiler configured',()=>{
+  for(const lane of [
+    'java-interpreter','java-native-image','llvm-native','wasm32',
+    'forge-native','net-native-aot','rs-native','cranelift-native',
+    'js-worker','hdl-rtl-simulation'
+  ]) {
+    const env={...process.env,ATTO_VBR_LANE:lane};
+    for(const key of Object.keys(env)) if(key.startsWith('ATTO_VBR_') && key!=='ATTO_VBR_LANE') delete env[key];
+    const result=spawnSync(process.execPath,
+      [new URL('../scripts/run-value-block-range-v0.mjs',import.meta.url).pathname],
+      {encoding:'utf8',env,timeout:10000});
+    assert.equal(result.status,1);
+    const report=JSON.parse(result.stdout);
+    assert.equal(report.lane,lane);
+    assert.equal(report.certified_guest_passes,0);
+    assert.match(report.observations[0].detail,/COMPILE_ARGV_JSON/);
+  }
 });
