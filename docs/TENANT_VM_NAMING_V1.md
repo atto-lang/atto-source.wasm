@@ -17,14 +17,14 @@ OS process
 
 - **OresVM:** trusted process-root authority, budgets, immutable code caches, per-tenant fair admission, lifecycle supervision and capability-mediated I/O. It must not hold user-writable globals for multiple tenants as if they were one tenant.
 - **TenantVM:** exactly one authenticated tenant **incarnation** (ID + generation + opaque host-issued authority). Owns tenant mutable module/global state, per-tenant permissions and quotas, actor registry, execution/failure boundary, scheduler allocation and teardown. Many actors may reside in one TenantVM.
-- **Actor:** one scheduled unit inside exactly one TenantVM. Owns private sealed state, actor heap/arena, mailbox and non-reentrant actor turn. Actor heaps/locks alone do not create a TenantVM security sandbox.
+- **Actor:** one scheduled unit inside exactly one TenantVM. Owns private sealed state, actor heap/arena, mailbox and checked execution turns; parallel actor work must obey sealed-state and critical-read/critical-write rules. Actor heaps/locks alone do not create a TenantVM security sandbox.
 - **TenantVM handle:** host-issued and checked against owning OresVM and generation. Never grant authority on a tenant name string, reconstructed ActorRef, raw address, or guest-provided label.
 
 ## Required behavior (target, NOT current implementation certification)
 
 1. An untrusted actor must enter only a **verified** TenantVM boundary with validated guest code, enforced private memory/CPU/resource caps and independent termination. If unavailable, the backend **fails closed**, without downgrading to a plain Context, in-process native callback, worker, or shared CLR heap.
 2. Distinct tenant generations never share writable module state, user symbols, capabilities, allocation grants, mutable buffers, mailboxes or actor references. Immutable approved compiled code may be shared.
-3. Inside a TenantVM, independent actors may execute concurrently, but each actor retains its own sealed state and exclusive turn. Host root scheduling must be fair **per tenant**, not let tenants with more actors starve others.
+3. Inside a TenantVM, independent actors may execute concurrently, while actor state remains sealed and free of unsynchronized concurrent writes. Non-reentrant scalar turns cannot overlap. Host root scheduling must be fair **per tenant**, not let tenants with more actors starve others.
 4. Direct cross-tenant actor references and borrowed pointers fail. Any cross-tenant message must pass an explicitly trusted, generation-fenced, capability-checked serialization/ownership broker; charge producer, destination and host aggregate quotas.
 5. Quiescence seals new admission, resource pins drain before teardown, and restart mints a new generation. One tenant's trap, OOM or stop must not compromise a neighbor.
 6. The *same OS process* may hold multiple TenantVMs. A process sandbox is optional defense in depth; neither the word `TenantVM` nor an actor arena implies physical isolation. A runtime/validator/compiler bug can still compromise multiple tenants in one process.
