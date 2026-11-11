@@ -114,3 +114,81 @@ test("retirement fences byte access while a lifetime pin remains outstanding", (
   assert.throws(() => arena.releaseLifetimePin(Object.freeze({})), /unissued/);
   arena.retire();
 });
+
+test("late monkeypatch of native collections and numeric guards cannot redirect arena authority", () => {
+  const nativeWeakMap = globalThis.WeakMap;
+  const nativeSet = WeakMap.prototype.set;
+  const nativeGet = WeakMap.prototype.get;
+  const nativeHas = WeakMap.prototype.has;
+  const nativeDelete = WeakMap.prototype.delete;
+  const nativePush = Array.prototype.push;
+  const nativeFindIndex = Array.prototype.findIndex;
+  const nativeSplice = Array.prototype.splice;
+  const nativeSort = Array.prototype.sort;
+  const nativeSafeInteger = Number.isSafeInteger;
+  const nativeObjectIs = Object.is;
+  const nativeBigInt = globalThis.BigInt;
+  const nativeNumber = globalThis.Number;
+  const nativeSetHas = Set.prototype.has;
+  let output;
+  let foreignDenied = false;
+  let restored = false;
+  try {
+    const poison = () => { throw new Error("hostile prototype method invoked"); };
+    globalThis.WeakMap = class FakeWeakMap { constructor() { throw new Error("fake WeakMap"); } };
+    WeakMap.prototype.set = poison;
+    WeakMap.prototype.get = poison;
+    WeakMap.prototype.has = poison;
+    WeakMap.prototype.delete = poison;
+    Array.prototype.push = poison;
+    Array.prototype.findIndex = poison;
+    Array.prototype.splice = poison;
+    Array.prototype.sort = poison;
+    Number.isSafeInteger = () => false;
+    Object.is = () => true;
+    globalThis.BigInt = poison;
+    globalThis.Number = poison;
+    Set.prototype.has = () => true;
+
+    const first = new ActorArena({actorId: 707, incarnation: 3});
+    const second = new ActorArena({actorId: 707, incarnation: 4});
+    const t1 = first.beginTurn(), t2 = second.beginTurn();
+    const live = first.allocPersistent(t1, 4);
+    first.write(t1, live, Uint8Array.of(1, 2, 3, 4));
+    first.dropPersistent(t1, live); // private free list push/sort
+    const replacement = first.allocPersistent(t1, 2); // private findIndex/splice
+    first.write(t1, replacement, Uint8Array.of(8, 9));
+    output = first.tryReadBytes(t1, replacement, 0, 2).value;
+    try {
+      second.tryReadBytes(t2, replacement, -1, 1);
+    } catch (err) {
+      foreignDenied = /foreign or stale/.test(err.message);
+    }
+    const pin = first.pinLifetime(t1);
+    first.endTurn(t1);
+    second.endTurn(t2);
+    first.retire();
+    first.releaseLifetimePin(pin);
+    first.retire();
+    second.retire();
+  } finally {
+    globalThis.WeakMap = nativeWeakMap;
+    WeakMap.prototype.set = nativeSet;
+    WeakMap.prototype.get = nativeGet;
+    WeakMap.prototype.has = nativeHas;
+    WeakMap.prototype.delete = nativeDelete;
+    Array.prototype.push = nativePush;
+    Array.prototype.findIndex = nativeFindIndex;
+    Array.prototype.splice = nativeSplice;
+    Array.prototype.sort = nativeSort;
+    Number.isSafeInteger = nativeSafeInteger;
+    Object.is = nativeObjectIs;
+    globalThis.BigInt = nativeBigInt;
+    globalThis.Number = nativeNumber;
+    Set.prototype.has = nativeSetHas;
+    restored = true;
+  }
+  assert.equal(restored, true);
+  assert.equal(foreignDenied, true);
+  assert.deepEqual([...output], [8, 9]);
+});
