@@ -201,7 +201,7 @@ test("browser-ready actor runtime loads as standalone ESM without node: imports"
   // portability admission test, not yet a real browser or Web Worker run.
   const {readFile} = await import("node:fs/promises");
   const text = await readFile(new URL("../src/actor-arena.mjs", import.meta.url), "utf8");
-  assert.doesNotMatch(text, /(?:^|\\n)\\s*import\\s+[^;]*["']node:/);
+  assert.doesNotMatch(text, /(?:from\s*|import\s*)["']node:/);
   const isolate = await import("data:text/javascript;base64," +
     Buffer.from(text, "utf8").toString("base64"));
   const arena = new isolate.ActorArena({actorId: 708, incarnation: 1});
