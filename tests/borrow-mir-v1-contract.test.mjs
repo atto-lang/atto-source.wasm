@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 
 const url = new URL('../contracts/borrow-mir-v1/semantic-cases.json', import.meta.url);
 const manifest = JSON.parse(await readFile(url, 'utf8'));
-const BACKENDS = ['java', 'llvm', 'net', 'wasm', 'forge', 'cranelift'];
+const BACKENDS = ['java', 'llvm', 'net', 'wasm', 'forge', 'cranelift', 'js', 'rs', 'hdl'];
 const accepted = new Set(['NOT_EXECUTED', 'SOURCE_AUTHORED', 'HOST_ONLY',
   'COMPILER_NEGATIVE_EXECUTED', 'COMPILED_GUEST_EXECUTED', 'CERTIFIED']);
 // Independently pinned in code: the manifest must not redefine or weaken
@@ -213,12 +213,12 @@ export function assess(manifest, receipts = []) {
     sourceFreeModel: true, reasons};
 }
 
-test('all six backends and all 22 expected cases have closed, deterministic metadata', () => {
+test('all nine toolchains and all 22 expected cases have closed, deterministic metadata', () => {
   const result = assess(manifest);
   assert.equal(result.verified, false);
   assert.equal(result.semanticParityCertified, false);
   assert.equal(result.authenticityAttested, false);
-  assert.equal(result.reasons.length, 6);
+  assert.equal(result.reasons.length, 9);
 });
 test('model applies every restricted case expected oracle without promoting model to guest parity', () => {
   for (const fixture of manifest.cases) {
