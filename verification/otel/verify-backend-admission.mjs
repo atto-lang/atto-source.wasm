@@ -39,7 +39,8 @@ export function validate(document, expectedRepository) {
     'manifest has missing/extra keys');
   check(document.schema === 'oreslang-otel-backend-admission/v1', 'wrong contract schema');
   const suffix = document.repository?.replace('ores-truffle-oreslang/', '');
-  check(PROFILES[suffix] && document.repository === 'ores-truffle-oreslang/' + suffix,
+  check(typeof suffix === 'string' && Object.hasOwn(PROFILES, suffix) &&
+    document.repository === 'ores-truffle-oreslang/' + suffix,
     'unexpected repository');
   check(expectedRepository === undefined || expectedRepository === document.repository,
     'source repo differs from GitHub job identity');
