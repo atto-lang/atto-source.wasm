@@ -132,35 +132,37 @@ export async function verifyRealCompiler({
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
       throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
 
-    // Dispatch-v1 canonical source bytes: real LLVM frontend -> wasm32 ->
-    // zero-import isolated guest. This is interpreter-engine Wasm execution,
-    // NOT strict no-JIT native Wasm precompilation or class/virtual parity.
-    const dispatchSource = fileURLToPath(new URL(
-      "../contracts/dispatch-v1/direct_call_42.atto", import.meta.url));
-    const dispatchBytes = await readFile(dispatchSource);
-    const dispatchOutput = join(work, "dispatch-direct.wasm");
-    const dispatchPublished = await compileOresToWasm({
-      compiler:pinnedCompiler, compilerSha256, source:dispatchSource,
-      output:dispatchOutput, environment:"browser", publication:"atomic"
-    });
-    const dispatchRelease = await readAtomicRelease(dispatchOutput);
-    if (dispatchPublished.sourceSha256 !== sha256(dispatchBytes) ||
-        dispatchPublished.compilerSha256 !== compilerSha256 ||
-        dispatchRelease.manifest.wasmSha256 !== dispatchPublished.wasmSha256 ||
-        sha256(dispatchRelease.wasm) !== dispatchPublished.wasmSha256)
-      throw Error("dispatch direct source/compiler/Wasm artifact provenance mismatch");
-    const dispatchObserved = await runIsolatedCoreGuest(dispatchRelease.wasm,{
-      expectedSha256:dispatchPublished.wasmSha256,timeoutMs:5000
-    });
-    if (dispatchObserved.value !== 42n ||
-        dispatchObserved.admission.hostCapabilities !== 0 ||
-        dispatchObserved.admission.imports !== 0)
-      throw Error("native compiled Atto dispatch direct call did not return 42");
-    console.log("DISPATCH_WASM_GUEST_PASS|case=direct_call_42"+
-      "|llvm_source_head="+llvmSourceSha+
-      "|source_sha256="+dispatchPublished.sourceSha256+
-      "|wasm_sha256="+dispatchPublished.wasmSha256+
-      "|strict_no_jit=NOT_EXECUTED");
+    // Dispatch-v1 canonical source bytes: actual LLVM frontend -> wasm32 ->
+    // zero-import isolated guest. Wasm engine compilation is still runtime JIT.
+    // The class case is a real compile/run admission test, not host JS modeling.
+    for (const caseName of ["direct_call_42", "instance_call_42"]) {
+      const dispatchSource = fileURLToPath(new URL(
+        "../contracts/dispatch-v1/"+caseName+".atto", import.meta.url));
+      const dispatchBytes = await readFile(dispatchSource);
+      const dispatchOutput = join(work, "dispatch-"+caseName+".wasm");
+      const dispatchPublished = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:dispatchSource,
+        output:dispatchOutput, environment:"browser", publication:"atomic"
+      });
+      const dispatchRelease = await readAtomicRelease(dispatchOutput);
+      if (dispatchPublished.sourceSha256 !== sha256(dispatchBytes) ||
+          dispatchPublished.compilerSha256 !== compilerSha256 ||
+          dispatchRelease.manifest.wasmSha256 !== dispatchPublished.wasmSha256 ||
+          sha256(dispatchRelease.wasm) !== dispatchPublished.wasmSha256)
+        throw Error("dispatch source/compiler/Wasm provenance mismatch: "+caseName);
+      const dispatchObserved = await runIsolatedCoreGuest(dispatchRelease.wasm,{
+        expectedSha256:dispatchPublished.wasmSha256,timeoutMs:5000
+      });
+      if (dispatchObserved.value !== 42n ||
+          dispatchObserved.admission.hostCapabilities !== 0 ||
+          dispatchObserved.admission.imports !== 0)
+        throw Error("compiled Atto dispatch did not return isolated 42: "+caseName);
+      console.log("DISPATCH_WASM_GUEST_PASS|case="+caseName+
+        "|llvm_source_head="+llvmSourceSha+
+        "|source_sha256="+dispatchPublished.sourceSha256+
+        "|wasm_sha256="+dispatchPublished.wasmSha256+
+        "|strict_no_jit=NOT_EXECUTED");
+    }
 
     // Ensure unsupported or invalid shared source never publishes Wasm.
     // A generic syntax rejection is NOT evidence of a validated arity rule.
