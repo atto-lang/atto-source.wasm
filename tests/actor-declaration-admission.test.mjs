@@ -269,3 +269,13 @@ test("HTTP actor cannot evade the Wasm preflight through comment gaps, modules o
    assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(source)),source);
  }
 });
+
+test("shared Rust/JS/.NET HTTP actor .atto fixture has exact Git blob and fails Wasm admission", () => {
+  const fixture = readFileSync(new URL("./fixtures/http-actor-unsupported.atto", import.meta.url));
+  const originalBlob = createHash("sha1")
+    .update("blob " + fixture.length + "\0").update(fixture).digest("hex");
+  assert.equal(originalBlob, "878b8a8f6efd126ef2a09a3b6da165000345becc");
+  assert.equal(fixture.byteLength, 94);
+  assert.throws(() => rejectUnsupportedActorThreadSource(fixture),
+    /HTTP_ACTOR_BACKEND_UNSUPPORTED/);
+});
