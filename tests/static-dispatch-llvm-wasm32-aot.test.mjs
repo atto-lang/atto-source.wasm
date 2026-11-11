@@ -38,9 +38,9 @@ function directTargets(ir) {
     // attribute groups, or comments containing fabricated method names.
     const call=/\b(?:call|invoke)\s+i64\s+(?:@"([^"]+)"|@([A-Za-z_$][\w.$-]*))\s*\(/.exec(line);
     if (call) observed.add(call[1]||call[2]);
-    // The two-method closed-world guest cannot introduce function-pointer
-    // calls in place of a statically selected instance method.
-    if (/\b(?:call|invoke)\s+i64\s+(?:\([^\n]*\)\s*)?%/.test(line))
+    // Closed-world guest: reject EVERY i64 call without an explicit @symbol.
+    // Bare %, typed pointers and bitcast indirect operands all fail closed.
+    if (/\b(?:call|invoke)\s+i64\b/.test(line) && !call)
       throw Error("WASM_STATIC_AOT_INDIRECT_CALL: "+line);
   }
   return observed;
@@ -114,4 +114,13 @@ test("LLVM direct-target predicate rejects fabricated evidence and indirect call
   assert.equal(lookalike.has("Box.read$arity0"),false);
   assert.throws(()=>directTargets('%v = call i64 (ptr) %fp(ptr %x)'),
     /WASM_STATIC_AOT_INDIRECT_CALL/);
+  for (const forgedCall of [
+    '%v = call i64 ptr %fp(ptr %x)',
+    '%v = call i64 bitcast (ptr @fake to ptr)(ptr %x)',
+    '%v = invoke i64 %callee(ptr %x) to label %ok unwind label %bad',
+    '%v = call i64 (ptr) %fp(ptr %x) #1'
+  ]) {
+    assert.throws(()=>directTargets(forgedCall), /WASM_STATIC_AOT_INDIRECT_CALL/,
+      'unproved dispatch escaped: '+forgedCall);
+  }
 });
