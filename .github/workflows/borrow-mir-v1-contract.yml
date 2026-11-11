@@ -20,8 +20,14 @@ jobs:
           persist-credentials: false
       - name: Verify exact contract blobs and source identity
         shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          # Check cleanliness before producing untracked evidence files.
+          test -z "$(git status --porcelain)"
           mkdir -p target/borrow-mir-v1-evidence
           git rev-parse HEAD > target/borrow-mir-v1-evidence/head.txt
           git rev-parse "HEAD^{tree}" > target/borrow-mir-v1-evidence/root-tree.txt
@@ -32,11 +38,10 @@ jobs:
           test "$(git rev-parse HEAD:contracts/borrow-mir-v1/semantic-cases.json)" = "$(git hash-object --no-filters contracts/borrow-mir-v1/semantic-cases.json)"
           test "$(git rev-parse HEAD:tests/borrow-mir-v1-contract.test.mjs)" = "$(git hash-object --no-filters tests/borrow-mir-v1-contract.test.mjs)"
           test "$(git rev-parse HEAD:contracts/borrow-mir-v1/README.md)" = "$(git hash-object --no-filters contracts/borrow-mir-v1/README.md)"
-          test -z "$(git status --porcelain)"
-      - name: Install pinned Node.js 22
+      - name: Install pinned Node.js 22.16.0
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "22"
+          node-version: "22.16.0"
       - name: Execute source-free fixture contract tests
         shell: bash
         run: |
