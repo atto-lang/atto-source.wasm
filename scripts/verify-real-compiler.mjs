@@ -70,7 +70,7 @@ export function assertSingletonFrontendRejection(frontend) {
   // Require the code and the semantic parity reason on the *same* native
   // compiler diagnostic line. Echoed source, tool banners or unrelated
   // stderr lines cannot spoof an independently issued compiler rejection.
-  if (!/^oreslang-llvmc:\s+ORES-SINGLETON-UNSUPPORTED:[^\r\n]*five-backend guest execution parity(?:\s+at byte [0-9]+)?\s*$/m.test(stderr))
+  if (!/^oreslang-llvmc:[ \t]+ORES-SINGLETON-UNSUPPORTED:[^\r\n]*five-backend guest execution parity(?:[ \t]+at byte [0-9]+)?[ \t]*$/m.test(stderr))
     throw Error("singleton rejection did not come from the required compiler-owned admission gate");
   return true;
 }
