@@ -1,0 +1,47 @@
+name: AttoLang shared dispatch v1 exact Git blob admission
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/dispatch-v1/**'
+      - 'scripts/verify-dispatch-corpus-v1.sh'
+      - '.github/workflows/dispatch-corpus-integrity-v1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'contracts/dispatch-v1/**'
+      - 'scripts/verify-dispatch-corpus-v1.sh'
+      - '.github/workflows/dispatch-corpus-integrity-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact private source commit in its original repository only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Prove exact checked tree and all canonical dispatch source blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          bash -n scripts/verify-dispatch-corpus-v1.sh
+          bash scripts/verify-dispatch-corpus-v1.sh | tee "$RUNNER_TEMP/dispatch-corpus-v1.txt"
+          grep -Fqx "DISPATCH_CORPUS_SOURCE_ONLY_PASS|head=$EXPECTED_HEAD|fixtures=5|manifest=1|guest_execution=NOT_EXECUTED" "$RUNNER_TEMP/dispatch-corpus-v1.txt"
+          test "$(grep -c '^DISPATCH_CORPUS_BLOB_V1|' "$RUNNER_TEMP/dispatch-corpus-v1.txt")" = 6
+      - name: Declare exact scope
+        shell: bash
+        run: |
+          echo 'Canonical dispatch source bytes verified at exact checkout SHA.'
+          echo 'No AttoLang compiler, guest code, AOT native binary or backend parity executed by this job.'
