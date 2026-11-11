@@ -41,12 +41,13 @@ export class ActorDemandOutputPort {
         throw new RangeError(key+' must have a finite positive budget');
     }
     this.#io=io;this.#authority=authority;
-    this.#outputLease=io.acquireOutputLease(authority);
     this.#capacity=capacity;this.#maxBytes=maxBytes;
     this.#maxDemand=maxDemand;this.#maxInFlight=maxInFlight;
     this.#byteSizes=new Array(capacity).fill(0);
     this.#tickets=new Array(maxInFlight).fill(0);
     this.#loanBytes=new Array(maxInFlight).fill(0);
+    // Acquire only after all allocations succeed; failed construction leaks no lease.
+    this.#outputLease=io.acquireOutputLease(authority);
   }
 
   #valid() {
