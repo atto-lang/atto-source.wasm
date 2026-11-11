@@ -28,7 +28,7 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - name: Verify backend contract and 11 mutation-negative controls
+      - name: Verify backend contract and 14 mutation-negative controls
         run: node verification/otel/verify-backend-admission.mjs --self-test
       - name: Assert source-only verification CANNOT be promoted to real guest
         run: |
