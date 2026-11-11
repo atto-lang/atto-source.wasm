@@ -49,8 +49,13 @@ jobs:
           test "$(git hash-object tests/actor-arena-option-slice-v1.test.mjs)" = 52c6982f16e5208ad9c86805c1ef4c3b4fd01b43
           node --check src/actor-arena.mjs
           node --check tests/actor-arena-option-slice-v1.test.mjs
-          node --test tests/actor-arena-option-slice-v1.test.mjs
-          echo "WASM_ACTOR_ARENA_HOST_ONLY|head=$(git rev-parse HEAD)|tests=9|guest=NOT_EXECUTED"
+          node --test --test-reporter=tap tests/actor-arena-option-slice-v1.test.mjs | tee "$RUNNER_TEMP/wasm-actor-arena.tap"
+          # Fail closed on a smaller inventory, skipped tests, or a silently
+          # omitted browser-compatibility/brand-security regression.
+          for expected in '# tests 9' '# pass 9' '# fail 0' '# cancelled 0' '# skipped 0' '# todo 0'; do
+            grep -Fx -- "$expected" "$RUNNER_TEMP/wasm-actor-arena.tap"
+          done
+          echo "WASM_ACTOR_ARENA_HOST_ONLY|head=$(git rev-parse HEAD)|tests_executed=9|guest=NOT_EXECUTED"
 
       - name: Verify Rust-only numeric backend capability claims (data-only)
         run: |
