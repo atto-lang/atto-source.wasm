@@ -156,6 +156,7 @@ test("singleton LLVM diagnostic cannot be laundered through echoed source or spl
   assert.equal(assertSingletonFrontendRejection(base), true);
   for (const stderr of [
     "oreslang-llvmc: syntax error at byte 7\n// ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
+    "oreslang-llvmc:\nORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity at byte 7",
     "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: syntax error at byte 7\nthird-party: five-backend guest execution parity",
     "warning: ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity\noreslang-llvmc: unexpected token at byte 7",
     "oreslang-llvmc: syntax error for ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
