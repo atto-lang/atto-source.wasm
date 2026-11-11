@@ -7,6 +7,14 @@ const manifest = JSON.parse(await readFile(url, 'utf8'));
 const BACKENDS = ['java', 'llvm', 'net', 'wasm', 'forge', 'cranelift'];
 const accepted = new Set(['NOT_EXECUTED', 'SOURCE_AUTHORED', 'HOST_ONLY',
   'COMPILER_NEGATIVE_EXECUTED', 'COMPILED_GUEST_EXECUTED', 'CERTIFIED']);
+// Independently pinned in code: the manifest must not redefine or weaken
+// the evidence it claims is required for certification.
+const REQUIRED_RECEIPT_FIELDS = Object.freeze([
+  'exactGitCommit', 'exactGitTree', 'sourceBlobInventory',
+  'compilerGeneratedMirInventory', 'emittedInstructionInventory',
+  'runnerJobId', 'executedSteps', 'compiledGuestReceipt',
+  'semanticNegativeReceipt', 'independentReview'
+]);
 function fail(code) { throw new Error(code); }
 function ensure(ok, code) { if (!ok) fail(code); }
 function freezeState(state) {
@@ -172,19 +180,27 @@ export function assess(manifest, receipts = []) {
   ensure(JSON.stringify(manifest.backends) === JSON.stringify(BACKENDS), 'E_BACKEND_SET');
   ensure(manifest.cases.length === 22, 'E_CASE_COUNT');
   ensure(new Set(manifest.cases.map(c => c.id)).size === 22, 'E_CASE_ID_REUSE');
-  ensure(new Set(manifest.evidencePolicy.allowedStatuses).size === accepted.size,
-    'E_STATUS_CONTRACT');
+  ensure(JSON.stringify(manifest.evidencePolicy?.allowedStatuses) ===
+    JSON.stringify([...accepted]), 'E_STATUS_CONTRACT');
+  ensure(JSON.stringify(manifest.evidencePolicy?.certifiedRequires) ===
+    JSON.stringify(REQUIRED_RECEIPT_FIELDS), 'E_EVIDENCE_CONTRACT');
+  ensure(JSON.stringify(Object.keys(manifest.evidence).sort()) ===
+    JSON.stringify([...BACKENDS].sort()), 'E_EVIDENCE_BACKEND_SET');
   for (const backend of BACKENDS) {
     const evidence = manifest.evidence[backend];
     ensure(evidence?.status === 'NOT_EXECUTED', 'E_BASELINE_MUST_NOT_ASSERT_PASS');
     reasons.push(backend + ': no executed compiler-backed evidence');
   }
+  const receiptIdentities = new Set();
   for (const receipt of receipts) {
     ensure(BACKENDS.includes(receipt.backend), 'E_UNKNOWN_BACKEND');
+    const identity = receipt.backend + ':' + receipt.caseId;
+    ensure(!receiptIdentities.has(identity), 'E_DUPLICATE_RECEIPT');
+    receiptIdentities.add(identity);
     ensure(manifest.cases.some(c => c.id === receipt.caseId), 'E_UNKNOWN_CASE');
     ensure(accepted.has(receipt.status), 'E_UNKNOWN_STATUS');
     if (receipt.status === 'CERTIFIED') {
-      for (const field of manifest.evidencePolicy.certifiedRequires) {
+      for (const field of REQUIRED_RECEIPT_FIELDS) {
         ensure(receipt[field] != null && receipt[field] !== '' &&
           !(Array.isArray(receipt[field]) && receipt[field].length === 0),
           'E_MISSING_CERTIFICATION_EVIDENCE');
@@ -234,4 +250,24 @@ test('the corpus explicitly fences loops, suspension, actor escape, identity reu
   const categories = new Set(manifest.cases.map(c => c.category));
   for (const category of ['loops', 'suspension', 'actor', 'identities', 'joins', 'effects'])
     assert.equal(categories.has(category), true, category);
+});
+
+test('a tampered manifest cannot remove required receipt fields', () => {
+  const changed = structuredClone(manifest);
+  changed.evidencePolicy.certifiedRequires.pop();
+  assert.throws(() => assess(changed), /E_EVIDENCE_CONTRACT/);
+});
+test('a tampered manifest cannot authorize a new evidence status', () => {
+  const changed = structuredClone(manifest);
+  changed.evidencePolicy.allowedStatuses[1] = 'TRUST_ME_PASS';
+  assert.throws(() => assess(changed), /E_STATUS_CONTRACT/);
+});
+test('a tampered manifest cannot append a hidden backend', () => {
+  const changed = structuredClone(manifest);
+  changed.evidence.external = {status: 'NOT_EXECUTED'};
+  assert.throws(() => assess(changed), /E_EVIDENCE_BACKEND_SET/);
+});
+test('duplicate receipt identities cannot hide inconsistent results', () => {
+  const receipt = {backend: 'java', caseId: 'C01', status: 'HOST_ONLY'};
+  assert.throws(() => assess(manifest, [receipt, receipt]), /E_DUPLICATE_RECEIPT/);
 });
