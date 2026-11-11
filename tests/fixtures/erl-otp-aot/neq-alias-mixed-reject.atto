@@ -1,0 +1,2 @@
+// Compiler must reject int/bool inequality before publishing a module.
+pub fnc main():int{if(7 !eq true){return 42;}return 0;}
