@@ -117,10 +117,10 @@ test("retirement fences byte access while a lifetime pin remains outstanding", (
 
 test("late monkeypatch of native collections and numeric guards cannot redirect arena authority", () => {
   const nativeWeakMap = globalThis.WeakMap;
-  const nativeSet = WeakMap.prototype.set;
-  const nativeGet = WeakMap.prototype.get;
-  const nativeHas = WeakMap.prototype.has;
-  const nativeDelete = WeakMap.prototype.delete;
+  const nativeSet = nativeWeakMap.prototype.set;
+  const nativeGet = nativeWeakMap.prototype.get;
+  const nativeHas = nativeWeakMap.prototype.has;
+  const nativeDelete = nativeWeakMap.prototype.delete;
   const nativePush = Array.prototype.push;
   const nativeFindIndex = Array.prototype.findIndex;
   const nativeSplice = Array.prototype.splice;
@@ -137,10 +137,10 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
   try {
     const poison = () => { throw new Error("hostile prototype method invoked"); };
     globalThis.WeakMap = class FakeWeakMap { constructor() { throw new Error("fake WeakMap"); } };
-    WeakMap.prototype.set = poison;
-    WeakMap.prototype.get = poison;
-    WeakMap.prototype.has = poison;
-    WeakMap.prototype.delete = poison;
+    nativeWeakMap.prototype.set = poison;
+    nativeWeakMap.prototype.get = poison;
+    nativeWeakMap.prototype.has = poison;
+    nativeWeakMap.prototype.delete = poison;
     Array.prototype.push = poison;
     Array.prototype.findIndex = poison;
     Array.prototype.splice = poison;
@@ -175,10 +175,10 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
     second.retire();
   } finally {
     globalThis.WeakMap = nativeWeakMap;
-    WeakMap.prototype.set = nativeSet;
-    WeakMap.prototype.get = nativeGet;
-    WeakMap.prototype.has = nativeHas;
-    WeakMap.prototype.delete = nativeDelete;
+    nativeWeakMap.prototype.set = nativeSet;
+    nativeWeakMap.prototype.get = nativeGet;
+    nativeWeakMap.prototype.has = nativeHas;
+    nativeWeakMap.prototype.delete = nativeDelete;
     Array.prototype.push = nativePush;
     Array.prototype.findIndex = nativeFindIndex;
     Array.prototype.splice = nativeSplice;
