@@ -195,3 +195,48 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
   assert.equal(foreignDenied, true);
   assert.deepEqual([...output], [8, 9]);
 });
+
+test("browser-ready actor runtime loads as standalone ESM without node: imports", async () => {
+  // A data-URL module has no local Node package resolver. This is a Node
+  // portability admission test, not yet a real browser or Web Worker run.
+  const {readFile} = await import("node:fs/promises");
+  const text = await readFile(new URL("../src/actor-arena.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(text, /(?:^|\\n)\\s*import\\s+[^;]*["']node:/);
+  const isolate = await import("data:text/javascript;base64," +
+    Buffer.from(text, "utf8").toString("base64"));
+  const arena = new isolate.ActorArena({actorId: 708, incarnation: 1});
+  const turn = arena.beginTurn();
+  const handle = arena.allocPersistent(turn, 2);
+  arena.write(turn, handle, Uint8Array.of(21, 21));
+  assert.deepEqual([...arena.tryReadBytes(turn, handle, 0, 2).value], [21, 21]);
+  arena.endTurn(turn);
+  arena.retire();
+});
+
+test("intrinsic branding rejects forged, proxied and shared byte inputs", async () => {
+  const arena = new ActorArena({actorId: 709, incarnation: 1});
+  const turn = arena.beginTurn(), handle = arena.allocPersistent(turn, 2);
+  const fake = Object.create(Uint8Array.prototype);
+  Object.defineProperty(fake, Symbol.toStringTag, {value:"Uint8Array"});
+  assert.throws(() => arena.write(turn, handle, fake), /Uint8Array/);
+  assert.throws(() => arena.write(turn, handle, new Proxy(Uint8Array.of(1, 2), {})),
+    /Uint8Array/);
+  assert.throws(() => arena.write(turn, handle, new Int8Array([1, 2])), /Uint8Array/);
+  assert.throws(() => arena.write(turn, handle, new Uint8ClampedArray([1, 2])),
+    /Uint8Array/);
+  assert.throws(() => arena.write(turn, handle, new DataView(new ArrayBuffer(2))),
+    /Uint8Array/);
+  if (typeof SharedArrayBuffer === "function") {
+    assert.throws(() =>
+      arena.write(turn, handle, new Uint8Array(new SharedArrayBuffer(2))),
+      /shared backing/);
+  }
+  // Realm origin alone is not a rejection. Only actual internal slots and
+  // a nonshared ArrayBuffer are relevant, not constructor identity.
+  const {runInNewContext} = await import("node:vm");
+  const foreign = runInNewContext("Uint8Array.of(8, 9)");
+  arena.write(turn, handle, foreign);
+  assert.deepEqual([...arena.read(turn, handle)], [8, 9]);
+  arena.endTurn(turn);
+  arena.retire();
+});
