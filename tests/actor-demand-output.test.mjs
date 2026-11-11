@@ -87,3 +87,37 @@ test('underlying actor output quota refuses without consuming credits',()=>{
   assert.equal(port.outstandingDemand,1);
   assert.equal(port.retainedBytes,1);
 });
+
+
+test('actor output authority cannot bypass adapter lease and release waits for ACK',()=>{
+  const {io,port}=make();
+  const auth=io.authority();
+  const lease=port.subscribe();
+  assert.throws(()=>io.tryWriteOutput(auth,Uint8Array.of(99)),/exclusively leased/);
+  assert.throws(()=>io.readOutput(auth),/exclusively leased/);
+  port.request(lease,1);
+  assert.equal(port.tryOffer(Uint8Array.of(17)),'accepted');
+  const next=port.tryNext(lease);
+  assert.throws(()=>port.dispose(lease),/terminal quiescence/);
+  assert.equal(port.complete(),true);
+  assert.throws(()=>port.dispose(lease),/terminal quiescence/);
+  assert.equal(port.ack(lease,next.ticket),true);
+  assert.equal(port.dispose(lease),true);
+  assert.throws(()=>port.tryOffer(Uint8Array.of(1)),/disposed/);
+  assert.equal(io.tryWriteOutput(auth,Uint8Array.of(22)),true,
+    'explicit terminal disposal releases exclusive actor output');
+  assert.deepEqual([...io.readOutput(auth)],[22]);
+});
+
+test('output lease refuses to seize unknown committed messages',()=>{
+  const io=new ActorIoEnvelope({actorId:70,maxRecords:2,maxBytes:8});
+  const auth=io.authority();
+  assert.equal(io.tryWriteOutput(auth,Uint8Array.of(2)),true);
+  assert.throws(()=>new ActorDemandOutputPort({io,authority:auth}),/queue not empty/);
+  assert.deepEqual([...io.readOutput(auth)],[2]);
+  const port=new ActorDemandOutputPort({io,authority:auth,capacity:1});
+  const lease=port.subscribe();
+  assert.throws(()=>new ActorDemandOutputPort({io,authority:auth}),/lease unavailable/);
+  assert.equal(port.cancel(),true);
+  assert.equal(port.dispose(lease),true);
+});
