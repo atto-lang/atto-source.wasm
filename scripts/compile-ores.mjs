@@ -194,6 +194,38 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  }
 }
 /**
+ * Typed tilde aggregates are not a unary scalar opcode. This Wasm bridge
+ * has no verified Map/Record/tuple representation, key equality or actor
+ * ownership. Fail before invoking the pinned native compiler or staging
+ * wasm32 bytes. This is a bounded lexical gate, not a substitute parser.
+ * Preserve ordinary unary ~(scalar) and delegated scalar match syntax.
+ */
+export function rejectUnsupportedTildeAggregateSource(sourceBytes){
+ const ts=tupleV2Tokens(sourceBytes);
+ const typedHeads=new Set(["map","record","tuple","array","vector","entry","pair"]);
+ const reject=at=>{throw Error(
+   "WASM_TILDE_AGGREGATE_BACKEND_UNSUPPORTED: typed aggregate layout, ownership and " +
+   "atomic constructor lowering required at byte "+at);
+ };
+ for(let i=0;i<ts.length;i++){
+  const t=ts[i],head=ts[i+1],next=ts[i+2];
+  if(t.text!=="~"||!head||head.offset!==t.offset+1)continue;
+  if(head.text==="<" ||
+      head.id&&typedHeads.has(head.text) &&
+      ["(","<"].includes(next?.text))reject(t.offset);
+  if(head.text!=="(")continue;
+  if(next?.text===")")reject(t.offset);
+  let depth=1;
+  for(let j=i+2;j<ts.length && depth>0;j++){
+   if(ts[j].text==="("){depth++;continue;}
+   if(ts[j].text===")"){depth--;continue;}
+   if(depth===1&&(ts[j].text===":"||
+       ts[j].text==="="&&ts[j+1]?.text===">"))
+      reject(t.offset);
+  }
+ }
+}
+/**
  * Current core-wasm.i64-v1 cannot lower heap aliases, vector relocation or
  * shared mutation. Deny source ownership forms BEFORE invoking native LLVMc;
  * an eventual compiler backend must replace this explicit capability gate
@@ -462,6 +494,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
+ rejectUnsupportedTildeAggregateSource(sourceBytes);
  rejectUnsupportedInvertedLayoutSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
