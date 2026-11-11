@@ -223,3 +223,27 @@ test('long modifier prefix cannot bypass unsupported scalar actor/enum gates',()
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     'define '+Array(32).fill('pub').join(' ')+' enum UserColors as red end')));
 });
+
+test("Wasm HTTP actor alias and two-level concurrency reject before compilation", () => {
+  for (const source of [
+    "define serial http actor Endpoint as end",
+    "define http actor Endpoint as int requestConcurrency = 1; int messageConcurrency = 1; end",
+    "define http actor Endpoint as int requestConcurrency = 3; int messageConcurrency = 4; end",
+    "define pub serial http actor Endpoint as end",
+    "pub define http actor Endpoint as end",
+    "define pub shared http actor Endpoint as end",
+    "define " + Array(18).fill("pub").join(" ") + " serial http actor Endpoint as end"
+  ]) {
+    assert.throws(
+      () => rejectUnsupportedActorThreadSource(bytes(source)),
+      /HTTP_ACTOR_BACKEND_UNSUPPORTED: missing HTTP request\/message lifetime and physical shutdown lowering/,
+      source
+    );
+  }
+  for (const source of [
+    "fnc main():int{let http=42;return http;}",
+    "fnc main():int{return 42;} // define serial http actor Bad as end",
+    "fnc main():int{return 42;} /* define http actor Bad as end */",
+    "fnc main():int{let s=\"define http actor Fake as end\";return 42;}"
+  ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
+});
