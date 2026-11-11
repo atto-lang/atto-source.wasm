@@ -1,0 +1,16 @@
+{
+  "schema": "oreslang.browser.tenant-runtime.vendor.v1",
+  "source_repository": "ores-truffle-oreslang/oreslang-source.js",
+  "source_head": "55538c49c5b221d57c492667b631d21b5f623f49",
+  "source_tree": "f8c201dc8767fd2602b957be7605538786c1ced6",
+  "files": {
+    "src/browser-tenant-runtime.mjs": {
+      "source_path": "src/canonical-actor-runtime.mjs",
+      "sha256": "3c8e2359cc10b380f244f32fa336b9f7d157164f018660d35e93bbc4c1a699a8"
+    },
+    "src/tenant-turn-queue.mjs": {
+      "source_path": "src/tenant-turn-queue.mjs",
+      "sha256": "85a9b13ea8eddcd62fefb08dd9fafa91ac770ba7f0c03b09580377b5762c0324"
+    }
+  }
+}
