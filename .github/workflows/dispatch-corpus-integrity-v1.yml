@@ -39,7 +39,7 @@ jobs:
           bash -n scripts/verify-dispatch-corpus-v1.sh
           bash scripts/verify-dispatch-corpus-v1.sh | tee "$RUNNER_TEMP/dispatch-corpus-v1.txt"
           grep -Fqx "DISPATCH_CORPUS_SOURCE_ONLY_PASS|head=$EXPECTED_HEAD|fixtures=5|manifest=1|guest_execution=NOT_EXECUTED" "$RUNNER_TEMP/dispatch-corpus-v1.txt"
-          test "$(grep -c '^DISPATCH_CORPUS_BLOB_V1|' "$RUNNER_TEMP/dispatch-corpus-v1.txt")" = 6
+          test "$(grep -c '^DISPATCH_CORPUS_BLOB_V1|' "$RUNNER_TEMP/dispatch-corpus-v1.txt")" = 7
       - name: Declare exact scope
         shell: bash
         run: |
