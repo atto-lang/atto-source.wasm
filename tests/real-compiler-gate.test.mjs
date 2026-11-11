@@ -148,6 +148,26 @@ test("singleton real-compiler gate requires compiler-owned capability diagnostic
   }), /diagnosed error/);
 });
 
+test("singleton LLVM diagnostic cannot be laundered through echoed source or split stderr lines", async () => {
+  const {assertSingletonFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const correct = "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require five-backend guest execution parity at byte 7";
+  const base = {status:1, signal:null, error:undefined, stdout:"", stderr:correct};
+  assert.equal(assertSingletonFrontendRejection(base), true);
+  for (const stderr of [
+    "oreslang-llvmc: syntax error at byte 7\\n// ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
+    "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: syntax error at byte 7\\nthird-party: five-backend guest execution parity",
+    "warning: ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity\\noreslang-llvmc: unexpected token at byte 7",
+    "oreslang-llvmc: syntax error for ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
+    "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: syntax error at byte 7\\noreslang-llvmc: five-backend guest execution parity"
+  ]) {
+    assert.throws(() => assertSingletonFrontendRejection({...base, stderr}),
+      /required compiler-owned admission gate/);
+  }
+  assert.throws(() => assertSingletonFrontendRejection({...base, stdout:"(module)"}),
+    /diagnosed error/);
+});
+
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
   const {assertSelectFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
