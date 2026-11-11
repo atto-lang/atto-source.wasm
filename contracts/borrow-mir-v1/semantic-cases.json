@@ -11,7 +11,10 @@
     "net",
     "wasm",
     "forge",
-    "cranelift"
+    "cranelift",
+    "js",
+    "rs",
+    "hdl"
   ],
   "evidence": {
     "java": {
@@ -50,6 +53,27 @@
       "guestReceipt": null
     },
     "cranelift": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "js": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "rs": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "hdl": {
       "status": "NOT_EXECUTED",
       "sourceSha": null,
       "treeSha": null,
