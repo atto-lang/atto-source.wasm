@@ -29,7 +29,7 @@ This is the same canonical, UTF-8 `.atto` source corpus in each `oreslang-source
 | LLVM | Bounded nominal instance-method native lowering and direct function AOT | Inheritance, virtual and static methods not yet supported; new-corpus native receipts absent |
 | .NET | Strict scalar CIL -> NativeAOT source subset; host-side nominal ABI model | General free calls, classes, virtual/static method lowering absent |
 | Wasm | Pinned LLVM compiler, Clang wasm32 and `() -> i64` zero-import worker host | Class capability depends on LLVM and target; JS Wasm compilation is NOT strict no-JIT |
-| Forge | Experimental C++ compiler `run-calls` and x86-64 real inter-function native call subset | Canonical Atto parameter grammar, class instance/static/virtual dispatch absent |
+| Forge | Experimental x86-64 real direct-call compiler; draft Forge PR #260 adds canonical `int value` alongside legacy `value:int` syntax | Executed canonical direct-call receipts pending; instance/static/virtual class dispatch absent |
 
 No backend is marked PASS merely because it has a fixture. Do not downgrade full-language requirements to a restricted dialect; unsatisfied cases remain explicit implementation tasks.
 
