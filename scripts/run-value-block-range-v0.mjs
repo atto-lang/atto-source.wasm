@@ -5,6 +5,7 @@
 //   ATTO_VBR_COMPILE_ARGV_JSON: ["compiler","--out","{artifact}","{source}"]
 //   ATTO_VBR_RUN_ARGV_JSON:     ["{artifact}"] (or ["wasmtime","{artifact}"])
 //   ATTO_VBR_LEX_ARGV_JSON:     ["compiler","--lex-json","{source}"]
+//   ATTO_VBR_TYPECHECK_ARGV_JSON: ["compiler","--typecheck-json","{source}"]
 //   ATTO_VBR_ARTIFACT_EXT:     e.g. ".wasm" or ".dll", default ".bin"
 //   ATTO_VBR_LANE:             java-interpreter | java-native-image | llvm-native |
 //                              wasm32 | forge-native | net-native-aot
@@ -50,7 +51,7 @@ function spawn(argv,substitutions) {
 function check(output,ok,why) {
   if(!ok) throw Error(why+' (status='+output?.exit+') '+((output?.stderr||'')+' '+(output?.stdout||'')).slice(0,800));
 }
-function testCase(vector,compileArgv,runArgv,lexArgv,directory) {
+function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,directory) {
   const name=vector.id;
   const source=join(directory,name+'.atto');
   const artifact=join(directory,name+ext);
@@ -80,7 +81,14 @@ function testCase(vector,compileArgv,runArgv,lexArgv,directory) {
   }
   check(out,out.exit===0,'compiler must accept valid source');
   if(vector.kind==='accept_typecheck') {
-    return {...base,phase:'typecheck',compile_exit:0,status:'pass'};
+    const checked=spawn(typecheckArgv,params);
+    check(checked,checked.exit===0,'typed compiler checker must accept source');
+    let types; try { types=JSON.parse(checked.stdout); }
+    catch { throw Error('typecheck mode must emit JSON on stdout'); }
+    if(types?.result_type!==vector.expect.result_type)
+      throw Error('inferred type mismatch: expected '+vector.expect.result_type);
+    return {...base,phase:'typecheck',compile_exit:0,
+      result_type:types.result_type,status:'pass'};
   }
   if(vector.kind!=='accept_execute') throw Error('unexpected vector kind: '+vector.kind);
   if(!existsSync(artifact)||!statSync(artifact).isFile()||statSync(artifact).size===0)
@@ -105,10 +113,11 @@ try {
   const run=requireArgv('ATTO_VBR_RUN_ARGV_JSON','{artifact}');
   const lex=process.env.ATTO_VBR_LEX_ARGV_JSON ?
     requireArgv('ATTO_VBR_LEX_ARGV_JSON','{source}') : null;
+  const typecheck=requireArgv('ATTO_VBR_TYPECHECK_ARGV_JSON','{source}');
   const dir=mkdtempSync(join(tmpdir(),'atto-vbr-'));
   mkdirSync(dir,{recursive:true});
   for(const vector of manifest.cases) {
-    try { observations.push(testCase(vector,compile,run,lex,dir)); }
+    try { observations.push(testCase(vector,compile,run,lex,typecheck,dir)); }
     catch(error) { failures++; observations.push({
       id:vector.id,kind:vector.kind,status:'failed',detail:String(error.message).slice(0,1400),
       source_sha256:sha256(vector.source)
