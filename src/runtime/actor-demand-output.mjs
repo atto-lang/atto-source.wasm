@@ -3,14 +3,15 @@ import {ActorIoEnvelope} from './actor-io.mjs';
 /**
  * Demand-aware, host-side adapter over a REAL Wasm actor I/O output envelope.
  *
- * Exclusive-output discipline: while this adapter owns the output path, no
- * other caller may read/write the same ActorIoEnvelope output queue. Runtime
- * enforcement across independent holders of the envelope is NOT implemented.
+ * Acquires a real exclusive output lease from ActorIoEnvelope: other holders
+ * of the actor's generation authority cannot bypass this adapter's output
+ * accounting until its terminal, physically quiescent dispose().
  * Guest Flow<T>, worker postMessage admission and source moves remain pending.
  */
 export class ActorDemandOutputPort {
   #io;
   #authority;
+  #outputLease;
   #capacity;
   #maxBytes;
   #maxDemand;
@@ -40,6 +41,7 @@ export class ActorDemandOutputPort {
         throw new RangeError(key+' must have a finite positive budget');
     }
     this.#io=io;this.#authority=authority;
+    this.#outputLease=io.acquireOutputLease(authority);
     this.#capacity=capacity;this.#maxBytes=maxBytes;
     this.#maxDemand=maxDemand;this.#maxInFlight=maxInFlight;
     this.#byteSizes=new Array(capacity).fill(0);
@@ -47,7 +49,10 @@ export class ActorDemandOutputPort {
     this.#loanBytes=new Array(maxInFlight).fill(0);
   }
 
-  #valid() { this.#io.metadata(this.#authority); }
+  #valid() {
+    this.#io.metadata(this.#authority);
+    if (this.#outputLease === null) throw new Error('demand output lease disposed');
+  }
   #check(lease) {
     this.#valid();
     if (this.#lease === null || lease !== this.#lease)
@@ -76,7 +81,7 @@ export class ActorDemandOutputPort {
     if (this.#queued >= this.#capacity) return 'full';
     if (bytes.byteLength > this.#maxBytes - this.#retained) return 'byte-budget';
     // Underlying ActorIoEnvelope clones accepted messages before publishing.
-    if (!this.#io.tryWriteOutput(this.#authority,bytes)) return 'host-backpressure';
+    if (!this.#io.tryWriteOutputWithLease(this.#authority,this.#outputLease,bytes)) return 'host-backpressure';
     this.#byteSizes[this.#tail]=bytes.byteLength;
     this.#tail=(this.#tail+1)%this.#capacity;
     this.#queued++;
@@ -92,7 +97,7 @@ export class ActorDemandOutputPort {
     if (this.#queued===0) return {kind:this.#completed?'complete':'not-ready'};
     if (this.#nextTicket >= Number.MAX_SAFE_INTEGER)
       throw new RangeError('ticket exhausted');
-    const bytes=this.#io.readOutput(this.#authority);
+    const bytes=this.#io.readOutputWithLease(this.#authority,this.#outputLease);
     if (!(bytes instanceof Uint8Array))
       throw new Error('output queue changed outside demand port');
     const size=this.#byteSizes[this.#head];
@@ -126,7 +131,7 @@ export class ActorDemandOutputPort {
     if (this.#completed||this.#cancelled) return false;
     this.#completed=true;this.#cancelled=true;this.#credits=0;
     while(this.#queued>0) {
-      const bytes=this.#io.readOutput(this.#authority);
+      const bytes=this.#io.readOutputWithLease(this.#authority,this.#outputLease);
       if (!(bytes instanceof Uint8Array) ||
           bytes.byteLength!==this.#byteSizes[this.#head])
         throw new Error('output queue changed outside demand port');
@@ -135,6 +140,16 @@ export class ActorDemandOutputPort {
       this.#head=(this.#head+1)%this.#capacity;
       this.#queued--;
     }
+    return true;
+  }
+  /** Release underlying actor authority only after terminal AND physical ACK. */
+  dispose(lease) {
+    this.#check(lease);
+    if (!this.#completed || this.#queued !== 0 ||
+        this.#tickets.some(ticket => ticket !== 0))
+      throw new Error('cannot retire demand output before terminal quiescence');
+    this.#io.releaseOutputLease(this.#authority,this.#outputLease);
+    this.#outputLease=null;
     return true;
   }
   get queued() {return this.#queued;}
