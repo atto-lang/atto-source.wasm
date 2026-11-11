@@ -25,6 +25,14 @@ export function assertNativeFrontendRejection(frontend) {
   }
   return true;
 }
+/** A Wasm host rejection is valid only if the PINNED LLVM compiler
+ * emitted its own with-ownership capability diagnostic, not a host shim. */
+export function assertWithFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes("WITH_BACKEND_UNSUPPORTED"))
+    throw Error("with ownership rejection did not come from compiler-owned LLVM gate");
+  return true;
+}
 export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
   assertNativeFrontendRejection(frontend);
   if (!String(frontend.stderr || "").includes(expectedDiagnostic))
@@ -680,6 +688,41 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    // No JavaScript shadow evaluator is allowed to mark 'with' supported.
+    // The pinned LLVM frontend must reject unchanged AttoLang source and
+    // the Wasm publisher must leave NO current release pointer behind.
+    const withSource = fileURLToPath(new URL(
+      "../contracts/with-ownership-v1/contextual-with-scalar.atto", import.meta.url));
+    const withFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", withSource],
+      {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024}
+    );
+    assertWithFrontendRejection(withFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned LLVM compiler changed during with capability test");
+    const withOutput = join(work, "with-unsupported.wasm");
+    let withPublicationRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:withSource, output:withOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      withPublicationRejected = true;
+    }
+    if (!withPublicationRejected)
+      throw Error("unsupported with source reached wasm32 artifact publication");
+    try {
+      await stat(withOutput + ".current.json");
+      throw Error("unsupported with produced a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const tupleV2Cases = [
       {
         name:"tuple-explicit",
@@ -728,6 +771,7 @@ export async function verifyRealCompiler({
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
       tupleV2Rejected:true,
+      withOwnershipRejected:true,
       invertedSourceRejected:true,
       singletonSourceRejected:true,
       singletonBridgeRejected:true,
