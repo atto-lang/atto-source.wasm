@@ -16,6 +16,13 @@ const ORACLES = Object.freeze([
   { id: 'neq-alias-mixed-reject', kind: 'reject', diagnostic: 'equality operands require the same scalar type', gitBlob: '93fb9b3ca5593edf9c0600a75486b840665bec13' },
   { id: 'neq-alias-split-reject', kind: 'reject', diagnostic: 'expected', gitBlob: '8360d632a28bbf5eb3e2425d8d81d07dd892dae4' }
 ]);
+// This gate is tied to the EXACT LLVM #1658 PR head/tree. Changing either
+// requires a reviewed companion test update; an arbitrary 40-hex claim is not
+// evidence that the correct native compiler produced the module.
+const EXPECTED_LLVM = Object.freeze({
+  head: 'e93035450d000ad8144b718a0f353a091ab6e5d2',
+  tree: 'f799bf5917c78fa3ea80d14ae4e159da1ac12496'
+});
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1')
   .update(Buffer.from('blob ' + bytes.length + '\0', 'ascii')).update(bytes).digest('hex');
@@ -36,6 +43,9 @@ function admission(env) {
   if (!/^[0-9a-f]{40}$/.test(env.ORESLANG_LLVM_SOURCE_SHA || '') ||
       !/^[0-9a-f]{40}$/.test(env.ORESLANG_LLVM_SOURCE_TREE || ''))
     throw Error('LLVM compiler source head and tree required');
+  if (env.ORESLANG_LLVM_SOURCE_SHA !== EXPECTED_LLVM.head ||
+      env.ORESLANG_LLVM_SOURCE_TREE !== EXPECTED_LLVM.tree)
+    throw Error('LLVM compiler source does not match reviewed exact PR #1658 head/tree');
   return { compiler: env.ORESLANG_LLVM_COMPILER, pin: env.ORESLANG_LLVM_COMPILER_SHA256,
     sha: env.ORESLANG_LLVM_SOURCE_SHA, tree: env.ORESLANG_LLVM_SOURCE_TREE };
 }
@@ -53,6 +63,20 @@ test('real compiler admission fails closed with missing SHA or source tree', () 
   assert.throws(() => admission({ORESLANG_LLVM_COMPILER: '/missing'}), /executable SHA256/);
   assert.throws(() => admission({ORESLANG_LLVM_COMPILER: '/missing',
     ORESLANG_LLVM_COMPILER_SHA256: 'a'.repeat(64)}), /source head and tree/);
+  const candidate = {
+    ORESLANG_LLVM_COMPILER: '/missing',
+    ORESLANG_LLVM_COMPILER_SHA256: 'a'.repeat(64),
+    ORESLANG_LLVM_SOURCE_SHA: EXPECTED_LLVM.head,
+    ORESLANG_LLVM_SOURCE_TREE: EXPECTED_LLVM.tree
+  };
+  assert.deepEqual(admission(candidate).sha, EXPECTED_LLVM.head);
+  assert.throws(() => admission({...candidate,
+    ORESLANG_LLVM_SOURCE_SHA: 'b'.repeat(40)}), /reviewed exact PR/);
+  assert.throws(() => admission({...candidate,
+    ORESLANG_LLVM_SOURCE_TREE: 'c'.repeat(40)}), /reviewed exact PR/);
+  assert.throws(() => admission({...candidate,
+    ORESLANG_LLVM_SOURCE_SHA: EXPECTED_LLVM.tree,
+    ORESLANG_LLVM_SOURCE_TREE: EXPECTED_LLVM.head}), /reviewed exact PR/);
 });
 
 // A real binary and source provenance must be provided; otherwise skip, never
@@ -67,8 +91,10 @@ test('real compiler builds and executes !eq Wasm guest and rejects unsafe inputs
   const binary = await readBoundedRegularFile(compiler, 256 * 1024 * 1024,
     'missing or oversized LLVM compiler');
   assert.equal(digest(binary.bytes), pin, 'binary does not match declared digest');
-  assert.match(sha, /^[0-9a-f]{40}$/);
-  assert.match(tree, /^[0-9a-f]{40}$/);
+  assert.equal(sha, EXPECTED_LLVM.head);
+  assert.equal(tree, EXPECTED_LLVM.tree);
+  // These env values remain self-reported; independently reviewed checkout
+  // attestation plus compiler binary build provenance is a separate gate.
   const directory = await mkdtemp(join(tmpdir(), 'atto-wasm-neq-'));
   try {
     let executed = 0;
