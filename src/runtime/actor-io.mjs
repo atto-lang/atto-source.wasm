@@ -52,6 +52,7 @@ export class ActorIoEnvelope {
   #authority;
   #input;
   #output;
+  #outputLease = null;
   #errors;
   #events;
   #metadataVersion = 1;
@@ -94,6 +95,7 @@ export class ActorIoEnvelope {
     this.#generation = nextGeneration;
     this.#input.clear();
     this.#output.clear();
+    this.#outputLease = null; // revoke old owner, never resurrect a stale lease
     this.#errors.clear();
     this.#events.clear();
     this.#metadataVersion = 1;
@@ -110,12 +112,47 @@ export class ActorIoEnvelope {
     this.#require(authority);
     return this.#input.shift();
   }
+  /**
+   * Exclusive lease for bounded-demand adapters. Refuses to seize an output
+   * queue containing pre-existing records, whose bytes are unaccounted.
+   */
+  acquireOutputLease(authority) {
+    this.#require(authority);
+    if (this.#outputLease !== null || this.#output.length !== 0)
+      throw new Error("actor output lease unavailable or queue not empty");
+    this.#outputLease = Object.freeze(Object.create(null));
+    return this.#outputLease;
+  }
+  #requireOutputLease(authority, lease) {
+    this.#require(authority);
+    if (this.#outputLease === null || lease !== this.#outputLease)
+      throw new Error("actor output lease missing, foreign or retired");
+  }
+  tryWriteOutputWithLease(authority, lease, bytes) {
+    this.#requireOutputLease(authority, lease);
+    return this.#output.tryPush(bytes);
+  }
+  readOutputWithLease(authority, lease) {
+    this.#requireOutputLease(authority, lease);
+    return this.#output.shift();
+  }
+  releaseOutputLease(authority, lease) {
+    this.#requireOutputLease(authority, lease);
+    if (this.#output.length !== 0)
+      throw new Error("cannot release output lease with queued records");
+    this.#outputLease = null;
+    return true;
+  }
   tryWriteOutput(authority, bytes) {
     this.#require(authority);
+    if (this.#outputLease !== null)
+      throw new Error("actor output exclusively leased");
     return this.#output.tryPush(bytes);
   }
   readOutput(authority) {
     this.#require(authority);
+    if (this.#outputLease !== null)
+      throw new Error("actor output exclusively leased");
     return this.#output.shift();
   }
   tryEmitError(authority, diagnostic) {
