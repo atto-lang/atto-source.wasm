@@ -102,11 +102,11 @@ test("pinned LLVM-to-wasm32 class overload lowers to exact direct calls and exec
 });
 
 test("LLVM direct-target predicate rejects fabricated evidence and indirect calls",()=>{
-  const forged='; call i64 @"Box.read$arity0"(ptr %x)\\n'+
+  const forged='; call i64 @"Box.read$arity0"(ptr %x)\n'+
     'define i64 @"Box.read$arity1"(ptr %x){ ret i64 42 }';
   const targets=directTargets(forged);
   assert.equal(targets.size,0,"comment or declaration impersonated a direct call");
-  const valid=directTargets('%v = call i64 @"Box.read$arity0"(ptr %x)\\n'+
+  const valid=directTargets('%v = call i64 @"Box.read$arity0"(ptr %x)\n'+
     '%w = invoke i64 @"Box.read$arity1"(ptr %x, i64 2) to label %ok unwind label %fail');
   assert.ok(valid.has("Box.read$arity0"));
   assert.ok(valid.has("Box.read$arity1"));
