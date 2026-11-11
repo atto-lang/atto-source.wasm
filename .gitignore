@@ -3,3 +3,6 @@ node_modules/
 *.wasm
 *.provenance.json
 *.artifact.json
+
+# Reviewed compiler fixture required by clean-checkout browser guest tests.
+!test-support/canonical-compiler.wasm
