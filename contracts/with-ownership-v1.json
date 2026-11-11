@@ -150,13 +150,8 @@
       "expected_java": {
         "stdout": "42"
       },
-      "unimplemented_backends": [
-        "llvm",
-        "wasm",
-        "forge",
-        "net"
-      ],
-      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+      "unimplemented_backends": [],
+      "unimplemented_diagnostic": null
     },
     {
       "id": "trivia-inert",
@@ -165,13 +160,8 @@
       "expected_java": {
         "stdout": "42"
       },
-      "unimplemented_backends": [
-        "llvm",
-        "wasm",
-        "forge",
-        "net"
-      ],
-      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+      "unimplemented_backends": [],
+      "unimplemented_diagnostic": null
     }
   ],
   "evidence": {
