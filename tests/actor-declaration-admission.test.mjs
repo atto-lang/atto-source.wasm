@@ -279,3 +279,19 @@ test("shared Rust/JS/.NET HTTP actor .atto fixture has exact Git blob and fails 
   assert.throws(() => rejectUnsupportedActorThreadSource(fixture),
     /HTTP_ACTOR_BACKEND_UNSUPPORTED/);
 });
+
+test("canonical byte-pinned HTTP actor .atto inputs fail closed in Wasm source bridge",()=>{
+ const entries=[
+   ["serial-1x1.atto","7564a770934d2374ec5166a353c2c9bb3c383bdf"],
+   ["explicit-1x1.atto","d2e5ebaffaaa26bfe6e117aaa8b36a6eb33937e1"],
+   ["unsupported-3x4.atto","6987e72d70ae509522f7e050a494c0aef721a653"]
+ ];
+ for(const [file,blobSha] of entries) {
+   const data=readFileSync(new URL("./fixtures/http-actor-v1/"+file,import.meta.url));
+   const observed=createHash("sha1")
+     .update("blob "+data.byteLength+"\\0".replace("\\0","\0")).update(data).digest("hex");
+   assert.equal(observed,blobSha,file+" changed from shared contract");
+   assert.throws(()=>rejectUnsupportedActorThreadSource(data),
+     /HTTP_ACTOR_BACKEND_UNSUPPORTED/,file);
+ }
+});
