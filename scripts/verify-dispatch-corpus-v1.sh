@@ -19,6 +19,7 @@ while IFS=$'\t' read -r name expected; do
   }
   printf 'DISPATCH_CORPUS_BLOB_V1|file=%s|sha=%s\n' "$file" "$expected"
 done <<'BLOBS'
+README.md	840c07fa2af650add3d98f04cd8a35a4d03144f6
 cases.tsv	f4f692a84be0ae08c0a0655278076fecf508b4af
 direct_call_42.atto	f827bef2b2d4dea73b249ca7c9071224bbb06a2d
 instance_call_42.atto	c886c3d69604563ced898f7bea49c757a20ef9b2
