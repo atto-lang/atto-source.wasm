@@ -75,3 +75,68 @@ test("Wasm host copy boundary rejects forged access to private linear memory", (
   assert.deepEqual([...new Uint8Array(backing, 0, 4)], [0, 0, 0, 0],
     "retirement must scrub even if external host retained original ArrayBuffer");
 });
+
+test("zero-page memory.grow detaches cached view without losing live actor bytes", () => {
+  const OriginalMemory = WebAssembly.Memory;
+  let memory;
+  WebAssembly.Memory = class extends OriginalMemory {
+    constructor(options) { super(options); memory = this; }
+  };
+  let arena;
+  try { arena = new ActorArena({actorId: 904, incarnation: 1}); }
+  finally { WebAssembly.Memory = OriginalMemory; }
+
+  const turn = arena.beginTurn();
+  const persistent = arena.allocPersistent(turn, 4);
+  const scratch = arena.allocScratch(turn, 4);
+  arena.write(turn, persistent, Uint8Array.of(11, 12, 13, 14));
+  arena.write(turn, scratch, Uint8Array.of(21, 22, 23, 24));
+  const oldBacking = memory.buffer;
+  assert.equal(memory.grow(0), 2);
+  assert.notEqual(memory.buffer, oldBacking,
+    "a successful grow(0) must replace the nonshared backing");
+  assert.equal(oldBacking.byteLength, 0, "old cached bytes are detached");
+  const output = new Uint8Array(4);
+  arena.readInto(turn, persistent, output);
+  assert.deepEqual([...output], [11, 12, 13, 14]);
+  assert.deepEqual([...arena.read(turn, scratch)], [21, 22, 23, 24]);
+  const privateAlias = new Uint8Array(memory.buffer, 0, 4);
+  assert.throws(() => arena.readInto(turn, persistent, privateAlias),
+    /private backing alias/, "buffer check must use the refreshed backing");
+  assert.throws(() => arena.write(turn, persistent, privateAlias),
+    /private backing alias/);
+  arena.endTurn(turn);
+  const next = arena.beginTurn();
+  assert.deepEqual([...arena.read(next, persistent)], [11, 12, 13, 14]);
+  assert.throws(() => arena.read(next, scratch), /foreign or stale/);
+  arena.endTurn(next);
+  arena.retire();
+  assert.deepEqual([...new Uint8Array(memory.buffer, 0, 4)], [0, 0, 0, 0],
+    "logical actor retirement must scrub the newest physical backing");
+});
+
+test("late lifetime-pin release scrubs current memory after grow(0)", () => {
+  const OriginalMemory = WebAssembly.Memory;
+  let memory;
+  WebAssembly.Memory = class extends OriginalMemory {
+    constructor(options) { super(options); memory = this; }
+  };
+  let arena;
+  try { arena = new ActorArena({actorId: 905, incarnation: 1}); }
+  finally { WebAssembly.Memory = OriginalMemory; }
+  const turn = arena.beginTurn();
+  const h = arena.allocPersistent(turn, 4);
+  arena.write(turn, h, Uint8Array.of(31, 32, 33, 34));
+  const pin = arena.pinLifetime(turn);
+  arena.endTurn(turn);
+  arena.retire();
+  assert.equal(arena.pendingLifetimePins, 1);
+  assert.equal(memory.grow(0), 2);
+  assert.deepEqual([...new Uint8Array(memory.buffer, 0, 4)], [31, 32, 33, 34],
+    "STOP with an outstanding pin must not prematurely reclaim");
+  arena.releaseLifetimePin(pin);
+  assert.equal(arena.pendingLifetimePins, 0);
+  assert.deepEqual([...new Uint8Array(memory.buffer, 0, 4)], [0, 0, 0, 0],
+    "last release must scrub newly reattached backing, not detached view");
+  arena.releaseLifetimePin(pin);
+});
