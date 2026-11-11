@@ -152,7 +152,7 @@ if (isMainThread) {
     assert.equal(d.resolve_symbol(privateSym,{trusted:true}),privateSym);
     assert.throws(()=>d.intern_symbol('#third'),/quota/);
     assert.throws(()=>d.resolve_symbol({tag:'ores.symbol.v1',scope:'process',name:'#unknown'}),/unknown symbol/);
-    assert.throws(()=>d.intern_symbol('#bad\u0301'),/invalid symbol/);
+    assert.throws(()=>d.intern_symbol('#e\u0301'),/invalid symbol/);
   });
 
   test('two real Node workers receive independent snapshots and nominal Symbol descriptors', async () => {
