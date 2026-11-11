@@ -91,3 +91,29 @@ test("metadata and record quotas fail closed", () => {
     oversized: "x".repeat(ActorIoEnvelope.MAX_METADATA_BYTES + 1),
   }), /byte limit/);
 });
+
+
+test('actor output exclusive leases reject bypasses, forgery and stale generation', () => {
+  const io=new ActorIoEnvelope({actorId:807,maxRecords:2,maxBytes:8});
+  const authority=io.authority();
+  assert.equal(io.tryWriteOutput(authority,Uint8Array.of(1)),true);
+  assert.throws(()=>io.acquireOutputLease(authority),/queue not empty/);
+  assert.deepEqual([...io.readOutput(authority)],[1]);
+  const lease=io.acquireOutputLease(authority);
+  assert.throws(()=>io.acquireOutputLease(authority),/lease unavailable/);
+  assert.throws(()=>io.tryWriteOutput(authority,Uint8Array.of(1)),/exclusively leased/);
+  assert.throws(()=>io.readOutput(authority),/exclusively leased/);
+  assert.throws(()=>io.tryWriteOutputWithLease(authority,{},Uint8Array.of(1)),/lease missing/);
+  assert.equal(io.tryWriteOutputWithLease(authority,lease,Uint8Array.of(3)),true);
+  assert.throws(()=>io.releaseOutputLease(authority,lease),/queued records/);
+  assert.deepEqual([...io.readOutputWithLease(authority,lease)],[3]);
+  assert.equal(io.releaseOutputLease(authority,lease),true);
+  assert.throws(()=>io.readOutputWithLease(authority,lease),/lease missing/);
+  assert.equal(io.tryWriteOutput(authority,Uint8Array.of(4)),true);
+  assert.deepEqual([...io.readOutput(authority)],[4]);
+  const nextLease=io.acquireOutputLease(authority);
+  io.restart(2);
+  assert.throws(()=>io.readOutputWithLease(authority,nextLease),/stale, foreign, or retired/);
+  assert.equal(io.tryWriteOutput(io.authority(),Uint8Array.of(5)),true,
+    'restart revokes output lease and returns ordinary channel access');
+});
