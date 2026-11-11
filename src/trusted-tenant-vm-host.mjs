@@ -76,9 +76,13 @@ export class TrustedTenantVMHost {
     return actor;
   }
   #releaseSlot(tenant) {
-    // close_tenant_vm returns all remaining reservations *only after* physical
-    // Worker termination. An in-flight operation must not refund twice.
-    if (tenant.phase === 'stopped') return;
+    // Only an ACTIVE tenant with a live worker can refund a completed
+    // actor admission or stop. During quiescence/quarantine and after a
+    // carrier fault, keep EVERY outstanding reservation charged until a
+    // confirmed physical Worker.terminate() receipt in close_tenant_vm.
+    // Otherwise an async spawn/stop could free host capacity while a guest
+    // still runs and permit unrelated tenants to overcommit the host.
+    if (tenant.phase !== 'running' || tenant.pool.activeWorkerCount !== 1) return;
     if (tenant.actorSlots <= 0 || this.#hostActorSlots <= 0)
       throw new Error('TenantVM actor reservation underflow');
     tenant.actorSlots--;
@@ -154,6 +158,15 @@ export class TrustedTenantVMHost {
     if (tenant.closePromise) return tenant.closePromise;
     tenant.phase = 'quiescing';
     tenant.closePromise = tenant.pool.close().then(() => {
+      // A termination receipt is necessary, but actor reservation accounting
+      // must also reconcile atomically before returning the tenant ID. Never
+      // silently underflow aggregate capacity or certify a corrupt drain.
+      if (!Number.isSafeInteger(tenant.actorSlots) || tenant.actorSlots < 0 ||
+          tenant.actorSlots > this.#hostActorSlots ||
+          this.#tenants.get(tenant.id) !== tenant) {
+        tenant.phase = 'quarantined';
+        throw new Error('TenantVM retirement accounting inconsistent');
+      }
       // Worker.terminate() must finish BEFORE reclaiming tenant generation,
       // permits, actors, actor slots or accepting a replacement tenant ID.
       this.#hostActorSlots -= tenant.actorSlots;
