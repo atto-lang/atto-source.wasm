@@ -55,6 +55,34 @@ commit/tree verification; self-reported SHA-256 **does not authenticate code**.
 Normal `npm test` may skip this gate if the compiler is unavailable; a skip
 is explicitly **NOT_EXECUTED**.
 
+## Audited quiescence and quota-retirement race (2026-11-11)
+
+The original host's per-actor release path could refund a reservation while
+a TenantVM was already quiescing, before its Worker termination had been
+confirmed. An asynchronous rejected spawn/stop could thereby release aggregate
+host capacity to another tenant prematurely. The hardening change gates each
+individual refund on a running tenant **and** one live carrier; quiescing,
+stopped or quarantined tenants retain *all* remaining reservations until
+`close_tenant_vm` observes physical termination. Reconciliation also rejects
+aggregate counter underflow and unexpected tenant registry changes.
+
+A dedicated real-Worker regression test withholds `Worker.terminate()`
+confirmation and verifies: concurrent failed admission cannot refund tenant
+slots, another tenant cannot exceed the aggregate cap, old tenant IDs remain
+reserved until confirmed retirement, and a rejected termination leaves the
+incarnation quarantined. Execute it at an exact source head:
+
+```sh
+node --test tests/trusted-tenant-vm-retirement-races.test.mjs
+```
+
+The source-accurate quota logic passed **3/3 local controlled-transport race
+tests**, and those same tests reproduced **3/3 failures** on the old release
+logic. Those local tests are deterministic accounting tests, **not** executed
+Node Worker termination evidence or compiled AttoLang guest proof. The
+real-Worker regression is committed but **NOT_EXECUTED** until a runner records
+nonzero steps.
+
 ## Critical unimplemented security requirements
 
 The root interface is for a privileged trusted embedder and MUST NOT be
