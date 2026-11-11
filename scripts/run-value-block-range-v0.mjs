@@ -83,7 +83,7 @@ function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,parseArgv,dir
          !(types.length===expected.length+1 && types.at(-1)==='EOF')))
       throw Error('lex tokens mismatch: '+JSON.stringify(types));
     if(existsSync(artifact)) throw Error('lexer published executable artifact');
-    return {...base,phase:'lex',lex_pass:true,status:'pass'};
+    return {...base,phase:'lex',lex_pass:true,lex_tokens:types,status:'pass'};
   }
   // Compiler stages are distinct. A parse error masquerading as a type error
   // is not a valid type-system proof, even if its error text contains a word.
@@ -128,14 +128,18 @@ function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,parseArgv,dir
     'compiled guest exit does not match contract '+vector.expect.exit_code);
   if(!existsSync(artifact)||sha256(readFileSync(artifact))!==digest)
     throw Error('guest run mutated/removed the compiled artifact');
+  let visitWitness;
   if(Array.isArray(vector.expect.visited)) {
     let witness; try { witness=JSON.parse(executed.stdout.trim()); }
     catch { throw Error('range visited-sequence witness must be guest JSON stdout'); }
     if(!Array.isArray(witness)||
        JSON.stringify(witness)!==JSON.stringify(vector.expect.visited))
       throw Error('range visit witness did not match declared sequence');
+    visitWitness=witness;
   }
   return {...base,phase:'guest-execute',compile_exit:0,guest_exit:executed.exit,
+    guest_stdout_sha256:sha256(executed.stdout),
+    ...(visitWitness===undefined?{}:{visited:visitWitness}),
     artifact_sha256:digest,executed_guest:true,status:'pass'};
 }
 try {
