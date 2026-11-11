@@ -289,7 +289,7 @@ test("canonical byte-pinned HTTP actor .atto inputs fail closed in Wasm source b
  for(const [file,blobSha] of entries) {
    const data=readFileSync(new URL("./fixtures/http-actor-v1/"+file,import.meta.url));
    const observed=createHash("sha1")
-     .update("blob "+data.byteLength+"\\0".replace("\\0","\0")).update(data).digest("hex");
+     .update("blob "+data.byteLength+"\0").update(data).digest("hex");
    assert.equal(observed,blobSha,file+" changed from shared contract");
    assert.throws(()=>rejectUnsupportedActorThreadSource(data),
      /HTTP_ACTOR_BACKEND_UNSUPPORTED/,file);
