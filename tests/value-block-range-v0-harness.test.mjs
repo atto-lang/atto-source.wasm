@@ -29,6 +29,7 @@ test('harness rejects nonexistent guest compiler instead of accepting model evid
   env.ATTO_VBR_LANE='llvm-native';
   env.ATTO_VBR_COMPILE_ARGV_JSON=JSON.stringify(['__nonexistent_atto_compiler__','{source}','{artifact}']);
   env.ATTO_VBR_RUN_ARGV_JSON=JSON.stringify(['{artifact}']);
+  env.ATTO_VBR_TYPECHECK_ARGV_JSON=JSON.stringify(['__nonexistent_atto_compiler__','--typecheck-json','{source}']);
   const r=spawnSync(process.execPath,
     [new URL('../scripts/run-value-block-range-v0.mjs',import.meta.url).pathname],
     {encoding:'utf8',env,timeout:30000});
