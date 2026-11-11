@@ -85,6 +85,9 @@ function run() {
       o => { o.blocking_capabilities = []; },
       o => { o.parity_gained_from_mock = true; },
       o => { o.repository = 'unreviewed/oesource'; },
+      o => { o.repository = 'ores-truffle-oreslang/constructor'; },
+      o => { o.repository = 'ores-truffle-oreslang/toString'; },
+      o => { o.repository = 'ores-truffle-oreslang/__proto__'; },
     ];
     for (const change of changes) {
       const mutated = structuredClone(manifest);
@@ -93,7 +96,7 @@ function run() {
       try { validate(mutated); } catch { denied = true; }
       check(denied, 'negative control unexpectedly accepted');
     }
-    console.log('11 negative source-only capability promotions denied');
+    console.log(changes.length + ' negative source-only capability promotions denied');
   }
   process.stdout.write(JSON.stringify(result) + '\n');
   if (process.argv.includes('--require-executed-guest')) {
