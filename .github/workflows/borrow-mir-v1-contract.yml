@@ -27,7 +27,7 @@ jobs:
           git rev-parse "HEAD^{tree}" > target/borrow-mir-v1-evidence/root-tree.txt
           printf "status=HOST_ONLY\n" > target/borrow-mir-v1-evidence/status.txt
           test "$(git rev-parse HEAD:contracts/borrow-mir-v1/semantic-cases.json)" = "f1be361c2e68cfe7274d821ef93ca9767ba09bec"
-          test "$(git rev-parse HEAD:tests/borrow-mir-v1-contract.test.mjs)" = "89bfe315c8d477bd871b41a8adb7955196a81d3e"
+          test "$(git rev-parse HEAD:tests/borrow-mir-v1-contract.test.mjs)" = "6d52d2dafc407cb365f6aaa957039852516afeac"
           test "$(git rev-parse HEAD:contracts/borrow-mir-v1/README.md)" = "5c90ba56cf022a8512da0c0174723a546fdc1618"
           test "$(git rev-parse HEAD:contracts/borrow-mir-v1/semantic-cases.json)" = "$(git hash-object --no-filters contracts/borrow-mir-v1/semantic-cases.json)"
           test "$(git rev-parse HEAD:tests/borrow-mir-v1-contract.test.mjs)" = "$(git hash-object --no-filters tests/borrow-mir-v1-contract.test.mjs)"
