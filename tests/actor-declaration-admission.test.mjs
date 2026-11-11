@@ -247,3 +247,25 @@ test("Wasm HTTP actor alias and two-level concurrency reject before compilation"
     "fnc main():int{let s=\"define http actor Fake as end\";return 42;}"
   ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
 });
+
+test("HTTP actor cannot evade the Wasm preflight through comment gaps, modules or modifier amplification",()=>{
+ for(const source of [
+   "define http actor A as end",
+   "pub define http actor A as end",
+   "define /* gap */ serial /* gap */ http actor A as end",
+   "define\\n// gap\\nserial\\nhttp\\nactor A as end".replaceAll("\\n","\n"),
+   "define " + Array(128).fill("pub").join(" ") + " serial http actor A as end",
+   "define module Box as\\n define serial http actor A as end\\nend".replaceAll("\\n","\n"),
+   "define pub http /* nested /* block */ text */ actor A as end"
+ ]) {
+   assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+     /HTTP_ACTOR_BACKEND_UNSUPPORTED/,source);
+ }
+ for(const source of [
+   "/* define /* nested */ http actor A as end */ fnc main():int{return 7;}",
+   "fnc main():int{let a=`define http actor X`;return 7;}",
+   "define module words as fnc http_count():int{return 42;} end"
+ ]) {
+   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(source)),source);
+ }
+});
