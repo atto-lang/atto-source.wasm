@@ -25,12 +25,21 @@ export class PooledWasmActors {
   #maxActors;
   #mailboxCapacity;
   #timeoutMs;
+  #isolation;
 
-  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000} = {}) {
+  // 'dedicated': at most one live actor per Worker. This contains even an
+  // uninstrumented native Wasm stack trap to that actor's fault domain, at
+  // the price of reduced concurrency. 'shared' retains the original pooling
+  // behavior and requires compiler-checked frames for actor-only faults.
+  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16,
+    timeoutMs = 2000, isolation = 'shared'} = {}) {
     bounded(workers, 1, 4, 'worker count');
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
     this.#timeoutMs = bounded(timeoutMs, 1, 30000, 'deadline');
+    if (isolation !== 'shared' && isolation !== 'dedicated')
+      throw new RangeError('invalid actor carrier isolation mode');
+    this.#isolation = isolation;
     for (let i = 0; i < workers; i++) {
       const worker = new Worker(new URL('./pooled-actor-worker.mjs', import.meta.url), {
         type: 'module', execArgv: [], env: {},
@@ -45,6 +54,7 @@ export class PooledWasmActors {
       this.#carriers.push(carrier);
     }
   }
+  get isolation() {return this.#isolation;}
   get workerCount() {return this.#carriers.length;}
   get actorCount() {return this.#actors.size;}
   get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}
@@ -230,11 +240,22 @@ export class PooledWasmActors {
         admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
       throw Error('actor requires private fixed two-page memory');
     assertScalarActorAbi(admitted.bytes);
-    const id = ++this.#nextId;
-    const incarnation = randomBytes(16).toString('hex');
     const live = this.#carriers.filter(c => !c.dead);
     if (!live.length) throw Error('no live actor carriers');
-    const carrier = live[(id - 1) % live.length];
+    let carrier;
+    if (this.#isolation === 'dedicated') {
+      // Reserve a completely unoccupied Worker before issuing any actor ID.
+      // "stopping", "starting", and physically-unconfirmed terminations
+      // still own their carrier. Never share it until the Worker proves
+      // successful stop/physical teardown and all actor leases are gone.
+      carrier = live.find(c => ![...this.#actors.values()]
+        .some(actor => actor.carrier === c));
+      if (!carrier) throw Error('no isolated actor carrier available');
+    } else {
+      carrier = live[this.#nextId % live.length];
+    }
+    const id = ++this.#nextId;
+    const incarnation = randomBytes(16).toString('hex');
     const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
       pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
     this.#actors.set(id, actor);
