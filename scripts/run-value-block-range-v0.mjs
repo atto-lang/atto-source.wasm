@@ -6,9 +6,12 @@
 //   ATTO_VBR_RUN_ARGV_JSON:     ["{artifact}"] (or ["wasmtime","{artifact}"])
 //   ATTO_VBR_LEX_ARGV_JSON:     ["compiler","--lex-json","{source}"]
 //   ATTO_VBR_TYPECHECK_ARGV_JSON: ["compiler","--typecheck-json","{source}"]
+//   ATTO_VBR_PARSE_ARGV_JSON:   ["compiler","--parse","{source}"]
 //   ATTO_VBR_ARTIFACT_EXT:     e.g. ".wasm" or ".dll", default ".bin"
 //   ATTO_VBR_LANE:             java-interpreter | java-native-image | llvm-native |
-//                              wasm32 | forge-native | net-native-aot
+//                              wasm32 | forge-native | net-native-aot |
+//                              rs-native | cranelift-native | js-worker |
+//                              hdl-rtl-simulation
 // No shell expansion, no host-language simulation and no skipped cases.
 import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync, statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -20,7 +23,10 @@ import {createHash} from 'node:crypto';
 const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
 const manifestPath=join(root,'contracts/value-block-range-v0/cases.json');
 const manifest=JSON.parse(readFileSync(manifestPath,'utf8'));
-const validLanes=['java-interpreter','java-native-image','llvm-native','wasm32','forge-native','net-native-aot'];
+const validLanes=[
+  'java-interpreter','java-native-image','llvm-native','wasm32','forge-native',
+  'net-native-aot','rs-native','cranelift-native','js-worker','hdl-rtl-simulation'
+];
 const lane=process.env.ATTO_VBR_LANE;
 const ext=process.env.ATTO_VBR_ARTIFACT_EXT||'.bin';
 const sha256=x=>createHash('sha256').update(x).digest('hex');
@@ -51,52 +57,83 @@ function spawn(argv,substitutions) {
 function check(output,ok,why) {
   if(!ok) throw Error(why+' (status='+output?.exit+') '+((output?.stderr||'')+' '+(output?.stdout||'')).slice(0,800));
 }
-function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,directory) {
+function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,parseArgv,directory) {
   const name=vector.id;
   const source=join(directory,name+'.atto');
   const artifact=join(directory,name+ext);
   writeFileSync(source,vector.source,'utf8');
   const params={source,artifact,case:name};
   const base={id:name,kind:vector.kind,source_sha256:sha256(vector.source)};
+  const assertSourceIntact=()=>{
+    if(!existsSync(source)||sha256(readFileSync(source))!==base.source_sha256)
+      throw Error('compiler modified or removed canonical guest source fixture');
+  };
+  if(existsSync(artifact)) throw Error('non-fresh artifact path (fail closed)');
   if(vector.kind==='accept_lex') {
     if(!lexArgv) throw Error('ATTO_VBR_LEX_ARGV_JSON is required: lex vectors cannot be skipped');
     const out=spawn(lexArgv,params);
+    assertSourceIntact();
     check(out,out.exit===0,'real lexer must accept source');
     let result; try { result=JSON.parse(out.stdout); }
     catch { throw Error('lex mode must emit JSON on stdout'); }
     const types=Array.isArray(result) ? result : result?.tokens;
-    if(!Array.isArray(types)||!vector.expect.token_prefix.every((token,i)=>types[i]===token))
+    const expected=vector.expect.token_prefix;
+    if(!Array.isArray(types)||!expected.every((token,i)=>types[i]===token)||
+        (types.length!==expected.length &&
+         !(types.length===expected.length+1 && types.at(-1)==='EOF')))
       throw Error('lex tokens mismatch: '+JSON.stringify(types));
+    if(existsSync(artifact)) throw Error('lexer published executable artifact');
     return {...base,phase:'lex',lex_pass:true,status:'pass'};
   }
-  const out=spawn(compileArgv,params);
-  if(vector.kind.startsWith('reject_')) {
-    check(out,out.exit!==0,'compiler must reject invalid case');
-    const text=out.stderr+'\n'+out.stdout;
-    if(!text.includes(vector.expect.diagnostic))
-      throw Error('expected compiler diagnostic '+vector.expect.diagnostic+' absent');
+  // Compiler stages are distinct. A parse error masquerading as a type error
+  // is not a valid type-system proof, even if its error text contains a word.
+  if(vector.kind==='reject_parse' || vector.kind==='reject_typecheck') {
+    const isParse=vector.kind==='reject_parse';
+    const out=spawn(isParse?parseArgv:typecheckArgv,params);
+    assertSourceIntact();
+    check(out,out.exit!==0,isParse?'parser must reject invalid source':
+      'typechecker must reject well-formed but ill-typed source');
+    const diagnostic=vector.expect.diagnostic;
+    const exactTag=new RegExp('(?:^|\\\\W)'+diagnostic.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&')+'(?:$|\\\\W)','m');
+    if(!exactTag.test(out.stderr))
+      throw Error('expected phase-specific compiler stderr diagnostic '+diagnostic+' absent');
     if(existsSync(artifact)) throw Error('rejected source published output artifact');
-    return {...base,phase:'compiler-reject',compile_exit:out.exit,
-      diagnostic_class:vector.expect.diagnostic,artifact_published:false,status:'pass'};
+    return {...base,phase:isParse?'parser-reject':'typechecker-reject',
+      compile_exit:out.exit,diagnostic_class:diagnostic,
+      artifact_published:false,status:'pass'};
   }
-  check(out,out.exit===0,'compiler must accept valid source');
   if(vector.kind==='accept_typecheck') {
     const checked=spawn(typecheckArgv,params);
+    assertSourceIntact();
     check(checked,checked.exit===0,'typed compiler checker must accept source');
     let types; try { types=JSON.parse(checked.stdout); }
     catch { throw Error('typecheck mode must emit JSON on stdout'); }
     if(types?.result_type!==vector.expect.result_type)
       throw Error('inferred type mismatch: expected '+vector.expect.result_type);
+    if(existsSync(artifact)) throw Error('typecheck-only stage published artifact');
     return {...base,phase:'typecheck',compile_exit:0,
       result_type:types.result_type,status:'pass'};
   }
+  const out=spawn(compileArgv,params);
+  assertSourceIntact();
+  check(out,out.exit===0,'compiler must accept valid source');
   if(vector.kind!=='accept_execute') throw Error('unexpected vector kind: '+vector.kind);
   if(!existsSync(artifact)||!statSync(artifact).isFile()||statSync(artifact).size===0)
     throw Error('real compiler produced no nonempty guest artifact');
   const digest=sha256(readFileSync(artifact));
   const executed=spawn(runArgv,params);
+  assertSourceIntact();
   check(executed,executed.exit===vector.expect.exit_code,
     'compiled guest exit does not match contract '+vector.expect.exit_code);
+  if(!existsSync(artifact)||sha256(readFileSync(artifact))!==digest)
+    throw Error('guest run mutated/removed the compiled artifact');
+  if(Array.isArray(vector.expect.visited)) {
+    let witness; try { witness=JSON.parse(executed.stdout.trim()); }
+    catch { throw Error('range visited-sequence witness must be guest JSON stdout'); }
+    if(!Array.isArray(witness)||
+       JSON.stringify(witness)!==JSON.stringify(vector.expect.visited))
+      throw Error('range visit witness did not match declared sequence');
+  }
   return {...base,phase:'guest-execute',compile_exit:0,guest_exit:executed.exit,
     artifact_sha256:digest,executed_guest:true,status:'pass'};
 }
@@ -114,10 +151,11 @@ try {
   const lex=process.env.ATTO_VBR_LEX_ARGV_JSON ?
     requireArgv('ATTO_VBR_LEX_ARGV_JSON','{source}') : null;
   const typecheck=requireArgv('ATTO_VBR_TYPECHECK_ARGV_JSON','{source}');
+  const parse=requireArgv('ATTO_VBR_PARSE_ARGV_JSON','{source}');
   const dir=mkdtempSync(join(tmpdir(),'atto-vbr-'));
   mkdirSync(dir,{recursive:true});
   for(const vector of manifest.cases) {
-    try { observations.push(testCase(vector,compile,run,lex,typecheck,dir)); }
+    try { observations.push(testCase(vector,compile,run,lex,typecheck,parse,dir)); }
     catch(error) { failures++; observations.push({
       id:vector.id,kind:vector.kind,status:'failed',detail:String(error.message).slice(0,1400),
       source_sha256:sha256(vector.source)
@@ -135,6 +173,7 @@ const report={
   lane,repo_head_sha:validSha.test(head||'')?head:null,
   suite_sha256:sha256(readFileSync(manifestPath)),case_count:manifest.cases.length,
   passed:observations.filter(x=>x.status==='pass').length,
+  certified_guest_passes:0,
   failed:failures,
   observations,
   warning:'Needs independent exact-head, source-blob, job/log, compiler artifact and guest execution validation before parity claim'
