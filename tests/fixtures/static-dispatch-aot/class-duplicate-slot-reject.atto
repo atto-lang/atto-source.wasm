@@ -1,0 +1,7 @@
+// A duplicate name/arity slot must reject before emitting LLVM or Wasm IR.
+define class Box as
+  let int value=20;
+  pub read():int{return self.value;}
+  pub read():int{return 0;}
+end
+pub fnc main():int{return 42;}
