@@ -125,6 +125,7 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
   const nativeFindIndex = Array.prototype.findIndex;
   const nativeSplice = Array.prototype.splice;
   const nativeSort = Array.prototype.sort;
+  const nativeArrayIterator = Array.prototype[Symbol.iterator];
   const nativeSafeInteger = Number.isSafeInteger;
   const nativeObjectIs = Object.is;
   const nativeBigInt = globalThis.BigInt;
@@ -144,6 +145,7 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
     Array.prototype.findIndex = poison;
     Array.prototype.splice = poison;
     Array.prototype.sort = poison;
+    Array.prototype[Symbol.iterator] = poison;
     Number.isSafeInteger = () => false;
     Object.is = () => true;
     globalThis.BigInt = poison;
@@ -181,6 +183,7 @@ test("late monkeypatch of native collections and numeric guards cannot redirect 
     Array.prototype.findIndex = nativeFindIndex;
     Array.prototype.splice = nativeSplice;
     Array.prototype.sort = nativeSort;
+    Array.prototype[Symbol.iterator] = nativeArrayIterator;
     Number.isSafeInteger = nativeSafeInteger;
     Object.is = nativeObjectIs;
     globalThis.BigInt = nativeBigInt;
