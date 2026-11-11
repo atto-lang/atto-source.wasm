@@ -1,0 +1,30 @@
+{
+  "schema": "oreslang-otel-backend-admission/v1",
+  "repository": "ores-truffle-oreslang/oreslang-source.wasm",
+  "backend": "wasm",
+  "profiles": [
+    "wasm-node-worker"
+  ],
+  "canonical_contract": "ores-truffle-oreslang/oreslang-platform-conformance:contracts/otel-five-backend-v1.json",
+  "fixture_git_blob": "c22a8841b868cd89dd4cb720435d9585fbbb05cc",
+  "library_git_blob": "6a1b9b940f10e4b273ae2b02be5cfff5e0572afc",
+  "current_status": "NO_GUEST_STDOUT_ABI",
+  "blocking_capabilities": [
+    "Current zero-import ()->i64 core Wasm host has no guest telemetry output capability",
+    "Requires explicit permissioned, bounded async host telemetry transport and a real LLVM->Wasm guest"
+  ],
+  "required_evidence": [
+    "real_compiler_source_head_sha",
+    "real_compiler_executable_sha256",
+    "source_owned_guest_source_blobs",
+    "guest_artifact_sha256",
+    "actual_guest_stdout_sha256",
+    "guest_process_success",
+    "native_semantic_oracle_pass",
+    "independent_original_head_CI_job_steps",
+    "authenticated_exporter_storage_readback"
+  ],
+  "runtime_parity_certified": false,
+  "otlp_wire_compatible_certified": false,
+  "source_free_tests_are_guest_proof": false
+}
