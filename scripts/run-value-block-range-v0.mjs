@@ -94,7 +94,8 @@ function testCase(vector,compileArgv,runArgv,lexArgv,typecheckArgv,parseArgv,dir
     check(out,out.exit!==0,isParse?'parser must reject invalid source':
       'typechecker must reject well-formed but ill-typed source');
     const diagnostic=vector.expect.diagnostic;
-    const exactTag=new RegExp('(?:^|\\\\W)'+diagnostic.replace(/[.*+?^${}()|[\\]\\\\]/g,'\\\\$&')+'(?:$|\\\\W)','m');
+    if(!/^[a-z][a-z0-9_]*$/.test(diagnostic)) throw Error('invalid diagnostic class');
+    const exactTag=new RegExp('(?:^|[^A-Za-z0-9_])'+diagnostic+'(?:$|[^A-Za-z0-9_])','m');
     if(!exactTag.test(out.stderr))
       throw Error('expected phase-specific compiler stderr diagnostic '+diagnostic+' absent');
     if(existsSync(artifact)) throw Error('rejected source published output artifact');
