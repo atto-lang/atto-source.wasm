@@ -77,7 +77,7 @@ function run() {
       o => { o.runtime_parity_certified = true; },
       o => { o.otlp_wire_compatible_certified = true; },
       o => { o.source_free_tests_are_guest_proof = true; },
-      o => { o.backend = 'wasm'; },
+      o => { o.backend = o.backend === 'wasm' ? 'java' : 'wasm'; },
       o => { o.profiles = ['invented-profile']; },
       o => { o.current_status = 'EXECUTED_GUEST'; },
       o => { o.fixture_git_blob = 'a'.repeat(40); },
