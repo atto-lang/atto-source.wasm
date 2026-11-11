@@ -31,9 +31,9 @@ actor modules with the existing strict import-free, memory-bounded scalar ABI.
 
 Host/actual Wasm but NOT AttoLang compiler-backed:
 
-\`\`\`sh
+```sh
 node --test tests/trusted-tenant-vm-host.test.mjs
-\`\`\`
+```
 
 The host tests link a hand-authored LLVM IR actor fixture to actual WebAssembly.
 They verify two tenants, three actors each, private actor state, generation
@@ -42,17 +42,17 @@ and a busy-loop termination. They must not be reported as compiled .atto proof.
 
 Real AttoLang source actor compilation, 6 actors / 2 TenantVMs:
 
-\`\`\`sh
+```sh
 export ORESLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc
 export ORESLANG_LLVM_COMPILER_SHA256=<exact-sha256-from-verified-build>
 npm run test:real-tenant-vm
-\`\`\`
+```
 
 The mandatory script fails if a compiler or pin is missing. The fixture is
-\`tests/fixtures/tenant-vm-counter.atto\`, compiled by the existing real LLVM
+`tests/fixtures/tenant-vm-counter.atto`, compiled by the existing real LLVM
 source-actor wasm32 bridge. It requires independent compiler-source
 commit/tree verification; self-reported SHA-256 **does not authenticate code**.
-Normal \`npm test\` may skip this gate if the compiler is unavailable; a skip
+Normal `npm test` may skip this gate if the compiler is unavailable; a skip
 is explicitly **NOT_EXECUTED**.
 
 ## Critical unimplemented security requirements
