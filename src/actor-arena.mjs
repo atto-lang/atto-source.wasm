@@ -209,7 +209,9 @@ export class ActorArena {
     listPush(this.#freePersistent, {...entry});
     listSort(this.#freePersistent, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    for (const segment of this.#freePersistent) {
+    // Do not invoke mutable Array.prototype[Symbol.iterator] on arena metadata.
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
       const prior = coalesced[coalesced.length - 1];
       if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
       else listPush(coalesced, segment);
