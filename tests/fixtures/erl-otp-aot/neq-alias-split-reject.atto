@@ -1,0 +1,2 @@
+// Compiler must reject noncontiguous ! eq rather than silently reinterpret.
+pub fnc main():int{if(7 ! eq 8){return 42;}return 0;}
