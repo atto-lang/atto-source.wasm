@@ -169,6 +169,30 @@ test("singleton LLVM diagnostic cannot be laundered through echoed source or spl
     /diagnosed error/);
 });
 
+test("singleton Wasm bridge cannot treat generic command failure as source rejection", async () => {
+  const {assertSingletonBridgeRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnostic = "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require five-backend guest execution parity at byte 7";
+  const sourceFailure = Object.assign(new Error("command failed (/pinned/compiler): " + diagnostic), {
+    status:1, signal:null, stdout:"", stderr:diagnostic
+  });
+  assert.equal(assertSingletonBridgeRejection(sourceFailure), true);
+  for (const failure of [
+    Object.assign(new Error("unexpected Wasm compiler error"), {
+      status:1, signal:null, stdout:"", stderr:diagnostic
+    }),
+    Object.assign(new Error("command failed (/usr/bin/clang): linker unavailable"), {
+      status:1, signal:null, stdout:"", stderr:"ld.lld: missing object"
+    }),
+    Object.assign(new Error("command failed (/pinned/compiler): process crashed"), {
+      status:null, signal:"SIGSEGV", stdout:"", stderr:diagnostic
+    }),
+    Object.assign(new Error("command failed (/pinned/compiler): emitted partial IR"), {
+      status:1, signal:null, stdout:"define i64 @main() { ret i64 42 }", stderr:diagnostic
+    })
+  ]) assert.throws(() => assertSingletonBridgeRejection(failure));
+});
+
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
   const {assertSelectFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
