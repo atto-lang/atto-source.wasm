@@ -143,6 +143,47 @@ test('real Wasm call-stack overflow exposes shared-carrier blast radius (NOT act
   }
 });
 
+test('dedicated isolation fences physical stack traps to one actor and denies unsafe sharing', async () => {
+  const recursive = compile({stackOverflow: true});
+  const good = compile();
+  assert.throws(() => new PooledWasmActors({isolation: 'unsafe'}), /isolation mode/);
+  const pool = new PooledWasmActors({
+    workers: 2, maxActors: 12, timeoutMs: 7000, isolation: 'dedicated'
+  });
+  try {
+    assert.equal(pool.isolation, 'dedicated');
+    const fatal = await pool.spawn(recursive,
+      {trusted: true, expectedSha256: pin(recursive)});
+    const peer = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await peer.send(2n), 2n);
+    await assert.rejects(
+      pool.spawn(good, {trusted: true, expectedSha256: pin(good)}),
+      /no isolated actor carrier available/,
+      'a third actor must be rejected before obtaining any carrier authority');
+    await assert.rejects(fatal.send(1n), /WASM actor trap:.*stack/i);
+    assert.equal(pool.activeWorkerCount, 1,
+      'the physically faulted Worker is quarantined');
+    assert.equal(pool.actorCount, 1,
+      'the surviving actor cannot be a colocated victim');
+    assert.equal(await peer.send(3n), 5n,
+      'healthy actor retains private memory and keeps executing');
+    // Dedicated mode cannot silently fall back to multiplexing when the
+    // other physical Worker is gone.
+    await assert.rejects(
+      pool.spawn(good, {trusted: true, expectedSha256: pin(good)}),
+      /no isolated actor carrier available/);
+    await peer.stop();
+    const replacement = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await replacement.send(9n), 9n,
+      'clean stop permits safe reuse of the surviving physical carrier');
+    await replacement.stop();
+  } finally {
+    await pool.close();
+  }
+});
+
 test('stop drains already admitted DATA before teardown and seals new admission', async () => {
   const wasm = compile();
   const pool = new PooledWasmActors({workers: 1, mailboxCapacity: 2});
