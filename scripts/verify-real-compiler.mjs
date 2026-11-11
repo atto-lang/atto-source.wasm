@@ -74,6 +74,12 @@ export function assertSingletonFrontendRejection(frontend) {
     throw Error("singleton rejection did not come from the required compiler-owned admission gate");
   return true;
 }
+/** Reject only an actual compiler process diagnostic from the Wasm bridge. */
+export function assertSingletonBridgeRejection(error) {
+  if (!(error instanceof Error) || !error.message.startsWith("command failed ("))
+    throw Error("singleton bridge rejection must be an executed native compiler failure");
+  return assertSingletonFrontendRejection(error);
+}
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
   compilerSha256 = process.env.ORESLANG_LLVM_COMPILER_SHA256,
@@ -518,7 +524,7 @@ export async function verifyRealCompiler({
       // Do not count a failed clang/linker invocation, timeout, signal or
       // generic bridge error as proof of compiler-owned singleton rejection.
       // compileOresToWasm preserves the native process exit/stderr/stdout.
-      assertSingletonFrontendRejection(error);
+      assertSingletonBridgeRejection(error);
       singletonBridgeRejected = true;
     }
     if (!singletonBridgeRejected)
