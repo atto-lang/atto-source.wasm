@@ -1,0 +1,32 @@
+name: Wasm host actor-demand output exact-head tests
+on:
+  pull_request:
+    paths:
+      - 'src/runtime/actor-demand-output.mjs'
+      - 'tests/actor-demand-output.test.mjs'
+      - '.github/workflows/pull-push-parity-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parity-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse 'HEAD^{tree}'
+          git hash-object 'src/runtime/actor-demand-output.mjs' 'tests/actor-demand-output.test.mjs'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Execute demand adapter against real ActorIoEnvelope
+        run: node --test tests/actor-demand-output.test.mjs
