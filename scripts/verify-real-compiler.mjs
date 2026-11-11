@@ -515,7 +515,10 @@ export async function verifyRealCompiler({
         environment:"browser", publication:"atomic"
       });
     } catch (error) {
-      if (!/command failed/i.test(String(error))) throw error;
+      // Do not count a failed clang/linker invocation, timeout, signal or
+      // generic bridge error as proof of compiler-owned singleton rejection.
+      // compileOresToWasm preserves the native process exit/stderr/stdout.
+      assertSingletonFrontendRejection(error);
       singletonBridgeRejected = true;
     }
     if (!singletonBridgeRejected)
