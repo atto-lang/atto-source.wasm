@@ -1,0 +1,19 @@
+name: Structural parity contract audit
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  structural-contract-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Reject omitted cases and evidence inflation
+        run: python3 scripts/check-structural-parity.py --self-test
+      - name: Verify pinned shared contract (not a feature parity claim)
+        run: python3 scripts/check-structural-parity.py --check

@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "oreslang.decimal-precision.v1",
+  "status": "normative-reference-not-backend-proof",
+  "semantics": {
+    "representation": "base-10 coefficient plus signed scale, resource-bounded",
+    "arithmetic": "addition, subtraction and multiplication are exact unless an explicit context is supplied",
+    "division_without_context": "only exact terminating decimal quotients are admitted; nonterminating results report NONTERMINATING_REQUIRES_CONTEXT",
+    "context": "precision and rounding mode are explicit immutable values passed to the operation; there is no mutable process-global decimal context",
+    "equality": "numeric equality ignores representational trailing-zero scale; formatting/serialization may preserve or canonicalize scale only through an explicitly selected policy",
+    "float_mixing": "Decimal and binary floating point never mix implicitly",
+    "to_f64_exact": "reject unless the Decimal numeric value is exactly representable as finite binary64",
+    "to_f64_nearest": "explicit round-to-nearest-ties-to-even conversion; reject overflow to infinity unless a separate infinity-producing API is selected",
+    "resource_policy": "precision, absolute scale, parsed input length, output allocation and work are bounded; arbitrary precision is outside hard-RT unless memory and WCET are statically bounded"
+  },
+  "exact_cases": [
+    {"id":"add-point-one-point-two","operation":"add","left":"0.1","right":"0.2","expect":"0.3"},
+    {"id":"sub-large-cancel","operation":"sub","left":"1000000000000000000000000000000.1","right":"1000000000000000000000000000000.0","expect":"0.1"},
+    {"id":"mul-fraction","operation":"mul","left":"0.1","right":"0.2","expect":"0.02"},
+    {"id":"div-terminating","operation":"div_exact","left":"1","right":"4","expect":"0.25"},
+    {"id":"div-nonterminating","operation":"div_exact","left":"1","right":"3","error":"NONTERMINATING_REQUIRES_CONTEXT"},
+    {"id":"div-zero","operation":"div_exact","left":"1","right":"0","error":"DIVISOR_ZERO"}
+  ],
+  "context_cases": [
+    {
+      "id":"one-third-p10-half-even",
+      "operation":"div",
+      "left":"1",
+      "right":"3",
+      "precision":10,
+      "rounding":"HALF_EVEN",
+      "expect":"0.3333333333"
+    },
+    {
+      "id":"tie-2point5-p1-half-even",
+      "operation":"round",
+      "operand":"2.5",
+      "precision":1,
+      "rounding":"HALF_EVEN",
+      "expect":"2"
+    },
+    {
+      "id":"tie-3point5-p1-half-even",
+      "operation":"round",
+      "operand":"3.5",
+      "precision":1,
+      "rounding":"HALF_EVEN",
+      "expect":"4"
+    },
+    {
+      "id":"tie-negative-2point5-p1-half-even",
+      "operation":"round",
+      "operand":"-2.5",
+      "precision":1,
+      "rounding":"HALF_EVEN",
+      "expect":"-2"
+    }
+  ],
+  "conversion_cases": [
+    {"id":"to-f64-exact-half","operation":"to_f64_exact","operand":"0.5","expect_bits":"3fe0000000000000"},
+    {"id":"to-f64-exact-point-one","operation":"to_f64_exact","operand":"0.1","error":"INEXACT"},
+    {"id":"to-f64-nearest-point-one","operation":"to_f64_nearest","operand":"0.1","expect_bits":"3fb999999999999a"},
+    {"id":"to-f64-exact-above-2pow53","operation":"to_f64_exact","operand":"9007199254740993","error":"INEXACT"},
+    {"id":"to-f64-nearest-above-2pow53","operation":"to_f64_nearest","operand":"9007199254740993","expect_bits":"4340000000000000"}
+  ]
+}

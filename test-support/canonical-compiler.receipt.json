@@ -1,0 +1,17 @@
+{
+  "schema": "oreslang.browser.compiler.vendor.v1",
+  "source_repository": "ores-truffle-oreslang/oreslang-source.rs",
+  "source_path": "browser",
+  "output_targets": [
+    "wasm",
+    "javascript"
+  ],
+  "source_head": "6c8c16975ab968da43266b21469a8ad7e0af9701",
+  "source_tree": "412d55bb1565d4ad00e001514fb9ef436fc6b905",
+  "toolchain": "rustc 1.85.1 (4eb161250 2025-03-15)",
+  "target": "wasm32-unknown-unknown",
+  "compiler_abi": 2,
+  "guest_abi": "atto.browser.guest.v2",
+  "compiler_sha256": "1acd37c8f460aba821bfe791d268f37c5fa47599d152b2108cdacb90554ead9b",
+  "compiler_bytes": 274237
+}

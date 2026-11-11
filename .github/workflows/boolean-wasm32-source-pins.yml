@@ -1,0 +1,44 @@
+name: Boolean Wasm32 source pin checks (NOT guest execution)
+on:
+  pull_request:
+    paths:
+      - 'tests/boolean-source-parity-wasm32.test.mjs'
+      - 'tests/verify-boolean-wasm-evidence.test.mjs'
+      - 'scripts/verify-boolean-wasm-evidence.mjs'
+      - 'tests/fixtures/boolean-v1/**'
+      - 'docs/BOOLEAN_WASM32_PARITY.md'
+      - 'package.json'
+      - '.github/workflows/boolean-wasm32-source-pins.yml'
+      - '.github/workflows/real-llvm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact checked-out source head and tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          printf 'BOOLEAN_WASM_SOURCE_ONLY_HEAD=%s TREE=%s\n' "$EXPECTED_HEAD" "$(git rev-parse 'HEAD^{tree}')"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Check 11 source fixtures and strict-identity rejection (NOT_EXECUTED)
+        env:
+          ORESLANG_BOOL_WASM_PARITY_REQUIRED: '0'
+          ORESLANG_LLVM_COMPILER: ''
+        run: |
+          set -euo pipefail
+          node --test tests/boolean-source-parity-wasm32.test.mjs
+          echo 'BOOLEAN_WASM_SOURCE_ONLY_PASS=YES GUEST_EXECUTION=NOT_EXECUTED JAVA_DIFFERENTIAL=NOT_EXECUTED'

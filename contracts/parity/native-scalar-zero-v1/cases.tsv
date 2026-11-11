@@ -1,0 +1,8 @@
+# native-scalar-zero-v1: reviewed Git blob identities; 0 means success
+# filename<TAB>expectation<TAB>git-blob-sha1
+precedence-zero.ores	zero	04a7143024cd2e840a91364e507d6175b23562cd
+i64-precision-zero.ores	zero	9a079a4c05df524efbb3dbcf3a93186a3b247284
+signed-opposite-zero.ores	zero	db3fa0aa9a014d043f485dbfb15d80e5267dc673
+nested-subtraction-zero.ores	zero	113cf599997e66c11686e8efe623d325bd052e9d
+min-boundary-zero.ores	zero	8ab09ede2327725b516848f88c3663bdcd85689d
+reject-removed-operator.ores	reject	756d145c5850f7a26f6f82a6ff1cda27416086e3

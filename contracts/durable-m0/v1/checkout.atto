@@ -1,0 +1,12 @@
+// Shared AttoLang durable M0 declaration fixture.
+// Metadata only: there is no recorded-command source grammar or guest replay.
+define module Billing as
+    define activity PaymentProvider as
+        charge(int cents) -> int { return cents; }
+        refund(int cents) -> bool { return cents > 0; }
+    end
+    define workflow Checkout as
+        run(int order_id) -> int { return order_id; }
+        status(int order_id) -> int { return order_id; }
+    end
+end
