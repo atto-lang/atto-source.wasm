@@ -23,9 +23,22 @@ export function lexicalTokensForPreflight(text) {
   if(pos >= text.length) fail("unterminated source literal escape", start);
   const c=text[pos++];
   if(c === "u") {
-   if(pos + 4 > text.length || !/^[0-9A-Fa-f]{4}$/.test(text.slice(pos,pos+4)))
-    fail("invalid Unicode escape",start);
-   pos+=4;return;
+   const read4=()=>{
+    if(pos+4>text.length || !/^[0-9A-Fa-f]{4}$/.test(text.slice(pos,pos+4)))
+     fail("invalid Unicode escape",start);
+    const code=parseInt(text.slice(pos,pos+4),16);
+    pos+=4;
+    return code;
+   };
+   const hi=read4();
+   if(hi>=0xd800 && hi<=0xdbff){
+    if(text.slice(pos,pos+2)!=="\\u")fail("unpaired Unicode surrogate",start);
+    pos+=2;
+    const lo=read4();
+    if(lo<0xdc00 || lo>0xdfff)fail("unpaired Unicode surrogate",start);
+   }else if(hi>=0xdc00 && hi<=0xdfff)
+    fail("unpaired Unicode surrogate",start);
+   return;
   }
   if(!templateLiteral && lineEnd(c)) {
    if(c==="\r" && text[pos]==="\n")pos++;
