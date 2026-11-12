@@ -16,6 +16,7 @@ import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
+import {lexicalTokensForPreflight} from "./atto-template-preflight-tokens.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -28,51 +29,7 @@ function tupleV2Tokens(sourceBytes){
  if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
- const tokens=[];
- const MAX_SOURCE_TOKENS=100_000;
- const pushToken=token=>{
-  if(tokens.length>=MAX_SOURCE_TOKENS)
-   throw new RangeError("WASM source preflight token budget exceeded");
-  tokens.push(token);
- };
- const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
- for(let i=0;i<text.length;){
-  const c=text[i];
-  // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
-  // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
-  // declarations can be split into punctuation tokens and evade preflight.
-  if(/\s/.test(c)||c==="\u0085"){i++;continue}
-  if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
-  }
-  if(c==="/"&&text[i+1]==="*"){
-   const start=i;i+=2;let depth=1;
-   while(i<text.length&&depth){
-    if(text[i]==="/"&&text[i+1]==="*"){if(++depth>128)throw Error("block comment nesting too deep at byte "+start);i+=2}
-    else if(text[i]==="*"&&text[i+1]==="/"){depth--;i+=2}
-    else i++;
-   }
-   if(depth)throw Error("unterminated block comment at byte "+start);
-   continue;
-  }
-  if(c==="\""||c==="'"){
-   const quote=c;const start=i++;let escaped=false,closed=false;
-   while(i<text.length){
-    const q=text[i++];
-    if(escaped){escaped=false;continue}
-    if(q==="\\"){escaped=true;continue}
-    if(q===quote){closed=true;break}
-   }
-   if(!closed)throw Error("unterminated source literal at byte "+start);
-   continue;
-  }
-  if(idStart(c)){
-   const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
-  }
-  pushToken({text:c,offset:i,id:false});i++;
- }
- return tokens;
+ return lexicalTokensForPreflight(text);
 }
 
 /**
