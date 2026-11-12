@@ -40,12 +40,14 @@ export function lexicalTokensForPreflight(text) {
     fail("unpaired Unicode surrogate",start);
    return;
   }
-  if(!templateLiteral && lineEnd(c)) {
+  // Legacy ordinary strings preserve unknown escapes and raw newlines.
+  // Only template literal escape sequences are restricted.
+  if(!templateLiteral) {
    if(c==="\r" && text[pos]==="\n")pos++;
    return;
   }
   if(!["n","r","t","\\","'","\"","$","`"].includes(c))
-   fail("invalid source literal escape",start);
+   fail("invalid template escape",start);
  }
  function quoted() {
   const start = pos, mark = text[pos++];
@@ -54,7 +56,6 @@ export function lexicalTokensForPreflight(text) {
    if(c==="\\"){escape(start,false);continue;}
    pos++;
    if(c===mark){push("<quoted>",start);return;}
-   if(lineEnd(c))fail("newline in source literal",start);
   }
   fail("unterminated source literal", start);
  }
