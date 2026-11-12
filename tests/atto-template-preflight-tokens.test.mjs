@@ -37,6 +37,6 @@ for (const source of ["`empty ${}`","`only comments ${/* ignored */}`","`spaces 
  });
 }
 test("direct scanner source and NUL budgets remain fail closed",()=>{
- assert.throws(()=>lexicalTokensForPreflight("\\0"),/NUL/);
+ assert.throws(()=>lexicalTokensForPreflight(String.fromCharCode(0)),/NUL/);
  assert.throws(()=>lexicalTokensForPreflight("x".repeat(1_048_577)),/budget/);
 });
