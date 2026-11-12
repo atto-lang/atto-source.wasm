@@ -14,10 +14,17 @@ for (const [source, expected] of fixtures) test("quote-aware token identity: "+s
  if (expected) assert.throws(()=>rejectUnsupportedStateContainerVirtualActorSource(bytes(source)),/STATE_CONTAINER_BACKEND_UNSUPPORTED|VIRTUAL_ACTOR_BACKEND_UNSUPPORTED/);
  else assert.doesNotThrow(()=>rejectUnsupportedStateContainerVirtualActorSource(bytes(source)));
 });
-const invalid=["`unterminated","`hi ${name`","`x ${'unclosed}`","'abc\nxyz'","`x ${ /* not closed */ y `","`x ${ `y ${x}`"];
+const invalid=["`unterminated","`hi ${name`","`x ${'unclosed}`","`x ${ /* not closed */ y `","`x ${ `y ${x}`"];
 for(const source of invalid) test("malformed quoted/template rejection: "+source.slice(0,36),()=>{
  assert.throws(()=>lexicalTokensForPreflight(source),/unterminated|newline/);
  assert.throws(()=>rejectUnsupportedDurableM0Source(bytes(source)),/unterminated|newline/);
+});
+test("legacy quoted strings allow raw newline and non-special escapes",()=>{
+ for(const quoted of ["'raw\nnewline'","\"raw\r\nnewline\"","'legacy \\q'","'legacy \\x41'"]){
+  const bytesSource=bytes("fnc main():int { val item = "+quoted+"; return 42; }");
+  assert.doesNotThrow(()=>lexicalTokensForPreflight(new TextDecoder().decode(bytesSource)));
+  assert.doesNotThrow(()=>rejectUnsupportedDurableM0Source(bytesSource));
+ }
 });
 test("template escape and nested brace/comment isolation",()=>{
  const source = "val String item = `one \\` two ${\"{\" + /* ignored } */ \"}\"}`;";
