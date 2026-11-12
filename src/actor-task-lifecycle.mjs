@@ -36,6 +36,9 @@ export class ActorTaskLedger {
   startOrResume(token) {
     const task = this.#get(token);
     if (this.#stopped || task.cancelled) throw Error('actor task cancelled or stopped');
+    // One mutable actor turn at a time, even with multiple logical tasks.
+    for (const [other, running] of this.#tasks)
+      if (other !== token && running.stage === 'running') throw Error('actor turn busy');
     if (task.stage !== 'ready' && task.stage !== 'suspended')
       throw Error('invalid actor task turn transition');
     task.stage = 'running';
