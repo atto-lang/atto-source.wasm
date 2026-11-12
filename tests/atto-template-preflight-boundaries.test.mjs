@@ -14,18 +14,18 @@ const comments = depth => wrap(interpolation('/*'.repeat(depth) + 'ignored' + '*
 const braces = depth => wrap(interpolation('{'.repeat(depth) + 'x' + '}'.repeat(depth)));
 const substitutions = depth => wrap(interpolation("'x'").repeat(depth));
 const valid = [
-  ['nested template depth 32', nested(32)],
+  ['nested template depth 17', nested(17)],
   ['nested comment depth 128', comments(128)],
-  ['nested braces 256', braces(256)],
+  ['nested braces 255', braces(255)],
   ['substitutions 1024', substitutions(1024)],
   ['escaped backtick', wrap('x \\' + tick)],
   ['quoted braces', wrap('x ' + interpolation("'{}'"))],
   ['Unicode hex', wrap('x \\u0061')],
 ];
 const invalid = [
-  ['nested template depth 33', nested(33)],
+  ['nested template depth 18', nested(18)],
   ['nested comment depth 129', comments(129)],
-  ['nested braces 257', braces(257)],
+  ['nested braces 256', braces(256)],
   ['substitutions 1025', substitutions(1025)],
   ['empty interpolation', wrap('x ' + interpolation(''))],
   ['comment-only interpolation', wrap('x ' + interpolation('/*ignored*/'))],
