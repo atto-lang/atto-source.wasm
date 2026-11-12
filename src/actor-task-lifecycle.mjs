@@ -26,7 +26,8 @@ export class ActorTaskLedger {
     if (this.#tasks.size >= this.#capacity) throw Error('actor task quota exceeded');
     if (parent !== null) {
       const p = this.#get(parent);
-      if (p.cancelled || p.stage === 'done') throw Error('parent task unavailable');
+      if (p.cancelled || p.stage !== 'running')
+        throw Error('parent task unavailable');
     }
     const token = Object.freeze(Object.create(null));
     this.#tasks.set(token, {parent, stage: 'ready', cancelled: false, wakeTicket: null});
