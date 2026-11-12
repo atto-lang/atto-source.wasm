@@ -29,7 +29,7 @@ export class ActorTaskLedger {
       if (p.cancelled || p.stage === 'done') throw Error('parent task unavailable');
     }
     const token = Object.freeze(Object.create(null));
-    this.#tasks.set(token, {parent, stage: 'ready', cancelled: false});
+    this.#tasks.set(token, {parent, stage: 'ready', cancelled: false, wakeTicket: null});
     return token;
   }
 
@@ -39,15 +39,35 @@ export class ActorTaskLedger {
     // One mutable actor turn at a time, even with multiple logical tasks.
     for (const [other, running] of this.#tasks)
       if (other !== token && running.stage === 'running') throw Error('actor turn busy');
-    if (task.stage !== 'ready' && task.stage !== 'suspended')
-      throw Error('invalid actor task turn transition');
+    if (task.stage !== 'ready')
+      throw Error('suspended tasks require authenticated WAKE admission');
+    task.stage = 'running';
+  }
+
+  // Trusted callback only: a Future producer may publish readiness, but it
+  // must not invoke this directly. The Worker actor WAKE dispatcher must
+  // authenticate the current physical actor lease before calling this method.
+  resumeFromWake(token, ticket) {
+    const task = this.#get(token);
+    if (this.#stopped || task.cancelled) throw Error('actor task cancelled or stopped');
+    if (task.stage !== 'suspended' || !task.wakeTicket || task.wakeTicket !== ticket)
+      throw Error('invalid, foreign or replayed actor WAKE ticket');
+    for (const [other, running] of this.#tasks)
+      if (other !== token && running.stage === 'running') throw Error('actor turn busy');
+    task.wakeTicket = null; // consume exactly once before guest dispatch
     task.stage = 'running';
   }
 
   suspend(token) {
     const task = this.#get(token);
+    if (this.#stopped || task.cancelled) throw Error('actor task cancelled or stopped');
     if (task.stage !== 'running') throw Error('invalid actor task suspension');
+    // Opaque, ledger-private ticket identity: no reusable numeric task ID
+    // can grant wake authority, including after a later suspension.
+    const ticket = Object.freeze(Object.create(null));
+    task.wakeTicket = ticket;
     task.stage = 'suspended';
+    return ticket;
   }
 
   // Only after an actor guest turn physically returned.
@@ -83,6 +103,7 @@ export class ActorTaskLedger {
     const task = this.#get(token);
     if (!task.cancelled || (task.stage !== 'ready' && task.stage !== 'suspended'))
       throw Error('physical task quiescence not proven');
+    task.wakeTicket = null; // revoke late producer readiness after STOP
     task.stage = 'done';
   }
 
