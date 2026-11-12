@@ -21,6 +21,7 @@ const valid = [
   ['escaped backtick', wrap('x \\' + tick)],
   ['quoted braces', wrap('x ' + interpolation("'{}'"))],
   ['Unicode hex', wrap('x \\u0061')],
+  ['paired surrogate escapes', wrap('x \\uD83D\\uDE00')],
 ];
 const invalid = [
   ['nested template depth 18', nested(18)],
@@ -31,6 +32,9 @@ const invalid = [
   ['comment-only interpolation', wrap('x ' + interpolation('/*ignored*/'))],
   ['invalid template escape', wrap('x \\q')],
   ['invalid Unicode escape', wrap('x \\u12G4')],
+  ['lone high surrogate', wrap('x \\uD83D')],
+  ['lone low surrogate', wrap('x \\uDE00')],
+  ['invalid paired surrogate', wrap('x \\uD83D\\u0061')],
   ['unclosed template', tick + 'x ' + interpolation('name')],
   ['unclosed quote', "'broken"],
 ];
