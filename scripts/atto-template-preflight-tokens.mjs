@@ -74,14 +74,14 @@ export function lexicalTokensForPreflight(text) {
     if (++substitutions > MAX_SUBSTITUTIONS) fail("template interpolation count exceeded", pos);
     push("{", pos);
     pos += 2;
-    code(true, depth);
+    code(true, depth+1);
     push("}", pos-1);
    } else pos++;
   }
   fail("unterminated template literal", start);
  }
  function code(interpolation, depth) {
-  let braces = 0, hasExpression = false;
+  let braces = 1, hasExpression = false;
   while (pos < text.length) {
    const c = text[pos];
    if (/\s/.test(c) || c === "\u0085") {pos++; continue;}
@@ -92,14 +92,14 @@ export function lexicalTokensForPreflight(text) {
    }
    if (text.startsWith("/*",pos)) {blockComment(); continue;}
    if (c === "'" || c === '"') {quoted();hasExpression=true;continue;}
-   if (c === "`") {template(depth+1);hasExpression=true;continue;}
+   if (c === "`") {template(interpolation ? depth+1 : 0);hasExpression=true;continue;}
    if (interpolation && c === "{") {
     if (++braces > MAX_BRACES) fail("template interpolation braces exceeded", pos);
     hasExpression=true;push("{",pos++);
     continue;
    }
    if (interpolation && c === "}") {
-    if (braces === 0) {
+    if (braces === 1) {
      if(!hasExpression) fail("empty template interpolation",pos);
      pos++;return;
     }
