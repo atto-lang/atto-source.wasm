@@ -116,6 +116,25 @@ test('WAKE ticket is single-use and bound to exact suspension, task and ledger',
   assert.equal(first.isQuiescent(), true);
 });
 
+test('nested child admission requires a physically running parent', () => {
+  const l = new ActorTaskLedger();
+  const parent = l.admit();
+  assert.throws(() => l.admit(parent), /parent task unavailable/);
+  l.startOrResume(parent);
+  const child = l.admit(parent);
+  assert.throws(() => l.startOrResume(child), /actor turn busy/);
+  const ticket = l.suspend(parent);
+  assert.throws(() => l.admit(parent), /parent task unavailable/);
+  l.resumeFromWake(parent, ticket);
+  l.completeTurn(parent);
+  assert.throws(() => l.admit(parent), /parent task unavailable/);
+  l.requestCancel(parent);
+  l.cleanupCancelled(child);
+  l.retire(child);
+  l.retire(parent);
+  assert.equal(l.isQuiescent(), true);
+});
+
 test('STOP revokes late WAKE without falsely publishing physical completion', () => {
   const l = new ActorTaskLedger();
   const task = l.admit();
