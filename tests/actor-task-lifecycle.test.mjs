@@ -75,3 +75,19 @@ test('cancellation of one root does not cancel sibling task', () => {
   l.retire(right);
   assert.equal(l.isQuiescent(), true);
 });
+
+test('logical concurrency yields its physical actor lease before another task starts', () => {
+  const l = new ActorTaskLedger();
+  const a = l.admit(), b = l.admit();
+  l.startOrResume(a);
+  assert.throws(() => l.startOrResume(b), /actor turn busy/);
+  l.suspend(a);
+  l.startOrResume(b);
+  assert.throws(() => l.startOrResume(a), /actor turn busy/);
+  l.completeTurn(b);
+  l.retire(b);
+  l.startOrResume(a);
+  l.completeTurn(a);
+  l.retire(a);
+  assert.equal(l.isQuiescent(), true);
+});
