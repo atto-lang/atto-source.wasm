@@ -3,6 +3,9 @@
  * No shadow interpreter or implicit scalar string lowering is introduced.
  */
 export function lexicalTokensForPreflight(text) {
+ if (typeof text !== "string" || text.length > 1_048_576)
+  throw new RangeError("WASM source preflight byte budget exceeded");
+ if (text.indexOf(String.fromCharCode(0)) >= 0) throw Error("WASM source preflight NUL forbidden");
  const tokens = [];
  const MAX_TOKENS = 100_000, MAX_TEMPLATE_DEPTH = 32;
  const MAX_BRACES = 256, MAX_SUBSTITUTIONS = 1024;
@@ -15,17 +18,30 @@ export function lexicalTokensForPreflight(text) {
  const wordStart = c => c !== undefined && /[A-Za-z_]/.test(c);
  const wordPart = c => c !== undefined && /[A-Za-z0-9_]/.test(c);
  const lineEnd = c => c === "\n" || c === "\r" || c === "\u0085" || c === "\u2028" || c === "\u2029";
+ function escape(start, templateLiteral) {
+  pos++;
+  if(pos >= text.length) fail("unterminated source literal escape", start);
+  const c=text[pos++];
+  if(c === "u") {
+   if(pos + 4 > text.length || !/^[0-9A-Fa-f]{4}$/.test(text.slice(pos,pos+4)))
+    fail("invalid Unicode escape",start);
+   pos+=4;return;
+  }
+  if(!templateLiteral && lineEnd(c)) {
+   if(c==="\r" && text[pos]==="\n")pos++;
+   return;
+  }
+  if(!["n","r","t","\\","'","\"","$","`"].includes(c))
+   fail("invalid source literal escape",start);
+ }
  function quoted() {
   const start = pos, mark = text[pos++];
   while (pos < text.length) {
-   const c = text[pos++];
-   if (c === "\\") {
-    if (pos >= text.length) fail("unterminated source literal", start);
-    pos++;
-   } else if (c === mark) {
-    push("<quoted>", start);
-    return;
-   } else if (lineEnd(c)) fail("newline in source literal", start);
+   const c=text[pos];
+   if(c==="\\"){escape(start,false);continue;}
+   pos++;
+   if(c===mark){push("<quoted>",start);return;}
+   if(lineEnd(c))fail("newline in source literal",start);
   }
   fail("unterminated source literal", start);
  }
@@ -49,8 +65,7 @@ export function lexicalTokensForPreflight(text) {
   pos++;
   while (pos < text.length) {
    if (text[pos] === "\\") {
-    if (pos + 1 >= text.length) fail("unterminated template literal", start);
-    pos += 2;
+    escape(start,true);
    } else if (text[pos] === "`") {
     pos++;
     push("</template>", pos-1);
@@ -66,7 +81,7 @@ export function lexicalTokensForPreflight(text) {
   fail("unterminated template literal", start);
  }
  function code(interpolation, depth) {
-  let braces = 0;
+  let braces = 0, hasExpression = false;
   while (pos < text.length) {
    const c = text[pos];
    if (/\s/.test(c) || c === "\u0085") {pos++; continue;}
@@ -76,15 +91,18 @@ export function lexicalTokensForPreflight(text) {
     continue;
    }
    if (text.startsWith("/*",pos)) {blockComment(); continue;}
-   if (c === "'" || c === '"') {quoted(); continue;}
-   if (c === "`") {template(depth+1); continue;}
+   if (c === "'" || c === '"') {quoted();hasExpression=true;continue;}
+   if (c === "`") {template(depth+1);hasExpression=true;continue;}
    if (interpolation && c === "{") {
     if (++braces > MAX_BRACES) fail("template interpolation braces exceeded", pos);
-    push("{",pos++);
+    hasExpression=true;push("{",pos++);
     continue;
    }
    if (interpolation && c === "}") {
-    if (braces === 0) {pos++; return;}
+    if (braces === 0) {
+     if(!hasExpression) fail("empty template interpolation",pos);
+     pos++;return;
+    }
     braces--;
     push("}",pos++);
     continue;
@@ -92,8 +110,9 @@ export function lexicalTokensForPreflight(text) {
    if (wordStart(c)) {
     const start = pos++;
     while (wordPart(text[pos])) pos++;
+    hasExpression=true;
     push(text.slice(start,pos), start, true);
-   } else push(c,pos++);
+   } else {hasExpression=true;push(c,pos++);}
   }
   if (interpolation) fail("unterminated template interpolation", pos);
  }
