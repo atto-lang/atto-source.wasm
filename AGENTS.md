@@ -20,3 +20,9 @@ These instructions apply to this repository's code changes, examples, fixtures, 
 - Write reusable language semantics in `.atto`; JavaScript/TypeScript should provide worker/isolate bridging, capability admission, host I/O and Wasm loading, not a shadow interpreter that impersonates guest execution.
 - Verify generated wasm32 modules from an authenticated compiler and unchanged `.atto` fixtures; distinguish JS host simulations and source-only checks from exported guest-value assertions.
 - Keep worker memory and message boundary ownership explicit; untrusted guest code cannot gain host capabilities through option bags or backing-store aliases.
+
+## AOT / zero-GC controlled-dynamism review gate
+
+Follow [organization policy PR #38](https://github.com/ores-truffle-oreslang/.github/pull/38), [language-spec amendment PR #18](https://github.com/ores-truffle-oreslang/attolang-language-spec.md/pull/18), and [local checklist](docs/AOT_ZERO_GC_DYNAMISM.md). These are proposed design requirements, not evidence of implementation. Every compiler/runtime PR must declare the AOT mode and GC scope; reject uncontrolled runtime dynamism in sealed guest AOT before IR; generate proxy/virtual dispatch metadata ahead of time; prove allocation/closure/actor/task ownership, cycle management, bounded queues, cancellation and exactly-once cleanup.
+
+Require positive and negative compiler-backed `.atto` cases plus actual exact-head guest execution and target-artifact/GC proof. Tests that run only the host, simulate a guest, or show zero executed steps are **NOT_EXECUTED** for guest semantics. Preserve current source-first, security, Rust-only tooling and review rules.
