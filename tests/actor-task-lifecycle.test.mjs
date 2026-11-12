@@ -81,13 +81,51 @@ test('logical concurrency yields its physical actor lease before another task st
   const a = l.admit(), b = l.admit();
   l.startOrResume(a);
   assert.throws(() => l.startOrResume(b), /actor turn busy/);
-  l.suspend(a);
+  const ticket = l.suspend(a);
   l.startOrResume(b);
-  assert.throws(() => l.startOrResume(a), /actor turn busy/);
+  assert.throws(() => l.resumeFromWake(a, ticket), /actor turn busy/);
   l.completeTurn(b);
   l.retire(b);
-  l.startOrResume(a);
+  assert.throws(() => l.startOrResume(a), /authenticated WAKE/);
+  l.resumeFromWake(a, ticket);
   l.completeTurn(a);
   l.retire(a);
+  assert.equal(l.isQuiescent(), true);
+});
+
+test('WAKE ticket is single-use and bound to exact suspension, task and ledger', () => {
+  const first = new ActorTaskLedger(), second = new ActorTaskLedger();
+  const a = first.admit(), b = first.admit(), foreign = second.admit();
+  first.startOrResume(a);
+  const ticket1 = first.suspend(a);
+  assert.throws(() => first.startOrResume(a), /authenticated WAKE/);
+  assert.throws(() => first.resumeFromWake(a, Object.freeze({})), /WAKE ticket/);
+  assert.throws(() => first.resumeFromWake(b, ticket1), /WAKE ticket/);
+  assert.throws(() => second.resumeFromWake(foreign, ticket1), /WAKE ticket/);
+  first.resumeFromWake(a, ticket1);
+  assert.throws(() => first.resumeFromWake(a, ticket1), /WAKE ticket/);
+  const ticket2 = first.suspend(a);
+  assert.notEqual(ticket1, ticket2);
+  assert.throws(() => first.resumeFromWake(a, ticket1), /WAKE ticket/);
+  first.resumeFromWake(a, ticket2);
+  first.completeTurn(a);
+  first.retire(a);
+  first.startOrResume(b);
+  first.completeTurn(b);
+  first.retire(b);
+  assert.equal(first.isQuiescent(), true);
+});
+
+test('STOP revokes late WAKE without falsely publishing physical completion', () => {
+  const l = new ActorTaskLedger();
+  const task = l.admit();
+  l.startOrResume(task);
+  const ticket = l.suspend(task);
+  l.stop();
+  assert.throws(() => l.resumeFromWake(task, ticket), /stopped/);
+  assert.equal(l.isQuiescent(), false);
+  l.cleanupCancelled(task);
+  assert.throws(() => l.resumeFromWake(task, ticket), /stopped/);
+  l.retire(task);
   assert.equal(l.isQuiescent(), true);
 });
