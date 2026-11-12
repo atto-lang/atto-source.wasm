@@ -148,3 +148,39 @@ test('STOP revokes late WAKE without falsely publishing physical completion', ()
   l.retire(task);
   assert.equal(l.isQuiescent(), true);
 });
+
+test('separate actor ledgers can run independent mutable turns concurrently', () => {
+  const first = new ActorTaskLedger(), second = new ActorTaskLedger();
+  const a = first.admit(), b = second.admit();
+  first.startOrResume(a);
+  assert.doesNotThrow(() => second.startOrResume(b));
+  assert.equal(first.stage(a), 'running');
+  assert.equal(second.stage(b), 'running');
+  first.completeTurn(a);
+  second.completeTurn(b);
+  first.retire(a);
+  second.retire(b);
+  assert.equal(first.isQuiescent(), true);
+  assert.equal(second.isQuiescent(), true);
+});
+
+test('bounded nested graph STOP waits for all child cleanup after parent settles', () => {
+  const l = new ActorTaskLedger({capacity: 8});
+  const parent = l.admit();
+  l.startOrResume(parent);
+  const children = Array.from({length: 7}, () => l.admit(parent));
+  assert.throws(() => l.admit(parent), /quota/);
+  l.completeTurn(parent);
+  l.stop();
+  assert.throws(() => l.retire(parent), /nested task not yet retired/);
+  for (const child of children) {
+    assert.equal(l.isCancellationRequested(child), true);
+    l.cleanupCancelled(child);
+    l.retire(child);
+  }
+  assert.equal(l.isQuiescent(), false);
+  l.retire(parent);
+  assert.equal(l.isQuiescent(), true);
+  for (const child of children)
+    assert.throws(() => l.startOrResume(child), /foreign or stale/);
+});
