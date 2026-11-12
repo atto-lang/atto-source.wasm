@@ -25,3 +25,13 @@ Exact committed Git blobs of the new host test:
 - `tests/actor-task-lifecycle.test.mjs`: `d0a640d65a9d6216b527e06f5c19c7c54fd8cd2d`
 
 Local Node v22.16.0: `node --test tests/actor-task-lifecycle.test.mjs` **8/8 passed**, 0 failed; output SHA-256 `fb4d6d18167ae68ff25295ec9830380ed852db22a3eee47e9c1ee347d7752063`. Host-only exact blob evidence; no compiled `.atto` task/await guest or full `npm test` receipt exists. Source-org GitHub Actions jobs remain zero-step / NOT_EXECUTED.
+
+## Audit and hardening receipt — 2026-11-12
+
+Nested admission now requires the parent's **running** logical task stage. A suspended, ready, cancelled or settled parent cannot authorize a child task; caller physical turn authentication remains an external trusted-host requirement.
+
+Exact branch source/test blobs:
+- `src/actor-task-lifecycle.mjs`: `647baa4f6af4dc4f7d48f4c623e0451ad2ec9c22`
+- `tests/actor-task-lifecycle.test.mjs`: `c99b55a7b415df950b5117bb12d067c30c8c7db3`
+
+Executed on Node v22.16.0: **11 of 11 host-unit tests passed**. Twenty-five consecutive repetitions also passed (275 individual test executions). Output file SHA-256: `bfc9f44f1a45cd4653c2296ed0f93fd4c5b9921868fd3a4c30394a4cd17514db`. The new tests cover cross-actor independent running turns and a bounded nested graph whose STOP completion waits for all child cleanup. These are Node **host-only**, not Wasm guest/compiler proofs. The repository's private CI export policy lists **no approved destination or source snapshot**, so no cross-org code mirror is allowed.
