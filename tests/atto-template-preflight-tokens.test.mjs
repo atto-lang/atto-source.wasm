@@ -28,3 +28,15 @@ test("bounded interpolation / nesting",()=>{
  assert.throws(()=>lexicalTokensForPreflight("`"+ "${x}".repeat(1025) +"`"),/count exceeded/);
  assert.throws(()=>lexicalTokensForPreflight("`"+"${`".repeat(33)+"x"+"`}".repeat(33)+"`"),/nesting too deep/);
 });
+
+for (const source of ["`empty ${}`","`only comments ${/* ignored */}`","`spaces ${   }`",
+                      "`bad \\q`","`bad \\u12G4`","`bad \\u123`"]) {
+ test("invalid template escape or empty interpolation: "+source,()=>{
+  assert.throws(()=>lexicalTokensForPreflight(source),/invalid|empty/);
+  assert.throws(()=>rejectUnsupportedDurableM0Source(bytes(source)),/invalid|empty/);
+ });
+}
+test("direct scanner source and NUL budgets remain fail closed",()=>{
+ assert.throws(()=>lexicalTokensForPreflight("\\0"),/NUL/);
+ assert.throws(()=>lexicalTokensForPreflight("x".repeat(1_048_577)),/budget/);
+});
