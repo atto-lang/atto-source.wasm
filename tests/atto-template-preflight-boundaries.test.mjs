@@ -56,3 +56,20 @@ test('seeded quote/template lexical stress (4096 inputs)', () => {
     assert.throws(() => scan(wrap(source + '\\q')));
   }
 });
+
+test('UTF-8 byte budget counts multibyte text, not UTF-16 code units', () => {
+ // Each quote is one byte; each e-acute is two UTF-8 bytes.
+ assert.doesNotThrow(() => scan("'" + 'é'.repeat(524_287) + "'"));
+ assert.throws(() => scan("'" + 'é'.repeat(524_288) + "'"), /byte budget/);
+ // Each astral scalar is four bytes but two JavaScript UTF-16 code units.
+ assert.doesNotThrow(() => scan("'" + '💻'.repeat(262_143) + "'"));
+ assert.throws(() => scan("'" + '💻'.repeat(262_144) + "'"), /byte budget/);
+ assert.doesNotThrow(() => scan("'" + 'a'.repeat(1_048_574) + "'"));
+ assert.throws(() => scan("'" + 'a'.repeat(1_048_575) + "'"), /byte budget/);
+});
+
+test('malformed direct UTF-16 inputs cannot silently become replacement characters', () => {
+ assert.throws(() => scan("'" + String.fromCharCode(0xd83d) + "'"), /unpaired UTF-16 surrogate/);
+ assert.throws(() => scan("'" + String.fromCharCode(0xdc00) + "'"), /unpaired UTF-16 surrogate/);
+ assert.doesNotThrow(() => scan("'" + String.fromCodePoint(0x1f4bb) + "'"));
+});
