@@ -5,6 +5,25 @@
 export function lexicalTokensForPreflight(text) {
  if (typeof text !== "string" || text.length > 1_048_576)
   throw new RangeError("WASM source preflight byte budget exceeded");
+ // JavaScript string length counts UTF-16 code units, not UTF-8 source bytes.
+ // Reject malformed UTF-16 and enforce the same byte ceiling as file admission.
+ let utf8Bytes = 0;
+ for (let i = 0; i < text.length; ++i) {
+  const cp = text.charCodeAt(i);
+  if (cp >= 0xd800 && cp <= 0xdbff) {
+   const low = text.charCodeAt(i + 1);
+   if (!(low >= 0xdc00 && low <= 0xdfff))
+    throw Error("WASM source preflight unpaired UTF-16 surrogate at offset " + i);
+   ++i;
+   utf8Bytes += 4;
+  } else if (cp >= 0xdc00 && cp <= 0xdfff) {
+   throw Error("WASM source preflight unpaired UTF-16 surrogate at offset " + i);
+  } else {
+   utf8Bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : 3;
+  }
+  if (utf8Bytes > 1_048_576)
+   throw new RangeError("WASM source preflight byte budget exceeded");
+ }
  if (text.indexOf(String.fromCharCode(0)) >= 0) throw Error("WASM source preflight NUL forbidden");
  const tokens = [];
  const MAX_TOKENS = 100_000, MAX_TEMPLATE_DEPTH = 32;
