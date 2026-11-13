@@ -23,7 +23,8 @@ test('STOP during suspension denies late Future resume until explicit cleanup an
   const ledger = new ActorTaskLedger();
   const token = ledger.admit();
   ledger.startOrResume(token);
-  ledger.suspend(token);
+  const ticket = ledger.suspend(token);
+  ledger.confirmSuspendedTurnReturned(token, ticket);
   ledger.stop();
   assert.throws(() => ledger.startOrResume(token), /stopped/);
   assert.throws(() => ledger.admit(), /stopped/);
@@ -82,6 +83,10 @@ test('logical concurrency yields its physical actor lease before another task st
   l.startOrResume(a);
   assert.throws(() => l.startOrResume(b), /actor turn busy/);
   const ticket = l.suspend(a);
+  assert.equal(l.stage(a), 'suspending');
+  assert.throws(() => l.startOrResume(b), /actor turn busy/);
+  assert.throws(() => l.resumeFromWake(a, ticket), /WAKE ticket/);
+  l.confirmSuspendedTurnReturned(a, ticket);
   l.startOrResume(b);
   assert.throws(() => l.resumeFromWake(a, ticket), /actor turn busy/);
   l.completeTurn(b);
@@ -98,6 +103,7 @@ test('WAKE ticket is single-use and bound to exact suspension, task and ledger',
   const a = first.admit(), b = first.admit(), foreign = second.admit();
   first.startOrResume(a);
   const ticket1 = first.suspend(a);
+  first.confirmSuspendedTurnReturned(a, ticket1);
   assert.throws(() => first.startOrResume(a), /authenticated WAKE/);
   assert.throws(() => first.resumeFromWake(a, Object.freeze({})), /WAKE ticket/);
   assert.throws(() => first.resumeFromWake(b, ticket1), /WAKE ticket/);
@@ -105,6 +111,7 @@ test('WAKE ticket is single-use and bound to exact suspension, task and ledger',
   first.resumeFromWake(a, ticket1);
   assert.throws(() => first.resumeFromWake(a, ticket1), /WAKE ticket/);
   const ticket2 = first.suspend(a);
+  first.confirmSuspendedTurnReturned(a, ticket2);
   assert.notEqual(ticket1, ticket2);
   assert.throws(() => first.resumeFromWake(a, ticket1), /WAKE ticket/);
   first.resumeFromWake(a, ticket2);
@@ -124,6 +131,7 @@ test('nested child admission requires a physically running parent', () => {
   const child = l.admit(parent);
   assert.throws(() => l.startOrResume(child), /actor turn busy/);
   const ticket = l.suspend(parent);
+  l.confirmSuspendedTurnReturned(parent, ticket);
   assert.throws(() => l.admit(parent), /parent task unavailable/);
   l.resumeFromWake(parent, ticket);
   l.completeTurn(parent);
@@ -140,6 +148,7 @@ test('STOP revokes late WAKE without falsely publishing physical completion', ()
   const task = l.admit();
   l.startOrResume(task);
   const ticket = l.suspend(task);
+  l.confirmSuspendedTurnReturned(task, ticket);
   l.stop();
   assert.throws(() => l.resumeFromWake(task, ticket), /stopped/);
   assert.equal(l.isQuiescent(), false);
@@ -183,4 +192,41 @@ test('bounded nested graph STOP waits for all child cleanup after parent settles
   assert.equal(l.isQuiescent(), true);
   for (const child of children)
     assert.throws(() => l.startOrResume(child), /foreign or stale/);
+});
+
+
+test('a suspending callback still owns the physical actor lease until return', () => {
+  const l = new ActorTaskLedger();
+  const original = l.admit(), sibling = l.admit();
+  l.startOrResume(original);
+  const ticket = l.suspend(original);
+  assert.equal(l.stage(original), 'suspending');
+  assert.throws(() => l.startOrResume(sibling), /actor turn busy/);
+  assert.throws(() => l.resumeFromWake(original, ticket), /WAKE ticket/);
+  assert.throws(() => l.confirmSuspendedTurnReturned(original, Object.freeze({})), /physical suspension receipt/);
+  l.confirmSuspendedTurnReturned(original, ticket);
+  assert.throws(() => l.confirmSuspendedTurnReturned(original, ticket), /physical suspension receipt/);
+  l.startOrResume(sibling);
+  l.completeTurn(sibling);
+  l.retire(sibling);
+  l.resumeFromWake(original, ticket);
+  l.completeTurn(original);
+  l.retire(original);
+  assert.equal(l.isQuiescent(), true);
+});
+
+test('STOP during suspension cannot retire before physical callback releases lease', () => {
+  const l = new ActorTaskLedger();
+  const token = l.admit();
+  l.startOrResume(token);
+  const ticket = l.suspend(token);
+  l.stop();
+  assert.throws(() => l.cleanupCancelled(token), /quiescence not proven/);
+  assert.throws(() => l.retire(token), /quiescence not proven/);
+  assert.equal(l.isQuiescent(), false);
+  l.confirmSuspendedTurnReturned(token, ticket);
+  assert.throws(() => l.resumeFromWake(token, ticket), /stopped/);
+  l.cleanupCancelled(token);
+  l.retire(token);
+  assert.equal(l.isQuiescent(), true);
 });
