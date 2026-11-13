@@ -70,3 +70,34 @@ test('actor bridge rejects unknown source extension before running a compiler', 
     await assert.rejects(stat(touched), /ENOENT/);
   } finally { await rm(dir, {recursive: true, force: true}); }
 });
+
+test('actor bridge rejects a changed canonical .atto source even after plausible wasm32 IR', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'atto-actor-mutation-'));
+  try {
+    const source = join(dir, 'counter.atto');
+    const compiler = join(dir, 'fake-compiler');
+    const original = 'pub fnc main(): int { return 42; }\n';
+    await writeFile(source, original);
+    const llvmIr = [
+      'target triple = "wasm32-unknown-unknown"',
+      'define void @oreslang_wasm_actor_init() { ret void }',
+      'define i64 @oreslang_wasm_actor_on_message(i64 %v) { ret i64 %v }',
+      'define void @oreslang_wasm_actor_teardown() { ret void }',
+      ''
+    ].join('\n');
+    const script = [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      "fs.writeFileSync(" + JSON.stringify(source) + ", " +
+        JSON.stringify('pub fnc main(): int { return 7; }\n') + ");",
+      "process.stdout.write(" + JSON.stringify(llvmIr) + ");",
+      ''
+    ].join('\n');
+    await writeFile(compiler, script, {mode: 0o700});
+    await chmod(compiler, 0o700);
+    await assert.rejects(
+      compileSourceActorToWasm({compiler, source, expectedCompilerSha256: sha256(Buffer.from(script))}),
+      /compiler or source mutated during actor compilation/);
+    assert.equal(await readFile(source, 'utf8'), 'pub fnc main(): int { return 7; }\n');
+  } finally { await rm(dir, {recursive: true, force: true}); }
+});
