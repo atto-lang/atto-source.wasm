@@ -57,7 +57,7 @@ export class TrustedTenantVMHost {
       mailboxCapacity: this.#mailboxCapacity, timeoutMs: this.#timeoutMs});
     const handle = Object.freeze(Object.create(null));
     const tenant = {id, generation, handle, pool, phase: 'running',
-      actorSlots: 0, closePromise: null};
+      actorSlots: 0, actorRefs: new Set(), closePromise: null};
     this.#tenantHandles.set(handle, tenant);
     this.#tenants.set(id, tenant);
     return handle;
@@ -103,6 +103,10 @@ export class TrustedTenantVMHost {
       if (tenant.phase !== 'running') throw new Error('TenantVM retired during actor admission');
       const ref = Object.freeze(Object.create(null));
       this.#actorHandles.set(ref, {tenant, runtime, phase: 'running'});
+      // Track only the bounded live tenant capabilities so confirmed physical
+      // teardown can revoke every surviving WeakMap value. Without this,
+      // callers retaining stale actor tokens also retain the retired pool.
+      tenant.actorRefs.add(ref);
       return ref;
     } catch (error) {
       this.#releaseSlot(tenant);
@@ -142,6 +146,7 @@ export class TrustedTenantVMHost {
       await actor.runtime.stop();
       actor.phase = 'retired';
       this.#actorHandles.delete(ref);
+      tenant.actorRefs.delete(ref);
       this.#releaseSlot(tenant);
     } catch (error) {
       actor.phase = 'quarantined';
@@ -172,6 +177,12 @@ export class TrustedTenantVMHost {
       this.#hostActorSlots -= tenant.actorSlots;
       tenant.actorSlots = 0;
       tenant.phase = 'stopped';
+      // Only after the underlying Worker.terminate() receipt: revoke the
+      // WeakMap values associated with caller-held stale capabilities. The
+      // old tokens can never retain a pool or an actor runtime after drain.
+      for (const ref of tenant.actorRefs) this.#actorHandles.delete(ref);
+      tenant.actorRefs.clear();
+      this.#tenantHandles.delete(tenant.handle);
       this.#tenants.delete(tenant.id);
     }, error => {
       tenant.phase = 'quarantined';
