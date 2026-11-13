@@ -7,7 +7,7 @@ import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join, isAbsolute} from 'node:path';
+import {join, isAbsolute, extname} from 'node:path';
 import {readBoundedRegularFile} from './compile-ores.mjs';
 import {assertWasm32IrTarget} from './wasm32-ir-target.mjs';
 import {inspectWasmBytes} from './inspect-core-memory.mjs';
@@ -40,6 +40,11 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
   expectedCompilerSha256} = {}) {
   if (!isAbsolute(compiler || '') || !isAbsolute(source || ''))
     throw TypeError('source actor bridge requires absolute compiler/source paths');
+  // Match the scalar bridge: the LLVM frontend uses the language suffix for
+  // admission. Never pass canonical .atto source as a legacy .ores file.
+  const sourceExtension = extname(source).toLowerCase();
+  if (sourceExtension !== '.atto' && sourceExtension !== '.ores')
+    throw TypeError('source actor file must use canonical .atto or legacy .ores extension');
   if (expectedCompilerSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedCompilerSha256))
     throw TypeError('invalid compiler SHA-256 pin');
   const [sourceRead, compilerRead] = await Promise.all([
@@ -52,7 +57,7 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     throw Error('compiler binary SHA-256 mismatch');
 
   const scratch = await mkdtemp(join(tmpdir(), 'ores-source-actor-wasm-'));
-  const stagedSource = join(scratch, 'source.ores');
+  const stagedSource = join(scratch, 'source' + sourceExtension);
   const stagedCompiler = join(scratch, 'compiler-exact');
   const output = join(scratch, 'actor.wasm');
   try {
