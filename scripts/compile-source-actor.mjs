@@ -45,7 +45,11 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
   const sourceExtension = extname(source).toLowerCase();
   if (sourceExtension !== '.atto' && sourceExtension !== '.ores')
     throw TypeError('source actor file must use canonical .atto or legacy .ores extension');
-  if (expectedCompilerSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedCompilerSha256))
+  // Do not coerce caller-supplied objects through RegExp.test on the
+  // privileged compiler-admission path (Symbol.toPrimitive/toString traps).
+  if (expectedCompilerSha256 !== undefined &&
+      (typeof expectedCompilerSha256 !== 'string' ||
+       !/^[a-f0-9]{64}$/.test(expectedCompilerSha256)))
     throw TypeError('invalid compiler SHA-256 pin');
   const [sourceRead, compilerRead] = await Promise.all([
     readBoundedRegularFile(source, MAX_SOURCE, 'source exceeds 1MiB budget'),
