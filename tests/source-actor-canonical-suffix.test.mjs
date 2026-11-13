@@ -34,7 +34,10 @@ test('real actor compiler adapter preserves canonical .atto and legacy .ores sou
       await writeFile(source, original);
       await assert.rejects(
         compileSourceActorToWasm({compiler, source, expectedCompilerSha256: pin}),
-        new RegExp('FAKE_STAGED_SUFFIX=\\\\' + ext));
+        error => {
+          assert.ok(error.message.includes('FAKE_STAGED_SUFFIX=' + ext), error.message);
+          return true;
+        });
       assert.equal(await readFile(source, 'utf8'), original);
     }
   } finally { await rm(dir, {recursive: true, force: true}); }
@@ -59,7 +62,11 @@ test('actor bridge rejects unknown source extension before running a compiler', 
       compileSourceActorToWasm({
         compiler, source, expectedCompilerSha256: sha256(Buffer.from(script))
       }),
-      /canonical \\.atto or legacy \\.ores extension/);
+      error => {
+        assert.equal(error.message,
+          'source actor file must use canonical .atto or legacy .ores extension');
+        return true;
+      });
     await assert.rejects(stat(touched), /ENOENT/);
   } finally { await rm(dir, {recursive: true, force: true}); }
 });
