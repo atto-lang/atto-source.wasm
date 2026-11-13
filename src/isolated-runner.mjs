@@ -1,4 +1,5 @@
 import {Worker} from "node:worker_threads";
+import {types} from "node:util";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
@@ -19,6 +20,11 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   // privileged worker-admission path, even for an option later rejected.
   if(options===null || typeof options!=="object" || Array.isArray(options))
     throw new TypeError("guest runner options must be plain data");
+  // Proxy reflection can execute arbitrary caller traps before worker isolation.
+  // Reject proxies (including revoked ones) before inspecting prototype, keys,
+  // or own property descriptors. A plain object with own data fields suffices.
+  if(types.isProxy(options))
+    throw new TypeError("guest runner options must not be proxies");
   const proto=Object.getPrototypeOf(options);
   if(proto!==Object.prototype && proto!==null)
     throw new TypeError("guest runner options must be plain data");
@@ -53,10 +59,15 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   if (!Number.isSafeInteger(maxMemoryPages) || maxMemoryPages < 1 || maxMemoryPages > 256) {
     throw new TypeError("invalid maximum memory pages");
   }
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
+  // RegExp.test coerces object values using user-defined toString/valueOf.
+  // Options must stay inert data before worker creation, even on rejection.
+  // Match the 128-character export-name budget of compileAdmittedCoreGuest.
+  if (typeof entry !== "string" || entry.length > 128 ||
+      !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
     throw new TypeError("invalid guest entry");
   }
-  if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+  if (expectedSha256 !== undefined &&
+      (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256))) {
     throw new TypeError("invalid pinned SHA-256");
   }
   // Reject shared backing stores and oversize before any worker allocation.
