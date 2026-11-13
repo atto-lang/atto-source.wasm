@@ -35,3 +35,11 @@ Exact branch source/test blobs:
 - `tests/actor-task-lifecycle.test.mjs`: `c99b55a7b415df950b5117bb12d067c30c8c7db3`
 
 Executed on Node v22.16.0: **11 of 11 host-unit tests passed**. Twenty-five consecutive repetitions also passed (275 individual test executions). Output file SHA-256: `bfc9f44f1a45cd4653c2296ed0f93fd4c5b9921868fd3a4c30394a4cd17514db`. The new tests cover cross-actor independent running turns and a bounded nested graph whose STOP completion waits for all child cleanup. These are Node **host-only**, not Wasm guest/compiler proofs. The repository's private CI export policy lists **no approved destination or source snapshot**, so no cross-org code mirror is allowed.
+
+## Two-phase physical suspension handshake (2026-11-13)
+
+A source Task's call to `suspend(token)` now enters **`suspending`**, not `suspended`. The actor remains logically physically busy: no sibling mutable turn may run, no producer wake may resume it, STOP cleanup cannot retire it, and the actor's `isQuiescent()` stays false. Only the trusted carrier-turn exit path may call `confirmSuspendedTurnReturned(token,ticket)`, which consumes exactly one physical-turn receipt and transitions to `suspended`. A matching Future WAKE still must pass the separate single-use ticket check. Stale confirmation, duplicate confirmation, STOP racing the callback, and late producer wake fail closed.
+
+**Scope caution:** `confirmSuspendedTurnReturned` is currently a method in a **host-side ledger**, not yet wired to a privileged Wasm Worker carrier callback. A guest with direct access could invoke it; do not expose this object as a guest API. Actual physical ownership verification and compiled `.atto` continuations are still missing.
+
+Executed local Node v22.16.0 host-only receipts: exact code blob `4f0e1ded9c1cc6e88b3f23bcf75692e7599dbd15`; test blob `deded2019fc76b475b8e4ccb65f1be8a71872384`. **13/13 passed** in the baseline and **50 consecutive 13-test suites passed** (650 additional test passes, 663 total); full compiled wasm32 guest tests NOT_EXECUTED. Local receipt SHA-256 `c62c05b806a025c90d42c26f2c00553c6a827fe49aaf919e2315155ab37580e1`. Source-local GitHub Actions rerun `43333647776` was accepted but new job `131585229651` again recorded **0 executed steps**.
