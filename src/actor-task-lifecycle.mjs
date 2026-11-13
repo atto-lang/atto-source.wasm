@@ -39,7 +39,7 @@ export class ActorTaskLedger {
     if (this.#stopped || task.cancelled) throw Error('actor task cancelled or stopped');
     // One mutable actor turn at a time, even with multiple logical tasks.
     for (const [other, running] of this.#tasks)
-      if (other !== token && running.stage === 'running') throw Error('actor turn busy');
+      if (other !== token && (running.stage === 'running' || running.stage === 'suspending')) throw Error('actor turn busy');
     if (task.stage !== 'ready')
       throw Error('suspended tasks require authenticated WAKE admission');
     task.stage = 'running';
@@ -54,7 +54,7 @@ export class ActorTaskLedger {
     if (task.stage !== 'suspended' || !task.wakeTicket || task.wakeTicket !== ticket)
       throw Error('invalid, foreign or replayed actor WAKE ticket');
     for (const [other, running] of this.#tasks)
-      if (other !== token && running.stage === 'running') throw Error('actor turn busy');
+      if (other !== token && (running.stage === 'running' || running.stage === 'suspending')) throw Error('actor turn busy');
     task.wakeTicket = null; // consume exactly once before guest dispatch
     task.stage = 'running';
   }
@@ -67,8 +67,19 @@ export class ActorTaskLedger {
     // can grant wake authority, including after a later suspension.
     const ticket = Object.freeze(Object.create(null));
     task.wakeTicket = ticket;
-    task.stage = 'suspended';
+    // Suspension is not quiescence. The original physical callback still
+    // owns the actor lease until the trusted scheduler records its return.
+    task.stage = 'suspending';
     return ticket;
+  }
+
+  // Trusted scheduler callback after the physical guest turn returned.
+  // Future producers may not call this: it is not a readiness signal.
+  confirmSuspendedTurnReturned(token, ticket) {
+    const task = this.#get(token);
+    if (task.stage !== 'suspending' || !task.wakeTicket || task.wakeTicket !== ticket)
+      throw Error('invalid or stale physical suspension receipt');
+    task.stage = 'suspended';
   }
 
   // Only after an actor guest turn physically returned.
