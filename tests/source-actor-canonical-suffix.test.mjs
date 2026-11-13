@@ -20,7 +20,7 @@ test('real actor compiler adapter preserves canonical .atto and legacy .ores sou
       "const {readFileSync} = require('node:fs');",
       "const file = process.argv.at(-1);",
       "if (basename(file) !== 'source' + extname(file)) process.exit(31);",
-      "if (readFileSync(file, 'utf8') !== 'pub fnc main(): int { return 42; }\\n') process.exit(32);",
+      "if (readFileSync(file, 'utf8').trimEnd() !== 'pub fnc main(): int { return 42; }') process.exit(32);",
       "process.stderr.write('FAKE_STAGED_SUFFIX=' + extname(file));",
       'process.exit(29);',
       ''
