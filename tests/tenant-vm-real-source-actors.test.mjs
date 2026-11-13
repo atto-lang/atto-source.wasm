@@ -19,7 +19,7 @@ const approvedSourceSha256 = '9dfbe8d5c3096932b424d09bda78f2cefdb9841c6ca0ad95ca
 // A developer must explicitly review and update both identities on source
 // changes. This gate checks fixture identity, NOT compiler authenticity.
 function assertApprovedFixture(bytes) {
-  const gitBlob = createHash('sha1').update(Buffer.from('blob ' + bytes.length + '\\0'))
+  const gitBlob = createHash('sha1').update(Buffer.from('blob ' + bytes.length + String.fromCharCode(0)))
     .update(bytes).digest('hex');
   assert.equal(gitBlob, approvedBlob, 'unapproved tenant-vm .atto fixture Git blob');
   const contentSha = createHash('sha256').update(bytes).digest('hex');
