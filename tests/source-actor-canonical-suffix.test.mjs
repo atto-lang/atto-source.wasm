@@ -101,3 +101,19 @@ test('actor bridge rejects a changed canonical .atto source even after plausible
     assert.equal(await readFile(source, 'utf8'), 'pub fnc main(): int { return 7; }\n');
   } finally { await rm(dir, {recursive: true, force: true}); }
 });
+
+test('actor compiler pin validation rejects objects without invoking coercion hooks', async () => {
+  let calls = 0;
+  const hostile = {
+    [Symbol.toPrimitive]() { calls++; throw Error('untrusted coercion executed'); },
+    toString() { calls++; throw Error('untrusted toString executed'); }
+  };
+  await assert.rejects(
+    compileSourceActorToWasm({
+      compiler: '/nonexistent/real-compiler',
+      source: '/nonexistent/counter.atto',
+      expectedCompilerSha256: hostile
+    }),
+    /invalid compiler SHA-256 pin/);
+  assert.equal(calls, 0);
+});
