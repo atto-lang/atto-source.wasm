@@ -2,6 +2,7 @@ import {createHash} from "node:crypto";
 import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {readDeclarativeExports} from "./declarative-exports.mjs";
 
 /**
  * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
@@ -79,6 +80,11 @@ export function compileAdmittedCoreGuest(input, {
     throw Error("guest requires exactly one privately defined, bounded linear memory");
   }
   const module = new WebAssembly.Module(bytes);
+  // Validate compiler-export metadata before allowing any guest admission.
+  // A package-only symbol cannot simultaneously be the public host entry.
+  const fileExports = readDeclarativeExports(module);
+  if (fileExports.some(x => x.name === entry && x.visibility === "package"))
+    throw Error("EXPORT_PACKAGE_ENTRY_PUBLIC: private declaration cannot be a core guest entry");
   const imports = WebAssembly.Module.imports(module);
   if (imports.length !== 0) {
     throw Error("host imports denied: " + imports.map(x => x.module + "." + x.name).join(", "));
