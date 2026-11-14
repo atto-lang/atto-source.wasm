@@ -5,6 +5,7 @@ import {mkdtemp, writeFile, readFile, rm, stat} from "node:fs/promises";
 import {join, resolve, isAbsolute} from "node:path";
 import {tmpdir} from "node:os";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
+import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 
 const compiler = process.env.ORESLANG_LLVM_COMPILER;
 const binarySha = process.env.ORESLANG_LLVM_COMPILER_SHA256;
@@ -76,7 +77,9 @@ test("authenticated LLVM -> wasm32 actual comma body and named pipe yields 42", 
   });
   assert.equal(result.sourceSha256, digest, "compiler source bytes mutated");
   assert.equal(result.compilerSha256, binarySha, "wrong compiler used");
-  const artifact = await readFile(output);
+  const released = await readAtomicRelease(output);
+  assert.deepEqual(released.manifest.imports, [], "atomic release declares forbidden imports");
+  const artifact = released.wasm;
   const module = new WebAssembly.Module(artifact);
   assert.deepEqual(WebAssembly.Module.imports(module), [], "guest must not import host capabilities");
   const instance = new WebAssembly.Instance(module);
