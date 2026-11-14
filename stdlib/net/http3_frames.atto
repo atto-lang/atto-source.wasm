@@ -101,7 +101,8 @@ pub fnc http3_frame_payload_fits(int payload_length, int buffered_bytes, int fra
 pub fnc http3_message_frame_allowed(int kind, bool saw_initial_headers, bool saw_trailers, bool is_push_stream): bool {
   if is_push_stream then
     if http3_push_frame_allowed(kind) == false then return false; fi
-  else
+  fi
+  if is_push_stream == false then
     if http3_request_frame_allowed(kind) == false then return false; fi
   fi
   if kind == 0 then
