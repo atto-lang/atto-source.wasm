@@ -28,7 +28,9 @@ The verifier reads, bounds, SHA-256 checks, and copies the compiler into an isol
 
 It compiles identical declarations with exports before and after the definitions and requires **byte-identical artifacts**. It checks that `Bar` is absent from public exports; none of `Bar`, `Foo`, or `calculate` may appear on the *host* Wasm export surface. A real WebAssembly instance must execute `main(): i64` and return **42n**, with no host imports.
 
-Finally, three independent source programs must fail through the native compiler's expected `E_UNBOUND`, `E_DUPLICATE`, and `E_EXPORT_KIND` diagnostics, with exit code 1, empty stdout, and **no generated Wasm artifact**. Missing compiler, incorrect SHA, crash, timeout, or malformed artifact is a hard failure. There is **no successful skip mode**.
+The verifier also proves a **256-byte canonical ASCII export name** is accepted and decoded by the Wasm host, while **257-byte names** in both `pub` and `pub[pkg]` and **non-ASCII names** fail at the native compiler boundary. These must produce `E_EXPORT_NAME_TOO_LONG` or `E_EXPORT_NAME`, not an invalid manifest.
+
+Finally, six independent negative source programs must fail through the native compiler's expected `E_UNBOUND`, `E_DUPLICATE`, `E_EXPORT_KIND`, `E_EXPORT_NAME_TOO_LONG`, or `E_EXPORT_NAME` diagnostics, with exit code 1, empty stdout, and **no generated Wasm artifact**. Missing compiler, incorrect SHA, crash, timeout, or malformed artifact is a hard failure. There is **no successful skip mode**.
 
 `npm test` always runs `tests/real-atto-exports-runner.test.mjs`, which tests missing/untrusted compiler rejection locally; it does **not** falsely claim that a native compiler was executed. The real integration receipt comes only from the separate explicit `npm run test:real-atto-exports` command.
 
