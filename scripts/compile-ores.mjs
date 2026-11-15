@@ -20,6 +20,16 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
+// Shared preflight runs on the exact bounded source snapshot, before invoking
+// LLVM, writing artifacts or skipping comment/string tokens.
+export function rejectSourceTerminalControls(sourceBytes) {
+ if (!(sourceBytes instanceof Uint8Array) || sourceBytes.byteLength > MAX_SOURCE_BYTES)
+  throw new TypeError("WASM terminal-control preflight requires bounded source bytes");
+ for(let i=0;i<sourceBytes.byteLength;i++) {
+  if(sourceBytes[i]===0x1b || sourceBytes[i]===0x7f)
+   throw Error("SOURCE_TERMINAL_CONTROL: ESC/DEL in source at byte "+i);
+ }
+}
 function tupleV2Tokens(sourceBytes){
  // Exported source-admission gates can be called before the CLI's bounded file
  // snapshot. Enforce the same byte budget before decode or token allocation.
@@ -27,6 +37,7 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
+ rejectSourceTerminalControls(sourceBytes);
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
@@ -447,6 +458,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ rejectSourceTerminalControls(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
