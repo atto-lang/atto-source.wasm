@@ -98,7 +98,7 @@ const override = '  pub override describe(): string {\n    return "diamond resol
 for (const [label, changed, expected] of [
   ['missing diamond override', replaceOnce(source, override, ''), 'E_AMBIGUOUS_MEMBER'],
   ['implicit override', replaceOnce(source, override, override.replace('pub override', 'pub')), 'E_OVERRIDE_REQUIRED'],
-  ['mismatched signature', replaceOnce(source, 'pub override describe(): string {', 'pub override describe(): bool {'), 'E_OVERRIDE_SIGNATURE'],
+  ['mismatched signature', replaceOnce(source, override, override.replace('describe(): string', 'describe(): bool')), 'E_OVERRIDE_SIGNATURE'],
 ]) {
   const rejected = compile(changed);
   assert.equal(rejected.ok, false, label + ' incorrectly issued guest Wasm');
