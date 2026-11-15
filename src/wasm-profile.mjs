@@ -28,6 +28,10 @@ export function fixed_memory_pages(input) {
     const size=uleb(bytes,state,bytes.length);
     const end=state.i+size;
     if (end>bytes.length) throw new Error('E_WASM_LAYOUT');
+    // The Rust compiler emits no Wasm start function. A hostile guest with a
+    // start section could run before the host has finished constructing its
+    // instance-scoped bindings and actor ownership bookkeeping.
+    if (id===8) throw new Error('E_WASM_START');
     if (id===4) {
       if (seen_table) throw new Error('E_WASM_TABLE');
       seen_table=true;
