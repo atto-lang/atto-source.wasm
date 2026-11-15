@@ -12,6 +12,15 @@ import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
 import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+const gitBlob = bytes => createHash('sha1')
+  .update(Buffer.from('blob ' + bytes.length + '\\0','ascii'))
+  .update(bytes).digest('hex');
+const fixtureBlobPins = Object.freeze({
+  'copy-compact': 'a4acedaaf55d03f0fe811875e7dfc70cd64e3c0b',
+  'copy-spaced': '7b7728f93d9478b43c9caf0de7c1a60e666ac1a6',
+  'legacy-copy': 'ea7931b84d048ef0daba662d55b1cb32401151f7',
+  'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde'
+});
 const expected = Object.freeze({
   'copy-spaced': 'pub fnc main(): int { return copy! 42; }\n',
   'copy-compact': 'pub fnc main(): int { return copy!42; }\n',
@@ -26,6 +35,8 @@ async function fixtures() {
     const bytes = await readFile(entry(name));
     assert.ok(bytes.length < 4096,'bounded source');
     assert.equal(bytes.toString('utf8'),canonical,'fixture content drift '+name);
+    assert.equal(gitBlob(bytes),fixtureBlobPins[name],
+      'reviewed Git blob changed '+name);
     result.set(name,bytes);
   }
   return result;
