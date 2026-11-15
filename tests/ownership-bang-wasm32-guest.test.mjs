@@ -34,8 +34,8 @@ const expected = Object.freeze({
 // the expected pair and undergo review. Source SHA/tree agreement alone does
 // NOT prove the executable came from that tree; a trusted build receipt must
 // independently bind that executable SHA-256 before release/guest-parity claims.
-const EXPECTED_LLVM_HEAD = 'e758b1efcee2707679cd89c407ef6112db6ab21b';
-const EXPECTED_LLVM_TREE = '3f3ba5b79115d7c9cb06dbe97cd1773c824bfcb4';
+const EXPECTED_LLVM_HEAD = '3bc8507ed8ecaffc160470fb2ea30fe81577391b';
+const EXPECTED_LLVM_TREE = '2be66c3591dfcfc813ff032bf2b791044503f554';
 
 const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',import.meta.url);
 async function fixtures() {
