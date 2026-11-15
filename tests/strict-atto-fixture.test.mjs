@@ -61,3 +61,17 @@ test('rejects invalid fixture budget without filesystem activity', async t => {
   await assert.rejects(readStrictAttoFixture(pathToFileURL(join(root, 'guest.atto')), 0), /invalid fixture byte budget/);
   await assert.rejects(readStrictAttoFixture(pathToFileURL(join(root, 'guest.atto')), 65537), /invalid fixture byte budget/);
 });
+
+test('rejects symlinked grandparent beyond fixture directory', async t => {
+  const root = await sandbox(t);
+  const realGrandparent = join(root, 'real-grandparent');
+  await mkdir(realGrandparent);
+  const realParent = join(realGrandparent, 'nested');
+  await mkdir(realParent);
+  await writeFile(join(realParent, 'guest.atto'), 'pub fnc main(): int { return 42; }\n');
+  const aliasGrandparent = join(root, 'alias-grandparent');
+  await symlink(realGrandparent, aliasGrandparent);
+  await assert.rejects(
+    readStrictAttoFixture(pathToFileURL(join(aliasGrandparent, 'nested', 'guest.atto'))),
+    /symlinked or non-directory fixture ancestor/);
+});

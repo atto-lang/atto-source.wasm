@@ -7,6 +7,30 @@ import {fileURLToPath} from 'node:url';
 
 const identical = (a, b) => a.dev === b.dev && a.ino === b.ino;
 
+// Check every ancestor for symlinks. The post-read recheck detects many
+// path swaps; this does not replace kernel-enforced openat2 on hostile mounts.
+async function inspectDirectoryChain(path) {
+  const chain = [];
+  for (let current = path; ; current = dirname(current)) {
+    const st = await lstat(current);
+    if (st.isSymbolicLink())
+      throw new Error('symlinked or non-directory fixture ancestor');
+    if (!st.isDirectory()) {
+      const error = new Error('non-directory fixture ancestor');
+      error.code = 'ENOTDIR';
+      throw error;
+    }
+    chain.push({path: current, stat: st});
+    if (dirname(current) === current) break;
+  }
+  return chain;
+}
+
+function sameDirectoryChain(before, after) {
+  return before.length === after.length && before.every((entry, i) =>
+    entry.path === after[i].path && identical(entry.stat, after[i].stat));
+}
+
 export async function readStrictAttoFixture(url, maxBytes = 4096) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 65536)
     throw new TypeError('invalid fixture byte budget');
@@ -15,9 +39,9 @@ export async function readStrictAttoFixture(url, maxBytes = 4096) {
   const path = fileURLToPath(url);
   if (!path.endsWith('.atto')) throw new Error('only canonical .atto fixtures are allowed');
   const directory = dirname(path);
-  const [parentBefore, leafBefore] = await Promise.all([lstat(directory), lstat(path)]);
-  if (!parentBefore.isDirectory() || parentBefore.isSymbolicLink())
-    throw new Error('symlinked or non-directory fixture parent');
+  const [ancestorsBefore, leafBefore] = await Promise.all([
+    inspectDirectoryChain(directory), lstat(path)
+  ]);
   if (!leafBefore.isFile() || leafBefore.isSymbolicLink())
     throw new Error('symlinked or nonregular fixture');
   if (leafBefore.size < 1 || leafBefore.size > maxBytes)
@@ -46,8 +70,10 @@ export async function readStrictAttoFixture(url, maxBytes = 4096) {
   } finally {
     await fd.close();
   }
-  const [parentAfter, leafAfter] = await Promise.all([lstat(directory), lstat(path)]);
-  if (!parentAfter.isDirectory() || !identical(parentBefore, parentAfter) ||
+  const [ancestorsAfter, leafAfter] = await Promise.all([
+    inspectDirectoryChain(directory), lstat(path)
+  ]);
+  if (!sameDirectoryChain(ancestorsBefore, ancestorsAfter) ||
       !leafAfter.isFile() || !identical(leafBefore, leafAfter) ||
       leafAfter.size !== leafBefore.size ||
       leafAfter.mtimeMs !== leafBefore.mtimeMs ||

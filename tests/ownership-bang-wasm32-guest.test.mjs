@@ -21,16 +21,16 @@ const fixtureBlobPins = Object.freeze({
   'copy-spaced': '7b7728f93d9478b43c9caf0de7c1a60e666ac1a6',
   'legacy-copy': 'ea7931b84d048ef0daba662d55b1cb32401151f7',
   'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde',
-  'borrow-mut-canonical': '494a17d0ab6ceee9c1f44584d33d1f9023042a81',
-  'borrow-mut-compatible': '716cf4867e88e192dccc0493bfaebe2fd3eea76c'
+  'borrow-mut-canonical': '398c533b3758a7ec35cc7f5cdb8bffb40f1c8baa',
+  'borrow-mut-compatible': '7c551be97b88204296f0c00000018dcd4798bd3a'
 });
 const expected = Object.freeze({
   'copy-spaced': 'pub fnc main(): int { return copy! 42; }\n',
   'copy-compact': 'pub fnc main(): int { return copy!42; }\n',
   'legacy-copy': 'pub fnc main(): int { return rt copy 42; }\n',
   'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n',
-  'borrow-mut-canonical': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(borrow! mut x) + take! x; }\npub fnc main(): int { return wrapper(19); }\n",
-  'borrow-mut-compatible': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(mut borrow! x) + rt take x; }\npub fnc main(): int { return wrapper(19); }\n"
+  'borrow-mut-canonical': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(borrow! mut x) + take! x; }\npub fnc main(): int { return wrapper(20); }\n",
+  'borrow-mut-compatible': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(mut borrow! x) + rt take x; }\npub fnc main(): int { return wrapper(20); }\n"
 });
 
 // Explicit expected LLVM ownership-bang + mutable-borrow guest producer from draft PR #1837
@@ -40,8 +40,8 @@ const expected = Object.freeze({
 // the expected pair and undergo review. Source SHA/tree agreement alone does
 // NOT prove the executable came from that tree; a trusted build receipt must
 // independently bind that executable SHA-256 before release/guest-parity claims.
-const EXPECTED_LLVM_HEAD = 'c4393e190358146a14b4468a478e0602f6cf6ec9';
-const EXPECTED_LLVM_TREE = 'aae3f8b5dfbc1d3cbc9199323ee849abb6b504f1';
+const EXPECTED_LLVM_HEAD = '3512a0be998688fe50d685cc038d29e7fe2a5e70';
+const EXPECTED_LLVM_TREE = '13bd97a544bfe7f479bbb39837e7ced3a30877c8';
 
 const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',import.meta.url);
 async function fixtures() {
