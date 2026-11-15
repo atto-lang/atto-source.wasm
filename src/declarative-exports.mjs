@@ -6,8 +6,10 @@
  * consumer must not treat package-only entries as publicly linkable.
  */
 const decoder = new TextDecoder('utf-8', {fatal: true});
-const kinds = Object.freeze({1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'});
-const visibilities = Object.freeze({1: 'public', 2: 'package'});
+// Untrusted numeric tags must never resolve via Object.prototype. A polluted
+// prototype could otherwise turn an invalid kind/visibility into a public grant.
+const kinds = Object.freeze(Object.assign(Object.create(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
+const visibilities = Object.freeze(Object.assign(Object.create(null), {1: 'public', 2: 'package'}));
 // Max 1024 canonical entries: uleb length (2), name (256), kind and visibility (2).
 // Count itself occupies at most two bytes. Reject oversized sections early.
 const MAX_MANIFEST_BYTES = 2 + 1024 * (2 + 256 + 2);
