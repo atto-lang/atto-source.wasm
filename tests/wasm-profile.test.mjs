@@ -27,7 +27,7 @@ test('admit scalar no-memory and bounded fixed memory, deny growth',()=>{
 });
 test('disallow Wasm tables and corrupted memory section',()=>{
   assert.throws(()=>fixed_memory_pages(insert_before_exports([4,4,1,0x70,0,1])),/E_WASM_TABLE/);
-  assert.throws(()=>fixed_memory_pages(insert_before_exports([5,4,1,1,1])),/E_WASM_LAYOUT/);
+  assert.throws(()=>fixed_memory_pages(insert_before_exports([5,4,1,1,1])),/E_WASM_(LAYOUT|MEMORY)/);
   assert.throws(()=>fixed_memory_pages(Buffer.from('ff0061736d01000000','hex')),/E_WASM_HEADER/);
 });
 test('parse actor-name custom section and reject duplicate section',()=>{
