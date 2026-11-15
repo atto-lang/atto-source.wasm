@@ -7,6 +7,16 @@ const utf8 = new TextEncoder();
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const intrinsicByteLength = Function.prototype.call.bind(
   Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get);
+// Per-actor DATA is an owned, fixed-size byte snapshot. A resizable backing
+// store can invalidate a view between size admission and copying; reject it
+// even if it is currently in-bounds, rather than treating an invalid view as
+// a valid empty DATA record. This is a host boundary, not a guest API.
+const arrayBufferPrototype = ArrayBuffer.prototype;
+const resizableSlot = Object.getOwnPropertyDescriptor(arrayBufferPrototype, "resizable")?.get;
+const intrinsicBuffer = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get);
+const intrinsicFill = Function.prototype.call.bind(Uint8Array.prototype.fill);
+
 
 class BoundedQueue {
   #items = [];
@@ -41,6 +51,10 @@ class BoundedQueue {
     return item.owned;
   }
   clear() {
+    // Erase only still-queued private DATA snapshots. Records already read
+    // are caller-owned and must never be modified by actor restart.
+    for (const item of this.#items)
+      if (types.isUint8Array(item.owned)) intrinsicFill(item.owned, 0);
     this.#items.length = 0;
     this.#bytes = 0;
   }
@@ -51,6 +65,14 @@ class BoundedQueue {
 const byteLength = value => {
   if (!types.isUint8Array(value))
     throw new TypeError("actor I/O bytes require a genuine Uint8Array");
+  // Reject RAB-backed views even when their current byteLength is zero.
+  // OOB fixed-size views otherwise become indistinguishable from genuine
+  // zero-length views under the TypedArray internal byteLength getter.
+  const backing = intrinsicBuffer(value);
+  if (types.isSharedArrayBuffer(backing))
+    throw new TypeError("SharedArrayBuffer-backed actor I/O bytes are forbidden");
+  if (resizableSlot && resizableSlot.call(backing))
+    throw new TypeError("resizable actor I/O byte backing is forbidden");
   return intrinsicByteLength(value);
 };
 const cloneBytes = value =>
@@ -79,6 +101,12 @@ export class ActorIoEnvelope {
                maxBytes = ActorIoEnvelope.MAX_BYTES} = {}) {
     if (!Number.isSafeInteger(actorId) || actorId <= 0) throw new RangeError("actorId");
     if (!Number.isSafeInteger(generation) || generation <= 0) throw new RangeError("generation");
+    if (!Number.isSafeInteger(maxRecords) || maxRecords < 1 ||
+        maxRecords > ActorIoEnvelope.MAX_RECORDS)
+      throw new RangeError("actor I/O maxRecords exceeds fixed record budget");
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 ||
+        maxBytes > ActorIoEnvelope.MAX_BYTES)
+      throw new RangeError("actor I/O maxBytes exceeds fixed byte budget");
     this.#actorId = actorId;
     this.#generation = generation;
     this.#input = new BoundedQueue(maxRecords, maxBytes, byteLength, cloneBytes);
