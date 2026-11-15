@@ -71,3 +71,18 @@ subset validation, **not** as the latest candidate. Neither compiler digest is
 an approved public compiler release. No binary was uploaded from this validation
 workflow. The playground stays preview-only until reviewed compiler release and
 public pin/browser validation.
+
+## Source-pinned Rust 1.85.1 cross-check (2026-11-15)
+
+The same exact compiler source tree (SHA `3b6e05aac0eb6dffb521e513cb7f968ad7546e52`) was separately rebuilt using the source repository's pinned **Rust 1.85.1** toolchain, not only the newer stable compiler.
+
+- [Pinned-toolchain full private CI run 43755730192](https://github.com/zed-pkg-test/oreslang-private-pr-validation-20261012/actions/runs/43755730192): **SUCCESS**, with zero failed steps
+- Rust 1.85.1 installation and wasm32 target verified in runner logs
+- Complete Cargo tests: **128 passed, 0 failed**
+- Complete guest conformance: **381 passed, 0 failed**, including **344 native-vs-Wasm output comparisons**
+- Actor mailbox: **28 passed**; target-only ABI: **29 passed**; Chromium browser: **11 passed**
+- Exact playground example plus negative mutations: **PASS**
+- Rust 1.85.1 compiler Wasm SHA-256: `a00bc6431bb039323ed33309357f76c1aea0cadb8fb75d4e6107f46521f78767`
+- Produced example guest Wasm SHA-256: `ca714cadda247ef92e6ecfe645c73129efa54750cb297cdf47f11f62556b01bd`, byte-identical to the guest produced by the newer Rust compiler
+
+This additional run establishes compatibility with the repository's pinned build toolchain. Compiler-host binary digests vary with toolchain; guest output for the audited sample does not. No cross-repository secrets, checkout token, public binary upload or release authorization were involved.
