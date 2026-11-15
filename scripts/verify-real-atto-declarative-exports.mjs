@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
-import {chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
+import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {isAbsolute, join} from 'node:path';
 import {readDeclarativeExports, listPublicDeclarativeExports} from '../src/declarative-exports.mjs';
@@ -80,6 +80,7 @@ function verify() {
         assert.match(result.stderr, new RegExp('\\b' + errorCode + '\\b'),
           id + ': rejection must originate in the compiler');
         // Native attoc only writes -o output on successful compilation.
+        assert.equal(existsSync(output), false, id + ': rejection produced a Wasm artifact');
         return null;
       }
       assert.equal(result.status, 0, id + ': compiler failed: ' + result.stderr);
@@ -98,6 +99,13 @@ function verify() {
     assert.equal(WebAssembly.Module.customSections(module, 'atto.exports.v1').length, 1);
     assert.deepEqual(readDeclarativeExports(module), expectedEntries);
     assert.deepEqual(listPublicDeclarativeExports(module), expectedEntries.slice(1));
+    // Execute the compiler-produced guest, not a source-free metadata mock.
+    // The browser subset exports main(): i64. This scalar fixture needs no
+    // host imports and must return the real value 42 as a BigInt.
+    assert.deepEqual(WebAssembly.Module.imports(module), [],
+      'declarative-export fixture unexpectedly requested host imports');
+    const instance = new WebAssembly.Instance(module, {});
+    assert.equal(instance.exports.main(), 42n, 'compiler-produced guest returned wrong value');
     const wasmExports = WebAssembly.Module.exports(module).map(item => item.name);
     assert.ok(wasmExports.includes('main'), 'actual wasm guest main is missing');
     for (const name of ['Foo', 'Bar', 'calculate'])
@@ -114,7 +122,8 @@ function verify() {
       result:'REAL_ATTO_EXPORTS_VERIFIED',
       compilerSha256: observedCompilerSha, wasmSha256:sha256(top),
       forwardPlacementIdentical:true, declared:expectedEntries.length,
-      negativeRejections:3, testedSource:'native attoc executable -> genuine Wasm module'
+      negativeRejections:3, guestResult:'42',
+      testedSource:'native attoc executable -> executed genuine Wasm module'
     }));
   } finally {
     rmSync(work, {recursive:true, force:true});
