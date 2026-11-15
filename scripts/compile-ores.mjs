@@ -28,6 +28,14 @@ function tupleV2Tokens(sourceBytes){
  if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
+ // can erase a comment or quoted literal, and prior to compiler invocation or
+ // staging. The byte budget above bounds this conversion and its allocation.
+ const nul=text.indexOf("\0");
+ if(nul!==-1) {
+  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
+ }
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
  const pushToken=token=>{
