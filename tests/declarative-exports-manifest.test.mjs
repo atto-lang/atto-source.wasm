@@ -100,3 +100,26 @@ test('rejects malformed text, identifiers, count budgets and trailing bytes', ()
   const empty = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));
   assert.deepEqual(readDeclarativeExports(empty), []);
 });
+
+
+test('rejects inherited prototype-pollution tag entries even when they look public', () => {
+  const forgedBoth = wasm([1, ...entry('Foo', 5, 3)]);
+  const forgedKind = wasm([1, ...entry('Foo', 5, 1)]);
+  const forgedVisibility = wasm([1, ...entry('Foo', 2, 3)]);
+  const valid = wasm([1, ...entry('Foo', 2, 1)]);
+  assert.equal(Object.hasOwn(Object.prototype, '5'), false);
+  assert.equal(Object.hasOwn(Object.prototype, '3'), false);
+  try {
+    Object.defineProperty(Object.prototype, '5', {value:'fnc', configurable:true});
+    Object.defineProperty(Object.prototype, '3', {value:'public', configurable:true});
+    for (const module of [forgedBoth, forgedKind, forgedVisibility]) {
+      assert.throws(() => readDeclarativeExports(module), /EXPORT_MANIFEST_ENUM/);
+      assert.throws(() => listPublicDeclarativeExports(module), /EXPORT_MANIFEST_ENUM/);
+    }
+    assert.deepEqual(listPublicDeclarativeExports(valid),
+      [{name:'Foo',kind:'fnc',visibility:'public'}]);
+  } finally {
+    delete Object.prototype['5'];
+    delete Object.prototype['3'];
+  }
+});
