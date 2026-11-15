@@ -19,23 +19,28 @@ const fixtureBlobPins = Object.freeze({
   'copy-compact': 'a4acedaaf55d03f0fe811875e7dfc70cd64e3c0b',
   'copy-spaced': '7b7728f93d9478b43c9caf0de7c1a60e666ac1a6',
   'legacy-copy': 'ea7931b84d048ef0daba662d55b1cb32401151f7',
-  'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde'
+  'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde',
+  'borrow-mut-canonical': '494a17d0ab6ceee9c1f44584d33d1f9023042a81',
+  'borrow-mut-compatible': '716cf4867e88e192dccc0493bfaebe2fd3eea76c'
 });
 const expected = Object.freeze({
   'copy-spaced': 'pub fnc main(): int { return copy! 42; }\n',
   'copy-compact': 'pub fnc main(): int { return copy!42; }\n',
   'legacy-copy': 'pub fnc main(): int { return rt copy 42; }\n',
-  'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n'
+  'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n',
+  'borrow-mut-canonical': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(borrow! mut x) + take! x; }\npub fnc main(): int { return wrapper(19); }\n",
+  'borrow-mut-compatible': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(mut borrow! x) + rt take x; }\npub fnc main(): int { return wrapper(19); }\n"
 });
 
-// Explicit expected LLVM ownership-bang producer identity from draft PR #1831.
+// Explicit expected LLVM ownership-bang + mutable-borrow guest producer from draft PR #1837
+// stacked on #1831. New compiler binary provenance requires independent review.
 // These are *candidate* pins, not an independent review or build attestation.
 // They cannot be self-granted by the CI caller. Any LLVM change must update
 // the expected pair and undergo review. Source SHA/tree agreement alone does
 // NOT prove the executable came from that tree; a trusted build receipt must
 // independently bind that executable SHA-256 before release/guest-parity claims.
-const EXPECTED_LLVM_HEAD = '0a8a9c55860383706598563e796bb40cbaa8fa80';
-const EXPECTED_LLVM_TREE = '5c113f9a34db4675ff973d18414022b49a969e7e';
+const EXPECTED_LLVM_HEAD = 'c4393e190358146a14b4468a478e0602f6cf6ec9';
+const EXPECTED_LLVM_TREE = 'aae3f8b5dfbc1d3cbc9199323ee849abb6b504f1';
 
 const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',import.meta.url);
 async function fixtures() {
@@ -65,7 +70,7 @@ function compilerIdentity(e) {
 
 test('ownership bang .atto fixtures remain exact (SOURCE_ONLY)',async()=>{
   const data=await fixtures();
-  assert.equal(data.size,4);
+  assert.equal(data.size,6);
   assert.notEqual(sha256(data.get('copy-spaced')),sha256(data.get('copy-compact')));
 });
 test('required real compiler cannot silently use an unpinned binary',()=>{
@@ -134,7 +139,7 @@ test('LLVM-to-wasm32 ownership bang source compiles and executes through actual 
       assert.equal(actual.admission.hostCapabilities,0);
       executed++;
     }
-    assert.equal(executed,3);
+    assert.equal(executed,5);
     assert.equal(rejected,1);
   }finally {
     await cleanupRealCompilerWorkspace(work);
