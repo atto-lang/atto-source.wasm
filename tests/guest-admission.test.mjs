@@ -11,6 +11,8 @@ test('admit concrete Wasm main returns 42 and publish digest manifest',async()=>
   assert.equal(manifest.protocol,'atto.browser.tenants.v1');
   assert.equal(manifest.route_wire,'atto.browser.route.v1');
   assert.equal(manifest.route_payload,'i64-signed-le8');
+  assert.equal(manifest.send_receipt_protocol,'atto.browser.send-receipt.v1');
+  assert.deepEqual(manifest.send_receipt_outcomes,['processed','rejected','unknown']);
   assert.deepEqual(Array.from(wasm),Array.from(answer));
 });
 test('reject invalid wasm and bad formats',()=>{
