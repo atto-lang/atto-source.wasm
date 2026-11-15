@@ -50,3 +50,29 @@ test('rejects malformed export metadata and duplicates', () => {
 test('manifest reader never accepts arbitrary bytes as an authorized package', () => {
   assert.throws(() => readDeclarativeExports(new Uint8Array([0,97,115,109])), TypeError);
 });
+
+test('rejects noncanonical count and name varints, overflow and truncation', () => {
+  const cases = [
+    [[0x80, 0], 'EXPORT_MANIFEST_VARINT_NONCANONICAL'],
+    [[0x81, 0, ...entry('Foo', 1, 1)], 'EXPORT_MANIFEST_VARINT_NONCANONICAL'],
+    [[1, 0x81, 0, 65, 1, 1], 'EXPORT_MANIFEST_VARINT_NONCANONICAL'],
+    [[1, 0x80, 0x80, 0, 65, 1, 1], 'EXPORT_MANIFEST_VARINT_NONCANONICAL'],
+    [[0xff, 0xff, 0xff, 0xff, 0x10], 'EXPORT_MANIFEST_VARINT_OVERFLOW'],
+    [[0xff, 0xff, 0xff, 0xff, 0x00], 'EXPORT_MANIFEST_VARINT_NONCANONICAL'],
+    [[0x81, 0x80, 0x80, 0x80, 0x80, 0], 'EXPORT_MANIFEST_VARINT_OVERFLOW']
+  ];
+  for (const [bytes, diagnostic] of cases)
+    assert.throws(() => readDeclarativeExports(wasm(bytes)), new RegExp(diagnostic));
+});
+
+test('bounds manifest size and admits the maximal canonical 1024-entry payload', () => {
+  assert.throws(
+    () => readDeclarativeExports(wasm([0, ...new Array(266243).fill(0)])),
+    /EXPORT_MANIFEST_SECTION_TOO_LARGE/);
+  const maximum = [
+    ...uleb(1024),
+    ...Array.from({length: 1024}, (_, i) =>
+      entry('x'.repeat(250) + i.toString().padStart(6, '0'), 1, 1)).flat()
+  ];
+  assert.equal(readDeclarativeExports(wasm(maximum)).length, 1024);
+});
