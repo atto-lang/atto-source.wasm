@@ -12,6 +12,7 @@ import {readBoundedRegularFile} from './compile-ores.mjs';
 import {assertWasm32IrTarget} from './wasm32-ir-target.mjs';
 import {inspectWasmBytes} from './inspect-core-memory.mjs';
 import {assertScalarActorAbi} from './actor-scalar-abi.mjs';
+import {rejectBidirectionalSourceControls} from './source-bidi-admission.mjs';
 
 const MAX_SOURCE = 1024 * 1024;
 const MAX_COMPILER = 256 * 1024 * 1024;
