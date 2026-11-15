@@ -3,13 +3,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFile,writeFile,mkdtemp,stat} from 'node:fs/promises';
+import {writeFile,mkdtemp,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
 import {compileOresToWasm,readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 import {readAtomicRelease} from '../scripts/atomic-release.mjs';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
 import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
+import {readStrictAttoFixture} from './strict-atto-fixture.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1')
@@ -46,8 +47,9 @@ const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',i
 async function fixtures() {
   const result = new Map();
   for (const [name, canonical] of Object.entries(expected)) {
-    const bytes = await readFile(entry(name));
-    assert.ok(bytes.length < 4096,'bounded source');
+    // Pin source-tree provenance as well as content: refuse symlinked fixture
+    // paths, special files and snapshots that change during descriptor reads.
+    const bytes = await readStrictAttoFixture(entry(name));
     assert.equal(bytes.toString('utf8'),canonical,'fixture content drift '+name);
     assert.equal(gitBlob(bytes),fixtureBlobPins[name],
       'reviewed Git blob changed '+name);
