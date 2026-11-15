@@ -189,3 +189,34 @@ unexpected dependency resolution or missing lockfile. Cargo locks are
 reproducibility records, not security attestations.
 
 Verified private runner: https://github.com/benefactor-cc/backend.rs/actions/runs/38691712667 .
+
+
+### Native strict-AOT managed-reference rejection
+
+The **trusted Rust precompiler** now validates the complete Wasm module with
+`wasmparser::Validator` configured to reject the GC, GC-types,
+reference-types, and typed-function-reference proposals. This validation
+happens on the same SHA-256-pinned input byte snapshot before Wasmtime's
+`Module::from_binary` and serialization. It complements, but does not
+replace, the existing raw section checks and the separate JavaScript
+`no-managed-wasm` admission for Node hosts.
+
+Rust regression tests present **otherwise valid Wasm binaries** carrying
+an unused `externref` function parameter, a GC `struct` type, and a
+`ref.null extern` instruction hidden in a function body. Default proposal
+validation must accept each binary; the strict AOT precompiler must reject
+each. Run with:
+
+```sh
+cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
+```
+
+This prevents managed Wasm references from entering the native guest profile.
+It is **not** a proof of zero allocation or zero GC for the host process, and
+it does not authorize production use of native serialized artifacts. Guest
+linear-memory reclamation and ownership proofs still require separate
+compiler-generated evidence. Browser, Node, and desktop Wasm execution can
+share portable ahead-of-time-generated `.wasm` modules, but browser and Node
+engines may still JIT or tier them; native Wasmtime `.cwasm` precompiled
+artifacts are host/CPU/version-specific and must never be treated as a
+portable browser binary.
