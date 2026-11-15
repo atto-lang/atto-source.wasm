@@ -41,5 +41,6 @@ export async function package_browser_guest(input) {
   const sha256=Array.from(new Uint8Array(hash),x=>x.toString(16).padStart(2,'0')).join('');
   return {wasm:admitted.bytes,manifest:{schema:SCHEMA,protocol:PROTOCOL,guest_abi:'atto.browser.guest.v2',
     wasm_sha256:sha256,byte_length:admitted.bytes.length,has_actors:admitted.actors,actor_names:admitted.actor_names,memory_pages:admitted.memory_pages,imports:admitted.imports,
-    tenant_execution:'dedicated-worker',actor_heap:'separate-wasm-instances'}};
+    tenant_execution:'dedicated-worker',actor_heap:'separate-wasm-instances',
+    route_wire:'atto.browser.route.v1',route_payload:'i64-signed-le8'}};
 }
