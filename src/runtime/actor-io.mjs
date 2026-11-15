@@ -1,4 +1,22 @@
+import {types} from "node:util";
+import {snapshotGuestBytes} from "../snapshot-guest-bytes.mjs";
+
 const utf8 = new TextEncoder();
+// Read the internal typed-array slot rather than an overridable .byteLength
+// property. Genuine cross-realm Uint8Array and Buffer views remain supported.
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const intrinsicByteLength = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get);
+// Per-actor DATA is an owned, fixed-size byte snapshot. A resizable backing
+// store can invalidate a view between size admission and copying; reject it
+// even if it is currently in-bounds, rather than treating an invalid view as
+// a valid empty DATA record. This is a host boundary, not a guest API.
+const arrayBufferPrototype = ArrayBuffer.prototype;
+const resizableSlot = Object.getOwnPropertyDescriptor(arrayBufferPrototype, "resizable")?.get;
+const intrinsicBuffer = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get);
+const intrinsicFill = Function.prototype.call.bind(Uint8Array.prototype.fill);
+
 
 class BoundedQueue {
   #items = [];
@@ -16,8 +34,14 @@ class BoundedQueue {
     if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.maxBytes) return false;
     if (this.#items.length >= this.maxRecords || this.#bytes > this.maxBytes - bytes) return false;
     const owned = this.clone(value);
-    this.#items.push({owned, bytes});
-    this.#bytes += bytes;
+    // Charge exactly the bytes retained by the queue, not a caller-supplied
+    // getter's estimate. A resized/detached view must fail closed.
+    const ownedBytes = this.sizeOf(owned);
+    if (ownedBytes !== bytes) {
+      throw new TypeError("actor I/O record size changed during snapshot");
+    }
+    this.#items.push({owned, bytes: ownedBytes});
+    this.#bytes += ownedBytes;
     return true;
   }
   shift() {
@@ -27,6 +51,10 @@ class BoundedQueue {
     return item.owned;
   }
   clear() {
+    // Erase only still-queued private DATA snapshots. Records already read
+    // are caller-owned and must never be modified by actor restart.
+    for (const item of this.#items)
+      if (types.isUint8Array(item.owned)) intrinsicFill(item.owned, 0);
     this.#items.length = 0;
     this.#bytes = 0;
   }
@@ -34,11 +62,23 @@ class BoundedQueue {
   get bytes() { return this.#bytes; }
 }
 
-const cloneBytes = value => {
-  if (!(value instanceof Uint8Array)) throw new TypeError("actor I/O bytes require Uint8Array");
-  return Uint8Array.from(value);
+const byteLength = value => {
+  if (!types.isUint8Array(value))
+    throw new TypeError("actor I/O bytes require a genuine Uint8Array");
+  // Reject RAB-backed views even when their current byteLength is zero.
+  // OOB fixed-size views otherwise become indistinguishable from genuine
+  // zero-length views under the TypedArray internal byteLength getter.
+  const backing = intrinsicBuffer(value);
+  if (types.isSharedArrayBuffer(backing))
+    throw new TypeError("SharedArrayBuffer-backed actor I/O bytes are forbidden");
+  if (resizableSlot && resizableSlot.call(backing))
+    throw new TypeError("resizable actor I/O byte backing is forbidden");
+  return intrinsicByteLength(value);
 };
-const byteLength = value => value.byteLength;
+const cloneBytes = value =>
+  // Snapshot via intrinsic slots, never Symbol.iterator/species/getters.
+  // SharedArrayBuffer-backed views are denied, not copied under a race.
+  snapshotGuestBytes(value, ActorIoEnvelope.MAX_BYTES);
 const textBytes = value => utf8.encode(value).byteLength;
 
 export class ActorIoEnvelope {
@@ -63,6 +103,12 @@ export class ActorIoEnvelope {
                maxBytes = ActorIoEnvelope.MAX_BYTES} = {}) {
     if (!Number.isSafeInteger(actorId) || actorId <= 0) throw new RangeError("actorId");
     if (!Number.isSafeInteger(generation) || generation <= 0) throw new RangeError("generation");
+    if (!Number.isSafeInteger(maxRecords) || maxRecords < 1 ||
+        maxRecords > ActorIoEnvelope.MAX_RECORDS)
+      throw new RangeError("actor I/O maxRecords exceeds fixed record budget");
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 ||
+        maxBytes > ActorIoEnvelope.MAX_BYTES)
+      throw new RangeError("actor I/O maxBytes exceeds fixed byte budget");
     this.#actorId = actorId;
     this.#generation = generation;
     this.#input = new BoundedQueue(maxRecords, maxBytes, byteLength, cloneBytes);
