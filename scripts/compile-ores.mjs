@@ -23,10 +23,15 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // Shared preflight runs on the exact bounded source snapshot, before invoking
 // LLVM, writing artifacts or skipping comment/string tokens.
 export function rejectSourceTerminalControls(sourceBytes) {
- if (!(sourceBytes instanceof Uint8Array) || sourceBytes.byteLength > MAX_SOURCE_BYTES)
-  throw new TypeError("WASM terminal-control preflight requires bounded source bytes");
- for(let i=0;i<sourceBytes.byteLength;i++) {
-  if(sourceBytes[i]===0x1b || sourceBytes[i]===0x7f)
+ if (!(sourceBytes instanceof ArrayBuffer) && !ArrayBuffer.isView(sourceBytes))
+  throw new TypeError("WASM terminal-control preflight requires source bytes");
+ if (sourceBytes.byteLength > MAX_SOURCE_BYTES)
+  throw new RangeError("WASM terminal-control preflight byte budget exceeded");
+ const bytes=sourceBytes instanceof ArrayBuffer
+  ? new Uint8Array(sourceBytes)
+  : new Uint8Array(sourceBytes.buffer,sourceBytes.byteOffset,sourceBytes.byteLength);
+ for(let i=0;i<bytes.length;i++) {
+  if(bytes[i]===0x1b || bytes[i]===0x7f)
    throw Error("SOURCE_TERMINAL_CONTROL: ESC/DEL in source at byte "+i);
  }
 }
