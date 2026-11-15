@@ -5,7 +5,9 @@
  * The runtime does not yet offer package-aware module graph resolution; a
  * consumer must not treat package-only entries as publicly linkable.
  */
-const decoder = new TextDecoder('utf-8', {fatal: true});
+// Do not strip a leading UTF-8 BOM: it is not part of a canonical identifier.
+// `ignoreBOM: true` preserves U+FEFF so the identifier check rejects it.
+const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 // Untrusted numeric tags must never resolve via Object.prototype. A polluted
 // prototype could otherwise turn an invalid kind/visibility into a public grant.
 const kinds = Object.freeze(Object.assign(Object.create(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
