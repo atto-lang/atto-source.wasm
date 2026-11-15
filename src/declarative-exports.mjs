@@ -8,6 +8,9 @@
 const decoder = new TextDecoder('utf-8', {fatal: true});
 const kinds = Object.freeze({1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'});
 const visibilities = Object.freeze({1: 'public', 2: 'package'});
+// Max 1024 canonical entries: uleb length (2), name (256), kind and visibility (2).
+// Count itself occupies at most two bytes. Reject oversized sections early.
+const MAX_MANIFEST_BYTES = 2 + 1024 * (2 + 256 + 2);
 
 export function readDeclarativeExports(module) {
   if (!(module instanceof WebAssembly.Module))
@@ -16,6 +19,8 @@ export function readDeclarativeExports(module) {
   if (sections.length > 1) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_SECTION');
   if (!sections.length) return Object.freeze([]);
   const bytes = new Uint8Array(sections[0]);
+  if (bytes.byteLength > MAX_MANIFEST_BYTES)
+    throw new TypeError('EXPORT_MANIFEST_SECTION_TOO_LARGE');
   let pos = 0;
   function byte() {
     if (pos >= bytes.length) throw new TypeError('EXPORT_MANIFEST_TRUNCATED');
@@ -27,7 +32,11 @@ export function readDeclarativeExports(module) {
       const b = byte();
       if (i === 4 && b > 0x0f) throw new TypeError('EXPORT_MANIFEST_VARINT_OVERFLOW');
       result += (b & 0x7f) * (2 ** (i * 7));
-      if (!(b & 0x80)) return result;
+      if (!(b & 0x80)) {
+        if (i > 0 && (b & 0x7f) === 0)
+          throw new TypeError('EXPORT_MANIFEST_VARINT_NONCANONICAL');
+        return result;
+      }
     }
     throw new TypeError('EXPORT_MANIFEST_VARINT_OVERFLOW');
   }
