@@ -1,0 +1,28 @@
+# SOURCE_ONLY Rust contract checks, not actual LLVM/Wasm guest execution.
+name: Rust ownership-bang source contract
+on:
+  pull_request:
+    paths:
+      - 'tests/ownership_bang_fixture_contract.rs'
+      - 'tests/fixtures/ownership-bang-v1/*.atto'
+      - 'tests/ownership-bang-wasm32-guest.test.mjs'
+      - 'tests/strict-atto-fixture.mjs'
+      - '.github/workflows/ownership-bang-source-rust.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  rust-fixture-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and execute Rust fixture-contract tests (SOURCE_ONLY)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          git --version
+          rustc --edition=2021 --test tests/ownership_bang_fixture_contract.rs \
+            -o "$RUNNER_TEMP/ownership-bang-fixture-tests"
+          "$RUNNER_TEMP/ownership-bang-fixture-tests" --nocapture
