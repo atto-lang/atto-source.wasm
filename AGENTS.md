@@ -26,3 +26,20 @@ These instructions apply to this repository's code changes, examples, fixtures, 
 Follow [organization policy PR #38](https://github.com/ores-truffle-oreslang/.github/pull/38), [language-spec amendment PR #18](https://github.com/ores-truffle-oreslang/attolang-language-spec.md/pull/18), and [local checklist](docs/AOT_ZERO_GC_DYNAMISM.md). These are proposed design requirements, not evidence of implementation. Every compiler/runtime PR must declare the AOT mode and GC scope; reject uncontrolled runtime dynamism in sealed guest AOT before IR; generate proxy/virtual dispatch metadata ahead of time; prove allocation/closure/actor/task ownership, cycle management, bounded queues, cancellation and exactly-once cleanup.
 
 Require positive and negative compiler-backed `.atto` cases plus actual exact-head guest execution and target-artifact/GC proof. Tests that run only the host, simulate a guest, or show zero executed steps are **NOT_EXECUTED** for guest semantics. Preserve current source-first, security, Rust-only tooling and review rules.
+
+## Rust-only testing and migration
+
+- **Do not add or run Python scripts/tests** for new work. Implement
+  first-party test harnesses, fuzzers, source validators, and CI helpers in
+  Rust; use `rustc --test`, `cargo test`, `cargo fmt --check`, and
+  `cargo clippy -- -D warnings`.
+- Existing Python source or Python-invoking workflows are migration debt.
+  Port all behavior, failure modes, security limits, and negative tests before
+  removing them; never replace an important gate with a placeholder.
+- Genuine JavaScript tests remain necessary for Node/Worker host runtime
+  semantics and real compiled `.atto`/Wasm fixtures for guest conformance.
+  A Rust-only host model cannot substitute for executed guest evidence.
+- Runner-admission probes may use checkout-free inline Rust to avoid reading
+  private repository files, using a token, or exporting a source snapshot.
+- See the organization's canonical
+  [Rust-only policy](https://github.com/ores-truffle-oreslang/.github/blob/main/docs/RUST_ONLY_POLICY.md).
