@@ -24,6 +24,24 @@ const NEG=[
  "reject-unknown-symbol.ores","reject-string-as-int.ores","reject-overflow.ores",
  "reject-xor-operator.ores","reject-no-value-return.ores"
 ];
+const CANONICAL_GIT_BLOBS=Object.freeze({
+ "arith-precedence.ores":"14f0a6fde3c55ead28f361da6c0e40279344137a",
+ "signed-minimum.ores":"450ebee951733d3f0b567413e70724155d26ce13",
+ "max-minus-five.ores":"ea1932dd800fdcf3ef00a01549ce6565d7691ade",
+ "two-negative-factors.ores":"d83e07867159bb3f5b1027a0689f7eeefa84ac88",
+ "nested-unary.ores":"c6aa564c5bd4ce38c5e5fcc1e96cec8cea58c6d3",
+ "negative-product.ores":"ba664537993dd3bb808f0d3453bd01f5435cc098",
+ "eager-checked-int.ores":"b95fd94f36da98a8972f665eda126b46159de0f9",
+ "reject-unknown-symbol.ores":"fb17d2b5a662d435c367c682abbd5af7807f1e48",
+ "reject-string-as-int.ores":"494a5d02d86c7d8f6222c25e1ca33eb7f92c1fba",
+ "reject-overflow.ores":"eed3113842125b1d2a295a11e3cc01a5c1e3da00",
+ "reject-xor-operator.ores":"e7f5e47a28219f1f43cb1e18c7f50d45c089a6c4",
+ "reject-no-value-return.ores":"8cce1a3e24bec592834089d228f1047d61f510f0"
+});
+function gitBlobSha(bytes){
+ return createHash("sha1").update(Buffer.from("blob "+bytes.length+"\\0".replace("\\0","\0"))).update(bytes).digest("hex");
+}
+
 
 async function fixture(name){
  assert.match(name,/^[a-z][a-z0-9-]*\.ores$/);
@@ -79,6 +97,8 @@ test("canonical platform-core contract is pinned locally, not evidence of guest 
  await manifest();
  for(const name of [...POS,...NEG]){
   const {bytes}=await fixture(name);
+  assert.equal(gitBlobSha(bytes),CANONICAL_GIT_BLOBS[name],
+   "canonical source blob differs from Java and LLVM references");
   assert.match(new TextDecoder("utf-8",{fatal:true}).decode(bytes),
    /^pub fnc main\(\): int \{/,"fixture must use unmodified canonical entrypoint");
  }
