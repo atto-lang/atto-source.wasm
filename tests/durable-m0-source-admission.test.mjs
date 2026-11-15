@@ -51,7 +51,7 @@ test("Wasm preflight rejects raw NUL before comment and string elision", () => {
       new RegExp("WASM source preflight contains NUL byte at byte offset "+offset+"$"));
   const unicode="/* 😀 */\0 fnc main():int{return 42;}";
   assert.throws(() => rejectUnsupportedDurableM0Source(bytes(unicode)),
-    /WASM source preflight contains NUL byte at byte offset 11$/);
+    /WASM source preflight contains NUL byte at byte offset 10$/);
   assert.doesNotThrow(() =>
     rejectUnsupportedDurableM0Source(bytes("/* café */ fnc main():int{return 42;}")));
 });
