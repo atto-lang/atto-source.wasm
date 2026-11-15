@@ -28,7 +28,7 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const text=rejectBidirectionalSourceControls(sourceBytes);
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
  const pushToken=token=>{
