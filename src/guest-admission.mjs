@@ -33,6 +33,15 @@ export function admit_browser_guest(input) {
   if (actors !== (types.length>0)) throw new Error('E_WASM_ACTORS');
   if (pages>0 && !exports.some(x=>x.name==='memory' && x.kind==='memory')) throw new Error('E_WASM_MEMORY_EXPORT');
   if (actors && !pages) throw new Error('E_WASM_ACTOR_MEMORY');
+  // The v1 profile rejects start sections and non-function imports, so
+  // instantiating with inert host functions cannot execute guest code.
+  // Export names/kinds alone do not prove the callable browser ABI.
+  const host=Object.fromEntries(imports.map(x=>[x.name,()=>0]));
+  const instance=new WebAssembly.Instance(module,{atto:host});
+  if (instance.exports.main.length!==0)throw new Error('E_WASM_MAIN_SIGNATURE');
+  if (actors && (instance.exports.actor_init.length!==1 ||
+                 instance.exports.actor_receive.length!==3))
+    throw new Error('E_WASM_ACTOR_SIGNATURE');
   return {bytes:owned,module,imports:imports.map(x=>x.module+'.'+x.name),actors,actor_names:types,memory_pages:pages};
 }
 export async function package_browser_guest(input) {
