@@ -15,10 +15,11 @@ const NativeWasmModule = WebAssembly.Module;
 const NativeUint8Array = Uint8Array;
 const nativeCustomSections = NativeWasmModule.customSections;
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
-// Preserve native UTF-8 validation and typed-array slicing even if code in
-// the same realm later replaces shared prototype methods.
+// Preserve native UTF-8 validation even if code in the same realm later
+// replaces TextDecoder prototype methods.
 const nativeDecodeUtf8 = Function.prototype.call.bind(TextDecoder.prototype.decode);
-const nativeSubarray = Function.prototype.call.bind(Uint8Array.prototype.subarray);
+// Native subarray still consults mutable Symbol.species; use direct native
+// byte views of the original custom-section ArrayBuffer instead.
 // Untrusted numeric tags must never resolve via Object.prototype. A polluted
 // prototype could otherwise turn an invalid kind/visibility into a public grant.
 const kinds = Object.freeze(Object.assign(Object.create(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
@@ -33,7 +34,8 @@ export function readDeclarativeExports(module) {
   const sections = nativeCustomSections(module, 'atto.exports.v1');
   if (sections.length > 1) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_SECTION');
   if (!sections.length) return Object.freeze([]);
-  const bytes = new NativeUint8Array(sections[0]);
+  const sectionBuffer = sections[0];
+  const bytes = new NativeUint8Array(sectionBuffer);
   if (bytes.byteLength > MAX_MANIFEST_BYTES)
     throw new TypeError('EXPORT_MANIFEST_SECTION_TOO_LARGE');
   let pos = 0;
@@ -59,10 +61,16 @@ export function readDeclarativeExports(module) {
     const len = uleb();
     if (len < 1 || len > 256 || len > bytes.length - pos)
       throw new TypeError('EXPORT_MANIFEST_NAME_LENGTH');
-    const value = nativeDecodeUtf8(decoder, nativeSubarray(bytes, pos, pos + len));
+    const value = nativeDecodeUtf8(decoder, new NativeUint8Array(sectionBuffer, pos, len));
     pos += len;
-    if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(value))
-      throw new TypeError('EXPORT_MANIFEST_NAME');
+    // Avoid RegExp.prototype.test: mutable same-realm methods cannot become
+    // admission oracles for malformed names.
+    for (let i = 0; i < value.length; i++) {
+      const c = value[i];
+      const letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+      if (!letter && c !== '_' && (i === 0 || c < '0' || c > '9'))
+        throw new TypeError('EXPORT_MANIFEST_NAME');
+    }
     return value;
   }
   const count = uleb();
