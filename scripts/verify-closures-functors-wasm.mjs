@@ -100,7 +100,7 @@ export function verifyAndRun({compilerBytes, sampleBytes, candidateSha256, sourc
     ['mutable_capture', mutate('val captured_factor = factor;', 'let captured_factor = factor;'), 'E_CAPTURE'],
     ['nested_capture_shadow', mutate('  return triple(14); // 42',
       '  if true then val captured_factor = 99; return triple(14); fi\n  return triple(14); // 42'), 'E_CAPTURE'],
-    ['escaped_closure', 'fnc make_multiplier(int f): fnc(int)->int { return |n| : int -> n * f; }\n' +
+    ['escaped_closure', 'fnc make_multiplier(int f): fnc(int)=>int { return |n| : int -> n * f; }\n' +
       'pub fnc main(): int { return 0; }', 'E_UNSUPPORTED']
   ];
   for (const [name, mutated, expected] of negativeCases) {
