@@ -12,6 +12,10 @@
 const NativeWasmModule = WebAssembly.Module;
 const nativeCustomSections = NativeWasmModule.customSections;
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
+// Preserve native UTF-8 validation and typed-array slicing even if code in
+// the same realm later replaces shared prototype methods.
+const nativeDecodeUtf8 = Function.prototype.call.bind(TextDecoder.prototype.decode);
+const nativeSubarray = Function.prototype.call.bind(Uint8Array.prototype.subarray);
 // Untrusted numeric tags must never resolve via Object.prototype. A polluted
 // prototype could otherwise turn an invalid kind/visibility into a public grant.
 const kinds = Object.freeze(Object.assign(Object.create(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
@@ -52,7 +56,7 @@ export function readDeclarativeExports(module) {
     const len = uleb();
     if (len < 1 || len > 256 || len > bytes.length - pos)
       throw new TypeError('EXPORT_MANIFEST_NAME_LENGTH');
-    const value = decoder.decode(bytes.subarray(pos, pos + len));
+    const value = nativeDecodeUtf8(decoder, nativeSubarray(bytes, pos, pos + len));
     pos += len;
     if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(value))
       throw new TypeError('EXPORT_MANIFEST_NAME');
