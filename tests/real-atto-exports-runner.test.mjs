@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -39,6 +40,23 @@ test('real export-contract runner rejects an untrusted compiler before execution
     writeFileSync(fakeCompiler, '#!/bin/sh\necho fake\n', {mode:0o700});
     const result = invoke({ATTOC_PATH:fakeCompiler,ATTOC_SHA256:'0'.repeat(64)});
     assertDenied(result, /ATTOC_COMPILER_SHA256_MISMATCH/);
+  } finally {
+    rmSync(dir, {recursive:true,force:true});
+  }
+});
+
+
+test('real export-contract runner rejects a correctly hashed impostor with no Wasm output', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'atto-impostor-'));
+  try {
+    // The SHA is correct, but the provided executable is not attoc. A
+    // successful shell exit without a valid compiled Wasm artifact is denial.
+    const fakeCompiler = join(dir, 'fake-attoc');
+    const fakeBytes = Buffer.from('#!/bin/sh\nexit 0\n');
+    writeFileSync(fakeCompiler, fakeBytes, {mode:0o700});
+    const trustedDigest = createHash('sha256').update(fakeBytes).digest('hex');
+    const result = invoke({ATTOC_PATH:fakeCompiler, ATTOC_SHA256:trustedDigest});
+    assertDenied(result, /ENOENT/);
   } finally {
     rmSync(dir, {recursive:true,force:true});
   }
