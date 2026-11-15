@@ -13,7 +13,7 @@ import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1')
-  .update(Buffer.from('blob ' + bytes.length + '\\0','ascii'))
+  .update(Buffer.from('blob ' + bytes.length + '\0','ascii'))
   .update(bytes).digest('hex');
 const fixtureBlobPins = Object.freeze({
   'copy-compact': 'a4acedaaf55d03f0fe811875e7dfc70cd64e3c0b',
