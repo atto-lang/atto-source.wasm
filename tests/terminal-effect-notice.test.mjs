@@ -63,6 +63,9 @@ test('untrusted object shape, prototype, accessor and oversize fail closed', () 
   Object.defineProperty(forged, 'message', { enumerable: true, get() { throw new Error('getter ran'); } });
   assert.throws(() => receiver().accept(forged, WORKER), /accessor field denied/);
   assert.throws(() => notice({ message: 'x'.repeat(1025) }), /invalid message/);
+  assert.throws(() => notice({ message: '🧪'.repeat(257) }), /invalid message/);
+  assert.throws(() => notice({ message: '\uD800' }), /invalid message/);
+  assert.equal(notice({ message: '🧪'.repeat(256) }).message.length, 512);
 });
 
 test('real Worker structured-clone cannot transport recover callbacks', async () => {
