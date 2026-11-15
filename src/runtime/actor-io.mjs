@@ -54,6 +54,8 @@ export class ActorIoEnvelope {
   #output;
   #errors;
   #events;
+  #inputClosed = false;
+  #outputClosed = false;
   #metadataVersion = 1;
   #metadata = Object.freeze(Object.create(null));
 
@@ -96,6 +98,9 @@ export class ActorIoEnvelope {
     this.#output.clear();
     this.#errors.clear();
     this.#events.clear();
+    // A new actor generation gets fresh, open logical streams.
+    this.#inputClosed = false;
+    this.#outputClosed = false;
     this.#metadataVersion = 1;
     this.#metadata = Object.freeze(Object.create(null));
     this.#authority = this.#mintAuthority();
@@ -104,19 +109,41 @@ export class ActorIoEnvelope {
 
   tryFeedInput(authority, bytes) {
     this.#require(authority);
-    return this.#input.tryPush(bytes);
+    return !this.#inputClosed && this.#input.tryPush(bytes);
   }
   readInput(authority) {
     this.#require(authority);
     return this.#input.shift();
   }
+  // Host-only half-close; accepted records remain readable until drained.
+  // Repeated close must not manufacture additional readiness signals.
+  closeInput(authority) {
+    this.#require(authority);
+    if (this.#inputClosed) return false;
+    this.#inputClosed = true;
+    return true;
+  }
+  inputAtEof(authority) {
+    this.#require(authority);
+    return this.#inputClosed && this.#input.length === 0;
+  }
   tryWriteOutput(authority, bytes) {
     this.#require(authority);
-    return this.#output.tryPush(bytes);
+    return !this.#outputClosed && this.#output.tryPush(bytes);
   }
   readOutput(authority) {
     this.#require(authority);
     return this.#output.shift();
+  }
+  closeOutput(authority) {
+    this.#require(authority);
+    if (this.#outputClosed) return false;
+    this.#outputClosed = true;
+    return true;
+  }
+  outputAtEof(authority) {
+    this.#require(authority);
+    return this.#outputClosed && this.#output.length === 0;
   }
   tryEmitError(authority, diagnostic) {
     this.#require(authority);
