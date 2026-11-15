@@ -54,16 +54,17 @@ export function readDeclarativeExports(module) {
   }
   const count = uleb();
   if (count > 1024) throw new TypeError('EXPORT_MANIFEST_COUNT');
-  const seen = new Set();
+  // Intrinsic-prototype mutations must not disable duplicate admission.
+  const seen = Object.create(null);
   const entries = [];
   for (let i = 0; i < count; i++) {
     const exportedName = name();
-    if (seen.has(exportedName)) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_NAME');
-    seen.add(exportedName);
+    if (seen[exportedName] === true) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_NAME');
+    seen[exportedName] = true;
     const kind = kinds[byte()];
     const visibility = visibilities[byte()];
     if (!kind || !visibility) throw new TypeError('EXPORT_MANIFEST_ENUM');
-    entries.push(Object.freeze({name: exportedName, kind, visibility}));
+    entries[entries.length] = Object.freeze({name: exportedName, kind, visibility});
   }
   if (pos !== bytes.length) throw new TypeError('EXPORT_MANIFEST_TRAILING_BYTES');
   return Object.freeze(entries);
@@ -74,5 +75,12 @@ export function readDeclarativeExports(module) {
  * authorize cross-package imports of package-only declarations.
  */
 export function listPublicDeclarativeExports(module) {
-  return Object.freeze(readDeclarativeExports(module).filter(item => item.visibility === 'public'));
+  // Do not delegate an authorization filter to mutable Array.prototype.filter.
+  const entries = readDeclarativeExports(module);
+  const publicEntries = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].visibility === 'public')
+      publicEntries[publicEntries.length] = entries[i];
+  }
+  return Object.freeze(publicEntries);
 }
