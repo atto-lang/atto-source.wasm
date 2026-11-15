@@ -154,3 +154,18 @@ test('prototype-mutated Array and Set cannot widen exports or bypass duplicates'
   assert.deepEqual(publicPublic, [{name:'api',kind:'fnc',visibility:'public'}]);
   assert.match(String(duplicateError), /EXPORT_MANIFEST_DUPLICATE_NAME/);
 });
+
+test('rejects noncanonical UTF-8 BOM-prefixed export names without aliasing a public name', () => {
+  const bomFoo = [0xef, 0xbb, 0xbf, ...utf8.encode('Foo')];
+  const bomOnly = [0xef, 0xbb, 0xbf];
+  for (const bytes of [bomFoo, bomOnly]) {
+    for (const visibility of [1, 2]) {
+      const module = wasm([1, ...uleb(bytes.length), ...bytes, 2, visibility]);
+      assert.throws(() => readDeclarativeExports(module), /EXPORT_MANIFEST_NAME/);
+      assert.throws(() => listPublicDeclarativeExports(module), /EXPORT_MANIFEST_NAME/);
+    }
+  }
+  const canonical = wasm([1, ...entry('Foo', 2, 1)]);
+  assert.deepEqual(listPublicDeclarativeExports(canonical),
+    [{name:'Foo',kind:'fnc',visibility:'public'}]);
+});
