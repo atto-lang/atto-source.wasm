@@ -18,6 +18,22 @@ AttoLang is designed around actors, explicit ownership, and portable concurrency
 
 Consult the checked-in source tree and CI workflows for verified commands and supported targets. Add target-specific build instructions and exact-head execution results as they become available; do not treat a passing host-unit test as proof of guest-language conformance.
 
+## Source-compiled Rust/Wasm diamond-inheritance conformance (candidate only)
+
+The **Atto source compiler** is implemented in `atto-lang/atto-source.rs`, not as a second independent compiler here. Draft [Rust compiler PR #137](https://github.com/atto-lang/atto-source.rs/pull/137) implements a bounded, statically lowered trait/class inheritance subset. A private validation carrier has already built both the native Rust and wasm32 compiler, compared their emitted guest bytes, executed three passing examples (including the exact site preview), and verified nine expected compiler rejections.
+
+This repository provides an **artifact-driven, fail-closed independent check** of the exact [website diamond preview](https://github.com/atto-lang/atto-lang.github.io/pull/130). It does not bundle or distribute an Atto compiler. Before promotion, download an independently reviewed compiler Wasm privately, verify its SHA-256, and invoke:
+
+```sh
+node scripts/verify-diamond-wasm.mjs \
+  /private/atto_compiler.wasm \
+  /local/site/play/examples/preview/diamond-inheritance.atto \
+  <approved-compiler-sha256> \
+  05814acb37c0335c03294875b870560a2839031d
+```
+
+The script validates compiler ABI/imports, exact sample Git blob, generated guest Wasm, expected stdout, and three mutation-based negative checks: unresolved diamond, missing `override`, and signature mismatch. It never fetches binaries or declares compiler disclosure approval. Even passing checks do not authorize publishing a new playground compiler, and the public site sample remains a disabled **syntax preview** until independent release approval and pin update.
+
 ## Project status
 
 This README describes the repository's intended responsibilities. Feature support and release readiness must be established from implementation, tests, and CI evidence rather than this description alone.
