@@ -39,3 +39,15 @@ test('parse actor-name custom section and reject duplicate section',()=>{
   const duplicate=Buffer.concat([good,good.subarray(scalar.length)]);
   assert.throws(()=>actor_names(new WebAssembly.Module(duplicate)),/E_WASM_ACTORS/);
 });
+
+test('reject valid Wasm guest with a start function before boot side effects',()=>{
+  // main: () -> i64, start: () -> void; both are well-formed Wasm.
+  const bytes=Buffer.from('0061736d01000000' +
+    '0108026000017e600000' +
+    '0303020001' +
+    '070801046d61696e0000' +
+    '080101' +
+    '0a09020400422a0b02000b', 'hex');
+  assert.equal(WebAssembly.validate(bytes),true);
+  assert.throws(()=>fixed_memory_pages(bytes),/E_WASM_START/);
+});
