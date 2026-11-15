@@ -48,6 +48,8 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     readBoundedRegularFile(compiler, MAX_COMPILER, 'compiler exceeds 256MiB budget')
   ]);
   const sourceBytes = sourceRead.bytes, compilerBytes = compilerRead.bytes;
+  // Actor bridge must reject source formatting attacks before invoking LLVM.
+  rejectBidirectionalSourceControls(sourceBytes);
   const compilerSha256 = sha(compilerBytes), sourceSha256 = sha(sourceBytes);
   if (expectedCompilerSha256 !== undefined && expectedCompilerSha256 !== compilerSha256)
     throw Error('compiler binary SHA-256 mismatch');
