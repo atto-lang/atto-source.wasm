@@ -1,0 +1,1 @@
+pub fnc main(): int { val int item = 42; return borrow! mut item; }
