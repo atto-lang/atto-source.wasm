@@ -40,6 +40,22 @@ for (const [index, source] of [
   });
 }
 
+test("Wasm preflight rejects raw NUL before comment and string elision", () => {
+  const examples = [
+    ["/* hidden\0 */ fnc main():int{return 42;}", 9],
+    ["// hidden\0 tail\nfnc main():int{return 42;}", 9],
+    ['fnc main():int{val s="hidden\0";return 42;}', 28]
+  ];
+  for(const [source,offset] of examples)
+    assert.throws(() => rejectUnsupportedDurableM0Source(bytes(source)),
+      new RegExp("WASM source preflight contains NUL byte at byte offset "+offset+"$"));
+  const unicode="/* 😀 */\0 fnc main():int{return 42;}";
+  assert.throws(() => rejectUnsupportedDurableM0Source(bytes(unicode)),
+    /WASM source preflight contains NUL byte at byte offset 11$/);
+  assert.doesNotThrow(() =>
+    rejectUnsupportedDurableM0Source(bytes("/* café */ fnc main():int{return 42;}")));
+});
+
 test("Wasm M0 checks malformed UTF-8 and unterminated comments before compiler", () => {
   assert.throws(() => rejectUnsupportedDurableM0Source(new Uint8Array([0xff])),
     /encoded|valid|UTF/i);
