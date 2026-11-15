@@ -83,8 +83,12 @@ export function compileAdmittedCoreGuest(input, {
   // Validate compiler-export metadata before allowing any guest admission.
   // A package-only symbol cannot simultaneously be the public host entry.
   const fileExports = readDeclarativeExports(module);
-  if (fileExports.some(x => x.name === entry && x.visibility === "package"))
-    throw Error("EXPORT_PACKAGE_ENTRY_PUBLIC: private declaration cannot be a core guest entry");
+  // Export admission is a security decision: do not delegate it to a mutable
+  // Array.prototype.some, which realm-local guest code could replace.
+  for (let i = 0; i < fileExports.length; i++) {
+    if (fileExports[i].name === entry && fileExports[i].visibility === "package")
+      throw Error("EXPORT_PACKAGE_ENTRY_PUBLIC: private declaration cannot be a core guest entry");
+  }
   const imports = WebAssembly.Module.imports(module);
   if (imports.length !== 0) {
     throw Error("host imports denied: " + imports.map(x => x.module + "." + x.name).join(", "));
@@ -92,15 +96,20 @@ export function compileAdmittedCoreGuest(input, {
   // Check function signature; JavaScript can silently coerce omitted params.
   assertCoreI64Entry(bytes, entry);
   const exports = WebAssembly.Module.exports(module);
-  if (!exports.some(x => x.name === entry && x.kind === "function")) {
-    throw Error("missing guest entry function");
+  // Verify the entire surface without mutable Array prototype methods.
+  // A poisoned filter could otherwise silently discard an unexpected export.
+  let hasEntry = false, hasMemory = false;
+  let otherExportNames = "";
+  for (let i = 0; i < exports.length; i++) {
+    const item = exports[i];
+    if (item.name === entry && item.kind === "function") hasEntry = true;
+    else if (item.name === "memory" && item.kind === "memory") hasMemory = true;
+    else otherExportNames += (otherExportNames ? ", " : "") + item.name;
   }
+  if (!hasEntry) throw Error("missing guest entry function");
   // Match the native Wasmtime scalar ABI: memory is a required explicit export.
-  if (!exports.some(x => x.name === "memory" && x.kind === "memory")) {
-    throw Error("guest must export exactly one bounded memory");
-  }
-  const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
-  if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
+  if (!hasMemory) throw Error("guest must export exactly one bounded memory");
+  if (otherExportNames) throw Error("unexpected guest exports: " + otherExportNames);
   const admission = Object.freeze({
     schemaVersion: 1, profile: "core-wasm.i64-v1",
     sha256, bytes: bytes.byteLength, entry,
