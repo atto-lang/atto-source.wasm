@@ -123,3 +123,34 @@ test('rejects inherited prototype-pollution tag entries even when they look publ
     delete Object.prototype['3'];
   }
 });
+
+
+test('prototype-mutated Array and Set cannot widen exports or bypass duplicates', () => {
+  const pkg = wasm([1, ...entry('internal', 2, 2)]);
+  const pub = wasm([1, ...entry('api', 2, 1)]);
+  const dup = wasm([2, ...entry('__proto__', 2, 2), ...entry('__proto__', 2, 1)]);
+  const originalFilter = Object.getOwnPropertyDescriptor(Array.prototype, 'filter');
+  const originalPush = Object.getOwnPropertyDescriptor(Array.prototype, 'push');
+  const originalHas = Object.getOwnPropertyDescriptor(Set.prototype, 'has');
+  const originalAdd = Object.getOwnPropertyDescriptor(Set.prototype, 'add');
+  let packagePublic;
+  let publicPublic;
+  let duplicateError;
+  try {
+    Object.defineProperty(Array.prototype, 'filter', {configurable:true, value:function(){return this;}});
+    Object.defineProperty(Array.prototype, 'push', {configurable:true, value:function(){throw new Error('FORGED_PUSH');}});
+    Object.defineProperty(Set.prototype, 'has', {configurable:true, value:function(){return false;}});
+    Object.defineProperty(Set.prototype, 'add', {configurable:true, value:function(){return this;}});
+    packagePublic = listPublicDeclarativeExports(pkg);
+    publicPublic = listPublicDeclarativeExports(pub);
+    try { readDeclarativeExports(dup); } catch (e) { duplicateError = e; }
+  } finally {
+    Object.defineProperty(Array.prototype, 'filter', originalFilter);
+    Object.defineProperty(Array.prototype, 'push', originalPush);
+    Object.defineProperty(Set.prototype, 'has', originalHas);
+    Object.defineProperty(Set.prototype, 'add', originalAdd);
+  }
+  assert.deepEqual(packagePublic, []);
+  assert.deepEqual(publicPublic, [{name:'api',kind:'fnc',visibility:'public'}]);
+  assert.match(String(duplicateError), /EXPORT_MANIFEST_DUPLICATE_NAME/);
+});
