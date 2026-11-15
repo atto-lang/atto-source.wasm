@@ -36,3 +36,38 @@ These digests describe a privately compiled candidate and a generated guest. The
 ## Scope limit
 
 The compiled subset statically flattens concrete class inheritance and trait defaults with origin-aware diamond deduplication. There is no general dynamic upcasting/vtable dispatch, constructor chaining, or inherited private-member support in this milestone.
+
+## Follow-up full-tree hardening audit — supersedes subset-only validation
+
+The source compiler was hardened after the initial subset run: inherited static
+methods no longer enter derived instance method tables, and a child attempting
+to hide an inherited instance method with a static function is rejected with
+`E_STATIC_INHERIT_CONFLICT`. Ten new regression fixtures cover method lookup,
+trait-origin deduplication, interface signatures, inherited-field ambiguity,
+private-field gates and prohibited static overrides.
+
+- [Full Git tree exact-SHA carrier run 43755317560](https://github.com/zed-pkg-test/oreslang-private-pr-validation-20261012/actions/runs/43755317560): **SUCCESS**
+- Carrier branch: `validation/atto-diamond-full-tree-hardened-20261115`
+- Carrier commit: `737c4b99014474820e781ecee38d1dc5124f6ed3`
+- Source compiler PR #137 head: `2782efd9ff61677afdfbd9889cea7fd38d2cd5fd`
+- Upstream source Git tree: `3b6e05aac0eb6dffb521e513cb7f968ad7546e52`
+- Mirrored `source/` Git tree: **exactly the same SHA**, including all 401 Git blobs, file modes, paths and directory hierarchy; no extra or missing files
+- Source workflow in the source org did not reach a runner (`runner_id=0`, zero execution steps); test carrier's own runner completed all jobs
+
+**Full source tree verification results:** 128 native Cargo/Rust tests, 381 guest
+conformance cases, 344 native-versus-wasm32 compiler byte comparisons, 28
+adversarial actor-mailbox tests, 29 receiver ABI checks, and 11 Chromium worker
+checks all passed. Native `attoc` and wasm32 compiler builds passed. The exact
+`/play` sample and its three fail-closed mutations passed against genuine
+generated guest Wasm. Guest `main` returned 0 and printed the four expected
+lines. All of this ran without a cross-org checkout or repository access token
+being supplied to the carrier.
+
+- Full-tree candidate compiler Wasm SHA-256: `83476186fd7c92f6b16e49df786b3883598dcdf8076052db03195fc86f90ef86`
+- Full-tree guest Wasm SHA-256: `ca714cadda247ef92e6ecfe645c73129efa54750cb297cdf47f11f62556b01bd`
+
+The earlier candidate compiler digest remains as historical evidence of the
+subset validation, **not** as the latest candidate. Neither compiler digest is
+an approved public compiler release. No binary was uploaded from this validation
+workflow. The playground stays preview-only until reviewed compiler release and
+public pin/browser validation.
