@@ -1,6 +1,6 @@
 //! Precompile-only strict raw Wasm admission. The runtime never parses or
 //! compiles untrusted Wasm and must not depend on wasmparser.
-use wasmparser::{Encoding,Parser,Payload};
+use wasmparser::{Encoding,Parser,Payload,Validator,WasmFeatures};
 use std::error::Error;
 pub fn validate_scalar_module(wasm:&[u8])->Result<(),Box<dyn Error>>{
  let mut memory_sections=0usize;
@@ -38,6 +38,18 @@ pub fn validate_scalar_module(wasm:&[u8])->Result<(),Box<dyn Error>>{
  if memory_sections!=1 || memories!=1{
   return Err("exactly one declared memory is required".into());
  }
+ // Parser-level section filtering alone is not sufficient: otherwise a
+ // type, global or function body can carry managed references or Wasm-GC
+ // instructions even when it has no table, imports, or start section.
+ // Use the exact same immutable snapshot that will be compiled by Wasmtime.
+ let mut features=WasmFeatures::default();
+ features.remove(
+  WasmFeatures::GC |
+  WasmFeatures::GC_TYPES |
+  WasmFeatures::REFERENCE_TYPES |
+  WasmFeatures::FUNCTION_REFERENCES
+ );
+ Validator::new_with_features(features).validate_all(wasm)?;
  Ok(())
 }
 #[cfg(test)]
@@ -66,4 +78,44 @@ mod tests{
   let two=[0,97,115,109,1,0,0,0,5,7,2,1,1,2,1,1,2];
   assert!(validate_scalar_module(&two).is_err());
  }
+
+ #[test]
+ fn strict_aot_rejects_valid_externref_function_types(){
+  // A valid core module carrying an otherwise unused externref parameter.
+  // Default wasmparser validation allows it; the sealed zero-GC profile does not.
+  let wasm=[
+   0,97,115,109,1,0,0,0,
+   1,5,1,0x60,1,0x6f,0,
+   5,4,1,1,1,2,
+  ];
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_err());
+ }
+ #[test]
+ fn strict_aot_rejects_valid_gc_struct_types(){
+  // One unused empty struct definition (GC type opcode 0x5f), plus
+  // otherwise allowed fixed private wasm32 memory.
+  let wasm=[
+   0,97,115,109,1,0,0,0,
+   1,3,1,0x5f,0,
+   5,4,1,1,1,2,
+  ];
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_err());
+ }
+ #[test]
+ fn strict_aot_rejects_reference_instruction_even_without_exports(){
+  // Valid function: ref.null extern; drop; end. There is no table or
+  // externref export; scanning sections by kind would miss the operation.
+  let wasm=[
+   0,97,115,109,1,0,0,0,
+   1,4,1,0x60,0,0,
+   3,2,1,0,
+   5,4,1,1,1,2,
+   10,7,1,5,0,0xd0,0x6f,0x1a,0x0b,
+  ];
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_err());
+ }
+
 }
