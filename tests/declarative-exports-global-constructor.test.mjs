@@ -84,3 +84,47 @@ test('a forged Uint8Array species cannot rewrite a declared export name', () => 
   }
   assert.equal(decoded[0].name, 'Foo');
 });
+
+
+test('a replaced Object.create cannot bypass duplicate __proto__ export rejection', () => {
+  const duplicate = moduleFromManifest([
+    2, 9, ...new TextEncoder().encode('__proto__'), 2, 2,
+       9, ...new TextEncoder().encode('__proto__'), 2, 1
+  ]);
+  assert.throws(() => readDeclarativeExports(duplicate), /EXPORT_MANIFEST_DUPLICATE_NAME/);
+  const original = Object.getOwnPropertyDescriptor(Object, 'create');
+  let duplicateError;
+  try {
+    // A prototype-bearing object silently discards '__proto__' = true, so
+    // both declarations would be admitted without a captured native create.
+    Object.defineProperty(Object, 'create', {
+      configurable: true, writable: true, value() { return {}; }
+    });
+    try { readDeclarativeExports(duplicate); } catch (error) { duplicateError = error; }
+  } finally {
+    Object.defineProperty(Object, 'create', original);
+  }
+  assert.match(String(duplicateError), /EXPORT_MANIFEST_DUPLICATE_NAME/);
+});
+
+test('a replaced Object.freeze cannot unfreeze public metadata', () => {
+  const pub = moduleFromManifest([1, 3, 70, 111, 111, 2, 1]);
+  const original = Object.getOwnPropertyDescriptor(Object, 'freeze');
+  let decoded, publicEntries, emptyEntries;
+  try {
+    Object.defineProperty(Object, 'freeze', {
+      configurable: true, writable: true, value(value) { return value; }
+    });
+    decoded = readDeclarativeExports(pub);
+    publicEntries = listPublicDeclarativeExports(pub);
+    emptyEntries = readDeclarativeExports(new WebAssembly.Module(
+      Uint8Array.from([0, 97, 115, 109, 1, 0, 0, 0])));
+  } finally {
+    Object.defineProperty(Object, 'freeze', original);
+  }
+  assert.equal(Object.isFrozen(decoded), true);
+  assert.equal(Object.isFrozen(decoded[0]), true);
+  assert.equal(Object.isFrozen(publicEntries), true);
+  assert.equal(Object.isFrozen(publicEntries[0]), true);
+  assert.equal(Object.isFrozen(emptyEntries), true);
+});
