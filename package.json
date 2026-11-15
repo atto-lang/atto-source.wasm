@@ -16,6 +16,7 @@
     "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
     "test:mut-share": "ORESLANG_MUT_SHARE_PARITY_REQUIRED=1 node --test tests/rt-mut-share-source-parity.test.mjs",
     "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs",
-    "test:bool-wasm32": "ORESLANG_BOOL_WASM_PARITY_REQUIRED=1 node --test tests/boolean-source-parity-wasm32.test.mjs"
+    "test:bool-wasm32": "ORESLANG_BOOL_WASM_PARITY_REQUIRED=1 node --test tests/boolean-source-parity-wasm32.test.mjs",
+    "test:ownership-bang-wasm32": "ATTO_WASM_OWNERSHIP_BANG_REQUIRED=1 node --test tests/ownership-bang-wasm32-guest.test.mjs"
   }
 }
