@@ -13,6 +13,7 @@ import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
+import {rejectRawTerminalSourceControls} from "./source-terminal-control.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
@@ -27,15 +28,7 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
- // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
- // can erase a comment or quoted literal, and prior to compiler invocation or
- // staging. The byte budget above bounds this conversion and its allocation.
- const nul=text.indexOf("\0");
- if(nul!==-1) {
-  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
-  throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
- }
+ const text=rejectRawTerminalSourceControls(sourceBytes);
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
  const pushToken=token=>{
@@ -455,6 +448,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // This check precedes every token gate and all guest artifact writes.
+ rejectRawTerminalSourceControls(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
