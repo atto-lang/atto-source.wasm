@@ -13,6 +13,8 @@ const NativeWasmModule = WebAssembly.Module;
 // Snapshot the native constructor: a same-realm global replacement could
 // otherwise rewrite the Wasm custom-section byte view and widen visibility.
 const NativeUint8Array = Uint8Array;
+const nativeCreate = Object.create;
+const nativeFreeze = Object.freeze;
 const nativeCustomSections = NativeWasmModule.customSections;
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 // Preserve native UTF-8 validation even if code in the same realm later
@@ -22,8 +24,8 @@ const nativeDecodeUtf8 = Function.prototype.call.bind(TextDecoder.prototype.deco
 // byte views of the original custom-section ArrayBuffer instead.
 // Untrusted numeric tags must never resolve via Object.prototype. A polluted
 // prototype could otherwise turn an invalid kind/visibility into a public grant.
-const kinds = Object.freeze(Object.assign(Object.create(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
-const visibilities = Object.freeze(Object.assign(Object.create(null), {1: 'public', 2: 'package'}));
+const kinds = nativeFreeze(Object.assign(nativeCreate(null), {1: 'class', 2: 'fnc', 3: 'actor', 4: 'enum'}));
+const visibilities = nativeFreeze(Object.assign(nativeCreate(null), {1: 'public', 2: 'package'}));
 // Max 1024 canonical entries: uleb length (2), name (256), kind and visibility (2).
 // Count itself occupies at most two bytes. Reject oversized sections early.
 const MAX_MANIFEST_BYTES = 2 + 1024 * (2 + 256 + 2);
@@ -33,7 +35,7 @@ export function readDeclarativeExports(module) {
     throw new TypeError('EXPORT_MANIFEST_MODULE: expected validated WebAssembly.Module');
   const sections = nativeCustomSections(module, 'atto.exports.v1');
   if (sections.length > 1) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_SECTION');
-  if (!sections.length) return Object.freeze([]);
+  if (!sections.length) return nativeFreeze([]);
   const sectionBuffer = sections[0];
   const bytes = new NativeUint8Array(sectionBuffer);
   if (bytes.byteLength > MAX_MANIFEST_BYTES)
@@ -76,7 +78,9 @@ export function readDeclarativeExports(module) {
   const count = uleb();
   if (count > 1024) throw new TypeError('EXPORT_MANIFEST_COUNT');
   // Intrinsic-prototype mutations must not disable duplicate admission.
-  const seen = Object.create(null);
+  // A replacement Object.create could return a prototype-bearing object and
+  // let duplicate '__proto__' names pass unnoticed.
+  const seen = nativeCreate(null);
   const entries = [];
   for (let i = 0; i < count; i++) {
     const exportedName = name();
@@ -85,10 +89,10 @@ export function readDeclarativeExports(module) {
     const kind = kinds[byte()];
     const visibility = visibilities[byte()];
     if (!kind || !visibility) throw new TypeError('EXPORT_MANIFEST_ENUM');
-    entries[entries.length] = Object.freeze({name: exportedName, kind, visibility});
+    entries[entries.length] = nativeFreeze({name: exportedName, kind, visibility});
   }
   if (pos !== bytes.length) throw new TypeError('EXPORT_MANIFEST_TRAILING_BYTES');
-  return Object.freeze(entries);
+  return nativeFreeze(entries);
 }
 
 /**
@@ -103,5 +107,5 @@ export function listPublicDeclarativeExports(module) {
     if (entries[i].visibility === 'public')
       publicEntries[publicEntries.length] = entries[i];
   }
-  return Object.freeze(publicEntries);
+  return nativeFreeze(publicEntries);
 }
