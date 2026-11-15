@@ -49,7 +49,10 @@ test('required real compiler cannot silently use an unpinned binary',()=>{
   assert.throws(()=>compilerIdentity({ORESLANG_LLVM_COMPILER:'/tmp/nope'}),/executable pin/);
 });
 
-const required=process.env.ATTO_WASM_OWNERSHIP_BANG_REQUIRED==='1';
+const demand=process.env.ATTO_WASM_OWNERSHIP_BANG_REQUIRED??'0';
+if (!['0','1'].includes(demand))
+  throw new Error('ATTO_WASM_OWNERSHIP_BANG_REQUIRED must be 0 or 1');
+const required=demand==='1';
 test('LLVM-to-wasm32 ownership bang source compiles and executes through actual guest', {
   skip:!required,timeout:180000
 },async()=>{
@@ -73,7 +76,10 @@ test('LLVM-to-wasm32 ownership bang source compiles and executes through actual 
         await assert.rejects(compile,error=>
           /oreslang-llvmc:/i.test(String(error?.message)),
           'native compiler did not reject the invalid ownership-token boundary');
-        await assert.rejects(stat(output+'.current.json'),{code:'ENOENT'});
+        for(const suffix of ['', '.current.json', '.artifact.json',
+                             '.provenance.json', '.releases'])
+          await assert.rejects(stat(output+suffix),{code:'ENOENT'},
+            'invalid ownership source must not publish '+suffix);
         rejected++;
         continue;
       }
