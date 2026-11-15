@@ -7,6 +7,10 @@
  */
 // Do not strip a leading UTF-8 BOM: it is not part of a canonical identifier.
 // `ignoreBOM: true` preserves U+FEFF so the identifier check rejects it.
+// Capture trusted Wasm intrinsics at module initialization. Realm-local code
+// changing the global methods later must not erase or forge export metadata.
+const NativeWasmModule = WebAssembly.Module;
+const nativeCustomSections = NativeWasmModule.customSections;
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 // Untrusted numeric tags must never resolve via Object.prototype. A polluted
 // prototype could otherwise turn an invalid kind/visibility into a public grant.
@@ -17,9 +21,9 @@ const visibilities = Object.freeze(Object.assign(Object.create(null), {1: 'publi
 const MAX_MANIFEST_BYTES = 2 + 1024 * (2 + 256 + 2);
 
 export function readDeclarativeExports(module) {
-  if (!(module instanceof WebAssembly.Module))
+  if (!(module instanceof NativeWasmModule))
     throw new TypeError('EXPORT_MANIFEST_MODULE: expected validated WebAssembly.Module');
-  const sections = WebAssembly.Module.customSections(module, 'atto.exports.v1');
+  const sections = nativeCustomSections(module, 'atto.exports.v1');
   if (sections.length > 1) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_SECTION');
   if (!sections.length) return Object.freeze([]);
   const bytes = new Uint8Array(sections[0]);
