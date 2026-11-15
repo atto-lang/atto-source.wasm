@@ -47,12 +47,17 @@ fn forbidden_execution_line(line: &str) -> bool {
         "python -c ",
         "python3 -c ",
         "python ",
+        "python2 ",
         "python3 ",
+        "python2.",
+        "python3.",
         "pypy ",
         "pypy3 ",
-        "pip install",
-        "pip3 install",
+        "pip ",
+        "pip3 ",
+        "pipenv ",
         "uv run ",
+        "uv pip ",
         "pytest ",
         "poetry run ",
         "pdm run ",
@@ -169,6 +174,11 @@ mod tests {
         assert!(forbidden_execution_line("- run: python3 -m pytest"));
         assert!(forbidden_execution_line("pip install -r requirements.txt"));
         assert!(forbidden_execution_line("uv run tool.py"));
+        assert!(forbidden_execution_line("- run: pip3 --version"));
+        assert!(forbidden_execution_line("- run: pipenv run tool"));
+        assert!(forbidden_execution_line("- run: python3.12 -m unittest"));
+        assert!(forbidden_execution_line("- run: python2 -c 'print(1)'"));
+        assert!(forbidden_execution_line("uv pip install foo"));
         assert!(!forbidden_execution_line("- run: cargo test"));
     }
 
