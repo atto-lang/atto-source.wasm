@@ -76,3 +76,27 @@ test('bounds manifest size and admits the maximal canonical 1024-entry payload',
   ];
   assert.equal(readDeclarativeExports(wasm(maximum)).length, 1024);
 });
+
+test('rejects repeated same-name sections even when their contents agree', () => {
+  const sectionName = name('atto.exports.v1');
+  const body = [...sectionName, 0];
+  const section = [0, ...uleb(body.length), ...body];
+  const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, ...section, ...section]);
+  assert.equal(WebAssembly.validate(bytes), true);
+  const module = new WebAssembly.Module(bytes);
+  assert.throws(() => readDeclarativeExports(module), /EXPORT_MANIFEST_DUPLICATE_SECTION/);
+});
+
+test('rejects malformed text, identifiers, count budgets and trailing bytes', () => {
+  const cases = [
+    [[1, 1, 0xff, 1, 1], TypeError],
+    [[1, ...entry('1bad', 1, 1)], /EXPORT_MANIFEST_NAME/],
+    [[...uleb(1025)], /EXPORT_MANIFEST_COUNT/],
+    [[0, 0x55], /EXPORT_MANIFEST_TRAILING_BYTES/],
+    [[0x80], /EXPORT_MANIFEST_TRUNCATED/]
+  ];
+  for (const [bytes, error] of cases)
+    assert.throws(() => readDeclarativeExports(wasm(bytes)), error);
+  const empty = new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0]));
+  assert.deepEqual(readDeclarativeExports(empty), []);
+});
