@@ -13,11 +13,18 @@
 // rather than trusting mutable global constructors/methods later.
 const NativeUint8Array = Uint8Array;
 const nativeIsView = ArrayBuffer.isView;
+// A genuine Uint8Array subclass can override `.length` while still passing
+// instanceof and ArrayBuffer.isView. Read the actual internal typed-array
+// length with the captured native getter, never a caller-controlled property.
+const nativeTypedArrayLength = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'length').get);
 export function assertNoManagedWasm(bytes) {
   // This scanner is a security boundary: never use mutable Array prototype
   // predicates for magic bytes or type/section allowlists.
-  if (!(bytes instanceof NativeUint8Array) || !nativeIsView(bytes) ||
-      bytes.length < 8 ||
+  if (!(bytes instanceof NativeUint8Array) || !nativeIsView(bytes))
+    throw Error("no-managed-Wasm: invalid core module header");
+  const trustedLength = nativeTypedArrayLength(bytes);
+  if (trustedLength < 8 ||
       bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 ||
       bytes[3] !== 109 || bytes[4] !== 1 || bytes[5] !== 0 ||
       bytes[6] !== 0 || bytes[7] !== 0) {
@@ -124,11 +131,11 @@ export function assertNoManagedWasm(bytes) {
     deny("unsupported instruction opcode 0x" + op.toString(16));
   };
   let sawType = false, sawCode = false;
-  while (at < bytes.length) {
+  while (at < trustedLength) {
     const id = bytes[at++];
-    const size = u32(bytes.length);
+    const size = u32(trustedLength);
     const end = at + size;
-    if (!Number.isSafeInteger(end) || end > bytes.length) deny("section exceeds module");
+    if (!Number.isSafeInteger(end) || end > trustedLength) deny("section exceeds module");
     // A bare call to this exported scanner must be safe even without the
     // separate host import/table/start guard. Never let an unsupported
     // managed-ref-bearing section bypass standalone preflight.
