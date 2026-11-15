@@ -9,8 +9,12 @@
  * ownership/drop proofs remain separate requirements.
  */
 export function assertNoManagedWasm(bytes) {
+  // This scanner is a security boundary: never use mutable Array prototype
+  // predicates for magic bytes or type/section allowlists.
   if (!(bytes instanceof Uint8Array) || bytes.length < 8 ||
-      ![0, 97, 115, 109, 1, 0, 0, 0].every((x, i) => bytes[i] === x)) {
+      bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 ||
+      bytes[3] !== 109 || bytes[4] !== 1 || bytes[5] !== 0 ||
+      bytes[6] !== 0 || bytes[7] !== 0) {
     throw Error("no-managed-Wasm: invalid core module header");
   }
   let at = 8;
@@ -35,9 +39,9 @@ export function assertNoManagedWasm(bytes) {
   };
   const numericType = end => {
     if (at >= end) deny("truncated value type");
-    if (![0x7f, 0x7e, 0x7d, 0x7c].includes(bytes[at++])) {
+    const type = bytes[at++];
+    if (type !== 0x7f && type !== 0x7e && type !== 0x7d && type !== 0x7c)
       deny("managed reference, vector or GC value type forbidden");
-    }
   };
   const skipBytes = (end, count) => {
     if (!Number.isSafeInteger(count) || count < 0 || count > end - at) {
@@ -61,7 +65,9 @@ export function assertNoManagedWasm(bytes) {
       if (at >= end) deny("truncated block type");
       const b = bytes[at];
       if (b === 0x40) { at++; return op; }
-      if ([0x7f, 0x7e, 0x7d, 0x7c].includes(b)) { at++; return op; }
+      if (b === 0x7f || b === 0x7e || b === 0x7d || b === 0x7c) {
+        at++; return op;
+      }
       if (b === 0x6f || b === 0x70 || b === 0x63 || b === 0x64) {
         deny("reference block type forbidden");
       }
@@ -121,7 +127,7 @@ export function assertNoManagedWasm(bytes) {
     // separate host import/table/start guard. Never let an unsupported
     // managed-ref-bearing section bypass standalone preflight.
     if (id > 13) deny("unknown extension section not admitted");
-    if ([2, 4, 8, 9, 13].includes(id))
+    if (id === 2 || id === 4 || id === 8 || id === 9 || id === 13)
       deny("host import, table, start, element or tag section forbidden");
     if (id === 1) {
       if (sawType) deny("duplicate type section");
@@ -149,7 +155,8 @@ export function assertNoManagedWasm(bytes) {
         // This strict bootstrap supports only scalar const/global.get init.
         if (at >= end) deny("truncated global initializer");
         const op = bytes[at];
-        if (![0x41, 0x42, 0x43, 0x44, 0x23].includes(op)) {
+        if (op !== 0x41 && op !== 0x42 && op !== 0x43 &&
+            op !== 0x44 && op !== 0x23) {
           deny("managed or non-scalar global initializer forbidden");
         }
         scanInstruction(end);
