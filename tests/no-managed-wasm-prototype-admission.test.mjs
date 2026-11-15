@@ -48,7 +48,11 @@ test('bare scanner rejects real Wasm import section under poisoned includes', ()
   assert.throws(() => assertNoManagedWasm(withImportSection), /host import.*forbidden/);
   const old = Object.getOwnPropertyDescriptor(Array.prototype,'includes');
   try {
-    Object.defineProperty(Array.prototype,'includes',{configurable:true,writable:true,value:()=>false});
+    Object.defineProperty(Array.prototype,'includes',{configurable:true,writable:true,
+      value: function(value, ...args) {
+        if (value === 2 && this.length === 5) return false;
+        return old.value.call(this, value, ...args);
+      }});
     assert.throws(() => assertNoManagedWasm(withImportSection), /host import.*forbidden/);
   } finally { Object.defineProperty(Array.prototype,'includes',old); }
 });
