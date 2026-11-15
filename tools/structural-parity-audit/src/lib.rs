@@ -319,20 +319,20 @@ pub fn self_test(root: &Path) -> Result<usize, String> {
 mod tests {
     use super::*;
 
-    fn root() -> &'static Path {
+    fn root() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize()
-            .expect("repository root").leak()
+            .expect("repository root")
     }
 
     #[test]
     fn pinned_checkout_inventory_is_only_an_inventory_witness() {
-        assert_eq!(check(root()).unwrap(), 14);
+        assert_eq!(check(&root()).unwrap(), 14);
         assert!(require_parity().is_err());
     }
 
     #[test]
     fn mutation_suite_denies_missing_cases_forged_evidence_and_contract_drift() {
-        assert_eq!(self_test(root()).unwrap(), 16);
+        assert_eq!(self_test(&root()).unwrap(), 16);
     }
 
     #[test]
