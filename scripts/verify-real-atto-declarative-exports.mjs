@@ -112,6 +112,26 @@ function verify() {
       assert.equal(wasmExports.includes(name), false,
         name + ': language export cannot become a raw host Wasm export');
 
+    // The compiler may admit Unicode identifiers in ordinary source, but
+    // atto.exports.v1 is a canonical ASCII-only, <=256-byte wire contract.
+    const maxName = 'A' + 'z'.repeat(255);
+    const maxSource = 'export pub fnc ' + maxName + ';\nfnc ' + maxName +
+      '(): int { return 7; }\npub fnc main(): int { return 0; }';
+    const maxWasm = compile('name256', maxSource);
+    assert.deepEqual(readDeclarativeExports(new WebAssembly.Module(maxWasm)),
+      [{name:maxName, kind:'fnc', visibility:'public'}]);
+
+    const oversizedName = 'A' + 'z'.repeat(256);
+    for (const visibility of ['pub', 'pub[pkg]']) {
+      compile('name257-' + visibility.replace(/[^a-z]/g, ''), 'export ' + visibility +
+        ' fnc ' + oversizedName + ';\nfnc ' + oversizedName +
+        '(): int { return 7; }\npub fnc main(): int { return 0; }',
+      'E_EXPORT_NAME_TOO_LONG');
+    }
+    compile('name-unicode',
+      'export pub fnc Éclair;\nfnc Éclair(): int { return 7; }\n' +
+      'pub fnc main(): int { return 0; }', 'E_EXPORT_NAME');
+
     compile('unbound', 'export pub Missing;\npub fnc main(): int { return 0; }', 'E_UNBOUND');
     compile('duplicate', 'export pub Foo;\nexport pub class Foo;\n' +
       'define class Foo as end\npub fnc main(): int { return 0; }', 'E_DUPLICATE');
@@ -122,7 +142,7 @@ function verify() {
       result:'REAL_ATTO_EXPORTS_VERIFIED',
       compilerSha256: observedCompilerSha, wasmSha256:sha256(top),
       forwardPlacementIdentical:true, declared:expectedEntries.length,
-      negativeRejections:3, guestResult:'42',
+      negativeRejections:6, maxExportNameBytes:256, guestResult:'42',
       testedSource:'native attoc executable -> executed genuine Wasm module'
     }));
   } finally {
