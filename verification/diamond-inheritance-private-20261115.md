@@ -86,3 +86,36 @@ The same exact compiler source tree (SHA `3b6e05aac0eb6dffb521e513cb7f968ad7546e
 - Produced example guest Wasm SHA-256: `ca714cadda247ef92e6ecfe645c73129efa54750cb297cdf47f11f62556b01bd`, byte-identical to the guest produced by the newer Rust compiler
 
 This additional run establishes compatibility with the repository's pinned build toolchain. Compiler-host binary digests vary with toolchain; guest output for the audited sample does not. No cross-repository secrets, checkout token, public binary upload or release authorization were involved.
+
+## Java/LLVM design comparison and final Rust candidate (2026-11-15)
+
+- Rust source PR #137 commit `7cdd9703c9b4bfc83db2630f725dc66026f63061`,
+  **exact full Git tree `95729ff0cbf3e01199bcfef0c4f634480c934fa6`**:
+  [private run 43757809387](https://github.com/zed-pkg-test/oreslang-private-pr-validation-20261012/actions/runs/43757809387)
+  SUCCESS on source-pinned Rust 1.85.1, 128 Rust tests,
+  391 Wasm guest conformance cases, 354 native/Wasm guest-byte comparisons,
+  28 mailbox tests, 29 ABI checks and 11 Chromium tests. The exact page example
+  returned zero and printed `Ada\nhello\nroot\ndiamond resolved\n`, and three
+  malformed diamond mutations rejected. Private compiler Wasm candidate
+  SHA-256 `f82bc341786d42d8fcae3e2161bff45e3599f3a8fd5278a37beec83ce573031c`.
+- Java reference PR [#3119](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/3119):
+  [JDK25 private runner 43758701399](https://github.com/zed-pkg-test/oreslang-private-pr-validation-20261012/actions/runs/43758701399)
+  built and executed actual JVM guest semantics: six JUnit tests, zero failures,
+  including base-typed dynamic virtual calls, two-parent conflict resolution,
+  qualified statics and same-arity diagnostics. The exact page syntax is **not
+  yet admitted** in Java (trait default bodies / explicit `override` spelling).
+- LLVM reference PR [#1835](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1835):
+  [private runner 43760108733](https://github.com/zed-pkg-test/oreslang-private-pr-validation-20261012/actions/runs/43760108733)
+  built real C++ `oreslang-llvmc` from 319 SHA-verified source files and ran
+  36 Clang19 compiled class-method test cases, 36 ASan/UBSan repetitions,
+  O0/O2 compiled guest exit 42, and rejected the exact site source with **no LLVM
+  IR**. Native LLVM does **not yet implement** parent class layout, dynamic
+  virtual method tables or trait default witnesses.
+- The same exact site example blob `05814acb37c0335c03294875b870560a2839031d`
+  is present in draft branches across Rust, Wasm, Java and LLVM repos.
+  Git blob parity does **not** mean executable language parity.
+
+These observations are intentionally backend-qualified. The Java test's
+executed syntax is not the identical site sample; LLVM's no-IR rejection is
+fail-closed evidence only. Do not publish/pin the Rust-built compiler to the
+live playground until authorized release and deployed browser validation.
