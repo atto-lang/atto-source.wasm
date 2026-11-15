@@ -4,6 +4,12 @@ import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 import {readDeclarativeExports} from "./declarative-exports.mjs";
 
+// Bind trusted intrinsics before realm-local code can override the module
+// constructor/import and export introspection used for admission.
+const NativeWasmModule = WebAssembly.Module;
+const nativeModuleImports = NativeWasmModule.imports;
+const nativeModuleExports = NativeWasmModule.exports;
+
 /**
  * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
  * Pure checking: no guest instantiation, no guest code execution.
@@ -79,7 +85,7 @@ export function compileAdmittedCoreGuest(input, {
   if (memoryCount !== 1 || !hasMemoryMaximum) {
     throw Error("guest requires exactly one privately defined, bounded linear memory");
   }
-  const module = new WebAssembly.Module(bytes);
+  const module = new NativeWasmModule(bytes);
   // Validate compiler-export metadata before allowing any guest admission.
   // A package-only symbol cannot simultaneously be the public host entry.
   const fileExports = readDeclarativeExports(module);
@@ -89,13 +95,13 @@ export function compileAdmittedCoreGuest(input, {
     if (fileExports[i].name === entry && fileExports[i].visibility === "package")
       throw Error("EXPORT_PACKAGE_ENTRY_PUBLIC: private declaration cannot be a core guest entry");
   }
-  const imports = WebAssembly.Module.imports(module);
+  const imports = nativeModuleImports(module);
   if (imports.length !== 0) {
     throw Error("host imports denied: " + imports.map(x => x.module + "." + x.name).join(", "));
   }
   // Check function signature; JavaScript can silently coerce omitted params.
   assertCoreI64Entry(bytes, entry);
-  const exports = WebAssembly.Module.exports(module);
+  const exports = nativeModuleExports(module);
   // Verify the entire surface without mutable Array prototype methods.
   // A poisoned filter could otherwise silently discard an unexpected export.
   let hasEntry = false, hasMemory = false;
