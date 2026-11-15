@@ -10,6 +10,9 @@
 // Capture trusted Wasm intrinsics at module initialization. Realm-local code
 // changing the global methods later must not erase or forge export metadata.
 const NativeWasmModule = WebAssembly.Module;
+// Snapshot the native constructor: a same-realm global replacement could
+// otherwise rewrite the Wasm custom-section byte view and widen visibility.
+const NativeUint8Array = Uint8Array;
 const nativeCustomSections = NativeWasmModule.customSections;
 const decoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 // Preserve native UTF-8 validation and typed-array slicing even if code in
@@ -30,7 +33,7 @@ export function readDeclarativeExports(module) {
   const sections = nativeCustomSections(module, 'atto.exports.v1');
   if (sections.length > 1) throw new TypeError('EXPORT_MANIFEST_DUPLICATE_SECTION');
   if (!sections.length) return Object.freeze([]);
-  const bytes = new Uint8Array(sections[0]);
+  const bytes = new NativeUint8Array(sections[0]);
   if (bytes.byteLength > MAX_MANIFEST_BYTES)
     throw new TypeError('EXPORT_MANIFEST_SECTION_TOO_LARGE');
   let pos = 0;
