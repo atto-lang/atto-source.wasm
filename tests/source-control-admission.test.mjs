@@ -22,5 +22,8 @@ test('normal whitespace passes terminal-control preflight', () => {
 
 test('source preflight refuses non-byte inputs and oversize inputs', () => {
   assert.throws(() => rejectSourceTerminalControls('plain string'), TypeError);
-  assert.throws(() => rejectSourceTerminalControls(Buffer.alloc(1024*1024+1)), TypeError);
+  assert.throws(() => rejectSourceTerminalControls(Buffer.alloc(1024*1024+1)), RangeError);
+  const safe=Buffer.from('fnc main():int{return 42;}');
+  assert.doesNotThrow(() => rejectSourceTerminalControls(safe.buffer.slice(safe.byteOffset,safe.byteOffset+safe.byteLength)));
+  assert.doesNotThrow(() => rejectSourceTerminalControls(new DataView(safe.buffer,safe.byteOffset,safe.byteLength)));
 });
