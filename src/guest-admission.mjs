@@ -42,5 +42,7 @@ export async function package_browser_guest(input) {
   return {wasm:admitted.bytes,manifest:{schema:SCHEMA,protocol:PROTOCOL,guest_abi:'atto.browser.guest.v2',
     wasm_sha256:sha256,byte_length:admitted.bytes.length,has_actors:admitted.actors,actor_names:admitted.actor_names,memory_pages:admitted.memory_pages,imports:admitted.imports,
     tenant_execution:'dedicated-worker',actor_heap:'separate-wasm-instances',
-    route_wire:'atto.browser.route.v1',route_payload:'i64-signed-le8'}};
+    route_wire:'atto.browser.route.v1',route_payload:'i64-signed-le8',
+    send_receipt_protocol:'atto.browser.send-receipt.v1',
+    send_receipt_outcomes:['processed','rejected','unknown']}};
 }
