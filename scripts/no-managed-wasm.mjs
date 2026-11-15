@@ -8,10 +8,16 @@
  * JavaScript/V8/Node can still GC; guest compiler/linker/import audit and
  * ownership/drop proofs remain separate requirements.
  */
+// A Proxy of Uint8Array passes instanceof but can forge indexed reads; it is
+// not a genuine ArrayBuffer view. Pin native identity checks at import time
+// rather than trusting mutable global constructors/methods later.
+const NativeUint8Array = Uint8Array;
+const nativeIsView = ArrayBuffer.isView;
 export function assertNoManagedWasm(bytes) {
   // This scanner is a security boundary: never use mutable Array prototype
   // predicates for magic bytes or type/section allowlists.
-  if (!(bytes instanceof Uint8Array) || bytes.length < 8 ||
+  if (!(bytes instanceof NativeUint8Array) || !nativeIsView(bytes) ||
+      bytes.length < 8 ||
       bytes[0] !== 0 || bytes[1] !== 97 || bytes[2] !== 115 ||
       bytes[3] !== 109 || bytes[4] !== 1 || bytes[5] !== 0 ||
       bytes[6] !== 0 || bytes[7] !== 0) {
