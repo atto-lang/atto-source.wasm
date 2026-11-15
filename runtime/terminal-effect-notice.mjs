@@ -32,6 +32,16 @@ function integer(value, field) {
 function identifier(value, field) {
   if (typeof value !== 'string' || !ID_RE.test(value)) bad('invalid ' + field);
 }
+function wellFormedUtf16(s) {
+  for (let i = 0; i < s.length; i++) {
+    const u = s.charCodeAt(i);
+    if (u >= 0xD800 && u <= 0xDBFF) {
+      const next = s.charCodeAt(++i);
+      if (!(next >= 0xDC00 && next <= 0xDFFF)) return false;
+    } else if (u >= 0xDC00 && u <= 0xDFFF) return false;
+  }
+  return true;
+}
 function validate(value) {
   plain(value);
   const keys = Object.keys(value);
@@ -47,7 +57,8 @@ function validate(value) {
   if (!EFFECTS.has(value.effect)) bad('invalid terminal effect');
   if (typeof value.error_type !== 'string' || !ERROR_RE.test(value.error_type))
     bad('invalid Error type label');
-  if (typeof value.message !== 'string' || value.message.length > 1024 ||
+  if (typeof value.message !== 'string' || !wellFormedUtf16(value.message) ||
+      new TextEncoder().encode(value.message).byteLength > 1024 ||
       /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value.message)) bad('invalid message');
   return value;
 }
