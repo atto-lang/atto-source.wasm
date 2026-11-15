@@ -28,6 +28,14 @@ const expected = Object.freeze({
   'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n'
 });
 
+// Reviewed LLVM ownership-bang producer identity. These values are not
+// self-granted by the CI caller; any LLVM code change requires a separately
+// reviewed source+consumer repin. A matching environment alone does not attest
+// that the compiler executable was built from this tree; the CI publisher
+// must independently verify that binding before permitting guest proof.
+const REVIEWED_LLVM_HEAD = 'f8084de567464f5560b8992401c99145487bdbd3';
+const REVIEWED_LLVM_TREE = '9af9356f36a9a06f54fb4c98d5c503af3eef57ff';
+
 const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',import.meta.url);
 async function fixtures() {
   const result = new Map();
@@ -47,6 +55,10 @@ function compilerIdentity(e) {
   assert.match(e.ORESLANG_LLVM_COMPILER_SHA256??'',/^[a-f0-9]{64}$/,'compiler executable pin required');
   assert.match(e.ORESLANG_LLVM_SOURCE_SHA??'',/^[a-f0-9]{40}$/,'exact compiler source SHA required');
   assert.match(e.ORESLANG_LLVM_SOURCE_TREE_SHA??'',/^[a-f0-9]{40}$/,'exact compiler source tree SHA required');
+  assert.equal(e.ORESLANG_LLVM_SOURCE_SHA,REVIEWED_LLVM_HEAD,
+    'unreviewed LLVM compiler source head');
+  assert.equal(e.ORESLANG_LLVM_SOURCE_TREE_SHA,REVIEWED_LLVM_TREE,
+    'unreviewed LLVM compiler root tree');
   return {compiler:e.ORESLANG_LLVM_COMPILER,digest:e.ORESLANG_LLVM_COMPILER_SHA256};
 }
 
@@ -58,6 +70,18 @@ test('ownership bang .atto fixtures remain exact (SOURCE_ONLY)',async()=>{
 test('required real compiler cannot silently use an unpinned binary',()=>{
   assert.throws(()=>compilerIdentity({}),/absolute native/);
   assert.throws(()=>compilerIdentity({ORESLANG_LLVM_COMPILER:'/tmp/nope'}),/executable pin/);
+  const identity={
+    ORESLANG_LLVM_COMPILER:'/tmp/llvmc',
+    ORESLANG_LLVM_COMPILER_SHA256:'a'.repeat(64),
+    ORESLANG_LLVM_SOURCE_SHA:REVIEWED_LLVM_HEAD,
+    ORESLANG_LLVM_SOURCE_TREE_SHA:REVIEWED_LLVM_TREE
+  };
+  assert.deepEqual(compilerIdentity(identity),
+    {compiler:'/tmp/llvmc',digest:'a'.repeat(64)});
+  assert.throws(()=>compilerIdentity({...identity,ORESLANG_LLVM_SOURCE_SHA:'b'.repeat(40)}),
+    /unreviewed LLVM compiler source head/);
+  assert.throws(()=>compilerIdentity({...identity,ORESLANG_LLVM_SOURCE_TREE_SHA:'c'.repeat(40)}),
+    /unreviewed LLVM compiler root tree/);
 });
 
 const demand=process.env.ATTO_WASM_OWNERSHIP_BANG_REQUIRED??'0';
