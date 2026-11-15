@@ -39,9 +39,8 @@ const CANONICAL_GIT_BLOBS=Object.freeze({
  "reject-no-value-return.ores":"8cce1a3e24bec592834089d228f1047d61f510f0"
 });
 function gitBlobSha(bytes){
- return createHash("sha1").update(Buffer.from("blob "+bytes.length+"\\0".replace("\\0","\0"))).update(bytes).digest("hex");
+ return createHash("sha1").update(Buffer.from("blob "+bytes.length+String.fromCharCode(0))).update(bytes).digest("hex");
 }
-
 
 async function fixture(name){
  assert.match(name,/^[a-z][a-z0-9-]*\.ores$/);
