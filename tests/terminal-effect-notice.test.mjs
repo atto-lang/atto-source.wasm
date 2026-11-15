@@ -56,7 +56,7 @@ test('guest may not impersonate cancellation, host failure or recover', () => {
 
 test('untrusted object shape, prototype, accessor and oversize fail closed', () => {
   assert.throws(() => receiver().accept(null, WORKER), /plain object/);
-  assert.throws(() => receiver().accept(new Error('raise'), WORKER), /plain object|unexpected or missing fields/);
+  assert.throws(() => receiver().accept(new Error('raise'), WORKER), /prototype denied/);
   assert.throws(() => receiver().accept(
     Object.assign(Object.create({ effect: 'panic' }), notice()), WORKER), /prototype denied/);
   const forged = { ...notice() };
