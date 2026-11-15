@@ -1,4 +1,12 @@
+import {types} from "node:util";
+import {snapshotGuestBytes} from "../snapshot-guest-bytes.mjs";
+
 const utf8 = new TextEncoder();
+// Read the internal typed-array slot rather than an overridable .byteLength
+// property. Genuine cross-realm Uint8Array and Buffer views remain supported.
+const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
+const intrinsicByteLength = Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength").get);
 
 class BoundedQueue {
   #items = [];
@@ -16,8 +24,14 @@ class BoundedQueue {
     if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > this.maxBytes) return false;
     if (this.#items.length >= this.maxRecords || this.#bytes > this.maxBytes - bytes) return false;
     const owned = this.clone(value);
-    this.#items.push({owned, bytes});
-    this.#bytes += bytes;
+    // Charge exactly the bytes retained by the queue, not a caller-supplied
+    // getter's estimate. A resized/detached view must fail closed.
+    const ownedBytes = this.sizeOf(owned);
+    if (ownedBytes !== bytes) {
+      throw new TypeError("actor I/O record size changed during snapshot");
+    }
+    this.#items.push({owned, bytes: ownedBytes});
+    this.#bytes += ownedBytes;
     return true;
   }
   shift() {
@@ -34,11 +48,15 @@ class BoundedQueue {
   get bytes() { return this.#bytes; }
 }
 
-const cloneBytes = value => {
-  if (!(value instanceof Uint8Array)) throw new TypeError("actor I/O bytes require Uint8Array");
-  return Uint8Array.from(value);
+const byteLength = value => {
+  if (!types.isUint8Array(value))
+    throw new TypeError("actor I/O bytes require a genuine Uint8Array");
+  return intrinsicByteLength(value);
 };
-const byteLength = value => value.byteLength;
+const cloneBytes = value =>
+  // Snapshot via intrinsic slots, never Symbol.iterator/species/getters.
+  // SharedArrayBuffer-backed views are denied, not copied under a race.
+  snapshotGuestBytes(value, ActorIoEnvelope.MAX_BYTES);
 const textBytes = value => utf8.encode(value).byteLength;
 
 export class ActorIoEnvelope {
