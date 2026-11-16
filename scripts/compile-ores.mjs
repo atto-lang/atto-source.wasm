@@ -389,7 +389,7 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,experimentalInvertedI64=false}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -397,6 +397,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const sourceExtension=extname(source).toLowerCase();
  if(sourceExtension!==".atto"&&sourceExtension!==".ores")
   throw Error("source file must use canonical .atto or legacy .ores extension");
+ if(typeof experimentalInvertedI64!=="boolean")
+  throw new TypeError("experimentalInvertedI64 must be a boolean");
+ // The opt-in is a narrow compiler-backed two-i64 local SoA experiment.
+ // The native LLVM frontend owns all parse, type, borrow and MIR checks;
+ // this JavaScript bridge must never emulate or accept layouts on its own.
+ if(experimentalInvertedI64 && (sourceExtension!==".atto" ||
+    exportName!=="main" || !/^[a-f0-9]{64}$/.test(compilerSha256||"")))
+  throw Error("experimental inverted i64 Wasm requires .atto source, exact main and pinned compiler SHA-256");
  // Resolve directory symlinks ONCE and use that physical pathname for
  // publication, not the caller's possibly aliased directory spelling.
  // A lexical resolve() comparison alone can overwrite compiler/source
@@ -462,7 +470,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
- rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ // The normal Wasm bridge stays fail-closed. The opt-in delegates the
+ // restricted inverted program *entirely* to the pinned native LLVM compiler,
+ // which must reject classes, unsupported schemas, escaped owners and IR
+ // output on rejection. It does not enable an actor or general heap ABI.
+ if(!experimentalInvertedI64)rejectUnsupportedInvertedLayoutSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
@@ -573,7 +585,7 @@ if(calledFromCli){
  try{
   const usedOptions=new Set();
   const options=Object.fromEntries(process.argv.slice(2).map(x=>{
-   const m=/^--(compiler|source|output|export|clang|compiler-sha256|environment|publication)=(.*)$/.exec(x);
+   const m=/^--(compiler|source|output|export|clang|compiler-sha256|environment|publication|experimental-inverted-i64)=(.*)$/.exec(x);
    if(!m)throw Error("unexpected CLI option: "+x);
    if(usedOptions.has(m[1]))throw Error("duplicate CLI option: "+m[1]);
    usedOptions.add(m[1]);
@@ -583,7 +595,9 @@ if(calledFromCli){
    compiler:options.compiler,source:options.source,
    output:options.output||resolve(projectRoot,"build/guest.wasm"),
    exportName:options.export||"main",clang:options.clang||process.env.CLANG||"clang",
-   compilerSha256:options["compiler-sha256"],environment:options.environment,publication:options.publication||"legacy"
+   compilerSha256:options["compiler-sha256"],environment:options.environment,publication:options.publication||"legacy",
+   experimentalInvertedI64:options["experimental-inverted-i64"]===undefined?false:
+     options["experimental-inverted-i64"]==="true"
   });
   console.log(JSON.stringify(record,null,2));
  }catch(error){console.error(error.stack||error.message);process.exitCode=1}
