@@ -1,0 +1,138 @@
+{
+  "contract": "oreslang.private-abstract-actor-hook.v1",
+  "status": "normative_expected_not_compiler_evidence",
+  "backend_order": [
+    "java",
+    "llvm",
+    "net",
+    "wasm",
+    "forge"
+  ],
+  "backend_capabilities": {
+    "java": {
+      "candidate": "oreslang-source.java#1090",
+      "status": "candidate_unverified",
+      "requires": "JDK25 Maven + JVM actor guest + Graal Native Image"
+    },
+    "llvm": {
+      "candidate": "oreslang-source.llvm#479",
+      "status": "partial_candidate_unverified",
+      "requires": "native parser + CTest + compiler-produced guest; canonical receive mapping"
+    },
+    "net": {
+      "candidate": "oreslang-source.net#40",
+      "status": "fail_closed_until_compiler_support",
+      "requires": "C# source compiler + Native AOT source guest"
+    },
+    "wasm": {
+      "candidate": "oreslang-source.wasm#38",
+      "status": "fail_closed_until_compiler_support",
+      "requires": "pinned real LLVM compiler + Wasm guest"
+    },
+    "forge": {
+      "candidate": "oreslang-source.forge#36",
+      "status": "fail_closed_until_compiler_support",
+      "requires": "native Forge compiler + CTest source guest"
+    }
+  },
+  "rules": [
+    "origin_class_only_invocation",
+    "must_implement_concrete",
+    "same_slot_inline_self",
+    "deny_method_capture",
+    "deny_direct_receive",
+    "deny_direct_on_start",
+    "deny_visibility_widening",
+    "deny_signature_drift",
+    "deny_ambiguous_origin",
+    "fail_closed_unsupported",
+    "compiler_evidence_required",
+    "protected_approval_before_private_mirror"
+  ],
+  "vectors": [
+    {
+      "id": "class_dispatch",
+      "scope": "class",
+      "expected": "accept",
+      "diagnostic": "superclass virtual dispatch only",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\n  pub deliver(int value): int { return self.receive(value); }\nend\ndefine class Worker extends Framework as\n  private receive(int value): int { return value + 1; }\nend"
+    },
+    {
+      "id": "class_derived_call",
+      "scope": "class",
+      "expected": "reject",
+      "diagnostic": "private abstract origin authority",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\nend\ndefine class Worker extends Framework as\n  private receive(int value): int { return value; }\n  pub bypass(): int { return self.receive(2); }\nend"
+    },
+    {
+      "id": "class_public_widening",
+      "scope": "class",
+      "expected": "reject",
+      "diagnostic": "private abstract visibility escalation",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\nend\ndefine class Worker extends Framework as\n  pub receive(int value): int { return value; }\nend"
+    },
+    {
+      "id": "class_argument_mismatch",
+      "scope": "class",
+      "expected": "reject",
+      "diagnostic": "private abstract parameter type mismatch",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\nend\ndefine class Worker extends Framework as\n  private receive(bool value): int { return 1; }\nend"
+    },
+    {
+      "id": "class_return_mismatch",
+      "scope": "class",
+      "expected": "reject",
+      "diagnostic": "private abstract return type mismatch",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\nend\ndefine class Worker extends Framework as\n  private receive(int value): bool { return true; }\nend"
+    },
+    {
+      "id": "class_missing_implementation",
+      "scope": "class",
+      "expected": "reject",
+      "diagnostic": "unresolved abstract slot",
+      "source": "define abstract class Framework as\n  private abstract receive(int value): int;\nend\ndefine class Worker extends Framework as\nend"
+    },
+    {
+      "id": "actor_receive_self",
+      "scope": "actor",
+      "expected": "accept",
+      "diagnostic": "explicit Self receiver normalized to receive/1",
+      "source": "define actor Worker as\n  receive(self, ActorMail<String> mail): void {\n    self.end();\n    return;\n  }\nend"
+    },
+    {
+      "id": "actor_receive_implicit",
+      "scope": "actor",
+      "expected": "accept",
+      "diagnostic": "implicit Self receiver normalized to receive/1",
+      "source": "define actor Worker as\n  receive(ActorMail<String> mail): void {\n    self.end();\n    return;\n  }\nend"
+    },
+    {
+      "id": "actor_receive_duplicate",
+      "scope": "actor",
+      "expected": "reject",
+      "diagnostic": "duplicate name and value arity",
+      "source": "define actor Worker as\n  receive(self, ActorMail<String> mail): void { return; }\n  receive(ActorMail<String> mail): void { return; }\nend"
+    },
+    {
+      "id": "actor_receive_direct",
+      "scope": "actor",
+      "expected": "reject",
+      "diagnostic": "runtime-only mailbox ingress",
+      "source": "define actor Worker as\n  receive(ActorMail<String> mail): void {\n    self.receive(mail);\n    return;\n  }\nend"
+    },
+    {
+      "id": "actor_receive_reference",
+      "scope": "actor",
+      "expected": "reject",
+      "diagnostic": "runtime-only hook method value capture",
+      "source": "define actor Worker as\n  receive(ActorMail<String> mail): void {\n    val callback = self.receive;\n    return;\n  }\nend"
+    },
+    {
+      "id": "actor_on_start_direct",
+      "scope": "actor",
+      "expected": "reject",
+      "diagnostic": "runtime-only startup ingress",
+      "source": "define actor Worker as\n  on_start(): void { return; }\n  receive(ActorMail<String> mail): void {\n    self.on_start();\n    return;\n  }\nend"
+    }
+  ]
+}

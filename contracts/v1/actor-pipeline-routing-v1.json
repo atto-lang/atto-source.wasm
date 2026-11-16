@@ -1,0 +1,130 @@
+{
+  "schema": "oreslang.actor-pipeline-routing.v1",
+  "scope": "host-selector-only; source actor lowering is a separate release gate",
+  "graph": {
+    "stages": [
+      {
+        "id": "producer-1",
+        "actor_type": "Producer",
+        "role": "readable",
+        "inbound": "",
+        "outbound": "Event"
+      },
+      {
+        "id": "worker-a",
+        "actor_type": "Worker",
+        "role": "writable",
+        "inbound": "Event",
+        "outbound": ""
+      },
+      {
+        "id": "worker-b",
+        "actor_type": "Worker",
+        "role": "writable",
+        "inbound": "Event",
+        "outbound": ""
+      },
+      {
+        "id": "worker-c",
+        "actor_type": "Worker",
+        "role": "writable",
+        "inbound": "Event",
+        "outbound": ""
+      }
+    ],
+    "connections": [
+      {
+        "source": "producer-1",
+        "target": "worker-a",
+        "payload": "Event"
+      },
+      {
+        "source": "producer-1",
+        "target": "worker-b",
+        "payload": "Event"
+      },
+      {
+        "source": "producer-1",
+        "target": "worker-c",
+        "payload": "Event"
+      }
+    ]
+  },
+  "operations": {
+    "forward": {
+      "error": "ambiguous forward"
+    },
+    "forward_all": [
+      "worker-a",
+      "worker-b",
+      "worker-c"
+    ],
+    "forward_round_robin": [
+      "worker-a",
+      "worker-b",
+      "worker-c",
+      "worker-a",
+      "worker-b",
+      "worker-c"
+    ],
+    "forward_to": {
+      "target": "worker-b",
+      "expected": "worker-b"
+    },
+    "invalid_target": {
+      "target": "worker-z",
+      "error": "not connected"
+    },
+    "by_key": [
+      {
+        "key": "customer-7",
+        "fnv1a64_hex": "660308ab83c6fdf1",
+        "target": "worker-a"
+      },
+      {
+        "key": "alpha",
+        "fnv1a64_hex": "8ac625bb85ed202b",
+        "target": "worker-a"
+      },
+      {
+        "key": "beta",
+        "fnv1a64_hex": "7627619b954620a7",
+        "target": "worker-c"
+      },
+      {
+        "key": "🌍",
+        "fnv1a64_hex": "ff430438753bca3b",
+        "target": "worker-a"
+      },
+      {
+        "key": "",
+        "fnv1a64_hex": "cbf29ce484222325",
+        "target": "worker-c"
+      },
+      {
+        "key": "\u0000",
+        "fnv1a64_hex": "af63bd4c8601b7df",
+        "target": "worker-a"
+      }
+    ]
+  },
+  "rejected": [
+    "duplicate-instance-id",
+    "duplicate-edge",
+    "unknown-target",
+    "self-edge",
+    "payload-mismatch",
+    "cyclic-graph",
+    "invalid-utf8",
+    "overlong-component",
+    "post-retirement-route"
+  ],
+  "notes": [
+    "sender identity authenticated by runtime before real mailbox admission",
+    "fan-out is nontransactional",
+    "receipt only indicates admission",
+    "RR attempt consumes turn even when mailbox rejects",
+    "no shared mutable actor heap alias",
+    "no borrowed actor state crossing suspension"
+  ]
+}

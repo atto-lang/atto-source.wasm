@@ -1,0 +1,1 @@
+pub fnc main(): int { return 100 - 60 - 15; }

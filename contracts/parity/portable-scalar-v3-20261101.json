@@ -1,0 +1,117 @@
+{
+  "schema_version": "2026-11-01.scalar-v3",
+  "scope": "import-free-pure-i64",
+  "status": "AUTHORED_ONLY_NOT_EXECUTED",
+  "semantics": "Checked signed i64; eager arithmetic; no %, ^, ^^; no JS Number intermediates; no implict conversion. Compiler reject distinct from guest overflow trap; no emitted guest stdout after compiler rejection.",
+  "positive": [
+    {
+      "id": "near-max-sum",
+      "expression": "9223372036854775805 + 2",
+      "expected": "9223372036854775807"
+    },
+    {
+      "id": "near-min-successor-two",
+      "expression": "(-9223372036854775807 - 1) + 2",
+      "expected": "-9223372036854775806"
+    },
+    {
+      "id": "wide-precision-multiply",
+      "expression": "(9007199254740993 - 9007199254740992) * 41",
+      "expected": "41"
+    },
+    {
+      "id": "signed-precision-three",
+      "expression": "-9007199254740995 + 9007199254740992",
+      "expected": "-3"
+    },
+    {
+      "id": "trillion-zero-cancel",
+      "expression": "1000000000000000 + (-1000000000000000)",
+      "expected": "0"
+    },
+    {
+      "id": "mixed-precedence",
+      "expression": "5 + 7 * 9 - 4 * 3",
+      "expected": "56"
+    },
+    {
+      "id": "right-nested-subtraction-v3",
+      "expression": "80 - (50 - (25 - 5))",
+      "expected": "50"
+    },
+    {
+      "id": "left-nested-subtraction-v3",
+      "expression": "((80 - 50) - 25) - 5",
+      "expected": "0"
+    },
+    {
+      "id": "wide-positive-product",
+      "expression": "2147483647 * 2147483647",
+      "expected": "4611686014132420609"
+    },
+    {
+      "id": "wide-negative-product",
+      "expression": "(-2147483647) * 2147483647",
+      "expected": "-4611686014132420609"
+    },
+    {
+      "id": "quadruple-negation",
+      "expression": "-(-(-(-33)))",
+      "expected": "33"
+    },
+    {
+      "id": "max-range-roundtrip",
+      "expression": "(9223372036854775800 - 9007199254740993) + 9007199254740993",
+      "expected": "9223372036854775800"
+    }
+  ],
+  "compile_reject": [
+    {
+      "id": "removed-percent-new",
+      "expression": "11 % 4",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "removed-caret-new",
+      "expression": "11 ^ 4",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "removed-double-caret-new",
+      "expression": "11 ^^ 4",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "positive-outside-signed-range",
+      "expression": "9223372036854775808 + 1",
+      "reason": "literal-out-of-range"
+    },
+    {
+      "id": "negative-outside-signed-range",
+      "expression": "-9223372036854775809",
+      "reason": "literal-out-of-range"
+    }
+  ],
+  "checked_overflow": [
+    {
+      "id": "max-add-two-overflow",
+      "expression": "9223372036854775807 + 2",
+      "reason": "checked-runtime-overflow"
+    },
+    {
+      "id": "min-minus-one-overflow",
+      "expression": "(-9223372036854775807 - 1) - 1",
+      "reason": "checked-runtime-overflow"
+    },
+    {
+      "id": "positive-square-overflow",
+      "expression": "3037000500 * 3037000500",
+      "reason": "checked-runtime-overflow"
+    },
+    {
+      "id": "negative-square-overflow",
+      "expression": "(-3037000500) * 3037000500",
+      "reason": "checked-runtime-overflow"
+    }
+  ]
+}
