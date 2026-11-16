@@ -524,7 +524,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // took its checked, single-main inverted HIR/MIR emitter. A scalar program
  // with a dead unsupported declaration must NOT silently gain this path.
  if(experimentalInvertedI64 &&
-   (!ir.startsWith("; typed MIR, experimental local i64 pair LLVM IR; no external row handles\\n") ||
+   (!ir.startsWith("; typed MIR, experimental local i64 pair LLVM IR; no external row handles\n") ||
     !ir.includes("store volatile i1 false, ptr %alive") ||
     !ir.includes("define i64 @main()")))
   throw Error("native LLVM compiler did not emit verified inverted i64 MIR guest");
