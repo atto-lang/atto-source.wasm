@@ -136,7 +136,7 @@ mod tests{
    3,2,1,0,
    5,4,1,1,1,2,
    7,17,2,4,109,97,105,110,0,0,6,109,101,109,111,114,121,2,0,
-   10,26,1,23,0,0xfd,0x0c
+   10,25,1,23,0,0xfd,0x0c
   ];
   wasm.extend_from_slice(&[0;16]); // v128.const immediate
   wasm.extend_from_slice(&[0x1a,0x42,42,0x0b]); // drop; i64.const 42; end
