@@ -19,10 +19,16 @@ jobs:
         run: cargo run --quiet --manifest-path tools/structural-parity-audit/Cargo.toml -- --self-test
       - name: Verify pinned shared inventory (never guest parity)
         run: cargo run --quiet --manifest-path tools/structural-parity-audit/Cargo.toml -- --check
-      - name: Verify release-parity promotion is denied
+      - name: Verify release-parity promotion returns the exact intended denial
         shell: bash
         run: |
-          if cargo run --quiet --manifest-path tools/structural-parity-audit/Cargo.toml -- --require-parity; then
-            echo "Inventory-only evidence incorrectly authorized structural parity" >&2
+          set -euo pipefail
+          set +e
+          output="$(cargo run --quiet --manifest-path tools/structural-parity-audit/Cargo.toml -- --require-parity 2>&1)"
+          status=$?
+          set -e
+          if [[ "$status" -ne 1 ]] ||
+             ! grep -Fqx 'STRUCTURAL PARITY AUDIT FAILED: NOT AT PARITY: no independent verified guest runtime evidence' <<< "$output"; then
+            printf 'Expected precise inventory-only denial (status=1), received status=%s and output:\n%s\n' "$status" "$output" >&2
             exit 1
           fi
