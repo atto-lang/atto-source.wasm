@@ -61,7 +61,7 @@ fn fixtures() -> [(&'static str, Vec<u8>); 8] {
         ("extra-memory", module(&[sig.clone(), func.clone(),
                                   section(5, &[2, 1, 1, 2, 1, 1, 2]),
                                   exports.clone(), code.clone()])),
-        ("start", module(&[start_sig, start_functions, memory.clone(), exports,
+        ("start", module(&[start_sig, start_functions, memory.clone(), exports.clone(),
                            section(8, &[1]), start_code])),
         ("simd", module(&[sig.clone(), func.clone(), memory.clone(),
                             exports.clone(), simd_code])),
