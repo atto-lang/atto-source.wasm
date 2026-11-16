@@ -1,0 +1,13 @@
+// Full-width signed i64 Wasm ABI regression. A native i32 process-exit ABI
+// would truncate 2^32+42 to 42; the Wasm guest must preserve 4294967338.
+// Verified one-level two-i64, stack-local owner only. No actor handles.
+define inverted struct Row as
+    let value: int;
+    token: int;
+end
+
+fnc main(): int {
+    let rows = InvertedArray<Row>.with_capacity(2);
+    rows.push(4294967338, 81);
+    return rows.get(0, value);
+}
