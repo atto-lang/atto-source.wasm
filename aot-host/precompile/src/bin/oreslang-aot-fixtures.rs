@@ -27,7 +27,7 @@ fn module(sections: &[Vec<u8>]) -> Vec<u8> {
     bytes
 }
 
-fn fixtures() -> [(&'static str, Vec<u8>); 6] {
+fn fixtures() -> [(&'static str, Vec<u8>); 8] {
     let sig = section(1, &[1, 0x60, 0, 1, 0x7e]); // () -> i64
     let func = section(3, &[1, 0]);
     let memory = section(5, &[1, 1, 1, 2]); // 1..2 private pages
@@ -40,6 +40,17 @@ fn fixtures() -> [(&'static str, Vec<u8>); 6] {
     let imports = section(2, &[1, 3, b'e', b'n', b'v', 1, b'f', 0, 0]);
     let shifted_exports = section(7, &[2, 4, b'm', b'a', b'i', b'n', 0, 1,
                                        6, b'm', b'e', b'm', b'o', b'r', b'y', 2, 0]);
+    // Both modules are valid under ordinary Wasm validation, but the
+    // sealed scalar profile forbids the optional SIMD and tail-call proposals.
+    let mut simd_body = vec![1, 23, 0, 0xfd, 0x0c]; // 1 body, 23 bytes, local count 0
+    simd_body.extend_from_slice(&[0; 16]); // v128.const immediate
+    simd_body.extend_from_slice(&[0x1a, 0x42, 42, 0x0b]); // drop; 42; end
+    let simd_code = section(10, &simd_body);
+    let tail_functions = section(3, &[2, 0, 0]); // main + private helper
+    let tail_code = section(10, &[
+        2, 4, 0, 0x12, 1, 0x0b, // main: return_call helper
+        4, 0, 0x42, 42, 0x0b    // helper: i64.const 42
+    ]);
     [
         ("valid", module(&[sig.clone(), func.clone(), memory.clone(),
                            exports.clone(), code.clone()])),
@@ -52,6 +63,10 @@ fn fixtures() -> [(&'static str, Vec<u8>); 6] {
                                   exports.clone(), code.clone()])),
         ("start", module(&[start_sig, start_functions, memory.clone(), exports,
                            section(8, &[1]), start_code])),
+        ("simd", module(&[sig.clone(), func.clone(), memory.clone(),
+                            exports.clone(), simd_code])),
+        ("tail-call", module(&[sig.clone(), tail_functions, memory.clone(),
+                                 exports.clone(), tail_code])),
         ("import", module(&[sig, imports, func, memory, shifted_exports, code])),
     ]
 }
@@ -131,9 +146,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_six_fixtures_have_wasm_magic_and_distinct_bodies() {
+    fn all_eight_fixtures_have_wasm_magic_and_distinct_bodies() {
         let cases = fixtures();
-        assert_eq!(cases.len(), 6);
+        assert_eq!(cases.len(), 8);
         for (name, bytes) in &cases {
             assert!(bytes.starts_with(HEADER), "{name}");
             assert!(bytes.len() > HEADER.len(), "{name}");
