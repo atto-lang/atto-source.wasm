@@ -47,7 +47,14 @@ pub fn validate_scalar_module(wasm:&[u8])->Result<(),Box<dyn Error>>{
   WasmFeatures::GC |
   WasmFeatures::GC_TYPES |
   WasmFeatures::REFERENCE_TYPES |
-  WasmFeatures::FUNCTION_REFERENCES
+  WasmFeatures::FUNCTION_REFERENCES |
+  WasmFeatures::SIMD |
+  WasmFeatures::RELAXED_SIMD |
+  WasmFeatures::TAIL_CALL |
+  WasmFeatures::THREADS |
+  WasmFeatures::EXCEPTIONS |
+  WasmFeatures::MEMORY64 |
+  WasmFeatures::MULTI_MEMORY
  );
  Validator::new_with_features(features).validate_all(wasm)?;
  Ok(())
@@ -113,6 +120,40 @@ mod tests{
    3,2,1,0,
    5,4,1,1,1,2,
    10,7,1,5,0,0xd0,0x6f,0x1a,0x0b,
+  ];
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_err());
+ }
+
+
+ #[test]
+ fn strict_scalar_profile_rejects_valid_simd_function_body(){
+  // Valid zero-import module with private memory and unused v128.const.
+  // SIMD code never belongs in core-wasm.i64-v1 without a new profile.
+  let mut wasm=vec![
+   0,97,115,109,1,0,0,0,
+   1,5,1,0x60,0,1,0x7e,
+   3,2,1,0,
+   5,4,1,1,1,2,
+   7,17,2,4,109,97,105,110,0,0,6,109,101,109,111,114,121,2,0,
+   10,26,1,23,0,0xfd,0x0c
+  ];
+  wasm.extend_from_slice(&[0;16]); // v128.const immediate
+  wasm.extend_from_slice(&[0x1a,0x42,42,0x0b]); // drop; i64.const 42; end
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_err());
+ }
+ #[test]
+ fn strict_scalar_profile_rejects_valid_tail_call_body(){
+  // Valid main() returning 42 via return_call helper(). Node scalar
+  // admission rejects opcode 0x12; strict native precompile must agree.
+  let wasm=[
+   0,97,115,109,1,0,0,0,
+   1,5,1,0x60,0,1,0x7e,
+   3,3,2,0,0,
+   5,4,1,1,1,2,
+   7,17,2,4,109,97,105,110,0,0,6,109,101,109,111,114,121,2,0,
+   10,11,2,4,0,0x12,1,0x0b,4,0,0x42,42,0x0b
   ];
   assert!(Validator::new().validate_all(&wasm).is_ok());
   assert!(validate_scalar_module(&wasm).is_err());
