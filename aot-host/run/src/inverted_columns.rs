@@ -243,4 +243,38 @@ mod tests {
         assert!(ActorLocalColumns::new(1, 0, 1).is_err());
         assert!(ActorLocalColumns::new(1, 1, MAX_ROWS).is_ok());
     }
+
+    #[test]
+    fn generation_exhaustion_cannot_erase_or_reissue_a_live_row() {
+        let mut rows = ActorLocalColumns::new(2, 9, 1).unwrap();
+        let handle = rows.insert(7, 11).unwrap();
+        rows.generations[handle.slot] = u64::MAX;
+        let final_handle = RowHandle {
+            generation: u64::MAX,
+            ..handle.clone()
+        };
+        let before = rows.snapshot(&final_handle).unwrap();
+        assert_eq!(rows.erase(&final_handle), Err("SoA row generation exhausted"));
+        assert_eq!(rows.snapshot(&final_handle).unwrap(), before);
+        assert_eq!(rows.len(), 1);
+        assert!(rows.insert(1, 2).is_err(), "overflow cannot free a live row");
+        // The previous handle remains stale despite the same owner/slot.
+        assert!(rows.snapshot(&handle).is_err());
+    }
+
+    #[test]
+    fn epoch_exhaustion_cannot_partially_update_or_erase_fields() {
+        let mut rows = ActorLocalColumns::new(2, 9, 1).unwrap();
+        let handle = rows.insert(13, 21).unwrap();
+        rows.layout_epoch = u64::MAX;
+        let before = rows.snapshot(&handle).unwrap();
+        assert_eq!(rows.move_by(&handle, 1, 1), Err("layout epoch exhausted"));
+        assert_eq!(rows.erase(&handle), Err("layout epoch exhausted"));
+        assert_eq!(rows.snapshot(&handle).unwrap(), before);
+        assert_eq!(rows.len(), 1);
+        rows.close().unwrap();
+        assert_eq!(&*rows.x, &[0]);
+        assert_eq!(&*rows.y, &[0]);
+    }
+
 }
