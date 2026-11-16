@@ -5,6 +5,7 @@ use std::error::Error;
 pub fn validate_scalar_module(wasm:&[u8])->Result<(),Box<dyn Error>>{
  let mut memory_sections=0usize;
  let mut memories=0usize;
+ let mut export_sections=0usize;
  for payload in Parser::new(0).parse_all(wasm){
   match payload?{
    Payload::Version{encoding,..}=>{
@@ -16,6 +17,8 @@ pub fn validate_scalar_module(wasm:&[u8])->Result<(),Box<dyn Error>>{
    // Restrict export names and kinds before any Wasmtime compilation.
    // Signature, index and completeness checks remain in the compiled ABI gate.
    Payload::ExportSection(reader)=>{
+    export_sections+=1;
+    if export_sections!=1{return Err("duplicate Wasm export section".into());}
     let mut main_seen=false;
     let mut memory_seen=false;
     for entry in reader {
@@ -139,6 +142,14 @@ mod export_preflight_tests {
    assert!(error.to_string().contains("duplicate Wasm export identity"),
     "wrong duplicate-denial cause: {error}");
   }
+ }
+
+ #[test]
+ fn repeated_export_sections_cannot_reset_export_identity_tracking() {
+  let mut raw=raw_module(&[("main",0),("memory",2)]);
+  // Another empty export section is invalid even without a duplicate name.
+  raw.extend_from_slice(&[7,1,0]);
+  assert!(validate_scalar_module(&raw).is_err());
  }
 
  #[test]
