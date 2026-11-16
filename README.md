@@ -1,3 +1,9 @@
+> **Canonical home moved (2026-11-16):** this compiler now lives in
+> [atto-lang/atto-source.wasm](https://github.com/atto-lang/atto-source.wasm) at the repository root (full history),
+> merged in atto-lang commit `8bad97834e`. All commits up to `088c637d72`
+> are preserved there. **Open new work and pull requests in atto-lang**; open PRs
+> here must be re-opened against atto-lang before they can land.
+
 # Oreslang source-to-WebAssembly backend
 
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
