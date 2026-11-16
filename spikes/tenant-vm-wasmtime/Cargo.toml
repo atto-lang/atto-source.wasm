@@ -1,0 +1,8 @@
+[package]
+name = "wasmtime-spike"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+wasmtime = { version = "=49.0.5", default-features = false, features = ["std", "runtime", "cranelift", "wat"] }
+[profile.release]
+debug = 0

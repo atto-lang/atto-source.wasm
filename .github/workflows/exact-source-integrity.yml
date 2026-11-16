@@ -1,0 +1,28 @@
+name: Physical exact-source integrity (source-free)
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: source-integrity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  physical-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checked-out physical source before any toolchain install
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: bash verification/source-integrity/verify.sh "$EXPECTED_HEAD"
+      - name: Exercise wrong-head and modified/staged/untracked/ignored/mode/symlink rejections
+        shell: bash
+        run: bash verification/source-integrity/test.sh
