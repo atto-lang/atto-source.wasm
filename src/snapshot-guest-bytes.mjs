@@ -2,10 +2,7 @@
 // and typed-array/DataView slots. Do not import node:util: this byte admission
 // primitive is also needed in browser module Workers and desktop WebViews.
 // Capture trusted builtins before application code can replace them.
-const call = Function.prototype.call;
-const bind = Function.prototype.bind;
-const nativeCall = bind.call(call, call);
-const boundGetter = getter => bind.call(call, getter);
+const boundGetter = getter => Function.prototype.call.bind(getter);
 const arrayBufferSize = boundGetter(
   Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get);
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
