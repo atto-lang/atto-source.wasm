@@ -123,8 +123,9 @@ mod export_preflight_tests {
    vec![("main",0),("memory",0)],
    vec![("main",0),("memory",3)],
   ] {
-   assert!(validate_scalar_module(&raw_module(&exports)).is_err(),
-    "unexpected exports accepted: {exports:?}");
+   let error=validate_scalar_module(&raw_module(&exports)).unwrap_err();
+   assert!(error.to_string().contains("unexpected or mis-typed Wasm export"),
+    "wrong denial for {exports:?}: {error}");
   }
  }
 
@@ -134,7 +135,9 @@ mod export_preflight_tests {
    vec![("main",0),("main",0),("memory",2)],
    vec![("main",0),("memory",2),("memory",2)],
   ] {
-   assert!(validate_scalar_module(&raw_module(&exports)).is_err());
+   let error=validate_scalar_module(&raw_module(&exports)).unwrap_err();
+   assert!(error.to_string().contains("duplicate Wasm export identity"),
+    "wrong duplicate-denial cause: {error}");
   }
  }
 
