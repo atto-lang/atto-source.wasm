@@ -21,9 +21,9 @@ const gitBlob = bytes => createHash("sha1")
   .update(Buffer.from("blob " + bytes.length + "\0")).update(bytes).digest("hex");
 const required = process.env.ATTO_BOUNDS_WASM_PARITY_REQUIRED === "1";
 
-function git(args) {
+function git(args, sourceDirectory = checkout) {
   const run = spawnSync("git", args, {
-    cwd: checkout, encoding: "utf8", timeout: 5000, maxBuffer: 65536
+    cwd: sourceDirectory, encoding: "utf8", timeout: 5000, maxBuffer: 65536
   });
   assert.ifError(run.error);
   assert.equal(run.status, 0, "Git provenance failure: " + String(run.stderr).slice(0, 300));
@@ -52,11 +52,17 @@ test("required LLVM-to-Wasm portable bounds guest + negative type check", {
   const digest = process.env.ORESLANG_LLVM_COMPILER_SHA256;
   const sourceHead = process.env.ORESLANG_LLVM_SOURCE_SHA;
   const sourceTree = process.env.ORESLANG_LLVM_SOURCE_TREE;
+  const llvmSourceRoot = process.env.ORESLANG_LLVM_SOURCE_ROOT;
   const expectedWasmHead = process.env.ATTO_BOUNDS_WASM_EXPECTED_HEAD;
   assert.ok(compiler && isAbsolute(compiler), "absolute real LLVM compiler is required");
   assert.match(digest || "", /^[0-9a-f]{64}$/, "reviewed LLVM compiler digest required");
   assert.match(sourceHead || "", /^[0-9a-f]{40}$/, "reviewed LLVM Git head required");
   assert.match(sourceTree || "", /^[0-9a-f]{40}$/, "reviewed LLVM root tree required");
+  assert.ok(llvmSourceRoot && isAbsolute(llvmSourceRoot), "absolute reviewed LLVM source checkout required");
+  assert.equal(git(["rev-parse", "HEAD"], llvmSourceRoot), sourceHead,
+    "LLVM source checkout HEAD differs from pinned compiler source");
+  assert.equal(git(["rev-parse", "HEAD^{tree}"], llvmSourceRoot), sourceTree,
+    "LLVM source checkout root tree differs from pin");
   assert.match(expectedWasmHead || "", /^[0-9a-f]{40}$/, "expected Wasm checkout head required");
   assert.equal(git(["rev-parse", "HEAD"]), expectedWasmHead, "unexpected checkout head");
   const originalTree = git(["rev-parse", "HEAD^{tree}"]);
@@ -101,6 +107,10 @@ test("required LLVM-to-Wasm portable bounds guest + negative type check", {
     assert.equal(gitBlob(await input("bounds.atto")), expectedBlob, "source drift during run");
     assert.equal(git(["rev-parse", "HEAD"]), expectedWasmHead, "checkout moved during run");
     assert.equal(git(["rev-parse", "HEAD^{tree}"]), originalTree, "checkout tree changed");
+    assert.equal(git(["rev-parse", "HEAD"], llvmSourceRoot), sourceHead,
+      "LLVM source HEAD changed during guest execution");
+    assert.equal(git(["rev-parse", "HEAD^{tree}"], llvmSourceRoot), sourceTree,
+      "LLVM source tree changed during guest execution");
     const after = await readBoundedRegularFile(compiler, 256 * 1024 * 1024);
     assert.equal(sha256(after.bytes), digest, "compiler bytes changed during execution");
     console.log("ATTO_PORTABLE_BOUNDS_WASM_GUEST_EXECUTED" +
