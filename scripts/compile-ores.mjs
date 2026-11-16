@@ -498,7 +498,15 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource],{cwd:scratch});
+ // Verified inverted source currently has a sole local main and a
+ // separate compiler-owned HIR/MIR closed-world gate. Passing the ordinary
+ // tree-shaker flags would falsely reject this slice before MIR lowering.
+ // Never bypass tree-shaking for a general guest: this exception is limited
+ // to explicit opt-in and the native compiler still rejects extra functions.
+ const compilerArgs=experimentalInvertedI64
+  ? ["--target=wasm32",stagedSource]
+  : ["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource];
+ const ir=run(stagedCompiler,compilerArgs,{cwd:scratch});
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -591,6 +599,9 @@ if(calledFromCli){
    usedOptions.add(m[1]);
    return[m[1],m[2]];
   }));
+  if(options["experimental-inverted-i64"]!==undefined &&
+     !["true","false"].includes(options["experimental-inverted-i64"]))
+   throw Error("experimental-inverted-i64 must be true or false");
   const record=await compileOresToWasm({
    compiler:options.compiler,source:options.source,
    output:options.output||resolve(projectRoot,"build/guest.wasm"),
