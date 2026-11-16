@@ -182,22 +182,18 @@ mod tests {
         assert_eq!(rows.len(), 2);
         rows.erase(&first).unwrap();
         assert!(rows.snapshot(&first).is_err());
-        let replacement = rows.insert(21, 34).unwrap();
+        let mut current = rows.insert(21, 34).unwrap();
         assert!(rows.snapshot(&first).is_err());
-        assert_eq!(rows.snapshot(&replacement).unwrap().x, 21);
+        assert_eq!(rows.snapshot(&current).unwrap().x, 21);
         assert_eq!(rows.snapshot(&another).unwrap().y, 13);
         for _ in 0..128 {
-            let stale = replacement.clone();
-            rows.erase(&stale).unwrap();
-            let new = rows.insert(3, 4).unwrap();
+            let stale = current.clone();
+            rows.erase(&current).unwrap();
+            current = rows.insert(21, 34).unwrap();
             assert!(rows.snapshot(&stale).is_err());
+            assert_eq!(rows.snapshot(&current).unwrap().y, 34);
             assert_eq!(rows.capacity(), 2);
             // Every successful operation here reuses a preallocated slot.
-            rows.erase(&new).unwrap();
-            let again = rows.insert(21, 34).unwrap();
-            assert_eq!(rows.snapshot(&again).unwrap().y, 34);
-            rows.erase(&again).unwrap();
-            break;
         }
     }
 
