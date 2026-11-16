@@ -202,10 +202,13 @@ replace, the existing raw section checks and the separate JavaScript
 `no-managed-wasm` admission for Node hosts.
 
 Rust regression tests present **otherwise valid Wasm binaries** carrying
-an unused `externref` function parameter, a GC `struct` type, and a
-`ref.null extern` instruction hidden in a function body. Default proposal
-validation must accept each binary; the strict AOT precompiler must reject
-each. Run with:
+an unused `externref` function parameter, a GC `struct` type, a
+`ref.null extern` instruction hidden in a function body, an unused SIMD
+vector instruction, and a tail-call instruction. Default proposal validation
+must accept each binary; the strict AOT precompiler must reject
+each. SIMD/relaxed-SIMD, tail calls, threads, exception handling, memory64,
+multi-memory and managed reference proposals are disabled by the native
+scalar feature profile to match the narrower Node scalar admission. Run with:
 
 ```sh
 cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
