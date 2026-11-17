@@ -29,9 +29,67 @@ fn json_escape(s: &str) -> String {
     }
     out
 }
+fn git_blob_sha(repo: &Path, file: &str) -> Result<String, String> {
+    let literal = format!(":(literal){file}");
+    let out = Command::new("git").current_dir(repo)
+        .args(["ls-tree", "-z", "HEAD", "--", literal.as_str()])
+        .output().map_err(|e| format!("git ls-tree {file}: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("git ls-tree {file} failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let records: Vec<&[u8]> = out.stdout.split(|b| *b == 0).filter(|r| !r.is_empty()).collect();
+    if records.len() != 1 {
+        return Err(format!("expected exactly one tracked Git blob for {file}"));
+    }
+    let (meta, path) = records[0].split_once(|b| *b == b'\\t')
+        .ok_or_else(|| format!("malformed Git tree record for {file}"))?;
+    if path != file.as_bytes() {
+        return Err(format!("Git tree path mismatch for {file}"));
+    }
+    let fields: Vec<&[u8]> = meta.split(|b| *b == b' ').collect();
+    if fields.len() != 3 || fields[1] != b"blob"
+        || (fields[0] != b"100644" && fields[0] != b"100755") {
+        return Err(format!("{file} must be a regular tracked Git blob"));
+    }
+    let sha = std::str::from_utf8(fields[2]).map_err(|_| "Git blob SHA is not ASCII")?;
+    if !hex(sha, 40) { return Err(format!("invalid Git blob SHA for {file}")); }
+    Ok(sha.to_ascii_lowercase())
+}
+fn sha256_file(repo: &Path, value: &str) -> Result<String, String> {
+    let path = Path::new(value);
+    if !path.is_absolute() { return Err("artifact paths must be absolute".into()); }
+    let meta = fs::symlink_metadata(path).map_err(|e| format!("artifact metadata: {e}"))?;
+    if !meta.file_type().is_file() || meta.len() == 0 {
+        return Err("artifact must be a non-empty regular, non-symlink file".into());
+    }
+    #[cfg(unix)] {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink() != 1 { return Err("artifact hardlinks are refused".into()); }
+    }
+    let canonical = fs::canonicalize(path).map_err(|e| format!("artifact canonicalization: {e}"))?;
+    let mut roots = vec![repo.to_path_buf()];
+    if let Ok(temp) = env::var("RUNNER_TEMP") { roots.push(PathBuf::from(temp)); }
+    let allowed = roots.into_iter().any(|root| {
+        fs::canonicalize(root).map(|r| canonical.starts_with(r)).unwrap_or(false)
+    });
+    if !allowed { return Err("artifact must reside inside GITHUB_WORKSPACE or RUNNER_TEMP".into()); }
+    let out = Command::new("sha256sum").arg("--").arg(&canonical).output()
+        .or_else(|_| Command::new("shasum").args(["-a", "256", "--"]).arg(&canonical).output())
+        .map_err(|e| format!("SHA-256 utility unavailable: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("artifact SHA-256 failed: {}", String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    let hash = String::from_utf8_lossy(&out.stdout).split_whitespace().next().unwrap_or("").to_owned();
+    if !hex(&hash, 64) { return Err("SHA-256 utility returned malformed output".into()); }
+    Ok(hash.to_ascii_lowercase())
+}
 fn parse_kv(path: &Path) -> Result<BTreeMap<String,String>,String> {
     let m=fs::symlink_metadata(path).map_err(|e|format!("receipt metadata: {e}"))?;
     if !m.file_type().is_file() || m.len()==0 || m.len()>16*1024 { return Err("receipt must be a bounded regular file".into()); }
+    #[cfg(unix)] {
+        use std::os::unix::fs::MetadataExt;
+        if m.nlink() != 1 { return Err("receipt hardlinks are refused".into()); }
+    }
     let b=fs::read(path).map_err(|e|format!("receipt read: {e}"))?;
     if b.len() as u64 != m.len() { return Err("receipt changed during read".into()); }
     let s=std::str::from_utf8(&b).map_err(|_|"receipt is not UTF-8")?;
@@ -53,7 +111,7 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
     if actual_head!=head{return Err(format!("commit mismatch: expected {head}, observed {actual_head}"));}
     let tree=git(repo,&["rev-parse","HEAD^{tree}"])?;
     if !git(repo,&["status","--porcelain","--untracked-files=all"])?.is_empty(){return Err("working tree is not clean".into());}
-    let actual_manifest=git(repo,&["rev-parse",&format!("HEAD:{manifest}")])?;
+    let actual_manifest=git_blob_sha(repo,manifest)?;
     if actual_manifest!=manifest_sha{return Err("manifest itself does not match its pinned Git blob SHA".into());}
     let path=repo.join(manifest);
     let meta=fs::symlink_metadata(&path).map_err(|e|format!("manifest metadata: {e}"))?;
@@ -84,7 +142,7 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
             use std::os::unix::fs::MetadataExt;
             if meta.nlink()!=1{return Err(format!("{file} hardlinks are refused"));}
         }
-        let got=git(repo,&["rev-parse",&format!("HEAD:{file}")]).map_err(|e|format!("{file}: {e}"))?;
+        let got=git_blob_sha(repo,file).map_err(|e|format!("{file}: {e}"))?;
         if &got!=sha{return Err(format!("Git blob mismatch for {file}: expected {sha}, got {got}"));}
     }
     let (guest,claim)=match (class,receipt){
@@ -95,6 +153,14 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
             if get("source_commit")?!=actual_head||get("source_tree")?!=tree{return Err("guest receipt does not bind exact checked-out commit/tree".into());}
             for k in ["compiler_source_commit","compiler_source_tree"]{if !hex(get(k)?,40){return Err(format!("invalid {k}"));}}
             for k in ["compiler_sha256","wasm_sha256"]{if !hex(get(k)?,64){return Err(format!("invalid {k}"));}}
+            let compiler_actual=sha256_file(repo,get("compiler_artifact_path")?)?;
+            let wasm_actual=sha256_file(repo,get("wasm_artifact_path")?)?;
+            if !compiler_actual.eq_ignore_ascii_case(get("compiler_sha256")?) {
+                return Err("compiler artifact bytes do not match receipt SHA-256".into());
+            }
+            if !wasm_actual.eq_ignore_ascii_case(get("wasm_sha256")?) {
+                return Err("Wasm artifact bytes do not match receipt SHA-256".into());
+            }
             let executed:u64=get("executed_cases")?.parse().map_err(|_|"invalid executed_cases")?;
             if executed==0{return Err("guest receipt must report executed_cases > 0".into());}
             let rejected:u64=get("rejected_cases")?.parse().map_err(|_|"invalid rejected_cases")?;
@@ -127,19 +193,34 @@ mod tests{
  impl R{
   fn new()->Self{let p=env::temp_dir().join(format!("exact-head-{}-{}",std::process::id(),N.fetch_add(1,Ordering::Relaxed)));fs::create_dir_all(&p).unwrap();git(&p,&["init","-q"]).unwrap();git(&p,&["config","user.email","ci@example.invalid"]).unwrap();git(&p,&["config","user.name","CI"]).unwrap();fs::write(p.join("fixture.txt"),"fixture\n").unwrap();let sha=git(&p,&["hash-object","fixture.txt"]).unwrap();fs::write(p.join("manifest.tsv"),format!("{sha}\tfixture.txt\n")).unwrap();git(&p,&["add","."]).unwrap();git(&p,&["commit","-qm","fixture"]).unwrap();Self(p)}
   fn head(&self)->String{git(&self.0,&["rev-parse","HEAD"]).unwrap()}fn tree(&self)->String{git(&self.0,&["rev-parse","HEAD^{tree}"]).unwrap()}fn msha(&self)->String{git(&self.0,&["rev-parse","HEAD:manifest.tsv"]).unwrap()}
-  fn receipt(&self)->PathBuf{let p=env::temp_dir().join(format!("exact-head-receipt-{}-{}",std::process::id(),N.fetch_add(1,Ordering::Relaxed)));fs::write(&p,format!("schema=oreslang-guest-execution-receipt-v1\nsource_commit={}\nsource_tree={}\ncompiler_source_commit={}\ncompiler_source_tree={}\ncompiler_sha256={}\nwasm_sha256={}\nexecuted_cases=5\nrejected_cases=1\n",self.head(),self.tree(),"a".repeat(40),"b".repeat(40),"c".repeat(64),"d".repeat(64))).unwrap();p}
+  fn receipt(&self)->PathBuf{
+   let root=env::var("RUNNER_TEMP").map(PathBuf::from).unwrap_or_else(|_|env::temp_dir());
+   let id=N.fetch_add(1,Ordering::Relaxed);
+   let compiler=root.join(format!("exact-head-compiler-{}-{id}",std::process::id()));
+   let wasm=root.join(format!("exact-head-module-{}-{id}.wasm",std::process::id()));
+   fs::write(&compiler,b"compiler artifact bytes").unwrap();
+   fs::write(&wasm,b"wasm artifact bytes").unwrap();
+   let compiler_sha=sha256_file(&self.0,compiler.to_str().unwrap()).unwrap();
+   let wasm_sha=sha256_file(&self.0,wasm.to_str().unwrap()).unwrap();
+   let p=root.join(format!("exact-head-receipt-{}-{id}",std::process::id()));
+   fs::write(&p,format!("schema=oreslang-guest-execution-receipt-v1\nsource_commit={}\nsource_tree={}\ncompiler_source_commit={}\ncompiler_source_tree={}\ncompiler_sha256={}\nwasm_sha256={}\ncompiler_artifact_path={}\nwasm_artifact_path={}\nexecuted_cases=5\nrejected_cases=1\n",self.head(),self.tree(),"a".repeat(40),"b".repeat(40),compiler_sha,wasm_sha,compiler.display(),wasm.display())).unwrap();p
+  }
  }
  impl Drop for R{fn drop(&mut self){let _=fs::remove_dir_all(&self.0);}}
+ fn cleanup_receipt(p:&Path){if let Ok(r)=parse_kv(p){for k in ["compiler_artifact_path","wasm_artifact_path"]{if let Some(v)=r.get(k){let _=fs::remove_file(v);}}}let _=fs::remove_file(p);}
  #[test]fn exact_head_and_blob_manifest_pass(){let r=R::new();let x=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap();assert!(x.contains("\"classification\":\"source-only\""));assert!(x.contains("\"pinned_blob_count\":1"));}
  #[test]fn wrong_commit_is_rejected(){let r=R::new();assert!(verify(&r.0,&"0".repeat(40),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err().contains("commit mismatch"));}
  #[test]fn unpinned_manifest_is_rejected(){let r=R::new();assert!(verify(&r.0,&r.head(),"manifest.tsv",&"0".repeat(40),"source-only",None).unwrap_err().contains("manifest itself"));}
  #[test]fn wrong_pinned_blob_is_rejected(){let r=R::new();fs::write(r.0.join("manifest.tsv"),format!("{}\tfixture.txt\n","0".repeat(40))).unwrap();git(&r.0,&["add","manifest.tsv"]).unwrap();git(&r.0,&["commit","-qm","tamper pin"]).unwrap();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err().contains("blob mismatch"));}
  #[test]fn duplicate_and_traversal_paths_fail(){let r=R::new();for v in ["../x","/tmp/x","x/../../z"]{fs::write(r.0.join("manifest.tsv"),format!("{}\t{v}\n","0".repeat(40))).unwrap();git(&r.0,&["add","manifest.tsv"]).unwrap();git(&r.0,&["commit","-qm","bad path"]).unwrap();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).is_err());}}
- #[test]fn guest_class_requires_pinned_runtime_receipt(){let r=R::new();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",None).is_err());let p=r.receipt();let x=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap();assert!(x.contains("\"guest_receipt_validated\":true"));assert!(x.contains("\"executed_cases\":5"));let _=fs::remove_file(p);}
+ #[test]fn guest_class_requires_pinned_runtime_receipt(){let r=R::new();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",None).is_err());let p=r.receipt();let x=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap();assert!(x.contains("\"guest_receipt_validated\":true"));assert!(x.contains("\"executed_cases\":5"));cleanup_receipt(&p);}
  #[test]fn guest_receipt_must_bind_same_checkout(){let r=R::new();let p=r.receipt();let s=fs::read_to_string(&p).unwrap().replace(&r.head(),&"0".repeat(40));fs::write(&p,s).unwrap();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err().contains("does not bind"));let _=fs::remove_file(p);}
  #[test]fn dirty_checkout_is_refused(){let r=R::new();fs::write(r.0.join("fixture.txt"),"changed\\n").unwrap();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err().contains("not clean"));}
  #[cfg(unix)]#[test]fn symlinked_manifest_is_refused(){use std::os::unix::fs::symlink;let r=R::new();fs::copy(r.0.join("manifest.tsv"),r.0.join("manifest-copy.tsv")).unwrap();fs::remove_file(r.0.join("manifest.tsv")).unwrap();symlink("manifest-copy.tsv",r.0.join("manifest.tsv")).unwrap();git(&r.0,&["add","manifest.tsv","manifest-copy.tsv"]).unwrap();git(&r.0,&["commit","-qm","replace manifest with symlink"]).unwrap();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err().contains("regular, non-symlink"));}
  #[cfg(unix)]#[test]fn hardlinked_pinned_inputs_are_refused(){let r=R::new();fs::hard_link(r.0.join("fixture.txt"),r.0.join("fixture-alias.txt")).unwrap();let sha=git(&r.0,&["hash-object","fixture.txt"]).unwrap();fs::write(r.0.join("manifest.tsv"),format!("{sha}\tfixture.txt\n{sha}\tfixture-alias.txt\n")).unwrap();git(&r.0,&["add","manifest.tsv","fixture-alias.txt"]).unwrap();git(&r.0,&["commit","-qm","add hardlink"]).unwrap();let err=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();assert!(err.contains("hardlinks are refused"),"unexpected verifier error: {err}");}
 
+
+ #[test]fn guest_receipt_rejects_artifact_byte_drift(){let r=R::new();let p=r.receipt();let receipt=parse_kv(&p).unwrap();fs::write(receipt.get("wasm_artifact_path").unwrap(),b"tampered bytes").unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("Wasm artifact bytes"));cleanup_receipt(&p);}
+ #[cfg(unix)]#[test]fn guest_receipt_rejects_symlink_artifact(){use std::os::unix::fs::symlink;let r=R::new();let p=r.receipt();let receipt=parse_kv(&p).unwrap();let victim=PathBuf::from(receipt.get("wasm_artifact_path").unwrap());let link=victim.with_extension("link");fs::rename(&victim,&victim.with_extension("real")).unwrap();symlink(victim.with_extension("real"),&link).unwrap();let text=fs::read_to_string(&p).unwrap().replace(victim.to_str().unwrap(),link.to_str().unwrap());fs::write(&p,text).unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("non-symlink"));let _=fs::remove_file(link);let _=fs::remove_file(victim.with_extension("real"));let _=fs::remove_file(p);}
  #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());}
 }
