@@ -16,13 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Check exact source commit and clean checkout
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Compile and execute Rust fixture-contract tests (SOURCE_ONLY)
         shell: bash
         run: |
           set -euo pipefail
           rustc --version
           git --version
-          rustc --edition=2021 --test tests/ownership_bang_fixture_contract.rs \
+          rustc --edition=2021 --deny warnings --test tests/ownership_bang_fixture_contract.rs \
             -o "$RUNNER_TEMP/ownership-bang-fixture-tests"
           "$RUNNER_TEMP/ownership-bang-fixture-tests" --nocapture
