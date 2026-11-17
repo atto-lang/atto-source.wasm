@@ -31,12 +31,16 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git rev-parse 'HEAD^{tree}'
           test -z "$(git status --porcelain --untracked-files=all)"
+          for dir in src src/runtime tests; do
+            test -d "$dir" && test ! -L "$dir"
+          done
           for file in \
             src/runtime/actor-io.mjs src/runtime/actor-demand-output.mjs \
             tests/actor-io-envelope.test.mjs tests/actor-io-owned-byte-accounting.test.mjs \
             tests/actor-io-adversarial-stress.test.mjs tests/actor-io-half-close.test.mjs \
             tests/actor-demand-output.test.mjs; do
             test -f "$file" && test ! -L "$file"
+            test "$(git cat-file -t "HEAD:$file")" = blob
             expected="$(git rev-parse "HEAD:$file")"
             actual="$(git hash-object --no-filters -- "$file")"
             if [[ "$actual" != "$expected" ]]; then
