@@ -13,13 +13,13 @@ const safe = 'pub fnc main(): int { return 42; }';
 const bytes = source => Buffer.from(source, 'utf8');
 
 test('raw ESC/DEL and first NUL win at precise UTF-8 offsets', () => {
-  for (const control of ['\\x1b', '\\x7f']) {
+  for (const control of ['\x1b', '\x7f']) {
     for (const source of [
       '/* hidden' + control + ' */ ' + safe,
-      '// hidden' + control + '\\n' + safe,
+      '// hidden' + control + '\n' + safe,
       '"inside' + control + '"',
       '/* café 😀 */' + control + safe,
-      'x\\r\\n' + control
+      'x\r\n' + control
     ]) {
       const at = Buffer.byteLength(source.slice(0, source.indexOf(control)), 'utf8');
       const expected = new RegExp('terminal control at byte offset ' + at + '$');
@@ -27,14 +27,14 @@ test('raw ESC/DEL and first NUL win at precise UTF-8 offsets', () => {
       assert.throws(() => rejectUnsupportedDurableM0Source(bytes(source)), expected);
     }
   }
-  assert.throws(() => rejectRawTerminalSourceControls(bytes('\\0\\x1b')),
+  assert.throws(() => rejectRawTerminalSourceControls(bytes('\0\x1b')),
     /contains NUL byte at byte offset 0$/);
-  assert.throws(() => rejectRawTerminalSourceControls(bytes('\\x7f\\0')),
+  assert.throws(() => rejectRawTerminalSourceControls(bytes('\x7f\0')),
     /contains terminal control at byte offset 0$/);
 });
 
 test('visible escaped characters and valid UTF-8 remain source-admissible', () => {
-  for (const source of ['/* café 😀 */ ' + safe, '\\r\\n\\t', '"\\\\u001b"']) {
+  for (const source of ['/* café 😀 */ ' + safe, '\r\n\t', '"\\\\u001b"']) {
     assert.equal(rejectRawTerminalSourceControls(bytes(source)), source);
   }
   assert.throws(() => rejectRawTerminalSourceControls(new Uint8Array([0xff])),
@@ -72,7 +72,7 @@ test('both Wasm bridges refuse raw controls before invoking compiler', async () 
     const output = join(dir, 'out.wasm');
     const sentinel = join(dir, 'compiler-invoked.txt');
     await writeFile(compiler,
-      '#!/bin/sh\\nprintf ran > ' + JSON.stringify(sentinel) + '\\nexit 1\\n',
+      '#!/bin/sh\nprintf ran > ' + JSON.stringify(sentinel) + '\nexit 1\n',
       {mode: 0o700});
     await writeFile(source, safe + ' // ' + String.fromCharCode(0x1b));
     await assert.rejects(() => compileOresToWasm({compiler, source, output}),
