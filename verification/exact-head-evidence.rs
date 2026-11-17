@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, env, fs, path::{Component, Path}, process::Command};
+use std::{collections::BTreeMap, env, fs, path::{Component, Path, PathBuf}, process::Command};
 
 fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git").current_dir(repo).args(args).output()
@@ -42,8 +42,10 @@ fn git_blob_sha(repo: &Path, file: &str) -> Result<String, String> {
     if records.len() != 1 {
         return Err(format!("expected exactly one tracked Git blob for {file}"));
     }
-    let (meta, path) = records[0].split_once(|b| *b == b'\\t')
+    let tab = records[0].iter().position(|b| *b == b'\t')
         .ok_or_else(|| format!("malformed Git tree record for {file}"))?;
+    let (meta, rest) = records[0].split_at(tab);
+    let path = &rest[1..];
     if path != file.as_bytes() {
         return Err(format!("Git tree path mismatch for {file}"));
     }
