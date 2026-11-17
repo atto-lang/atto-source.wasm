@@ -81,9 +81,33 @@ fn verify_worktree_blob(repo: &Path, file: &str, expected: &str) -> Result<(), S
     }
     Ok(())
 }
+// Receipt and artifact paths must not traverse symlinked ancestors, even
+// when canonicalization lands back inside an allowed workspace/temp root.
+fn refuse_symlinked_path_components(path: &Path) -> Result<(), String> {
+    if !path.is_absolute() {
+        return Err("receipt/artifact path must be absolute".into());
+    }
+    let mut current = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::RootDir => current.push(part.as_os_str()),
+            Component::Normal(name) => {
+                current.push(name);
+                let metadata = fs::symlink_metadata(&current)
+                    .map_err(|e| format!("evidence path component metadata: {e}"))?;
+                if metadata.file_type().is_symlink() {
+                    return Err("symlinked receipt/artifact path component refused".into());
+                }
+            },
+            _ => return Err("receipt/artifact path has non-normal components".into())
+        }
+    }
+    Ok(())
+}
 fn sha256_file(repo: &Path, value: &str) -> Result<String, String> {
     let path = Path::new(value);
     if !path.is_absolute() { return Err("artifact paths must be absolute".into()); }
+    refuse_symlinked_path_components(path)?;
     let meta = fs::symlink_metadata(path).map_err(|e| format!("artifact metadata: {e}"))?;
     if !meta.file_type().is_file() || meta.len() == 0 {
         return Err("artifact must be a non-empty regular, non-symlink file".into());
@@ -110,6 +134,7 @@ fn sha256_file(repo: &Path, value: &str) -> Result<String, String> {
     Ok(hash.to_ascii_lowercase())
 }
 fn parse_kv(path: &Path) -> Result<BTreeMap<String,String>,String> {
+    refuse_symlinked_path_components(path)?;
     let m=fs::symlink_metadata(path).map_err(|e|format!("receipt metadata: {e}"))?;
     if !m.file_type().is_file() || m.len()==0 || m.len()>16*1024 { return Err("receipt must be a bounded regular file".into()); }
     #[cfg(unix)] {
@@ -299,6 +324,28 @@ mod tests{
    assert_eq!(git(&r.0,&["hash-object","--no-filters","--","inner/fixture.txt"]).unwrap(),sha);
    let e=verify_worktree_blob(&r.0,"inner/fixture.txt",&sha).unwrap_err();
    assert!(e.contains("symlinked or non-directory ancestor"),"unexpected: {e}");
+ }
+ #[cfg(unix)]#[test]fn symlinked_receipt_parent_is_refused() {
+   use std::os::unix::fs::symlink;
+   let r=R::new();
+   let real=r.0.join("receipt-real");
+   fs::create_dir_all(&real).unwrap();
+   fs::write(real.join("receipt.txt"),"schema=synthetic\\n").unwrap();
+   let link=r.0.join("receipt-link");
+   symlink(&real,&link).unwrap();
+   let err=parse_kv(&link.join("receipt.txt")).unwrap_err();
+   assert!(err.contains("symlinked receipt/artifact path component"),"unexpected: {err}");
+ }
+ #[cfg(unix)]#[test]fn symlinked_artifact_parent_is_refused() {
+   use std::os::unix::fs::symlink;
+   let r=R::new();
+   let real=r.0.join("artifact-real");
+   fs::create_dir_all(&real).unwrap();
+   fs::write(real.join("compiler"),"synthetic compiler bytes").unwrap();
+   let link=r.0.join("artifact-link");
+   symlink(&real,&link).unwrap();
+   let err=sha256_file(&r.0,link.join("compiler").to_str().unwrap()).unwrap_err();
+   assert!(err.contains("symlinked receipt/artifact path component"),"unexpected: {err}");
  }
  #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());cleanup_receipt(&p);}
 }
