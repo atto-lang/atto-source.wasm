@@ -10,8 +10,24 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
 }
 fn hex(s: &str, n: usize) -> bool { s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit()) }
 fn safe_path(s: &str) -> bool {
-    !s.is_empty() && !s.starts_with('-') && !s.contains('\0') && !Path::new(s).is_absolute()
+    !s.is_empty() && !s.starts_with('-') && !s.contains('\0') && !s.contains('\\')
+        && !Path::new(s).is_absolute()
         && Path::new(s).components().all(|c| matches!(c, Component::Normal(_)))
+}
+fn json_escape(s: &str) -> String {
+    let mut out = String::new();
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push(' '),
+            c => out.push(c),
+        }
+    }
+    out
 }
 fn parse_kv(path: &Path) -> Result<BTreeMap<String,String>,String> {
     let m=fs::symlink_metadata(path).map_err(|e|format!("receipt metadata: {e}"))?;
@@ -40,8 +56,16 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
     let actual_manifest=git(repo,&["rev-parse",&format!("HEAD:{manifest}")])?;
     if actual_manifest!=manifest_sha{return Err("manifest itself does not match its pinned Git blob SHA".into());}
     let path=repo.join(manifest);
+    let meta=fs::symlink_metadata(&path).map_err(|e|format!("manifest metadata: {e}"))?;
+    if !meta.file_type().is_file() || meta.len()==0 || meta.len()>1024*1024 {
+        return Err("manifest must be a bounded regular, non-symlink file".into());
+    }
+    #[cfg(unix)] {
+        use std::os::unix::fs::MetadataExt;
+        if meta.nlink()!=1 { return Err("manifest hardlinks are refused".into()); }
+    }
     let b=fs::read(&path).map_err(|e|format!("manifest read: {e}"))?;
-    if b.is_empty()||b.len()>1024*1024{return Err("manifest must be 1..1048576 bytes".into());}
+    if b.len() as u64 != meta.len(){return Err("manifest changed during read".into());}
     let s=std::str::from_utf8(&b).map_err(|_|"manifest is not UTF-8")?;
     let mut pins=BTreeMap::new();
     for (i,raw) in s.lines().enumerate(){
@@ -53,6 +77,13 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
     }
     if pins.is_empty(){return Err("manifest contains no blob pins".into());}
     for (file,sha) in &pins{
+        let disk=repo.join(file);
+        let meta=fs::symlink_metadata(&disk).map_err(|e|format!("{file} metadata: {e}"))?;
+        if !meta.file_type().is_file(){return Err(format!("{file} must be a regular non-symlink file"));}
+        #[cfg(unix)] {
+            use std::os::unix::fs::MetadataExt;
+            if meta.nlink()!=1{return Err(format!("{file} hardlinks are refused"));}
+        }
         let got=git(repo,&["rev-parse",&format!("HEAD:{file}")]).map_err(|e|format!("{file}: {e}"))?;
         if &got!=sha{return Err(format!("Git blob mismatch for {file}: expected {sha}, got {got}"));}
     }
@@ -78,7 +109,7 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
     let attempt=env::var("GITHUB_RUN_ATTEMPT").unwrap_or_default();
     let runner=env::var("RUNNER_NAME").unwrap_or_default();
     if repo_name.is_empty()||run.is_empty()||attempt.is_empty()||runner.is_empty(){return Err("must run inside a GitHub Actions job with repository/run/runner identity".into());}
-    Ok(format!("{{\"schema\":\"oreslang-exact-head-evidence-v1\",\"repository\":\"{}\",\"run_id\":\"{}\",\"run_attempt\":\"{}\",\"runner_name\":\"{}\",\"expected_commit\":\"{}\",\"observed_commit\":\"{}\",\"observed_tree\":\"{}\",\"manifest_path\":\"{}\",\"manifest_blob_sha\":\"{}\",\"pinned_blob_count\":{},\"classification\":\"{}\",\"guest_receipt_validated\":{}{}}}\n",repo_name,run,attempt,runner,head,actual_head,tree,manifest,manifest_sha,pins.len(),class,claim,guest))
+    Ok(format!("{{\"schema\":\"oreslang-exact-head-evidence-v1\",\"repository\":\"{}\",\"run_id\":\"{}\",\"run_attempt\":\"{}\",\"runner_name\":\"{}\",\"expected_commit\":\"{}\",\"observed_commit\":\"{}\",\"observed_tree\":\"{}\",\"manifest_path\":\"{}\",\"manifest_blob_sha\":\"{}\",\"pinned_blob_count\":{},\"classification\":\"{}\",\"guest_receipt_validated\":{}{}}}\n",json_escape(&repo_name),json_escape(&run),json_escape(&attempt),json_escape(&runner),head,actual_head,tree,json_escape(manifest),manifest_sha,pins.len(),class,claim,guest))
 }
 fn main(){
     let a:Vec<String>=env::args().collect();
