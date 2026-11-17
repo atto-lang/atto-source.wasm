@@ -256,5 +256,13 @@ mod tests{
    let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();
    assert!(e.contains("working bytes differ"),"unexpected: {e}");
  }
+ #[test]fn skip_worktree_cannot_hide_modified_source_bytes(){
+   let r=R::new();
+   git(&r.0,&["update-index","--skip-worktree","fixture.txt"]).unwrap();
+   fs::write(r.0.join("fixture.txt"),"hidden fixture drift\\n").unwrap();
+   assert!(git(&r.0,&["status","--porcelain","--untracked-files=all"]).unwrap().is_empty());
+   let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();
+   assert!(e.contains("working bytes differ"),"unexpected: {e}");
+ }
  #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());cleanup_receipt(&p);}
 }
