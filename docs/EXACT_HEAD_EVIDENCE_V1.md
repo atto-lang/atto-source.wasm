@@ -1,6 +1,6 @@
 # Exact-head evidence gate v1
 
-Call this local composite action **inside the same job** after checkout and the tests being described. It verifies the triggering commit, observed tree, pinned manifest blob, and every listed Git blob. It refuses a dirty working tree. Additionally it hashes **the actual worktree bytes** for the manifest and every listed source against the committed Git blob (with Git filters disabled); `assume-unchanged` and `skip-worktree` index flags must not hide changes. Deliberately transformed checkout bytes (for example CRLF or smudge filters) do not qualify as byte-exact evidence.
+Call this local composite action **inside the same job** after checkout and the tests being described. It verifies the triggering commit, observed tree, pinned manifest blob, and every listed Git blob. It refuses a dirty working tree. Additionally it hashes **the actual worktree bytes** for the manifest and every listed source against the committed Git blob (with Git filters disabled); `assume-unchanged` and `skip-worktree` index flags must not hide changes. The verifier also rejects symlinks in any intermediate directory component of a tracked path, not only a symlink at the final file. Deliberately transformed checkout bytes (for example CRLF or smudge filters) do not qualify as byte-exact evidence.
 
 ## Blob manifest
 
