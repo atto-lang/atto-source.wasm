@@ -28,6 +28,21 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           test -z "$(git status --porcelain --untracked-files=all)"
+          # Status alone misses assume-unchanged / skip-worktree index flags.
+          for dir in tests tests/fixtures tests/fixtures/ownership-bang-v1; do
+            test -d "$dir" && test ! -L "$dir"
+          done
+          for file in tests/ownership_bang_fixture_contract.rs \
+            tests/ownership-bang-wasm32-guest.test.mjs \
+            tests/strict-atto-fixture.mjs \
+            tests/fixtures/ownership-bang-v1/*.atto; do
+            test -f "$file" && test ! -L "$file"
+            test "$(git cat-file -t "HEAD:$file")" = blob
+            if [[ "$(git hash-object --no-filters -- "$file")" != "$(git rev-parse "HEAD:$file")" ]]; then
+              echo "Uncommitted fixture/test bytes: $file" >&2
+              exit 1
+            fi
+          done
       - name: Compile and execute Rust fixture-contract tests (SOURCE_ONLY)
         shell: bash
         run: |
