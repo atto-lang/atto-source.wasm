@@ -58,6 +58,16 @@ fn git_blob_sha(repo: &Path, file: &str) -> Result<String, String> {
     if !hex(sha, 40) { return Err(format!("invalid Git blob SHA for {file}")); }
     Ok(sha.to_ascii_lowercase())
 }
+// A clean Git index is insufficient: assume-unchanged/skip-worktree can hide
+// modified worktree files. Require the actual bytes to hash to the committed blob.
+fn verify_worktree_blob(repo: &Path, file: &str, expected: &str) -> Result<(), String> {
+    let actual = git(repo, &["hash-object", "--no-filters", "--", file])?;
+    if !hex(&actual, 40) { return Err(format!("invalid working blob SHA for {file}")); }
+    if actual != expected {
+        return Err(format!("working bytes differ from committed Git blob for {file}"));
+    }
+    Ok(())
+}
 fn sha256_file(repo: &Path, value: &str) -> Result<String, String> {
     let path = Path::new(value);
     if !path.is_absolute() { return Err("artifact paths must be absolute".into()); }
@@ -116,6 +126,7 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
     if !git(repo,&["status","--porcelain","--untracked-files=all"])?.is_empty(){return Err("working tree is not clean".into());}
     let actual_manifest=git_blob_sha(repo,manifest)?;
     if actual_manifest!=manifest_sha{return Err("manifest itself does not match its pinned Git blob SHA".into());}
+    verify_worktree_blob(repo,manifest,&actual_manifest)?;
     let path=repo.join(manifest);
     let meta=fs::symlink_metadata(&path).map_err(|e|format!("manifest metadata: {e}"))?;
     if !meta.file_type().is_file() || meta.len()==0 || meta.len()>1024*1024 {
@@ -147,6 +158,7 @@ fn verify(repo:&Path,head:&str,manifest:&str,manifest_sha:&str,class:&str,receip
         }
         let got=git_blob_sha(repo,file).map_err(|e|format!("{file}: {e}"))?;
         if &got!=sha{return Err(format!("Git blob mismatch for {file}: expected {sha}, got {got}"));}
+        verify_worktree_blob(repo,file,&got)?;
     }
     let (guest,claim)=match (class,receipt){
         ("guest-executed",Some(file))=>{
@@ -228,5 +240,21 @@ mod tests{
 
  #[cfg(unix)]#[test]fn guest_receipt_rejects_hardlinked_receipt(){let r=R::new();let p=r.receipt();let alias=p.with_extension("alias");fs::hard_link(&p,&alias).unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("receipt hardlinks are refused"));let _=fs::remove_file(alias);cleanup_receipt(&p);}
  #[cfg(unix)]#[test]fn guest_receipt_rejects_hardlinked_artifact(){let r=R::new();let p=r.receipt();let receipt=parse_kv(&p).unwrap();let wasm=PathBuf::from(receipt.get("wasm_artifact_path").unwrap());let alias=wasm.with_extension("alias");fs::hard_link(&wasm,&alias).unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("artifact hardlinks are refused"));let _=fs::remove_file(alias);cleanup_receipt(&p);}
+ #[test]fn assume_unchanged_cannot_hide_modified_source_bytes(){
+   let r=R::new();
+   git(&r.0,&["update-index","--assume-unchanged","fixture.txt"]).unwrap();
+   fs::write(r.0.join("fixture.txt"),"tampered fixture\\n").unwrap();
+   assert!(git(&r.0,&["status","--porcelain","--untracked-files=all"]).unwrap().is_empty());
+   let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();
+   assert!(e.contains("working bytes differ"),"unexpected: {e}");
+ }
+ #[test]fn assume_unchanged_cannot_hide_modified_manifest_bytes(){
+   let r=R::new();
+   git(&r.0,&["update-index","--assume-unchanged","manifest.tsv"]).unwrap();
+   fs::write(r.0.join("manifest.tsv"),format!("{}\\tfixture.txt\\n","#".repeat(40))).unwrap();
+   assert!(git(&r.0,&["status","--porcelain","--untracked-files=all"]).unwrap().is_empty());
+   let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();
+   assert!(e.contains("working bytes differ"),"unexpected: {e}");
+ }
  #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());cleanup_receipt(&p);}
 }
