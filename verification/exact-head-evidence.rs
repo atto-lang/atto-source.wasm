@@ -61,6 +61,19 @@ fn git_blob_sha(repo: &Path, file: &str) -> Result<String, String> {
 // A clean Git index is insufficient: assume-unchanged/skip-worktree can hide
 // modified worktree files. Require the actual bytes to hash to the committed blob.
 fn verify_worktree_blob(repo: &Path, file: &str, expected: &str) -> Result<(), String> {
+    // Git's hash-object follows symlinks in parent directories, even though
+    // symlink_metadata() on the final file reports a regular file. Reject each
+    // intermediate component before accepting a byte-exact worktree path.
+    let mut parent = repo.to_path_buf();
+    let parts: Vec<_> = Path::new(file).components().collect();
+    for component in parts.iter().take(parts.len().saturating_sub(1)) {
+        parent.push(component.as_os_str());
+        let meta = fs::symlink_metadata(&parent)
+            .map_err(|e| format!("{file} parent metadata: {e}"))?;
+        if !meta.file_type().is_dir() {
+            return Err(format!("{file} has a symlinked or non-directory ancestor"));
+        }
+    }
     let actual = git(repo, &["hash-object", "--no-filters", "--", file])?;
     if !hex(&actual, 40) { return Err(format!("invalid working blob SHA for {file}")); }
     if actual != expected {
@@ -263,6 +276,29 @@ mod tests{
    assert!(git(&r.0,&["status","--porcelain","--untracked-files=all"]).unwrap().is_empty());
    let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"source-only",None).unwrap_err();
    assert!(e.contains("working bytes differ"),"unexpected: {e}");
+ }
+ #[test]fn nested_tracked_regular_file_is_allowed(){
+   let r=R::new();
+   fs::create_dir_all(r.0.join("inner")).unwrap();
+   fs::write(r.0.join("inner/fixture.txt"),"nested fixture\\n").unwrap();
+   git(&r.0,&["add","inner/fixture.txt"]).unwrap();
+   git(&r.0,&["commit","-qm","add nested file"]).unwrap();
+   let sha=git_blob_sha(&r.0,"inner/fixture.txt").unwrap();
+   verify_worktree_blob(&r.0,"inner/fixture.txt",&sha).unwrap();
+ }
+ #[cfg(unix)]#[test]fn symlinked_parent_is_refused_even_if_bytes_match(){
+   use std::os::unix::fs::symlink;
+   let r=R::new();
+   fs::create_dir_all(r.0.join("inner")).unwrap();
+   fs::write(r.0.join("inner/fixture.txt"),"nested fixture\\n").unwrap();
+   git(&r.0,&["add","inner/fixture.txt"]).unwrap();
+   git(&r.0,&["commit","-qm","add nested file"]).unwrap();
+   let sha=git_blob_sha(&r.0,"inner/fixture.txt").unwrap();
+   fs::rename(r.0.join("inner"),r.0.join("outside")).unwrap();
+   symlink("outside",r.0.join("inner")).unwrap();
+   assert_eq!(git(&r.0,&["hash-object","--no-filters","--","inner/fixture.txt"]).unwrap(),sha);
+   let e=verify_worktree_blob(&r.0,"inner/fixture.txt",&sha).unwrap_err();
+   assert!(e.contains("symlinked or non-directory ancestor"),"unexpected: {e}");
  }
  #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());cleanup_receipt(&p);}
 }
