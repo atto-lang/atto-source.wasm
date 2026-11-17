@@ -30,10 +30,20 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git rev-parse 'HEAD^{tree}'
-          git hash-object src/runtime/actor-io.mjs src/runtime/actor-demand-output.mjs \
+          test -z "$(git status --porcelain --untracked-files=all)"
+          for file in \
+            src/runtime/actor-io.mjs src/runtime/actor-demand-output.mjs \
             tests/actor-io-envelope.test.mjs tests/actor-io-owned-byte-accounting.test.mjs \
             tests/actor-io-adversarial-stress.test.mjs tests/actor-io-half-close.test.mjs \
-            tests/actor-demand-output.test.mjs
+            tests/actor-demand-output.test.mjs; do
+            test -f "$file" && test ! -L "$file"
+            expected="$(git rev-parse "HEAD:$file")"
+            actual="$(git hash-object --no-filters -- "$file")"
+            if [[ "$actual" != "$expected" ]]; then
+              printf 'Working source bytes differ from checked-out Git blob: %s\\n' "$file" >&2
+              exit 1
+            fi
+          done
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
