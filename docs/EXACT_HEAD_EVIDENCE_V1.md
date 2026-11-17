@@ -28,11 +28,13 @@ compiler_source_commit=<40-character compiler source commit SHA>
 compiler_source_tree=<40-character compiler source tree SHA>
 compiler_sha256=<64-character compiler binary SHA-256>
 wasm_sha256=<64-character Wasm artifact SHA-256>
+compiler_artifact_path=<absolute path inside GITHUB_WORKSPACE or RUNNER_TEMP>
+wasm_artifact_path=<absolute path inside GITHUB_WORKSPACE or RUNNER_TEMP>
 executed_cases=<positive integer>
 rejected_cases=<nonnegative integer>
 ```
 
-The receipt must bind the exact source checkout and identify the compiler source and built artifacts. This helper checks consistency and hashes; it is **not** a cryptographic build attestation. Keep runner logs and independently verify compiler provenance before claiming verified cross-repository parity.
+The receipt must bind the exact source checkout and identify the compiler source and built artifacts. The verifier recomputes SHA-256 from both artifact files, requires them to be non-empty regular files inside `GITHUB_WORKSPACE` or `RUNNER_TEMP`, and rejects symlinked or hard-linked artifact files. It also resolves manifest entries as literal Git tree paths and rejects symlink, submodule, and non-blob entries. This is still **not** a cryptographic build attestation: the reported compiler source commit/tree values and execution counts remain claims made by the same workflow. Keep runner logs and independently verify compiler provenance and test ordering before claiming verified cross-repository parity.
 
 ## Example
 

@@ -11,6 +11,7 @@ fn git(repo: &Path, args: &[&str]) -> Result<String, String> {
 fn hex(s: &str, n: usize) -> bool { s.len() == n && s.bytes().all(|b| b.is_ascii_hexdigit()) }
 fn safe_path(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('-') && !s.contains('\0') && !s.contains('\\')
+        && !s.contains('\t') && !s.contains('\n') && !s.contains('\r')
         && !Path::new(s).is_absolute()
         && Path::new(s).components().all(|c| matches!(c, Component::Normal(_)))
 }
@@ -222,5 +223,5 @@ mod tests{
 
  #[test]fn guest_receipt_rejects_artifact_byte_drift(){let r=R::new();let p=r.receipt();let receipt=parse_kv(&p).unwrap();fs::write(receipt.get("wasm_artifact_path").unwrap(),b"tampered bytes").unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("Wasm artifact bytes"));cleanup_receipt(&p);}
  #[cfg(unix)]#[test]fn guest_receipt_rejects_symlink_artifact(){use std::os::unix::fs::symlink;let r=R::new();let p=r.receipt();let receipt=parse_kv(&p).unwrap();let victim=PathBuf::from(receipt.get("wasm_artifact_path").unwrap());let link=victim.with_extension("link");fs::rename(&victim,&victim.with_extension("real")).unwrap();symlink(victim.with_extension("real"),&link).unwrap();let text=fs::read_to_string(&p).unwrap().replace(victim.to_str().unwrap(),link.to_str().unwrap());fs::write(&p,text).unwrap();let e=verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"guest-executed",Some(p.to_str().unwrap())).unwrap_err();assert!(e.contains("non-symlink"));let _=fs::remove_file(link);let _=fs::remove_file(victim.with_extension("real"));let _=fs::remove_file(p);}
- #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());}
+ #[test]fn host_source_classes_cannot_claim_guest(){let r=R::new();let p=r.receipt();assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"host-only",Some(p.to_str().unwrap())).is_err());assert!(verify(&r.0,&r.head(),"manifest.tsv",&r.msha(),"unknown",None).is_err());cleanup_receipt(&p);}
 }
