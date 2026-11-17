@@ -1,6 +1,6 @@
 # Exact-head evidence gate v1
 
-Call this local composite action **inside the same job** after checkout and the tests being described. It verifies the triggering commit, observed tree, pinned manifest blob, and every listed Git blob. It refuses a dirty working tree.
+Call this local composite action **inside the same job** after checkout and the tests being described. It verifies the triggering commit, observed tree, pinned manifest blob, and every listed Git blob. It refuses a dirty working tree. Additionally it hashes **the actual worktree bytes** for the manifest and every listed source against the committed Git blob (with Git filters disabled); `assume-unchanged` and `skip-worktree` index flags must not hide changes. Deliberately transformed checkout bytes (for example CRLF or smudge filters) do not qualify as byte-exact evidence.
 
 ## Blob manifest
 
@@ -34,7 +34,9 @@ executed_cases=<positive integer>
 rejected_cases=<nonnegative integer>
 ```
 
-The receipt must bind the exact source checkout and identify the compiler source and built artifacts. The verifier recomputes SHA-256 from both artifact files, requires them to be non-empty regular files inside `GITHUB_WORKSPACE` or `RUNNER_TEMP`, and rejects symlinked or hard-linked artifact files. It also resolves manifest entries as literal Git tree paths and rejects symlink, submodule, and non-blob entries. This is still **not** a cryptographic build attestation: the reported compiler source commit/tree values and execution counts remain claims made by the same workflow. Keep runner logs and independently verify compiler provenance and test ordering before claiming verified cross-repository parity.
+The receipt must bind the exact source checkout and identify the compiler source and built artifacts. The verifier recomputes SHA-256 from both artifact files, requires them to be non-empty regular files inside `GITHUB_WORKSPACE` or `RUNNER_TEMP`, and rejects symlinked or hard-linked artifact files. It also resolves manifest entries as literal Git tree paths and rejects symlink, submodule, and non-blob entries. The verifier and composite action must themselves come from an independently reviewed **trusted revision**, not an unreviewed PR checkout: a malicious change to the verifier or calling workflow can forge a green label. A manifest supplied by the same untrusted code is not an independent trust root. Required source-repository checks, reviewer approval and actual compiler/guest logs remain separate gates.
+
+This is still **not** a cryptographic build attestation: the reported compiler source commit/tree values and execution counts remain claims made by the same workflow. Keep runner logs and independently verify compiler provenance and test ordering before claiming verified cross-repository parity.
 
 ## Example
 
