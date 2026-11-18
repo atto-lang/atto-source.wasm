@@ -4,12 +4,22 @@
 > are preserved there. **Open new work and pull requests in atto-lang**; open PRs
 > here must be re-opened against atto-lang before they can land.
 
-# Oreslang source-to-WebAssembly backend
+# AttoLang WebAssembly backend (legacy Oreslang checkout)
+
+## AttoLang migration and authoritative specification (2026-11-18)
+
+**AttoLang** (formerly Oreslang) is the current public language name. The AttoLang-named counterpart is [atto-lang/atto-source.wasm](https://github.com/atto-lang/atto-source.wasm); use that repository for new backend work. The source and artifact history of this `ores-truffle-oreslang/oreslang-source.wasm` checkout may not be synchronized with its counterpart. The existing top-of-file notice describes the source-history move. Retain that notice and its exact verified commits; historical commands below refer to this old checkout, not a newly renamed CLI.
+
+**Canonical language rules:** [atto-spec](https://github.com/atto-lang/atto-spec) governs syntax, effects, actors, ownership, diagnostics and target semantics; old README prose and earlier Oreslang-named spec drafts are historical. [atto-platform-conformance](https://github.com/atto-lang/atto-platform-conformance) hosts portable positive/negative guest fixtures, and [atto-compilers-parity-testing](https://github.com/atto-lang/atto-compilers-parity-testing) hosts differential parity work. [atto-common-source](https://github.com/atto-lang/atto-common-source) is for portable `.atto` libraries.
+
+**Current source directives (not automatic backend support):** prefer `.atto` for new portable programs and `snake_case` callable names; explicit ownership uses `borrow!`, `take!`, `share!`, `copy!`, and `copy!!`. [Implicit argument borrowing](https://github.com/atto-lang/atto-spec/blob/main/language/implicit-argument-borrow-v1.md), [file/module constants including one-time non-throwing `os.read_env`](https://github.com/atto-lang/atto-spec/blob/main/language/file-module-const-v1.md), [separate bitwise shifts `<<<`/`>>>`/`ashr` and typed `<<`/`>>` streams](https://github.com/atto-lang/atto-spec/blob/main/language/bitwise-and-stream-operators-v1.md), and [frozen shared ownership](https://github.com/atto-lang/atto-spec/blob/main/language/shared-ownership-and-guards-v1.md) are specified design targets; each backend must independently pass executable admission before claiming support. Preserve existing `.ores`, `oreslang-*` commands, IDs, and ABI/wire spellings until compatibility changes are separately verified.
+
+Do not add Python scripts/tests/CI helpers; Rust is preferred for supporting tooling where practical. A readme rename, an empty `steps=[]` workflow, or a host-only test is not proof of guest-language support, strict AOT, zero GC, OS isolation or cross-backend parity. Document exact compiler/runtime commits, toolchains, actual guest runs and negative rejections with `passed`, `failed`, `unsupported`, or `not executed` results.
 
 Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
 Compare with oreslang-source.* repos.
 
-Please keep parity with oreslang-source.java in terms of features and capability. The same guest code that runs on graalvm should compile and execute with gcc/llvm. Do not use python for anything, use Rust instead of python to support the language.
+Target portable compatibility under atto-spec; demonstrate each supported feature by real guest compilation and execution, not by assuming Java/LLVM/Wasm parity. Do not use python for anything, use Rust instead of python to support the language.
 
 Notes on the compiler and runtime:
 
@@ -111,8 +121,8 @@ with `steps=[]`/zero executed steps remain infrastructure failures.
 CPU/GPU execution expressions, nested placement and `nb`/stream parity: see [proposed v1 contract](docs/CPU_GPU_NB_GRAPH_V1.md). This is **not** a claim that the backend executes GPU or streamed source blocks.
 ## ODB1 scalar-shift Wasm bridge gate (draft)
 
-The canonical OresDB WAL frame encoder uses signed `int >> 8` rather than
-`int / 256` (which yields floating point in the Java/Graal reference).
+The historical OresDB WAL fixture uses signed `int >> 8` rather than
+`int / 256` (which yields floating point in the Java/Graal reference). This is historical syntax: current AttoLang operator design reserves `>>` for stream reads and spells arithmetic right shift `ashr`. Preserve pinned tests until a compiler-verified fixture migration.
 `npm run test:real-odb1-shr8` is a **required, no-skip** test using a pinned
 real `oreslang-llvmc` binary, a clean exact LLVM compiler source commit/tree,
 Clang wasm32 code generation, atomic artifact provenance, and eight actual
@@ -131,3 +141,8 @@ This is *not* an OresDB WAL guest: current Wasm has no `List<int>`, `Result`,
 Node Worker execution is **not Wasmtime OS isolation or a production tenant
 sandbox**. Full source-level ODB1 and durability parity require real
 Wasm32/Wasmtime artifacts and guest-to-host capability contracts separately.
+
+## Legacy checkout and contribution routing (2026-11-18)
+
+Use [atto-source.wasm](https://github.com/atto-lang/atto-source.wasm) for new AttoLang work and [atto-spec](https://github.com/atto-lang/atto-spec) for normative changes; preserve this checkout as a historical implementation reference. The existence of a similarly named AttoLang repository does not by itself prove complete Git transfer, issue/PR migration or feature parity. Compare exact Git trees, audit outstanding changes and preserve security controls and execution receipts before declaring migration complete. The older [migration tracker](https://github.com/ores-truffle-oreslang/.github/issues/26) and [review runbook](https://github.com/ores-truffle-oreslang/.github/pull/25) document history, not completion.
+
