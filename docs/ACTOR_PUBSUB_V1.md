@@ -28,7 +28,9 @@ publication declines atomically for **all** subscribers; LOSSY drops newly
 offered events; LATEST may coalesce an occupied slot but must not add a new one.
 Read, unsubscribe, group leave, group close, actor retirement and shutdown
 release accounted slots. A string payload is limited to 4,096 UTF-16 code
-units; numbers must be finite and bigint payloads must fit signed i64.
+units; malformed/unpaired UTF-16 surrogates are rejected in both topic names
+and string payloads to prevent lossy cross-runtime Unicode conversion.
+Numbers must be finite and bigint payloads must fit signed i64.
 
 These guards bound the number of retained event slots, not OS process RSS or
 the scheduler's CPU consumption. They do not provide authenticated multi-tenant
