@@ -222,3 +222,33 @@ Wasm32/Wasmtime artifacts and guest-to-host capability contracts separately.
 Keep canonical AttoLang (.atto) semantics consistent with the language specification, while treating Oreslang-named tooling and .ores as compatibility surfaces.
 
 Changes asserting compiler/runtime support must identify the exact source head, target, toolchain, executed positive and negative guest tests, and failure/unsupported status; an empty CI step list is **not executed**. Documentation records responsibility, **not** a claim of feature completion.
+
+
+## Single-threaded per-guest-memory mode (scalar Wasm host; scoped)
+
+For the existing pinned, import-free `core-wasm.i64-v1` guest profile,
+`scripts/run-guest.mjs` accepts `--single-threaded`,
+`--max-threads-per-space=1`, or `--mode=single-threaded`.
+For example, with an absolute guest Wasm path and verified SHA-256:
+
+```sh
+node scripts/run-guest.mjs --wasm=/absolute/guest.wasm \
+  --sha256=<sha256-of-those-bytes> --single-threaded
+```
+
+The flag is enforced at the scalar guest host boundary: one Node Worker
+executes the guest, its linear memory must be declared in the guest,
+bounded, non-shared, and private, and all host imports are denied.
+The worker returns a pinned admission receipt with `threadPolicy`.
+`PooledWasmActors({threadPolicy:'single-threaded'})` also requires each
+actor's memory to be private; separate carrier Workers can run concurrently
+because their actor memories do not alias. Neither option artificially
+limits the total OS Worker count.
+
+This **does not** implement `atto run`, compile `.atto` source with
+actors, enforce the invariant for arbitrary FFI/shared-memory programs,
+or establish parity with Java/LLVM/.NET/Forge/other native targets.
+Unknown modes (including `trace` for now), unsupported thread limits,
+and unsafe shared-memory modules fail closed. Tests exercise the existing
+LLVM-IR-to-Wasm guest profile; they do not prove Atto-source compiler parity.
+See [atto-spec PR #95](https://github.com/atto-lang/atto-spec/pull/95).
