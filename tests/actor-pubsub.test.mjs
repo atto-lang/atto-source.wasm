@@ -372,3 +372,58 @@ test("untrusted queue sizes and large scalar events fail before admission", () =
   assert.deepEqual(topic.tryRead(subscriber), {present: true, value: "ok"});
   bus.close();
 });
+
+
+test("global queued-slot budget is atomic and refunded across membership barriers", () => {
+  const bus = new WasmActorPubSub({maxQueuedSlots: 2});
+  const group = bus.createGroup(), other = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const left = bus.registerActor({actorId: 2, incarnation: 1});
+  const right = bus.registerActor({actorId: 3, incarnation: 1});
+  for (const actor of [publisher, left, right]) group.join(actor);
+  other.join(publisher);
+  other.join(left);
+  const reliable = group.defineTopic("reliable", "reliable", 3);
+  const latest = other.defineTopic("latest", "latest", 1);
+  reliable.subscribe(left);
+  reliable.subscribe(right);
+  latest.subscribe(left);
+
+  assert.equal(reliable.publish(publisher, "one").accepted, 2);
+  assert.equal(reliable.publish(publisher, "two").backpressured, true);
+  assert.deepEqual(reliable.tryRead(left), {present: true, value: "one"});
+  assert.equal(reliable.publish(publisher, "two").backpressured, true,
+    "failed admission must not put a second event into the partly drained queue");
+  assert.deepEqual(latest.publish(publisher, "latest"), {
+    subscribers: 1, accepted: 1, dropped: 0, coalesced: 0, backpressured: false
+  });
+  assert.equal(latest.publish(publisher, "newer").coalesced, 1,
+    "LATEST can replace an owned slot even at the global budget limit");
+  assert.equal(group.leave(right), true, "leave refunds every queued slot");
+  assert.equal(reliable.publish(publisher, "two").accepted, 1);
+  assert.deepEqual(latest.tryRead(left), {present: true, value: "newer"});
+  assert.deepEqual(reliable.tryRead(left), {present: true, value: "two"});
+  assert.equal(reliable.unsubscribe(left), true);
+  assert.equal(latest.unsubscribe(left), true);
+  assert.equal(bus.close(), true);
+});
+
+test("LOSSY global exhaustion drops without exceeding capacity and retirement frees it", () => {
+  const bus = new WasmActorPubSub({maxQueuedSlots: 1});
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  const topic = group.defineTopic("lossy", "lossy", 5);
+  topic.subscribe(subscriber);
+  assert.equal(topic.publish(publisher, "one").accepted, 1);
+  assert.equal(topic.publish(publisher, "two").dropped, 1);
+  assert.equal(bus.retireActor(subscriber), true);
+  const successor = bus.registerActor({actorId: 2, incarnation: 2});
+  group.join(successor);
+  topic.subscribe(successor);
+  assert.equal(topic.publish(publisher, "fresh").accepted, 1);
+  assert.deepEqual(topic.tryRead(successor), {present: true, value: "fresh"});
+  assert.equal(bus.close(), true);
+});
