@@ -233,3 +233,46 @@ test('registry Map lookup survives prototype replacement after import', async ()
   assert.equal(await registry.send(reduced, 1n, 2n), 2n);
   await registry.close();
 });
+
+
+test('registry close waits for a late spawn to stop physically before reporting success', async () => {
+  let resolveSpawn, resolveStop, stopStarted = false, closeSettled = false;
+  const pool = {
+    spawn: () => new Promise(resolve => { resolveSpawn = resolve; }),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+  const closing = registry.close().then(() => {closeSettled = true;});
+  await Promise.resolve();
+  assert.equal(closeSettled, false);
+  resolveSpawn({
+    send: async () => 1n,
+    stop: () => {stopStarted = true; return new Promise(resolve => {resolveStop = resolve;});}
+  });
+  for (let i = 0; i < 8 && !stopStarted; i++) await Promise.resolve();
+  assert.equal(stopStarted, true, 'the late successor must not be orphaned');
+  assert.equal(closeSettled, false, 'pool close alone is not a teardown barrier');
+  resolveStop();
+  await assert.rejects(spawning, /closed while spawning/);
+  await closing;
+  assert.equal(closeSettled, true);
+  assert.equal(registry.actorCount, 0);
+});
+
+test('registry close retains a quarantined late spawn if its stop ACK fails', async () => {
+  let resolveSpawn;
+  const pool = {
+    spawn: () => new Promise(resolve => {resolveSpawn = resolve;}),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+  const closing = registry.close();
+  resolveSpawn({send: async () => 1n,
+    stop: async () => {throw Error('physical retirement unknown');}});
+  await assert.rejects(spawning, /late spawned actor retirement unconfirmed/);
+  await assert.rejects(closing, /cannot prove late-spawn retirement/);
+  assert.equal(registry.actorCount, 1,
+    'an unconfirmed physical worker retains its registry identity');
+});
