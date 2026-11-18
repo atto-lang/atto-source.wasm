@@ -244,8 +244,10 @@ test('registry close waits for a late spawn to stop physically before reporting 
   const registry = new NativeWasmActorRegistry({pool});
   const spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
   const closing = registry.close().then(() => {closeSettled = true;});
-  await Promise.resolve();
-  assert.equal(closeSettled, false);
+  // Drain enough microtasks to catch a close that only waits on pool.close()
+  // but incorrectly omits this pending spawn from its admission barrier.
+  for (let i = 0; i < 16; i++) await Promise.resolve();
+  assert.equal(closeSettled, false, 'close must await the pending spawn');
   resolveSpawn({
     send: async () => 1n,
     stop: () => {stopStarted = true; return new Promise(resolve => {resolveStop = resolve;});}
