@@ -41,9 +41,13 @@ function boundedPositiveInt(value, name, maximum) {
   return value;
 }
 
+// Under the Unicode /u flag paired surrogates are one scalar and unpaired
+// UTF-16 surrogates are matched. Reject lossy UTF-8/MessagePack round-trips.
+const malformedUtf16 = /[\uD800-\uDFFF]/u;
 function topicName(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 ||
-      value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value))
+      value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value) ||
+      malformedUtf16.test(value))
     throw new TypeError("invalid topic name");
   return value;
 }
@@ -57,6 +61,8 @@ function freezePayload(value) {
       // conservative, encoding-independent per-event memory bound.
       if (value.length > MAX_EVENT_CODE_UNITS)
         throw new RangeError("pub-sub string payload exceeds hard limit");
+      if (malformedUtf16.test(value))
+        throw new TypeError("pub-sub string payload contains malformed UTF-16");
       return value;
     case "boolean":
       return value;
