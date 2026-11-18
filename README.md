@@ -24,7 +24,7 @@ Target portable compatibility under atto-spec; demonstrate each supported featur
 Notes on the compiler and runtime:
 
 * Strive for zero gc. The borrow checker should accomplish this, and having separate heaps/arenas per actor helps reduce gc overhead.
-* Borrow checking uses reserved keywords rt copy, rt share, rt take, rt borrow
+* Legacy ownership syntax in this checkout includes `rt copy`, `rt share`, `rt take` and `rt borrow`; current AttoLang source design prefers `copy!`, `copy!!` (deep copy), `share!`, `take!`, `borrow!`, and implicit checked parameter borrows. Check [atto-spec](https://github.com/atto-lang/atto-spec) and backend admission tests before rewriting historical fixtures.
 * Go for full AOT. Some JIT elements are ok, as long as they can be explicitly controlled/governed by user.
 * Strive for hard real time not just soft-real time by minimizing JIT (or having JIT switched off for certain paths) and moving towards full AOT.
 * Use data-oriented design and data oriented programming - be mindful of using AoS, SoA, AoSoA and SoAoS where possible.
