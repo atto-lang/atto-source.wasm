@@ -1,0 +1,7 @@
+async fnc bad(Topic<String> topic): void {
+  return;
+}
+
+pub routine main(): void {
+  return;
+}

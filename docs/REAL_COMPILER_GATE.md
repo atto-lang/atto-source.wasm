@@ -14,8 +14,8 @@ Without that secret, the workflow fails closed. It does not copy source to
 public repositories, mirror across organizations, or assume the default
 `GITHUB_TOKEN` has cross-repository permissions.
 
-The workflow pins LLVM main revision
-`0ee060aafbc079150541dac6d3ab6b177b7b1670`, checks the
+The workflow pins the reviewed LLVM generator revision
+`b364f613870f7382307e79bc30d67833a1e24841`, checks the
 exact checkout commit, builds `oreslang-llvmc`, and records the SHA-256
 of the actual executable before running the integration gate.
 This source commit is an immutable input, **not** proof of source/toolchain

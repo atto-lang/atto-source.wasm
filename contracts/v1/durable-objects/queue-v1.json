@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "scope": "host-only queues; no persistent or sandbox claims",
+  "cases": [
+    {
+      "id": "same-lock-fifo",
+      "expect": [
+        "first-head",
+        "second-waits",
+        "only-head-claim",
+        "finish-wakes-successor"
+      ]
+    },
+    {
+      "id": "actor-nonreentrant-across-locks",
+      "expect": [
+        "two-heads",
+        "first-claim-succeeds",
+        "same-actor-second-claim-defers",
+        "different-actor-claim-succeeds"
+      ]
+    },
+    {
+      "id": "tenant-generation-fencing",
+      "expect": [
+        "same-lock-id-independent",
+        "foreign-ticket-reject",
+        "destroy-recreate-stale-reject"
+      ]
+    },
+    {
+      "id": "bounded-admission",
+      "expect": [
+        "entry-limit",
+        "byte-limit",
+        "lock-limit",
+        "depth-limit",
+        "failed-admission-does-not-charge"
+      ]
+    },
+    {
+      "id": "cancellation",
+      "expect": [
+        "cancel-unstarted-head",
+        "cancel-waiter",
+        "claimed-head-not-cancelable",
+        "replay-reject"
+      ]
+    },
+    {
+      "id": "shutdown",
+      "expect": [
+        "new-enqueue-denied",
+        "new-claim-denied",
+        "finish-after-quiescence",
+        "drain-required-before-destroy"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+// 37: named Integer bitXor, not an overloaded/removed caret operator.
+pub fnc main(): int { return Integer.bitXor(40, 2); }

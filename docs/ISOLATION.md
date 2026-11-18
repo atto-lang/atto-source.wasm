@@ -15,6 +15,23 @@
 
 This prevents guests from invoking unauthorized JS host imports through WebAssembly and prevents the normal guest linear-memory address space from being shared between invocations. It is a **defense-in-depth prototype**, not containment against vulnerabilities in the Wasm engine or operating system.
 
+### Async-only I/O boundary
+
+The scalar profile is stricter than an async stdlib: it has **zero guest I/O**.
+`core` therefore cannot fall back to synchronous WASI, Node filesystem/network
+APIs, or worker-offloaded blocking calls. `compileAdmittedCoreGuest` rejects
+legacy/blocking I/O mode, requested guest network I/O, and reactor options
+before guest compilation. Any future stdlib profile must be separately
+versioned and may expose I/O only through explicit asynchronous host-mediated
+capabilities and continuation completion; broad WASI imports must never become
+the default.
+
+`tests/async-io-zero-capability.test.mjs` is part of the default `npm test`
+suite. It executes a real import-free core module, requires
+`imports == 0` and `hostCapabilities == 0`, checks that unsupported I/O
+options fail before guest compilation, rejects even an empty Wasm import
+section, and verifies that the worker instantiates with an empty import object.
+
 Memory maximum is checked against the binary, not just build flags. CLI file reads are capped before allocation, and the CLI requires an exact artifact SHA-256 pin. The standalone admission helper verifies that pinned hash on a byte snapshot before invoking the WebAssembly validator or compiler. Untrusted compilation runs within the disposable worker, not on the main thread. Node worker JS heap resourceLimits do not constrain all WASM/non-JS native allocations; the module-size, fixed guest linear-memory maximum, time deadline and OS-level deployment boundaries still matter.
 
 ## NOT proven

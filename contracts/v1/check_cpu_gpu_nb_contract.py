@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Exact-source, rejection-only five-backend CPU/GPU/nb corpus gate.
 
-Identical in Java, LLVM, .NET, WASM and Forge. Validates contract provenance,
+The case-registry blob remains five-backend identical; the WASM mainline
+has since extended the explanatory v1 document. Validates provenance,
 not parser/runtime/kernel implementation or permission to mirror private code.
 """
 import argparse
@@ -11,7 +12,7 @@ from pathlib import Path
 import tempfile
 
 PINNED_BLOBS = {
-    "CPU_GPU_NB_V1.md": "c05b88f7d68bb86cd5a9e1ef3a4e08a044dbac1a",
+    "CPU_GPU_NB_V1.md": "0f5fcf5848f347c9443efaf53b8eca7a7177d7ff",
     "cpu-gpu-nb-unsupported-v1.json": "05e084144d5034557c824e2ad227ae5263bcac40",
 }
 CASE_NAMES = frozenset({

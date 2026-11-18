@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "contract": "attolang.attoxp.scalar-parity/1",
+  "truth": "SCALAR_ONLY_NOT_UI_ABI_OR_ACTOR",
+  "cases": [
+    {
+      "id": "answer-42",
+      "file": "answer-42.atto",
+      "expectedExit": 42,
+      "sha256": "08a415734e9992f47702dc9b1ccf2c5dceb74df05245eaa5fbb00512d18afc8a"
+    },
+    {
+      "id": "decrement-41",
+      "file": "decrement-41.atto",
+      "expectedExit": 41,
+      "sha256": "90da332e7fb4e13443a7c6f741e03d872c8d0422359842f9291326c3c98e1fdf"
+    },
+    {
+      "id": "reset-zero",
+      "file": "reset-zero.atto",
+      "expectedExit": 0,
+      "sha256": "c26a72daa25e2d8da6ce0f5b8e1373c444db82537b74da9f687f43307277d6cf"
+    },
+    {
+      "id": "multiply-42",
+      "file": "multiply-42.atto",
+      "expectedExit": 42,
+      "sha256": "e07b8ff18f11896a087db1c608d5206df1e36832f5ae6f4b2f8cc505338e342f"
+    }
+  ]
+}

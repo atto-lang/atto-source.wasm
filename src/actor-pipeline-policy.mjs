@@ -1,9 +1,39 @@
 // Host-only checked route selector; does not expose guest imports or actor execution.
 const encoder = new TextEncoder();
-function utf8(value, limit, optional = false, allowNul = false) {
+// Never invoke caller iterators, length getters, or field accessors during
+// host-side routing admission; copy only own plain data properties.
+function ownEntries(list,min,max){
+ if(!Array.isArray(list))throw new RangeError("pipeline graph budget");
+ const length=Object.getOwnPropertyDescriptor(list,"length")?.value;
+ if(!Number.isSafeInteger(length)||length<min||length>max)
+  throw new RangeError("pipeline graph budget");
+ const entries=[];
+ for(let i=0;i<length;i++){
+  const d=Object.getOwnPropertyDescriptor(list,String(i));
+  if(!d||!Object.hasOwn(d,"value"))throw new TypeError("pipeline graph requires own data fields");
+  entries.push(d.value);
+ }
+ return entries;
+}
+function ownField(record,field,optional=false){
+ if(!record||typeof record!=="object")
+  throw new TypeError("pipeline graph requires own data fields");
+ const d=Object.getOwnPropertyDescriptor(record,field);
+ if(!d&&optional)return "";
+ if(!d||!Object.hasOwn(d,"value"))
+  throw new TypeError("pipeline graph requires own data fields");
+ return d.value;
+}
+
+function utf8(value, limit, optional = false, allowNul = false, topology = false) {
   if (typeof value !== "string" || (!optional && !value) || (!allowNul && value.includes("\0")))
     throw new TypeError("invalid pipeline identifier");
   if (value.length > limit) throw new RangeError("pipeline byte limit");
+  // Compiler-owned actor identities and payload labels must not contain
+  // invisible or direction-changing format controls. Route hash keys remain
+  // caller-owned opaque bytes and intentionally admit arbitrary UTF-8.
+  if(topology && /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u.test(value))
+    throw new TypeError("unsafe actor pipeline identifier");
   for (let i = 0; i < value.length; ++i) {
     const c = value.charCodeAt(i);
     if (c >= 0xd800 && c <= 0xdbff) {
@@ -26,13 +56,15 @@ export class ActorPipelinePolicy {
   #cursor = new Map();
   #retired = false;
   constructor(stages, edges) {
-    if (!Array.isArray(stages) || stages.length < 2 || stages.length > 1024 ||
-        !Array.isArray(edges) || !edges.length || edges.length > 4096)
-      throw new RangeError("pipeline graph budget");
+    const stageData=ownEntries(stages,2,1024),edgeData=ownEntries(edges,1,4096);
     const byId = new Map(), routes = new Map(), parents = new Map();
-    for (const {id, type, role, inbound = "", outbound = ""} of stages) {
-      utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
-      utf8(outbound, 256, true);
+    for (const stage of stageData) {
+      const id=ownField(stage,"id"),type=ownField(stage,"type");
+      const role=ownField(stage,"role");
+      const inbound=ownField(stage,"inbound",true);
+      const outbound=ownField(stage,"outbound",true);
+      utf8(id, 256, false, false, true); utf8(type, 256, false, false, true); utf8(inbound, 256, true, false, true);
+      utf8(outbound, 256, true, false, true);
       if (byId.has(id)) throw new TypeError("duplicate pipeline instance");
       if (!((role === "readable" && !inbound && outbound) ||
             (role === "writable" && inbound && !outbound) ||
@@ -42,9 +74,10 @@ export class ActorPipelinePolicy {
       parents.set(id, 0);
     }
     const seen = new Set();
-    for (const edge of edges) {
-      const {source, target, payload} = edge;
-      utf8(source, 256); utf8(target, 256); utf8(payload, 256);
+    for (const edge of edgeData) {
+      const source=ownField(edge,"source"),target=ownField(edge,"target");
+      const payload=ownField(edge,"payload");
+      utf8(source, 256, false, false, true); utf8(target, 256, false, false, true); utf8(payload, 256, false, false, true);
       const from = byId.get(source), to = byId.get(target);
       if (!from || !to || source === target ||
           from.role === "writable" || to.role === "readable" ||
@@ -80,8 +113,10 @@ export class ActorPipelinePolicy {
         if (n === 0) ready.push(edge.target);
       }
     }
-    if (visited !== stages.length) throw new TypeError("cyclic pipeline graph");
+    if (visited !== stageData.length) throw new TypeError("cyclic pipeline graph");
     this.#routes = new Map([...routes].map(([id, list])=>[id, Object.freeze(list)]));
+    // Pre-seed all RR cursors at trusted graph construction, never on a turn.
+    for (const source of this.#routes.keys()) this.#cursor.set(source, 0);
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
@@ -96,7 +131,7 @@ export class ActorPipelinePolicy {
   }
   forwardAll(source) { return this.#connected(source); }
   forwardRoundRobin(source) {
-    const routes = this.#connected(source), cursor = this.#cursor.get(source) ?? 0;
+    const routes = this.#connected(source), cursor = this.#cursor.get(source);
     this.#cursor.set(source, (cursor + 1) % routes.length);
     return routes[cursor];
   }
