@@ -427,3 +427,28 @@ test("LOSSY global exhaustion drops without exceeding capacity and retirement fr
   assert.deepEqual(topic.tryRead(successor), {present: true, value: "fresh"});
   assert.equal(bus.close(), true);
 });
+
+
+test("pub-sub portable strings reject orphan UTF-16 surrogates without coalescing valid Unicode", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  for (const invalid of ["\uD800", "\uDC00", "ok\uDBFFsuffix"]) {
+    assert.throws(() => group.defineTopic(invalid, "lossy", 1),
+      /invalid topic name/);
+    assert.throws(() => group.topic(invalid), /invalid topic name/);
+  }
+  const topic = group.defineTopic("weather-😀", "reliable", 2);
+  topic.subscribe(subscriber);
+  for (const invalid of ["\uD800", "a\uDC00b", "😀\uDFFF"]) {
+    assert.throws(() => topic.publish(publisher, invalid), /malformed UTF-16/);
+    assert.deepEqual(topic.tryRead(subscriber), {present:false,value:undefined});
+  }
+  assert.equal(topic.publish(publisher, "😀").accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber), {present:true,value:"😀"});
+  assert.equal(group.close(), true);
+  assert.equal(bus.close(), true);
+});
