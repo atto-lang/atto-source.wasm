@@ -5,6 +5,19 @@
 
 const actorKinds = new Set(["shared", "private", "untrusted"]);
 const policies = new Set(["reliable", "latest", "lossy"]);
+// Hard resource ceilings are independent of caller-supplied per-instance quotas.
+// An actor/topic capacity of MAX_SAFE_INTEGER is not meaningful backpressure.
+const MAX_ACTORS = 4096;
+const MAX_ACTOR_HISTORIES = 65536;
+const MAX_GROUPS = 4096;
+const MAX_MEMBERS_PER_GROUP = 4096;
+const MAX_MEMBERSHIPS = 4096;
+const MAX_TOPICS = 4096;
+const MAX_SUBSCRIPTIONS = 1024;
+const MAX_QUEUE_DEPTH = 1024;
+const MAX_EVENT_CODE_UNITS = 4096;
+const MIN_I64 = -(1n << 63n);
+const MAX_I64 = (1n << 63n) - 1n;
 // Module-private constructors: public exported class names are not grant minting.
 const GROUP_HANDLE_BRAND = Symbol("WasmActorGroup capability");
 const TOPIC_HANDLE_BRAND = Symbol("WasmActorTopic capability");
@@ -21,6 +34,12 @@ function positiveSafeInt(value, name) {
   return value;
 }
 
+function boundedPositiveInt(value, name, maximum) {
+  positiveSafeInt(value, name);
+  if (value > maximum) throw new RangeError(name + " exceeds hard limit");
+  return value;
+}
+
 function topicName(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 ||
       value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value))
@@ -33,9 +52,20 @@ function freezePayload(value) {
     throw new TypeError("Oreslang event payload uses Option<T>, not null");
   switch (typeof value) {
     case "string":
+      // Every UTF-16 code unit takes at most 3 UTF-8 bytes; this is a
+      // conservative, encoding-independent per-event memory bound.
+      if (value.length > MAX_EVENT_CODE_UNITS)
+        throw new RangeError("pub-sub string payload exceeds hard limit");
+      return value;
     case "boolean":
+      return value;
     case "number":
+      if (!Number.isFinite(value))
+        throw new TypeError("pub-sub number payload must be finite");
+      return value;
     case "bigint":
+      if (value < MIN_I64 || value > MAX_I64)
+        throw new RangeError("pub-sub bigint payload must fit signed i64");
       return value;
     default:
       throw new TypeError("Wasm pub-sub payload is not a proven immutable scalar/string");
@@ -54,18 +84,28 @@ export class WasmActorPubSub {
   #maxGroupsPerActor;
   #maxTopics;
   #maxSubscriptionsPerActor;
+  #maxActors;
+  #maxActorHistories;
 
   constructor({
     maxGroups = 4096,
     maxGroupsPerActor = 64,
     maxTopics = 4096,
-    maxSubscriptionsPerActor = 1024
+    maxSubscriptionsPerActor = 1024,
+    maxActors = 4096,
+    maxActorHistories = 65536
   } = {}) {
-    this.#maxGroups = positiveSafeInt(maxGroups, "maxGroups");
-    this.#maxGroupsPerActor = positiveSafeInt(maxGroupsPerActor, "maxGroupsPerActor");
-    this.#maxTopics = positiveSafeInt(maxTopics, "maxTopics");
-    this.#maxSubscriptionsPerActor =
-      positiveSafeInt(maxSubscriptionsPerActor, "maxSubscriptionsPerActor");
+    this.#maxGroups = boundedPositiveInt(maxGroups, "maxGroups", MAX_GROUPS);
+    this.#maxGroupsPerActor = boundedPositiveInt(
+      maxGroupsPerActor, "maxGroupsPerActor", MAX_MEMBERSHIPS);
+    this.#maxTopics = boundedPositiveInt(maxTopics, "maxTopics", MAX_TOPICS);
+    this.#maxSubscriptionsPerActor = boundedPositiveInt(
+      maxSubscriptionsPerActor, "maxSubscriptionsPerActor", MAX_SUBSCRIPTIONS);
+    this.#maxActors = boundedPositiveInt(maxActors, "maxActors", MAX_ACTORS);
+    // Historical actor IDs cannot be discarded without changing monotonic
+    // incarnation semantics. Bound the entire lifetime history instead.
+    this.#maxActorHistories = boundedPositiveInt(
+      maxActorHistories, "maxActorHistories", MAX_ACTOR_HISTORIES);
   }
 
   registerActor({actorId, incarnation, kind = "shared"} = {}) {
@@ -76,6 +116,11 @@ export class WasmActorPubSub {
 
     if (this.#actorIds.has(actorId))
       throw new Error("actor ID still belongs to a live incarnation");
+    if (this.#actors.size >= this.#maxActors)
+      throw new RangeError("actor registry capacity exceeded");
+    if (!this.#lastIncarnation.has(actorId) &&
+        this.#lastIncarnation.size >= this.#maxActorHistories)
+      throw new RangeError("actor incarnation history capacity exceeded");
     const previousIncarnation = this.#lastIncarnation.get(actorId) ?? 0;
     if (incarnation <= previousIncarnation)
       throw new Error("actor incarnation must increase monotonically");
@@ -107,7 +152,7 @@ export class WasmActorPubSub {
 
   createGroup({maxMembers = 1024} = {}) {
     this.#requireOpen();
-    positiveSafeInt(maxMembers, "maxMembers");
+    boundedPositiveInt(maxMembers, "maxMembers", MAX_MEMBERS_PER_GROUP);
     if (this.#groups.size >= this.#maxGroups)
       throw new RangeError("ActorGroup capacity exceeded");
     if (this.#nextGroupId >= Number.MAX_SAFE_INTEGER)
@@ -160,7 +205,7 @@ export class WasmActorPubSub {
     this.#requireGroup(groupId);
     name = topicName(name);
     if (!policies.has(policy)) throw new TypeError("invalid topic policy");
-    positiveSafeInt(capacity, "topic capacity");
+    boundedPositiveInt(capacity, "topic capacity", MAX_QUEUE_DEPTH);
     if (policy === "latest" && capacity !== 1)
       throw new RangeError("LATEST topic capacity must equal one");
 
