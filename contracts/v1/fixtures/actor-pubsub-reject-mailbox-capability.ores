@@ -1,0 +1,10 @@
+define actor BadReceiver as
+  receive(ActorMail<Topic<String>> mail): void {
+    self.end();
+    return;
+  }
+end
+
+pub routine main(): void {
+  return;
+}

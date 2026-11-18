@@ -1,0 +1,53 @@
+name: Manual pinned Wasm PR verification
+
+# Deliberately installed on default branch: workflow_dispatch cannot be
+# reliably invoked when the workflow exists only in an unmerged PR.
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character Git commit SHA to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-pinned-head:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Require exact immutable revision
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected exact lowercase 40-hex commit SHA" >&2
+            exit 1
+          fi
+      - name: Check out exact Wasm source revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - name: Verify repository checkout identity
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+          test -z "$(git status --porcelain)"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install real Wasm toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Run entire Wasm scalar suite
+        run: npm test
+      - name: Record tested revision
+        shell: bash
+        run: |
+          printf "Verified source revision: "
+          git rev-parse HEAD

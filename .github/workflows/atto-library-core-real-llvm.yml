@@ -1,0 +1,103 @@
+# Manual execution only, after independent source access authorization.
+# This does NOT mirror private source to another organization. No automatic
+# pull_request event may obtain the private compiler checkout token.
+name: AttoLang Core real LLVM-to-Wasm guest (MANUAL, compiler-backed)
+on:
+  workflow_dispatch:
+    inputs:
+      llvm_sha:
+        description: "Approved exact 40-hex LLVM PR source commit SHA (not a moving branch)"
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: atto-core-manual-llvm-wasm-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  canonical-core-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ORESLANG_LLVM_SOURCE_SHA: ${{ inputs.llvm_sha }}
+    steps:
+      - name: Validate manual exact compiler SHA before any checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ORESLANG_LLVM_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "${{ github.event_name }}" = "workflow_dispatch"
+      - name: Require explicitly authorized same-org private compiler access
+        shell: bash
+        env:
+          ORESLANG_READ_TOKEN: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$ORESLANG_READ_TOKEN" || { echo 'Missing authorized LLVM read token' >&2; exit 1; }
+      - name: Checkout immutable Wasm workflow source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Bind exact Wasm source head/tree
+        env:
+          EXPECTED_WASM_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_WASM_HEAD"
+          git diff --quiet --exit-code
+          printf 'WASM_SOURCE_HEAD=%s\nWASM_SOURCE_TREE=%s\n' "$EXPECTED_WASM_HEAD" "$(git rev-parse 'HEAD^{tree}')" > atto-core-real-guest-receipt.txt
+          test "$(git hash-object contracts/atto-library-core-v1/core-numeric.atto)" = "395695e5b1a6c40d56db323943b34f1012b76c7c"
+      - name: Checkout exact authorized LLVM compiler source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.llvm
+          ref: ${{ inputs.llvm_sha }}
+          path: llvm-source
+          token: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
+          persist-credentials: false
+          submodules: false
+      - name: Verify compiler source SHA and tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C llvm-source rev-parse HEAD)" = "$ORESLANG_LLVM_SOURCE_SHA"
+          git -C llvm-source diff --quiet --exit-code
+          printf 'LLVM_SOURCE_HEAD=%s\nLLVM_SOURCE_TREE=%s\n' "$ORESLANG_LLVM_SOURCE_SHA" "$(git -C llvm-source rev-parse 'HEAD^{tree}')" >> atto-core-real-guest-receipt.txt
+      - name: Install native LLVM build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang lld llvm llvm-dev
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Build exact source compiler and pin executable bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S llvm-source -B llvm-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build llvm-build --target oreslang-llvmc --parallel 2
+          test -x llvm-build/oreslang-llvmc
+          echo "ORESLANG_LLVM_COMPILER=$PWD/llvm-build/oreslang-llvmc" >> "$GITHUB_ENV"
+          digest="$(sha256sum llvm-build/oreslang-llvmc | cut -d' ' -f1)"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          echo "ORESLANG_LLVM_COMPILER_SHA256=$digest" >> "$GITHUB_ENV"
+          printf 'LLVM_COMPILER_SHA256=%s\n' "$digest" >> atto-core-real-guest-receipt.txt
+      - name: Execute real canonical .atto -> LLVM -> Wasm guest and negative probes
+        shell: bash
+        env:
+          ATTO_REQUIRE_COMPILER_GUEST: '1'
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap tests/atto-library-core-guest.test.mjs 2>&1 | tee atto-core-real-guest.log
+          grep -F 'ATTO_CANONICAL_CORE_WASM_GUEST_EXECUTED|result=42|host_imports=0|host_capabilities=0' atto-core-real-guest.log
+          grep -E '^# pass 2$' atto-core-real-guest.log
+          grep -E '^# skipped 0$' atto-core-real-guest.log
+          echo 'ATTO_WASM_COMPILER_BACKED_TEST_EXECUTED=YES' >> atto-core-real-guest-receipt.txt
+      - name: Preserve real process evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atto-core-real-wasm-source-bound
+          path: |
+            atto-core-real-guest.log
+            atto-core-real-guest-receipt.txt
+          if-no-files-found: warn

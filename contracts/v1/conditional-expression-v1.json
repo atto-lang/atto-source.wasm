@@ -1,0 +1,56 @@
+{
+  "schema": "oreslang.conditional-expression.v1",
+  "if": {
+    "form": "statement",
+    "produces_value": false,
+    "implicit_branch_result": false,
+    "non_void_callable_requires_explicit_return": true
+  },
+  "ternary": {
+    "syntax": "condition ? whenTrue : whenFalse",
+    "form": "expression",
+    "condition_type": "bool",
+    "truthiness_coercion": false,
+    "associativity": "right",
+    "precedence": {
+      "below": ["logical_or"],
+      "above": ["assignment"]
+    },
+    "evaluation": {
+      "condition": "exactly_once",
+      "branches": "selected_arm_only"
+    },
+    "static_analysis": {
+      "check_both_arms": true,
+      "result": "common_static_type",
+      "ownership": "compatible_branch_join_required"
+    }
+  },
+  "portable_scalar_vectors": [
+    {
+      "id": "literal_true",
+      "source": "pub fnc main(): int { return true ? 42 : 7; }",
+      "result": 42
+    },
+    {
+      "id": "literal_false",
+      "source": "pub fnc main(): int { return false ? 42 : 7; }",
+      "result": 7
+    },
+    {
+      "id": "right_associative",
+      "source": "pub fnc main(): int { return false ? 1 : true ? 42 : 3; }",
+      "result": 42
+    },
+    {
+      "id": "arithmetic_condition_precedence",
+      "source": "pub fnc main(): int { return 20 + 1 == 21 ? 42 : 7; }",
+      "result": 42
+    },
+    {
+      "id": "reject_integer_truthiness",
+      "source": "pub fnc main(): int { return 1 ? 42 : 7; }",
+      "reject": "condition_not_bool"
+    }
+  ]
+}

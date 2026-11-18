@@ -1,0 +1,245 @@
+{
+  "contract": "oreslang.strict-named-integer-arithmetic.v1",
+  "integer": "signed64",
+  "encoding": "decimal-string",
+  "modulus": "euclidean-nonnegative",
+  "remainder": "truncating",
+  "power": "nonnegative-exponent-checked-overflow",
+  "status": "reference vectors; backends not yet executed",
+  "cases": [
+    {
+      "id": "rem_pos_pos",
+      "operation": "rem",
+      "left": "9",
+      "right": "4",
+      "expect": {
+        "value": "1"
+      }
+    },
+    {
+      "id": "rem_neg_pos",
+      "operation": "rem",
+      "left": "-9",
+      "right": "4",
+      "expect": {
+        "value": "-1"
+      }
+    },
+    {
+      "id": "rem_pos_neg",
+      "operation": "rem",
+      "left": "9",
+      "right": "-4",
+      "expect": {
+        "value": "1"
+      }
+    },
+    {
+      "id": "rem_neg_neg",
+      "operation": "rem",
+      "left": "-9",
+      "right": "-4",
+      "expect": {
+        "value": "-1"
+      }
+    },
+    {
+      "id": "rem_min_minus_one",
+      "operation": "rem",
+      "left": "-9223372036854775808",
+      "right": "-1",
+      "expect": {
+        "value": "0"
+      }
+    },
+    {
+      "id": "rem_min_max",
+      "operation": "rem",
+      "left": "-9223372036854775808",
+      "right": "9223372036854775807",
+      "expect": {
+        "value": "-1"
+      }
+    },
+    {
+      "id": "rem_zero",
+      "operation": "rem",
+      "left": "9",
+      "right": "0",
+      "expect": {
+        "error": "DIVISOR_ZERO"
+      }
+    },
+    {
+      "id": "mod_pos_pos",
+      "operation": "mod",
+      "left": "9",
+      "right": "4",
+      "expect": {
+        "value": "1"
+      }
+    },
+    {
+      "id": "mod_neg_pos",
+      "operation": "mod",
+      "left": "-9",
+      "right": "4",
+      "expect": {
+        "value": "3"
+      }
+    },
+    {
+      "id": "mod_pos_neg",
+      "operation": "mod",
+      "left": "9",
+      "right": "-4",
+      "expect": {
+        "value": "1"
+      }
+    },
+    {
+      "id": "mod_neg_neg",
+      "operation": "mod",
+      "left": "-9",
+      "right": "-4",
+      "expect": {
+        "value": "3"
+      }
+    },
+    {
+      "id": "mod_min_minus_one",
+      "operation": "mod",
+      "left": "-9223372036854775808",
+      "right": "-1",
+      "expect": {
+        "value": "0"
+      }
+    },
+    {
+      "id": "mod_neg_one_min",
+      "operation": "mod",
+      "left": "-1",
+      "right": "-9223372036854775808",
+      "expect": {
+        "value": "9223372036854775807"
+      }
+    },
+    {
+      "id": "mod_min_max",
+      "operation": "mod",
+      "left": "-9223372036854775808",
+      "right": "9223372036854775807",
+      "expect": {
+        "value": "9223372036854775806"
+      }
+    },
+    {
+      "id": "mod_zero",
+      "operation": "mod",
+      "left": "-1",
+      "right": "0",
+      "expect": {
+        "error": "DIVISOR_ZERO"
+      }
+    },
+    {
+      "id": "pow_zero_zero",
+      "operation": "pow",
+      "left": "0",
+      "right": "0",
+      "expect": {
+        "value": "1"
+      }
+    },
+    {
+      "id": "pow_negative_odd",
+      "operation": "pow",
+      "left": "-2",
+      "right": "3",
+      "expect": {
+        "value": "-8"
+      }
+    },
+    {
+      "id": "pow_min_exact",
+      "operation": "pow",
+      "left": "-2",
+      "right": "63",
+      "expect": {
+        "value": "-9223372036854775808"
+      }
+    },
+    {
+      "id": "pow_long_max_exponent_neg_one",
+      "operation": "pow",
+      "left": "-1",
+      "right": "9223372036854775807",
+      "expect": {
+        "value": "-1"
+      }
+    },
+    {
+      "id": "pow_zero_very_large",
+      "operation": "pow",
+      "left": "0",
+      "right": "9223372036854775807",
+      "expect": {
+        "value": "0"
+      }
+    },
+    {
+      "id": "pow_overflow",
+      "operation": "pow",
+      "left": "2",
+      "right": "63",
+      "expect": {
+        "error": "OVERFLOW"
+      }
+    },
+    {
+      "id": "pow_negative_exponent",
+      "operation": "pow",
+      "left": "2",
+      "right": "-1",
+      "expect": {
+        "error": "NEGATIVE_EXPONENT"
+      }
+    },
+    {
+      "id": "xor_zero",
+      "operation": "bit_xor",
+      "left": "0",
+      "right": "0",
+      "expect": {
+        "value": "0"
+      }
+    },
+    {
+      "id": "xor_small",
+      "operation": "bit_xor",
+      "left": "5",
+      "right": "3",
+      "expect": {
+        "value": "6"
+      }
+    },
+    {
+      "id": "xor_negative",
+      "operation": "bit_xor",
+      "left": "-1",
+      "right": "0",
+      "expect": {
+        "value": "-1"
+      }
+    },
+    {
+      "id": "xor_min_max",
+      "operation": "bit_xor",
+      "left": "-9223372036854775808",
+      "right": "9223372036854775807",
+      "expect": {
+        "value": "-1"
+      }
+    }
+  ]
+}

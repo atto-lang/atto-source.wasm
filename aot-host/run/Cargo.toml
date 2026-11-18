@@ -1,0 +1,15 @@
+[package]
+name="oreslang-aot-run"
+version="0.1.0"
+edition="2021"
+publish=false
+[features]
+default=[]
+# DANGEROUS: only for isolated development tests. Production builds must never
+# accept user-supplied native bytes and their hash as an authenticity check.
+insecure-dev-caller-pin=[]
+
+[dependencies]
+wasmtime={version="=49.0.3",default-features=false,features=["std","runtime"]}
+sha2="=0.10.9"
+libc="=0.2.186"

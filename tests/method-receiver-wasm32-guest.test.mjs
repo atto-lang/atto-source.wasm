@@ -1,0 +1,121 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
+import {spawnSync} from "node:child_process";
+import {mkdtempSync,readFileSync,rmSync,writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {readBoundedRegularFile} from "../scripts/compile-ores.mjs";
+import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
+import {assertPrimaryReceiverSlotRejection} from "./receiver-slot-diagnostic.mjs";
+import {assertWasm32IrTarget} from "../scripts/wasm32-ir-target.mjs";
+
+const required = process.env.ORESLANG_METHOD_PARITY_REQUIRED === "1";
+const ready = Boolean(process.env.ORESLANG_LLVM_COMPILER);
+const sha = bytes => createHash("sha256").update(bytes).digest("hex");
+
+function run(command,args,options={}) {
+  const result=spawnSync(command,args,{encoding:"utf8",timeout:30000,
+    maxBuffer:4*1024*1024,
+    // Compiler and linker never inherit CI tokens, cloud credentials,
+    // Node injection hooks or runtime loader overrides.
+    env:{PATH:process.env.PATH||"/usr/bin:/bin",LANG:"C.UTF-8",LC_ALL:"C.UTF-8"},
+    ...options});
+  assert.ifError(result.error);
+  assert.equal(result.signal,null,"process timed out or was killed");
+  return result;
+}
+
+test("real wasm32 receiver execution and exact duplicate diagnostics",{
+  skip: !ready && !required
+},async()=>{
+  const compiler=process.env.ORESLANG_LLVM_COMPILER;
+  const digest=process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  assert.match(compiler||"", /^\//);
+  assert.match(digest||"", /^[a-f0-9]{64}$/);
+  assert.match(process.env.ORESLANG_LLVM_SOURCE_SHA||"", /^[a-f0-9]{40}$/);
+  const bytes=(await readBoundedRegularFile(compiler,256*1024*1024,
+    "bounded real LLVM compiler required")).bytes;
+  assert.equal(sha(bytes),digest);
+  const dir=mkdtempSync(join(tmpdir(),"ores-wasm-receiver-"));
+  try {
+    const pinned=join(dir,"compiler");
+    writeFileSync(pinned,bytes,{mode:0o500,flag:"wx"});
+    const accepted=[
+      ["read",`define class Foo as let int value=40;
+        pub x(self, int n):int{return self.value+n;}end
+        pub fnc main():int{let Foo f=new Foo();return f.x(2);}`],
+      ["zero-read",`define class Foo as let int value=40;
+        pub x(self):int{return self.value+2;}end
+        pub fnc main():int{let Foo f=new Foo();return f.x();}`],
+      ["zero-split-mut",`define class Foo as let int value=40;
+        pub x(mut self)():int{return self.value+2;}end
+        pub fnc main():int{let mut Foo f=new Foo();return f.x();}`],
+      ["mut",`define class Foo as let int value=40;
+        pub y(mut self, int n):void{self.value=self.value+n;return;}
+        pub x():int{return self.value;}end
+        pub fnc main():int{let mut Foo f=new Foo();f.y(2);return f.x();}`],
+      ["distinct",`define class Foo as let int value=40;
+        pub x(int n):int{return n;}
+        pub y(mut self, int n):int{return self.value+n;}end
+        pub fnc main():int{let mut Foo f=new Foo();return f.x(1)+f.y(1);}`],
+      ["split-mut",`define class Foo as let int value=40;
+        pub y(mut self)(int n):void{self.value=self.value+n;return;}
+        pub x():int{return self.value;}end
+        pub fnc main():int{let mut Foo f=new Foo();f.y(2);return f.x();}`]
+    ];
+    for (const [name,source] of accepted) {
+      const input=join(dir,name+".ores"),output=join(dir,name+".wasm");
+      writeFileSync(input,source,{mode:0o600,flag:"wx"});
+      // The existing tree-shake mode excludes class owners. Compile the
+      // complete bounded guest, rather than silently pruning method roots.
+      const built=run(pinned,["--target=wasm32",input]);
+      assert.equal(built.status,0,name+": "+built.stderr);
+      // Match the production bridge: comments and source_filename strings
+      // must not impersonate a unique wasm32 target declaration.
+      assertWasm32IrTarget(built.stdout);
+      assert.match(built.stdout,/^\s*define\s+i64\s+@main\s*\(\s*\)/m,
+        name+": compiler must emit a zero-argument i64 main entry");
+      const linked=run(process.env.CLANG||"clang",[
+        "--target=wasm32","-x","ir","-Oz","-nostdlib",
+        "-Wl,--no-entry","-Wl,--export=main","-Wl,--export-memory",
+        "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
+        "-o",output,"-"
+      ],{input:built.stdout});
+      assert.equal(linked.status,0,name+": "+linked.stderr);
+      const wasm=readFileSync(output);
+      const observed=await runIsolatedCoreGuest(wasm,{
+        expectedSha256:sha(wasm),timeoutMs:5000
+      });
+      assert.equal(observed.value,42n,name);
+      assert.equal(observed.admission.hostCapabilities,0);
+    }
+    const rejected=[
+      ["zero-forward",`define class Foo as x():void{return;} x(mut self)():void{return;}end
+         pub fnc main():int{return 42;}`,"x/0"],
+      ["zero-reverse",`define class Foo as x(mut self)():void{return;} x():void{return;}end
+         pub fnc main():int{return 42;}`,"x/0"],
+      ["one-forward",`define class Foo as x(int n):int{return n;}
+         x(mut self, int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"],
+      ["one-reverse",`define class Foo as x(mut self, int n):int{return n;}
+         x(int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"],
+      ["zero-read-versus-mut",`define class Foo as x(self):int{return 1;}
+         x(mut self):int{return 2;}end pub fnc main():int{return 42;}`,"x/0"],
+      ["one-read-versus-mut",`define class Foo as x(self, int n):int{return n;}
+         x(mut self)(int n):int{return n;}end pub fnc main():int{return 42;}`,"x/1"]
+    ];
+    for (const [name,source,slot] of rejected) {
+      const input=join(dir,name+".ores");
+      writeFileSync(input,source,{mode:0o600,flag:"wx"});
+      const result=run(pinned,["--target=wasm32",input]);
+      assertNativeFrontendRejection(result);
+      assert.equal(assertPrimaryReceiverSlotRejection(result,slot,name+".ores"),true,
+        "rejection must originate at exact receiver-erased method slot");
+    }
+    assert.equal(sha((await readBoundedRegularFile(pinned,256*1024*1024,
+      "pinned compiler size")).bytes),digest);
+  }finally{
+    rmSync(dir,{recursive:true,force:true});
+  }
+});

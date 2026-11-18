@@ -1,0 +1,1 @@
+fnc flag(int n):bool{if(n eq 1){return true;}fi return false;}pub fnc main():int{const result:bool=flag(1);if(result){return 42;}fi return 0;}

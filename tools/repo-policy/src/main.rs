@@ -1,0 +1,698 @@
+use serde::de::{self, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+use std::env;
+use std::fmt;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+const PROTOCOL: &str = "oreslang-ecosystem-integration";
+const NOTE: &str = "Declared integration touchpoints only; no CI or runtime parity is asserted.";
+const MAX_BYTES: usize = 4096;
+const EXPECTED_KEYS: [&str; 7] = [
+    "schemaVersion",
+    "protocol",
+    "repository",
+    "role",
+    "upstreams",
+    "evidence",
+    "note",
+];
+
+#[derive(Debug)]
+struct StrictObject(BTreeMap<String, Value>);
+
+struct StrictObjectVisitor;
+
+impl<'de> Visitor<'de> for StrictObjectVisitor {
+    type Value = StrictObject;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON object with unique top-level keys")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut values = BTreeMap::new();
+        while let Some((key, value)) = map.next_entry::<String, Value>()? {
+            if values.insert(key.clone(), value).is_some() {
+                return Err(de::Error::custom(format!("duplicate JSON key: {key:?}")));
+            }
+        }
+        Ok(StrictObject(values))
+    }
+}
+
+impl<'de> Deserialize<'de> for StrictObject {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_map(StrictObjectVisitor)
+    }
+}
+
+fn upstreams(repository: &str) -> Option<&'static [&'static str]> {
+    match repository {
+        "oreslang-source.java" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        "oreslang-source.llvm" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        "oreslang-source.wasm" => Some(&[
+            "oreslang-source.llvm",
+            "oreslang-target-profiles",
+            "oreslang-wasm",
+        ]),
+        "oreslang-source.js" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        "oreslang-source.hdl" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        "oreslang-source.forge" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        "oreslang-source.net" => Some(&["oreslang-common-source", "oreslang-target-profiles"]),
+        _ => None,
+    }
+}
+
+fn invalid(message: impl Into<String>) -> String {
+    message.into()
+}
+
+fn verify_bytes(raw: &[u8], repository_name: &str) -> Result<BTreeMap<String, Value>, String> {
+    let expected_upstreams = upstreams(repository_name).ok_or_else(|| invalid("unknown source repository"))?;
+    if raw.is_empty() || raw.len() > MAX_BYTES {
+        return Err(invalid("manifest is empty or oversized"));
+    }
+    let decoded = std::str::from_utf8(raw).map_err(|_| invalid("manifest must be valid UTF-8"))?;
+    if decoded.starts_with('﻿') {
+        return Err(invalid("UTF-8 BOM is prohibited"));
+    }
+
+    let mut deserializer = serde_json::Deserializer::from_str(decoded);
+    let StrictObject(value) = StrictObject::deserialize(&mut deserializer)
+        .map_err(|_| invalid("invalid JSON"))?;
+    deserializer.end().map_err(|_| invalid("invalid JSON"))?;
+
+    let actual_keys: BTreeSet<&str> = value.keys().map(String::as_str).collect();
+    let expected_keys: BTreeSet<&str> = EXPECTED_KEYS.into_iter().collect();
+    if actual_keys != expected_keys {
+        return Err(invalid("manifest must contain exactly the seven declared keys"));
+    }
+
+    match value.get("schemaVersion") {
+        Some(Value::Number(number)) if number.as_i64() == Some(1) => {}
+        _ => return Err(invalid("unsupported schema version")),
+    }
+    match value.get("protocol") {
+        Some(Value::String(protocol)) if protocol == PROTOCOL => {}
+        _ => return Err(invalid("unsupported protocol")),
+    }
+    match value.get("repository") {
+        Some(Value::String(repository))
+            if repository == &format!("ores-truffle-oreslang/{repository_name}") => {}
+        _ => return Err(invalid("repository identity mismatch")),
+    }
+    match value.get("role") {
+        Some(Value::String(role)) if role == "compiler" => {}
+        _ => return Err(invalid("unexpected integration role")),
+    }
+
+    let observed_upstreams = match value.get("upstreams") {
+        Some(Value::Array(items)) => {
+            let mut observed = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    Value::String(item) => observed.push(item.as_str()),
+                    _ => return Err(invalid("upstreams must be a string array")),
+                }
+            }
+            observed
+        }
+        _ => return Err(invalid("upstreams must be a string array")),
+    };
+    if observed_upstreams.as_slice() != expected_upstreams {
+        return Err(invalid(
+            "unexpected, reordered, or duplicate upstream dependencies",
+        ));
+    }
+
+    match value.get("evidence") {
+        Some(Value::String(evidence)) if evidence == "not-attested" => {}
+        _ => return Err(invalid("unverified parity/CI attestation is forbidden")),
+    }
+    match value.get("note") {
+        Some(Value::String(note)) if note == NOTE => {}
+        _ => return Err(invalid("evidence disclaimer was changed")),
+    }
+
+    Ok(value)
+}
+
+fn bounded_read(file: &mut fs::File) -> Result<Vec<u8>, String> {
+    // A regular file may grow after fstat. Never request more than one byte
+    // beyond MAX_BYTES, even when metadata was initially in bounds.
+    let mut raw = Vec::new();
+    file.take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut raw)
+        .map_err(|_| invalid("cannot read manifest"))?;
+    Ok(raw)
+}
+
+#[cfg(unix)]
+fn ensure_file_metadata_stable(before: &fs::Metadata, after: &fs::Metadata) -> Result<(), String> {
+    use std::os::unix::fs::MetadataExt;
+
+    // This detects observable file mutation around bounded reading. It cannot
+    // guarantee an immutable snapshot against a malicious concurrent writer
+    // that can restore timestamps or modify bytes after this final fstat.
+    if !before.is_file()
+        || !after.is_file()
+        || before.dev() != after.dev()
+        || before.ino() != after.ino()
+        || before.mode() != after.mode()
+        || before.nlink() != 1
+        || after.nlink() != 1
+        || before.len() != after.len()
+        || before.mtime() != after.mtime()
+        || before.mtime_nsec() != after.mtime_nsec()
+        || before.ctime() != after.ctime()
+        || before.ctime_nsec() != after.ctime_nsec()
+    {
+        return Err(invalid("manifest changed during bounded read"));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn read_manifest_physically(root: &Path) -> Result<Vec<u8>, String> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::path::Component;
+
+    // The filesystem-root fd is the authority anchor. O_NOFOLLOW on an
+    // absolute path protects only its last component, not its ancestors.
+    fn open_child(parent: &fs::File, name: &std::ffi::OsStr, flags: libc::c_int) -> Result<fs::File, String> {
+        let name = std::ffi::CString::new(name.as_bytes())
+            .map_err(|_| invalid("manifest component contains NUL"))?;
+        // SAFETY: the parent's fd is live and the CString is NUL-terminated;
+        // the returned descriptor is owned exactly once by File.
+        let fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags, 0) };
+        if fd < 0 {
+            return Err(invalid("manifest component cannot be opened safely"));
+        }
+        Ok(unsafe { fs::File::from_raw_fd(fd) })
+    }
+
+    let directory_flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+    let mut root_fd = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(directory_flags)
+        .open("/")
+        .map_err(|_| invalid("cannot open filesystem root securely"))?;
+    // Reject symlinked directory components at every level of the supplied
+    // repository-root path, not just at its final directory.
+    for component in root.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => {
+                root_fd = open_child(&root_fd, name, directory_flags)?;
+            }
+            _ => return Err(invalid("repository root contains unsupported path component")),
+        }
+    }
+    let parent_fd = open_child(&root_fd, std::ffi::OsStr::new(".oreslang"), directory_flags)?;
+    // O_NONBLOCK avoids hanging if a checked regular file is swapped for a
+    // FIFO. O_NOFOLLOW denies a symlink swap before the actual open.
+    let mut manifest_fd = open_child(
+        &parent_fd, std::ffi::OsStr::new("integration.json"),
+        libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+    )?;
+    let opened = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect opened manifest"))?;
+    if !opened.is_file() {
+        return Err(invalid("opened manifest is not regular"));
+    }
+    if opened.nlink() != 1 {
+        return Err(invalid("manifest has unexpected hardlink aliases"));
+    }
+    if opened.len() > MAX_BYTES as u64 {
+        return Err(invalid("manifest exceeds size limit"));
+    }
+    let raw = bounded_read(&mut manifest_fd)?;
+    let after = manifest_fd.metadata()
+        .map_err(|_| invalid("cannot inspect manifest after bounded read"))?;
+    ensure_file_metadata_stable(&opened, &after)?;
+    Ok(raw)
+}
+
+#[cfg(not(unix))]
+fn read_manifest_physically(_root: &Path) -> Result<Vec<u8>, String> {
+    // A Windows handle/reparse-point equivalent needs a separate reviewed
+    // implementation. Never silently revert to a racy path-based read.
+    Err(invalid("secure descriptor-relative manifest reads unavailable"))
+}
+
+fn verify_repository(root: &Path) -> Result<String, String> {
+    // Do not canonicalize the root before O_NOFOLLOW: that would dereference
+    // an attacker-supplied symlinked repository-root authority alias.
+    let absolute = if root.is_absolute() {
+        root.to_path_buf()
+    } else {
+        env::current_dir()
+            .map_err(|e| format!("invalid current directory: {e}"))?
+            .join(root)
+    };
+    // Strip lexical trailing '.' components without following symlinks.
+    let root: PathBuf = absolute.components().collect();
+    let expected_name = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| invalid("repository root has no UTF-8 name"))?
+        .to_string();
+    let raw = read_manifest_physically(&root)?;
+    verify_bytes(&raw, &expected_name)?;
+    Ok(expected_name)
+}
+
+fn parse_root() -> Result<PathBuf, String> {
+    let mut args = env::args_os().skip(1);
+    let mut root = PathBuf::from(".");
+    while let Some(arg) = args.next() {
+        if arg == "--repository-root" {
+            root = args
+                .next()
+                .map(PathBuf::from)
+                .ok_or_else(|| invalid("--repository-root requires a path"))?;
+        } else {
+            return Err(format!("unknown argument: {}", arg.to_string_lossy()));
+        }
+    }
+    Ok(root)
+}
+
+fn main() {
+    let result = parse_root().and_then(|root| verify_repository(&root));
+    match result {
+        Ok(name) => {
+            println!(
+                "integration declaration verified: {name}; evidence remains not-attested"
+            );
+        }
+        Err(error) => {
+            eprintln!("integration manifest DENIED: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            // macOS may expose /var or /tmp through a symlink; use its physical
+            // location for test fixtures without weakening production no-follow checks.
+            let temp_root = fs::canonicalize(env::temp_dir()).unwrap();
+            let path = temp_root.join(format!("ores-js-manifest-{}-{stamp}-{n}", std::process::id()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn manifest(repo: &str, evidence: &str, note: &str, upstream_values: &[&str]) -> Vec<u8> {
+        let upstream_json = upstream_values
+            .iter()
+            .map(|value| serde_json::to_string(value).unwrap())
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{{\"schemaVersion\":1,\"protocol\":{protocol},\"repository\":{repository},\"role\":\"compiler\",\"upstreams\":[{upstreams}],\"evidence\":{evidence},\"note\":{note}}}",
+            protocol = serde_json::to_string(PROTOCOL).unwrap(),
+            repository = serde_json::to_string(&format!("ores-truffle-oreslang/{repo}")).unwrap(),
+            upstreams = upstream_json,
+            evidence = serde_json::to_string(evidence).unwrap(),
+            note = serde_json::to_string(note).unwrap(),
+        )
+        .into_bytes()
+    }
+
+    fn valid(repo: &str) -> Vec<u8> {
+        manifest(repo, "not-attested", NOTE, upstreams(repo).unwrap())
+    }
+
+    #[test]
+    fn all_seven_source_backends() {
+        let repos = [
+            "oreslang-source.java",
+            "oreslang-source.llvm",
+            "oreslang-source.wasm",
+            "oreslang-source.js",
+            "oreslang-source.hdl",
+            "oreslang-source.forge",
+            "oreslang-source.net",
+        ];
+        for repo in repos {
+            let verified = verify_bytes(&valid(repo), repo).unwrap();
+            assert_eq!(verified["evidence"], Value::String("not-attested".into()));
+        }
+    }
+
+    #[test]
+    fn duplicate_key_rejected() {
+        let mut raw = valid("oreslang-source.java");
+        raw.pop();
+        raw.extend_from_slice(b",\"evidence\":\"not-attested\"}");
+        assert!(verify_bytes(&raw, "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn unsupported_repo_rejected() {
+        assert!(verify_bytes(&valid("oreslang-source.java"), "oreslang-source.invented").is_err());
+    }
+
+    #[test]
+    fn repository_mismatch_rejected() {
+        assert!(verify_bytes(&valid("oreslang-source.llvm"), "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn evidence_claims_rejected() {
+        for claim in ["passed", "attested", "verified"] {
+            let raw = manifest(
+                "oreslang-source.java",
+                claim,
+                NOTE,
+                upstreams("oreslang-source.java").unwrap(),
+            );
+            assert!(verify_bytes(&raw, "oreslang-source.java").is_err());
+        }
+    }
+
+    #[test]
+    fn upstream_injection_and_reordering_rejected() {
+        let cases: &[&[&str]] = &[
+            &[],
+            &["oreslang-target-profiles", "oreslang-common-source"],
+            &["oreslang-common-source", "oreslang-common-source"],
+            &["../oreslang-target-profiles"],
+            &["oreslang-common-source", "oreslang-target-profiles", "other"],
+        ];
+        for dependencies in cases {
+            let raw = manifest("oreslang-source.java", "not-attested", NOTE, dependencies);
+            assert!(verify_bytes(&raw, "oreslang-source.java").is_err());
+        }
+    }
+
+    #[test]
+    fn unknown_and_missing_fields_rejected() {
+        let raw = String::from_utf8(valid("oreslang-source.java")).unwrap();
+        let unknown = raw.replacen("}", ",\"runtimeParity\":true}", 1);
+        assert!(verify_bytes(unknown.as_bytes(), "oreslang-source.java").is_err());
+        let missing = raw.replace(&format!(",\"note\":{}", serde_json::to_string(NOTE).unwrap()), "");
+        assert!(verify_bytes(missing.as_bytes(), "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn schema_bool_is_not_integer() {
+        let raw = String::from_utf8(valid("oreslang-source.java"))
+            .unwrap()
+            .replace("\"schemaVersion\":1", "\"schemaVersion\":true");
+        assert!(verify_bytes(raw.as_bytes(), "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn invalid_json_constant_rejected() {
+        let raw = String::from_utf8(valid("oreslang-source.java"))
+            .unwrap()
+            .replace("\"schemaVersion\":1", "\"schemaVersion\":NaN");
+        assert!(verify_bytes(raw.as_bytes(), "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn size_encoding_bom_and_note_rejected() {
+        assert!(verify_bytes(&vec![b' '; MAX_BYTES + 1], "oreslang-source.java").is_err());
+
+        let mut bad_utf8 = vec![0xff];
+        bad_utf8.extend(valid("oreslang-source.java"));
+        assert!(verify_bytes(&bad_utf8, "oreslang-source.java").is_err());
+
+        let mut bom = vec![0xef, 0xbb, 0xbf];
+        bom.extend(valid("oreslang-source.java"));
+        assert!(verify_bytes(&bom, "oreslang-source.java").is_err());
+
+        let bad_note = manifest(
+            "oreslang-source.java",
+            "not-attested",
+            "CI parity is asserted.",
+            upstreams("oreslang-source.java").unwrap(),
+        );
+        assert!(verify_bytes(&bad_note, "oreslang-source.java").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_accepts_regular_manifest_with_bounded_read() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+                  valid("oreslang-source.java")).unwrap();
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_ancestor() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside_parent = temp.0.join("outside-parent");
+        let outside = outside_parent.join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias_parent = temp.0.join("parent-alias");
+        symlink(&outside_parent, &alias_parent).unwrap();
+        let root = alias_parent.join("oreslang-source.java");
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_repository_root_even_with_valid_outside_manifest() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let outside = temp.0.join("outside").join("oreslang-source.java");
+        fs::create_dir_all(outside.join(".oreslang")).unwrap();
+        fs::write(outside.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        let alias = temp.0.join("oreslang-source.java");
+        symlink(&outside, &alias).unwrap();
+        assert!(verify_repository(&alias).is_err());
+        assert!(verify_repository(&alias.join(".")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_manifest_parent() {
+        use std::os::unix::fs::symlink;
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir(&root).unwrap();
+        let outside = temp.0.join("external");
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("integration.json"), valid("oreslang-source.java")).unwrap();
+        symlink(&outside, root.join(".oreslang")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_hardlinked_manifest_authority() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let outside = temp.0.join("external.json");
+        fs::write(&outside, valid("oreslang-source.java")).unwrap();
+        fs::hard_link(&outside, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_symlinked_manifest() {
+        use std::os::unix::fs::symlink;
+
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let external = temp.0.join("external.json");
+        fs::write(&external, valid("oreslang-source.java")).unwrap();
+        symlink(&external, root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_denies_parent_traversal_even_if_it_would_resolve_to_valid_repo() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        fs::create_dir(temp.0.join("intermediate")).unwrap();
+        let noncanonical = temp.0.join("intermediate")
+            .join("..").join("oreslang-source.java");
+        assert!(verify_repository(&noncanonical).is_err());
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_denies_directory_at_manifest_leaf() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang/integration.json")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_enforces_executable_size_boundary() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let manifest_path = root.join(".oreslang/integration.json");
+        let mut bytes = valid("oreslang-source.java");
+        assert!(bytes.len() < MAX_BYTES);
+
+        // Trailing JSON whitespace is valid and must be admitted at 4096 bytes.
+        bytes.resize(MAX_BYTES, b' ');
+        fs::write(&manifest_path, &bytes).unwrap();
+        assert_eq!(verify_repository(&root).unwrap(), "oreslang-source.java");
+
+        // One additional byte must be rejected before any JSON interpretation.
+        bytes.push(b' ');
+        fs::write(&manifest_path, &bytes).unwrap();
+        assert!(verify_repository(&root).is_err());
+
+        // Empty regular files must not be accepted merely because fstat passes.
+        fs::write(&manifest_path, &[]).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_rejects_fifo_without_waiting_for_writer() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        let fifo = root.join(".oreslang/integration.json");
+        let path = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        let (tx, rx) = mpsc::channel();
+        // A regression that blocks on a FIFO must not stall the test driver:
+        // the receiver has a deadline and drops the join handle on failure.
+        std::thread::spawn(move || {
+            let _ = tx.send(verify_repository(&root).is_err());
+        });
+        assert_eq!(rx.recv_timeout(Duration::from_secs(3)).unwrap(), true);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_accepts_unchanged_file() {
+        let temp = TempDir::new();
+        let path = temp.0.join("stable.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_in_place_growth() {
+        let temp = TempDir::new();
+        let path = temp.0.join("mutated.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::write(&path, vec![b'x'; MAX_BYTES]).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_hardlink_added_after_open() {
+        let temp = TempDir::new();
+        let path = temp.0.join("pre-link.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        fs::hard_link(&path, temp.0.join("new-alias.json")).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn metadata_stability_rejects_mode_changed_after_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new();
+        let path = temp.0.join("permission-change.json");
+        fs::write(&path, valid("oreslang-source.java")).unwrap();
+        let file = fs::File::open(&path).unwrap();
+        let before = file.metadata().unwrap();
+        let new_mode = if before.permissions().mode() & 0o200 == 0 { 0o600 } else { 0o400 };
+        fs::set_permissions(&path, fs::Permissions::from_mode(new_mode)).unwrap();
+        let after = file.metadata().unwrap();
+        assert!(ensure_file_metadata_stable(&before, &after).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cli_bounded_reader_caps_growth_to_one_byte_witness() {
+        let temp = TempDir::new();
+        let large = temp.0.join("large-manifest.json");
+        fs::write(&large, vec![b'x'; MAX_BYTES * 64]).unwrap();
+        let mut fd = fs::File::open(&large).unwrap();
+        let bytes = bounded_read(&mut fd).unwrap();
+        assert_eq!(bytes.len(), MAX_BYTES + 1);
+        assert!(verify_bytes(&bytes, "oreslang-source.java").is_err());
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn cli_denies_platform_without_secure_descriptor_open() {
+        let temp = TempDir::new();
+        let root = temp.0.join("oreslang-source.java");
+        fs::create_dir_all(root.join(".oreslang")).unwrap();
+        fs::write(root.join(".oreslang/integration.json"),
+            valid("oreslang-source.java")).unwrap();
+        assert!(verify_repository(&root).is_err());
+    }
+}

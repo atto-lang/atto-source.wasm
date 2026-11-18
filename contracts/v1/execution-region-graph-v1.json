@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "contract": "oreslang-cpu-gpu-execution-graph-v1",
+  "status": "experimental-typed-ir-only-no-gpu-provider-certified",
+  "astNodes": [
+    "CpuRegion",
+    "GpuRegion",
+    "I64",
+    "Add",
+    "Param",
+    "Upload",
+    "Download",
+    "Kernel",
+    "Await",
+    "Seq"
+  ],
+  "valueTypes": [
+    "void",
+    "i64",
+    "HostBuffer<f32>",
+    "GpuBuffer<f32>"
+  ],
+  "typeConstructors": [
+    "Future<T>"
+  ],
+  "domains": [
+    "CPU",
+    "GPU",
+    "HOST",
+    "TRANSFER"
+  ],
+  "effects": [
+    "Host",
+    "Device",
+    "Transfer",
+    "Suspend"
+  ],
+  "opcodes": [
+    "CONST_I64",
+    "ADD_I64",
+    "PARAM",
+    "UPLOAD",
+    "DOWNLOAD",
+    "DEVICE_KERNEL",
+    "DEVICE_FENCE",
+    "DEVICE_ADMISSION",
+    "SUBMIT",
+    "AWAIT"
+  ],
+  "semanticRules": {
+    "defaultOwnedParameterMode": "consume-by-value; rt take optional when move already required",
+    "blockingRegion": "T or void; suspend logical continuation when waiting; never OS-carrier blocking",
+    "nonblockingRegion": "Future<T> or Future<void>; not Channel or Stream",
+    "gpuToCpu": "fence; host continuation; no CPU callback on SIMT lane",
+    "cpuToGpu": "device capability admission and typed kernel launch",
+    "residency": "HostBuffer and GpuBuffer are disjoint; explicit upload/download",
+    "deviceWork": "no implicit CPU fallback, unsupported backend rejects",
+    "deviceLifetime": "generational ownership and true completion fence required before reuse/retirement",
+    "graphDependencies": "ordered acyclic; operands reference prior typed SSA nodes",
+    "stage": "compiler reference graph only; runtime actor ownership/device fence proof pending"
+  },
+  "minimumConformance": {
+    "sourceNegativeCases": 10,
+    "typedTargetFixtures": 8,
+    "referenceGraphTests": 10,
+    "cpuOnlyOperation": "checked-i64-scalar",
+    "gpuDispatch": "not_verified",
+    "backendRealExecution": "not_verified"
+  }
+}

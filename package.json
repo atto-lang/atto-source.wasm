@@ -1,0 +1,21 @@
+{
+  "name": "@oreslang/source-wasm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs src/*.test.mjs",
+    "compile:ores": "node scripts/compile-ores.mjs",
+    "run:guest": "node scripts/run-guest.mjs",
+    "test:real-compiler": "node scripts/verify-real-compiler.mjs",
+    "test:real-odb1-shr8": "node scripts/verify-odb1-shift8-real-wasm.mjs",
+    "test:real-aot": "node scripts/verify-real-aot.mjs",
+    "test:refinement-admission": "node tests/refinement-admission-delegated.mjs",
+    "test:mut-share": "ORESLANG_MUT_SHARE_PARITY_REQUIRED=1 node --test tests/rt-mut-share-source-parity.test.mjs",
+    "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs",
+    "test:bool-wasm32": "ORESLANG_BOOL_WASM_PARITY_REQUIRED=1 node --test tests/boolean-source-parity-wasm32.test.mjs"
+  }
+}
