@@ -341,3 +341,74 @@ test('ActorRef grant exhaustion is fail-atomic and revocation is not a quota ref
   assert.equal(await registry.send(root,1n,7n),7n);
   await registry.close();
 });
+
+
+test('poisoned native collection iterators cannot bypass in-flight shutdown fences', async () => {
+  let resolveSpawn, resolveStop, stopped = false, closeSettled = false;
+  const registry = new NativeWasmActorRegistry({pool: {
+    spawn: () => new Promise(resolve => {resolveSpawn = resolve;}),
+    close: async () => {}
+  }});
+  const setCursor = Object.getPrototypeOf(new Set().values());
+  const mapCursor = Object.getPrototypeOf(new Map().values());
+  const old = {
+    setAdd: Set.prototype.add,
+    setDelete: Set.prototype.delete,
+    setValues: Set.prototype.values,
+    setNext: setCursor.next,
+    mapValues: Map.prototype.values,
+    mapNext: mapCursor.next
+  };
+  let spawning, closing;
+  try {
+    Set.prototype.add = () => {throw Error('poisoned Set.add');};
+    Set.prototype.delete = () => {throw Error('poisoned Set.delete');};
+    Set.prototype.values = () => {throw Error('poisoned Set.values');};
+    setCursor.next = () => ({done:true});
+    Map.prototype.values = () => {throw Error('poisoned Map.values');};
+    mapCursor.next = () => ({done:true});
+    spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+    closing = registry.close().then(() => {closeSettled = true;});
+  } finally {
+    Set.prototype.add = old.setAdd;
+    Set.prototype.delete = old.setDelete;
+    Set.prototype.values = old.setValues;
+    setCursor.next = old.setNext;
+    Map.prototype.values = old.mapValues;
+    mapCursor.next = old.mapNext;
+  }
+  await Promise.resolve();
+  assert.equal(closeSettled, false);
+  resolveSpawn({send:async()=>1n, stop: () => {
+    stopped = true;
+    return new Promise(resolve=>{resolveStop=resolve;});
+  }});
+  for (let i=0; i<8 && !stopped; i++) await Promise.resolve();
+  assert.equal(stopped, true, 'late actor must not survive via poisoned iterators');
+  assert.equal(closeSettled, false);
+  resolveStop();
+  await assert.rejects(spawning, /closed while spawning/);
+  await closing;
+  assert.equal(closeSettled, true);
+  assert.equal(registry.actorCount, 0);
+});
+
+test('poisoned Map iterator cannot conceal live actors during close', async () => {
+  const {registry,spawn,events} = fixture();
+  const root = await spawn();
+  const mapCursor = Object.getPrototypeOf(new Map().values());
+  const oldValues = Map.prototype.values, oldNext = mapCursor.next;
+  let closing;
+  try {
+    Map.prototype.values = () => {throw Error('poisoned Map.values');};
+    mapCursor.next = () => ({done:true});
+    closing = registry.close();
+  } finally {
+    Map.prototype.values = oldValues;
+    mapCursor.next = oldNext;
+  }
+  await closing;
+  assert.deepEqual(events, ['spawn','close']);
+  assert.equal(registry.actorCount, 0);
+  await assert.rejects(registry.send(root,1n,1n), /registry closed/);
+});
