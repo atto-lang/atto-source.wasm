@@ -320,3 +320,55 @@ test("topic names reject whitespace-only values without sacrificing distinct key
   assert.equal(group.defineTopic("events_2", "lossy", 1).name, "events_2");
   assert.equal(group.close(), true);
 });
+
+
+test("hard resource ceilings cannot be disabled by per-instance configuration", () => {
+  for (const option of [
+    {maxActors: 4097}, {maxActorHistories: 65537},
+    {maxGroups: 4097}, {maxGroupsPerActor: 4097},
+    {maxTopics: 4097}, {maxSubscriptionsPerActor: 1025}
+  ]) assert.throws(() => new WasmActorPubSub(option), /hard limit/);
+
+  const bus = new WasmActorPubSub({maxActors: 2, maxActorHistories: 2});
+  const a = bus.registerActor({actorId: 1, incarnation: 1});
+  const b = bus.registerActor({actorId: 2, incarnation: 1});
+  assert.throws(() => bus.registerActor({actorId: 3, incarnation: 1}),
+    /actor registry capacity/);
+  assert.equal(bus.retireActor(a), true);
+  assert.throws(() => bus.registerActor({actorId: 3, incarnation: 1}),
+    /incarnation history capacity/);
+  // Re-incarnation of an existing ID is allowed without expanding history.
+  const successor = bus.registerActor({actorId: 1, incarnation: 2});
+  assert.equal(bus.retireActor(b), true);
+  assert.equal(bus.retireActor(successor), true);
+  assert.throws(() => bus.registerActor({actorId: 1, incarnation: 2}),
+    /must increase monotonically/);
+  assert.equal(bus.close(), true);
+});
+
+test("untrusted queue sizes and large scalar events fail before admission", () => {
+  const bus = new WasmActorPubSub();
+  assert.throws(() => bus.createGroup({maxMembers: 4097}), /hard limit/);
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  assert.throws(() => group.defineTopic("oversized", "lossy", 1025), /hard limit/);
+  const topic = group.defineTopic("bounded", "reliable", 1);
+  topic.subscribe(subscriber);
+
+  for (const payload of ["x".repeat(4097), Infinity, -Infinity, NaN,
+    1n << 63n, -(1n << 63n) - 1n]) {
+    assert.throws(() => topic.publish(publisher, payload),
+      /payload|hard limit|signed i64/);
+    assert.deepEqual(topic.tryRead(subscriber), {present: false, value: undefined},
+      "a rejected payload must never reach even one subscriber");
+  }
+  assert.equal(topic.publish(publisher, -(1n << 63n)).accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber),
+    {present: true, value: -(1n << 63n)});
+  assert.equal(topic.publish(publisher, "ok").accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber), {present: true, value: "ok"});
+  bus.close();
+});
