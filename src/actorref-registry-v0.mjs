@@ -17,6 +17,9 @@ const mapSize = Function.prototype.call.bind(
 
 
 const MIN = -(1n << 63n), MAX = (1n << 63n) - 1n;
+// Bound both CPU work for ancestry validation and lifetime grant metadata.
+const MAX_GRANT_DEPTH = 64;
+const MAX_GRANTS_PER_INCARNATION = 4096;
 const bounded = (value, min, max, label) => {
   if (!Number.isSafeInteger(value) || value < min || value > max)
     throw RangeError('invalid ' + label);
@@ -65,10 +68,18 @@ export class NativeWasmActorRegistry {
   get actorCount() { return mapSize(this.#actors); }
 
   #mint(actor, rights, parent = null) {
+    const depth = parent === null ? 0 : parent.depth + 1;
+    if (depth > MAX_GRANT_DEPTH)
+      throw RangeError('ActorRef attenuation depth exceeded');
+    if (actor.grants >= MAX_GRANTS_PER_INCARNATION)
+      throw RangeError('ActorRef grant capacity exceeded');
     // No own fields: no serializable address, capability token, nonce or owner.
     const ref = Object.freeze(Object.create(null));
     weakSet(this.#refs, ref, {actorId: actor.id, generation: actor.generation,
-      incarnation: actor.incarnation, rights, parent, revoked: false});
+      incarnation: actor.incarnation, rights, parent, revoked: false, depth});
+    // Lifetime cap is intentional: GC and ancestor revocation cannot be
+    // trusted as a synchronous reclamation or quota-refund signal.
+    actor.grants++;
     return ref;
   }
   #resolve(ref, right) {
@@ -89,7 +100,7 @@ export class NativeWasmActorRegistry {
   }
   #newActor(id, generation, handle) {
     const actor = {id, generation, incarnation: randomBytes(16).toString('hex'),
-      handle, state: 'active', lastTicket: 0n, pending: 0,
+      handle, state: 'active', lastTicket: 0n, pending: 0, grants: 0,
       stopPromise: null, rotating: false};
     mapSet(this.#actors, id, actor);
     return actor;
