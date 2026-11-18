@@ -276,3 +276,37 @@ test('registry close retains a quarantined late spawn if its stop ACK fails', as
   assert.equal(registry.actorCount, 1,
     'an unconfirmed physical worker retains its registry identity');
 });
+
+
+test('rotation begun before close cannot publish a late successor after pool shutdown', async () => {
+  let resolveSuccessor, stopSuccessor;
+  let spawnCalls = 0, stops = 0, closeSettled = false;
+  const handle = (wait = false) => ({
+    send: async () => 1n,
+    stop: async () => {
+      stops++;
+      if (wait) await new Promise(resolve => {stopSuccessor = resolve;});
+    }
+  });
+  const pool = {
+    spawn: () => ++spawnCalls === 1 ? Promise.resolve(handle()) :
+      new Promise(resolve => {resolveSuccessor = resolve;}),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const root = await registry.spawn(new Uint8Array([0]), {trusted:true});
+  const rotating = registry.rotate(root, new Uint8Array([1]), {trusted:true});
+  for (let n = 0; n < 10 && !resolveSuccessor; n++) await Promise.resolve();
+  assert.equal(typeof resolveSuccessor, 'function');
+  const closing = registry.close().then(() => {closeSettled = true;});
+  resolveSuccessor(handle(true));
+  for (let n = 0; n < 10 && !stopSuccessor; n++) await Promise.resolve();
+  assert.equal(typeof stopSuccessor, 'function');
+  assert.equal(closeSettled, false, 'late successor stop must hold close barrier');
+  stopSuccessor();
+  await assert.rejects(rotating, /revoked or registry closed during rotation/);
+  await closing;
+  assert.equal(registry.actorCount, 0);
+  assert.equal(spawnCalls, 2);
+  assert.equal(stops, 2);
+});
