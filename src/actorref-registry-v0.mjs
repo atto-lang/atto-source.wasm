@@ -5,6 +5,7 @@ import {randomBytes} from 'node:crypto';
 // they are not a substitute for isolating untrusted native or JS code.
 const PrimordialWeakMap = WeakMap;
 const PrimordialMap = Map;
+const PrimordialSet = Set;
 const weakGet = Function.prototype.call.bind(WeakMap.prototype.get);
 const weakSet = Function.prototype.call.bind(WeakMap.prototype.set);
 const mapGet = Function.prototype.call.bind(Map.prototype.get);
@@ -14,6 +15,32 @@ const mapClear = Function.prototype.call.bind(Map.prototype.clear);
 const mapValues = Function.prototype.call.bind(Map.prototype.values);
 const mapSize = Function.prototype.call.bind(
   Object.getOwnPropertyDescriptor(Map.prototype, 'size').get);
+const setAdd = Function.prototype.call.bind(Set.prototype.add);
+const setDelete = Function.prototype.call.bind(Set.prototype.delete);
+const setValues = Function.prototype.call.bind(Set.prototype.values);
+// Do not trust later-replaced iterator prototypes during shutdown. A poisoned
+// Set/Map iterator could omit in-flight reservations or live actor handles.
+const mapIteratorNext = Function.prototype.call.bind(
+  Object.getPrototypeOf(new PrimordialMap().values()).next);
+const setIteratorNext = Function.prototype.call.bind(
+  Object.getPrototypeOf(new PrimordialSet().values()).next);
+function snapshotAdmissions(set) {
+  const snapshot = [];
+  const iterator = setValues(set);
+  for (;;) {
+    const item = setIteratorNext(iterator);
+    if (item.done) return snapshot;
+    snapshot.push(item.value);
+  }
+}
+function forEachActor(map, callback) {
+  const iterator = mapValues(map);
+  for (;;) {
+    const item = mapIteratorNext(iterator);
+    if (item.done) return;
+    callback(item.value);
+  }
+}
 
 
 const MIN = -(1n << 63n), MAX = (1n << 63n) - 1n;
@@ -42,7 +69,7 @@ export class NativeWasmActorRegistry {
   #maxActors;
   #starting = 0;
   #rotating = 0;
-  #inflightAdmissions = new Set();
+  #inflightAdmissions = new PrimordialSet();
   #postCloseRetirementUnconfirmed = false;
 
   // A close barrier must include every asynchronous spawn/rotation that was
@@ -51,9 +78,9 @@ export class NativeWasmActorRegistry {
   #reserveAdmission() {
     let settle;
     const settled = new Promise(resolve => { settle = resolve; });
-    this.#inflightAdmissions.add(settled);
+    setAdd(this.#inflightAdmissions, settled);
     return () => {
-      this.#inflightAdmissions.delete(settled);
+      setDelete(this.#inflightAdmissions, settled);
       settle();
     };
   }
@@ -234,11 +261,12 @@ export class NativeWasmActorRegistry {
   close() {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true; // revoke all DATA/CONTROL capability admission first
-    for (const actor of mapValues(this.#actors))
+    forEachActor(this.#actors, actor => {
       if (actor.state === 'active') actor.state = 'closing';
+    });
     // Capture admitted work synchronously, before its first await. It is
     // legal for pool.close() to finish before one of those spawns resolves.
-    const admissions = [...this.#inflightAdmissions];
+    const admissions = snapshotAdmissions(this.#inflightAdmissions);
     this.#closePromise = Promise.allSettled([
       Promise.resolve().then(() => this.#pool.close()),
       ...admissions
@@ -246,12 +274,13 @@ export class NativeWasmActorRegistry {
       const poolResult = results[0];
       if (poolResult.status !== 'fulfilled' ||
           this.#postCloseRetirementUnconfirmed) {
-        for (const actor of mapValues(this.#actors))
+        forEachActor(this.#actors, actor => {
           actor.state = 'retirement-unconfirmed';
+        });
         if (poolResult.status !== 'fulfilled') throw poolResult.reason;
         throw Error('registry close cannot prove late-spawn retirement');
       }
-      for (const actor of mapValues(this.#actors)) actor.state = 'retired';
+      forEachActor(this.#actors, actor => { actor.state = 'retired'; });
       mapClear(this.#actors);
     });
     this.#closePromise.catch(() => {});
