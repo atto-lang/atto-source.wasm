@@ -22,3 +22,17 @@ test('snapshot uses the real view extent and supports cross-realm ArrayBuffers',
   const foreign = vm.runInNewContext('new Uint8Array([1, 2, 3]).buffer');
   assert.deepEqual([...snapshotGuestBytes(foreign, 3)], [1, 2, 3]);
 });
+
+test('exported byte-snapshot helper rejects missing and invalid size budgets before reading input',()=>{
+  let touched=0;
+  const hostile=new Proxy({}, {
+    get(){touched++;throw Error('caller trap should not run');},
+    getPrototypeOf(){touched++;throw Error('caller prototype trap should not run');}
+  });
+  for(const maximum of [undefined,NaN,Infinity,-1,1.5,16*1024*1024+1]){
+    assert.throws(()=>snapshotGuestBytes(hostile,maximum),/invalid maximum module size/);
+    assert.throws(()=>snapshotGuestBytes(new Uint8Array([1]),maximum),/invalid maximum module size/);
+  }
+  assert.equal(touched,0);
+  assert.deepEqual([...snapshotGuestBytes(new Uint8Array([42]),1)],[42]);
+});

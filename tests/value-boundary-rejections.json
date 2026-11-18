@@ -13,5 +13,10 @@
   "map-ordered-assumption": "pub fnc main():int{ const map = new Map<string,int>(); return map.keys()[0]; }",
   "nonboolean-condition": "pub fnc main():int{if 42 {return 1;} fi return 0;}",
   "predicate-capture": "fnc ready(int v):bool{return v>0;} pub fnc main():int{if ready(42 as let value) {return value;} else {return 0;fi}",
-  "pattern-condition": "pub fnc main():int{if let Some(value)=Some(42) {return value;} else {return 0;fi}"
+  "pattern-condition": "pub fnc main():int{if let Some(value)=Some(42) {return value;} else {return 0;fi}",
+  "cpu-region-unlowered": "pub fnc main():int{return cpu { 42 };}",
+  "gpu-region-unlowered": "pub fnc main():int{return gpu { 42 };}",
+  "nested-gpu-cpu-unlowered": "pub fnc main():int{return gpu { cpu { gpu { 42 } } };}",
+  "nb-gpu-region-unlowered": "pub fnc main():int{return nb gpu { 42 };}",
+  "nb-cpu-region-unlowered": "pub fnc main():int{return nb cpu { 42 };}"
 }

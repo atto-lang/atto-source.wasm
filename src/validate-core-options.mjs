@@ -57,11 +57,11 @@ export function validateCoreOptions(options, allowedNames) {
   if (prototype === plainObjectPrototype && hasNonstandardPrototypeKeys(prototype))
     throw new TypeError('zero-capability guest options must have no inherited settings');
   const descriptors = getOwnPropertyDescriptors(options);
-  const approved = Object.create(null);
+  const approved = createObject(null);
   const keys = ownKeys(descriptors);
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
-    if (typeof key !== 'string' || !isAllowedName(allowedNames, key))
+    if (typeof key !== 'string' || (allowedNames !== null && !isAllowedName(allowedNames, key)))
       throw new TypeError('unsupported zero-capability guest option: ' + toString(key));
     const descriptor = descriptors[key];
     if (descriptor.enumerable !== true)

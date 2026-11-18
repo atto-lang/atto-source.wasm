@@ -16,11 +16,24 @@ let activeGuestWorkers = 0;
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
 export async function runIsolatedCoreGuest(input, options = {}) {
-  // Validate descriptors, inherited names and symbols before reading values.
-  const {expectedSha256, entry = "main", maxMemoryPages = 2,
-    maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000} =
-    validateCoreOptions(options,
-      ["expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes", "timeoutMs"]);
+  // Validate descriptors and proxy identity before any getter or Worker admission.
+  // Preserve the newer namespace lifecycle and physical worker restrictions.
+  const clean = validateCoreOptions(options, [
+    "expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes",
+    "timeoutMs", "namespaceBindings"
+  ]);
+  const expectedSha256 = clean.expectedSha256;
+  const entry = clean.entry === undefined ? "main" : clean.entry;
+  const maxMemoryPages = clean.maxMemoryPages === undefined ? 2 : clean.maxMemoryPages;
+  const maxModuleBytes = clean.maxModuleBytes === undefined ? 16 * 1024 * 1024 : clean.maxModuleBytes;
+  const timeoutMs = clean.timeoutMs === undefined ? 2000 : clean.timeoutMs;
+  const namespaceBindings = clean.namespaceBindings === undefined ? null : clean.namespaceBindings;
+  if (namespaceBindings !== null) {
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  }
+  if (entry === "init") {
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
+  }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
@@ -30,7 +43,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   if (!Number.isSafeInteger(maxMemoryPages) || maxMemoryPages < 1 || maxMemoryPages > 256) {
     throw new TypeError("invalid maximum memory pages");
   }
-  if (typeof entry !== "string" || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
+  if (typeof entry !== "string" || entry.length > 128 || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
     throw new TypeError("invalid guest entry");
   }
   if (expectedSha256 !== undefined &&

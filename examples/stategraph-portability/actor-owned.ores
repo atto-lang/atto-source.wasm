@@ -1,0 +1,5 @@
+// Deliberate unsupported stage: isolated actor with private StateGraph state.
+define isolated actor GraphCoordinator as
+  state { completed: int = 0; }
+end
+pub fnc main(): int { return 42; }
