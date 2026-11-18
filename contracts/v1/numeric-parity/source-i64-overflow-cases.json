@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "status": "requires-executable-negative-tests",
+  "policy": "no-wrapping-i64",
+  "scope": "signed-64-bit overflow must not produce a normal arithmetic value; typed errors and actor cleanup still need standardization",
+  "cases": [
+    {
+      "id": "positive-add-overflow",
+      "source": "9223372036854775807+1",
+      "expected": "reject-or-runtime-error"
+    },
+    {
+      "id": "negative-sub-overflow",
+      "source": "-9223372036854775808-1",
+      "expected": "reject-or-runtime-error"
+    },
+    {
+      "id": "positive-multiply-overflow",
+      "source": "3037000500*3037000500",
+      "expected": "reject-or-runtime-error"
+    },
+    {
+      "id": "negative-unary-overflow",
+      "source": "-(-9223372036854775808)",
+      "expected": "reject-or-runtime-error"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "option-flat-map": "pub fnc main(): int { val Option<int> x = Some(2); return x.flat_map<int>(|int n| -> { return Some(n * 2); }).unwrap(); }",
+  "result-map-err": "pub fnc main(): int { val Result<int,string> x = Err(\"fail\"); return x.map_err<string>(|string e| -> { return e; }).unwrap_or(2); }",
+  "future-and-then": "async fnc seed():int{return 2;} pub fnc main():int{ val Future<int> f = seed().and_then(|int n| -> { return seed(); }); return await f; }",
+  "observable-filter-map": "pub fnc main():int{ val Observable<int> o = from_values([1,2]); val Observable<int> m = filter_map(o, |int n| -> { return Some(n); }); return 0; }",
+  "stream-filter-map": "pub fnc main():int{ val Stream<int> s = make_stream(); val Stream<int> f = s.filter_map(|int n| -> { return Some(n); }); return 0; }",
+  "channel-observable-no-implicit-bridge": "pub fnc main():int{ val Channel<int> c = Channel.new<int>(0); val Observable<int> o = c; return 0; }",
+  "postfix-result-return": "fnc get_value():Result<int,string>{val Result<int,string> x=Err(\"bad\");val int n=x?;return Ok(n); } pub fnc main():int{return 42;}",
+  "postfix-option-return": "fnc get_value():Option<int>{val Option<int> x=None;val int n=x?;return Some(n); } pub fnc main():int{return 42;}",
+  "postfix-try-catch-throw": "fnc get_value():int throws Error {try {val Result<int,Error> x=Err(Error(\"bad\"));return x?;} catch(err) {return 42;}} pub fnc main():int{return get_value();}",
+  "raise-bypasses-catch": "pub fnc main():int{try {raise Error(\"raised\");}catch(err){return 42;}return 0;}",
+  "panic-supervisor": "pub fnc main():int{panic Error(\"fatal\");return 42;}",
+  "postfix-result-to-option": "fnc bad():Option<int>{val Result<int,string> x=Err(\"bad\");val int n=x?;return Some(n);} pub fnc main():int{return 42;}",
+  "postfix-option-to-result": "fnc bad():Result<int,string>{val Option<int> x=None;val int n=x?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-result-error-mismatch": "fnc bad():Result<int,bool>{val Result<int,string> x=Err(\"bad\");val int n=x?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-future-without-await": "fnc bad(Future<Result<int,string>> f):Result<int,string>{val int n=f?;return Ok(n);} pub fnc main():int{return 42;}",
+  "postfix-result-scalar-throws": "fnc bad():int throws Error{val Result<int,Error> x=Err(Error(\"bad\"));return x?;} pub fnc main():int{return 42;}"
+}

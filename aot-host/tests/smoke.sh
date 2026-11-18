@@ -2,9 +2,10 @@
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$repo_dir"
-cargo build --locked --manifest-path aot-host/precompile/Cargo.toml
+cargo build --locked --manifest-path aot-host/precompile/Cargo.toml --bin oreslang-aot-build --bin oreslang-aot-fixtures
 cargo build --locked --manifest-path aot-host/run/Cargo.toml
 builder="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-build"
+fixtures="$repo_dir/aot-host/precompile/target/debug/oreslang-aot-fixtures"
 runner="$repo_dir/aot-host/run/target/debug/oreslang-aot-run"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -39,14 +40,7 @@ for spec in '42:42' 'zero:0' 'negative:-5'; do
    echo "incorrect digest admitted" >&2; exit 1
  fi
  cp "$tmp/$name.cwasm" "$tmp/$name-corrupt.cwasm"
- python3 - "$tmp/$name-corrupt.cwasm" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-data = bytearray(path.read_bytes())
-data[len(data)//2] ^= 1
-path.write_bytes(data)
-PY
+ "$fixtures" corrupt "$tmp/$name-corrupt.cwasm"
  if "$runner" "$tmp/$name-corrupt.cwasm" "$pin" > /dev/null 2>&1; then
    echo "tampered native artifact admitted" >&2; exit 1
  fi
@@ -67,6 +61,25 @@ pin="$(sed -n 's/^aot_sha256=//p' "$tmp/42.meta")"
 if "$runner" "$tmp/aot-symlink.cwasm" "$pin" > /dev/null 2>&1; then
   echo "runner followed symlinked native artifact" >&2; exit 1
 fi
+# The Rust tamper fixture must not follow a swapped AOT symlink either:
+# it opens private artifacts with O_NOFOLLOW and rechecks dev/inode/size.
+untouched="$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)"
+if "$fixtures" corrupt "$tmp/aot-symlink.cwasm" > /dev/null 2>&1; then
+  echo "Rust AOT corruption fixture followed a symlink" >&2; exit 1
+fi
+if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$untouched" ]]; then
+  echo "Rust tamper fixture mutated the symlink target" >&2; exit 1
+fi
+# O_NOFOLLOW alone is insufficient: hardlinks alias the same inode. A fixture
+# must have exactly one link before we deliberately mutate any bytes.
+ln "$tmp/42.cwasm" "$tmp/aot-hardlink.cwasm"
+if "$fixtures" corrupt "$tmp/aot-hardlink.cwasm" > /dev/null 2>&1; then
+  echo "Rust AOT corruption fixture admitted a multiply-linked inode" >&2; exit 1
+fi
+if [[ "$(sha256sum "$tmp/42.cwasm" | cut -d ' ' -f 1)" != "$untouched" ]]; then
+  echo "Rust tamper fixture mutated a shared hardlink target" >&2; exit 1
+fi
+rm -- "$tmp/aot-hardlink.cwasm"
 mkfifo "$tmp/input.fifo"
 set +e
 timeout 4s "$builder" "$tmp/input.fifo" "$(sha256sum "$tmp/42.wasm" | cut -d ' ' -f 1)" "$tmp/from-fifo.cwasm" > /dev/null 2>&1
@@ -80,7 +93,7 @@ if [[ "$build_status" -eq 0 || "$build_status" -eq 124 ||
 fi
 # These binaries are valid Wasm but violate the strict zero-capability
 # precompiler profile. Generic parser rejection would be insufficient proof.
-python3 aot-host/tests/make-negative-wasm.py "$tmp"
+"$fixtures" generate "$tmp"
 node --input-type=module - "$tmp" <<'JS'
 import {readFileSync} from 'node:fs';
 for (const name of ['valid','start','table','extra-memory','import','element']) {
@@ -149,6 +162,51 @@ for bad_fuel in 0 100000001 not-a-number; do
   exit 1
  fi
 done
+# End-to-end Wasmtime resource-limiter trap: this valid zero-import Wasm
+# guest attempts memory.grow after its declared two-page maximum. By normal
+# WebAssembly semantics memory.grow returns -1 and the guest returns 7;
+# the deliberately strict native Store policy must instead TRAP. Direct
+# ResourceLimiter unit tests do not prove that the guest execution path traps.
+cat > "$tmp/growth-denial.c" <<'C'
+long long main(void) {
+  int previous = __builtin_wasm_memory_grow(0, 1);
+  return previous == -1 ? 7LL : 8LL;
+}
+C
+clang --target=wasm32 -x c -O1 -nostdlib -Wno-main-return-type \
+  -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/growth-denial.wasm" "$tmp/growth-denial.c"
+node --input-type=module - "$tmp/growth-denial.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const bytes = readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(bytes), 'growth-denial fixture must be valid Wasm');
+const module = new WebAssembly.Module(bytes);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'growth-denial fixture has no host imports');
+const guest = new WebAssembly.Instance(module);
+assert.equal(guest.exports.main(), 7n, 'spec-compliant growth failure must return sentinel');
+JS
+"$builder" "$tmp/growth-denial.wasm" "$(sha256sum "$tmp/growth-denial.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/growth-denial.cwasm" > "$tmp/growth-denial.meta"
+growth_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/growth-denial.meta")"
+[[ "$growth_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing growth-denial AOT digest" >&2; exit 1; }
+set +e
+timeout 5s "$runner" "$tmp/growth-denial.cwasm" "$growth_pin" \
+  > "$tmp/growth-denial.stdout" 2> "$tmp/growth-denial.stderr"
+growth_status=$?
+set -e
+if [[ "$growth_status" -eq 0 || "$growth_status" -eq 124 || "$growth_status" -eq 137 ]]; then
+  echo "Wasmtime memory.grow did not promptly trap under strict StoreLimits policy" >&2
+  cat "$tmp/growth-denial.stdout" "$tmp/growth-denial.stderr" >&2
+  exit 1
+fi
+if ! grep -Eqi 'trap|error while executing|growth failed|failed to grow|memory growth' "$tmp/growth-denial.stderr"; then
+  echo "memory.grow runner failed without guest execution/trap evidence" >&2
+  cat "$tmp/growth-denial.stderr" >&2
+  exit 1
+fi
+
 # Production artifacts may not use the caller-supplied SHA as approval, even
 # when somebody forces debug assertions on in a release build.
 # Prove the production runner refuses an otherwise authentic native artifact.
@@ -172,4 +230,145 @@ if ! grep -q 'AOT execution is disabled unless' "$tmp/release.stderr"; then
   cat "$tmp/release.stderr" >&2
   exit 1
 fi
-echo 'AOT smoke: positive scalars, strict policy negatives and release-mode denial passed'
+
+# Exercise the actual Wasmtime Store-per-tenant registry using one compiled,
+# import-free Wasm module with a mutable guest global. Two tenant Stores must
+# independently observe 1, then 2. Revoked/recreated tenants start at 1.
+# This is an in-process memory isolation check, NOT a process-sandbox proof.
+cat > "$tmp/tenant-counter.ll" <<'LLVM'
+target triple = "wasm32-unknown-unknown"
+@counter = internal global i64 0, align 8
+define i64 @main() {
+entry:
+  %old = load volatile i64, ptr @counter, align 8
+  %next = add i64 %old, 1
+  store volatile i64 %next, ptr @counter, align 8
+  ret i64 %next
+}
+LLVM
+clang --target=wasm32 -x ir -Oz -nostdlib -Wl,--no-entry -Wl,--export=main \
+  -Wl,--initial-memory=131072 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-counter.wasm" "$tmp/tenant-counter.ll"
+"$builder" "$tmp/tenant-counter.wasm" "$(sha256sum "$tmp/tenant-counter.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-counter.cwasm" > "$tmp/tenant-counter.meta"
+tenant_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-counter.meta")"
+[[ "$tenant_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing tenant AOT digest" >&2; exit 1; }
+tenant_result="$("$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$tenant_pin")"
+if [[ "$tenant_result" != "wasmtime_tenant_store_isolation=ok" ]]; then
+  echo "Wasmtime tenant-store isolation failed: $tenant_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "tenant smoke bypassed AOT digest check" >&2
+  exit 1
+fi
+
+
+# Real guest-memory-growth trap regression: the declared private memory is
+# 1..2 pages. On turn 4 the guest requests one additional page: standard Wasm
+# ALLOWS this growth. Only the native test-only Store cap of 1 page denies it.
+# This isolates the host limiter, not a wasm module maximum. That refusal
+# must trap, revoke only the offender, and preserve healthy tenant progress.
+cat > "$tmp/tenant-memory-growth.c" <<'C'
+typedef unsigned long long u64;
+static volatile u64 counter;
+long long main(void) {
+    u64 current = ++counter;
+    if (current == 4) {
+        (void)__builtin_wasm_memory_grow(0, 1);
+    }
+    return (long long)current;
+}
+C
+clang --target=wasm32 -x c -Wno-main-return-type -O0 -nostdlib \
+  -Wl,--no-entry -Wl,--export=main -Wl,-z,stack-size=16384 \
+  -Wl,--initial-memory=65536 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-memory-growth.wasm" "$tmp/tenant-memory-growth.c"
+node --input-type=module - "$tmp/tenant-memory-growth.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const bytes=readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(bytes), 'growth fixture must be valid Wasm');
+const module=new WebAssembly.Module(bytes);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'no host imports');
+assert.deepEqual(WebAssembly.Module.exports(module).map(({name,kind})=>[name,kind]).sort(),
+  [['main','function'],['memory','memory']].sort());
+const guest=new WebAssembly.Instance(module);
+assert.equal(guest.exports.memory.buffer.byteLength,65536,
+  'guest must begin at one Wasm page');
+assert.deepEqual([guest.exports.main(), guest.exports.main(),
+  guest.exports.main(), guest.exports.main()], [1n,2n,3n,4n],
+  'normal Wasm must succeed at permitted memory.grow and continue');
+assert.equal(guest.exports.memory.buffer.byteLength,131072,
+  'standard Wasm must have really grown one page');
+console.log('node_standard_wasm_growth_succeeds_under_module_max=ok');
+JS
+"$builder" "$tmp/tenant-memory-growth.wasm" \
+  "$(sha256sum "$tmp/tenant-memory-growth.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-memory-growth.cwasm" > "$tmp/tenant-memory-growth.meta"
+growth_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-memory-growth.meta")"
+[[ "$growth_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing growth AOT digest" >&2; exit 1; }
+growth_result="$("$runner" --tenant-memory-growth-smoke "$tmp/tenant-memory-growth.cwasm" "$growth_pin")"
+if [[ "$growth_result" != "wasmtime_tenant_memory_growth_trap=ok" ]]; then
+  echo "Wasmtime denied memory growth failed to trap/retire one tenant: $growth_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-memory-growth-smoke "$tmp/tenant-memory-growth.cwasm" \
+   "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "growth smoke accepted incorrect AOT digest" >&2
+  exit 1
+fi
+
+# A real nonterminating Wasm guest, rather than a host-only ResourceLimiter
+# invocation. A per-Store fuel budget must interrupt the third turn while a
+# healthy tenant survives with independent guest mutable memory. The test
+# requires the Wasmtime out-of-fuel cause, not an arbitrary trap or timeout.
+cat > "$tmp/tenant-fuel-starvation.c" <<'C'
+typedef unsigned long long u64;
+static volatile u64 counter;
+long long main(void) {
+    u64 current = ++counter;
+    if (current == 3) {
+        volatile u64 busy = 0;
+        for (;;) {
+            ++busy;
+        }
+    }
+    return (long long)current;
+}
+C
+clang --target=wasm32 -x c -Wno-main-return-type -O0 -nostdlib \
+  -Wl,--no-entry -Wl,--export=main -Wl,-z,stack-size=16384 \
+  -Wl,--initial-memory=65536 -Wl,--max-memory=131072 \
+  -o "$tmp/tenant-fuel-starvation.wasm" "$tmp/tenant-fuel-starvation.c"
+node --input-type=module - "$tmp/tenant-fuel-starvation.wasm" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const wasm=readFileSync(process.argv[2]);
+assert.ok(WebAssembly.validate(wasm), 'spinning fixture must be valid Wasm');
+const module=new WebAssembly.Module(wasm);
+assert.deepEqual(WebAssembly.Module.imports(module), [], 'no host imports');
+assert.deepEqual(WebAssembly.Module.exports(module).map(({name,kind})=>[name,kind]).sort(),
+  [['main','function'],['memory','memory']].sort());
+const guest=new WebAssembly.Instance(module);
+assert.deepEqual([guest.exports.main(),guest.exports.main()], [1n,2n],
+  'the first two turns must complete before the endless loop');
+console.log('wasmtime_fuel_fixture_initial_turns=ok');
+JS
+"$builder" "$tmp/tenant-fuel-starvation.wasm" \
+  "$(sha256sum "$tmp/tenant-fuel-starvation.wasm" | cut -d ' ' -f 1)" \
+  "$tmp/tenant-fuel-starvation.cwasm" > "$tmp/tenant-fuel-starvation.meta"
+spin_pin="$(sed -n 's/^aot_sha256=//p' "$tmp/tenant-fuel-starvation.meta")"
+[[ "$spin_pin" =~ ^[0-9a-f]{64}$ ]] || { echo "missing fuel AOT digest" >&2; exit 1; }
+spin_result="$("$runner" --tenant-fuel-starvation-smoke "$tmp/tenant-fuel-starvation.cwasm" "$spin_pin" 1000000)"
+if [[ "$spin_result" != "wasmtime_tenant_fuel_starvation=ok" ]]; then
+  echo "Wasmtime fuel exhaustion isolation failed: $spin_result" >&2
+  exit 1
+fi
+if "$runner" --tenant-fuel-starvation-smoke "$tmp/tenant-fuel-starvation.cwasm" \
+   "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
+  echo "fuel smoke accepted an incorrect AOT digest" >&2
+  exit 1
+fi
+
+echo 'AOT smoke: positive scalars, strict policy negatives, tenant store/memory-growth/fuel isolation and release-mode denial passed'

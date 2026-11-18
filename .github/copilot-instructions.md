@@ -1,0 +1,3 @@
+# AttoLang wasm compiler AI instructions
+
+Read [AGENTS.md](../AGENTS.md) and [AOT / zero-GC directive](../docs/AOT_ZERO_GC_DYNAMISM.md). For sealed guest AOT, do not add runtime eval, class or method synthesis, unbounded reflection, unknown proxies or interpreter/JIT fallback. Use static proxy generation and finite dispatch metadata. Enforce ownership, lifetime and deterministic cleanup for actors, closures and async frames; differentiate guest zero-GC from host/process GC. Require compile-time negative tests plus stepful executable `.atto` receipts. Preserve security, Rust-only tooling and existing guest-source-first rules.

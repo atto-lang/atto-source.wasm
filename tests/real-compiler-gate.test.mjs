@@ -1,8 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
+import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
+test("canonical shared .atto real-compiler guest has the reviewed exact bytes", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const canonical = new URL("../contracts/atto-parity-v1/add.atto", import.meta.url);
+  const legacy = new URL("../contracts/v1/semantics/fixtures/add.ores", import.meta.url);
+  const mirrored = new URL("../examples/atto-real-compiler-parity.atto", import.meta.url);
+  const [atto, ores, example] = await Promise.all([
+    readFile(canonical), readFile(legacy), readFile(mirrored)
+  ]);
+  assert.ok(canonical.pathname.endsWith(".atto"));
+  assert.deepEqual(atto, ores, "extension migration must not change source semantics");
+  assert.deepEqual(atto, example, "compiler smoke and shared corpus must not drift");
+  assert.equal(atto.toString("utf8"), "pub fnc main(): int { return 40 + 2; }\n");
+});
+
 test("missing real native compiler fails instead of silently skipping", () => {
   const env = {...process.env};
   for (const name of ["ORESLANG_LLVM_COMPILER","ORESLANG_LLVM_COMPILER_SHA256","ORESLANG_LLVM_SOURCE_SHA"])
@@ -44,6 +59,129 @@ test("native compiler must report a diagnostic instead of crashing or leaking IR
   }
 });
 
+test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering at byte 4"
+  };
+  assert.equal(assertGeneratorV1FrontendRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1FrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected fnc or routine at byte 4"
+  }), /required compiler-owned gate/);
+});
+
+test("generator-v1 async and suspend gates require their dedicated compiler diagnostics", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  for (const diagnostic of [
+    "native async gen* requires scheduler-owned async iterator continuation lowering",
+    "native suspend gen* requires scheduler-owned async iterator continuation lowering"
+  ]) {
+    const diagnosed = {
+      status:1, signal:null, error:undefined, stdout:"",
+      stderr:"oreslang-llvmc: " + diagnostic
+    };
+    assert.equal(assertGeneratorV1FrontendRejection(diagnosed, diagnostic), true);
+    assert.throws(() => assertGeneratorV1FrontendRejection({
+      ...diagnosed,
+      stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+    }, diagnostic), /required compiler-owned gate/);
+  }
+});
+
+test("generator-v1 wasm32 gate requires backend capability diagnostic", async () => {
+  const {assertGeneratorV1WasmRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native generator v1 is not yet admitted for wasm32/Cortex-M targets";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected
+  };
+  assert.equal(assertGeneratorV1WasmRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+  }), /required wasm32 compiler gate/);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stdout:"define i32 @fake() { ret i32 0 }"
+  }), /diagnosed error/);
+});
+
+test("inverted real-compiler gate requires native declaration rejection", async () => {
+  const {assertInvertedFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  for (const stderr of [
+    "oreslang-llvmc: INVERTED_BACKEND_UNSUPPORTED: native inverted class requires lowering at byte 7",
+    "oreslang-llvmc: expected 'module', 'class' or 'actor' at byte 7",
+    "oreslang-llvmc: expected 'class', 'actor', or built-in MaxActorThreads enum at byte 7"
+  ]) {
+    assert.equal(assertInvertedFrontendRejection({
+      status:1,signal:null,error:undefined,stdout:"",stderr
+    }), true);
+  }
+  assert.throws(() => assertInvertedFrontendRejection({
+    status:1,signal:null,error:undefined,stdout:"",
+    stderr:"oreslang-llvmc: unrelated arithmetic failure"
+  }), /inverted-class source did not fail/);
+});
+
+test("singleton real-compiler gate requires compiler-owned capability diagnostic and no IR", async () => {
+  const {assertSingletonFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require exactly-once complete publication, cycle/failure semantics, runtime-derived actor authority for shared state, and five-backend guest execution parity at byte 7"
+  };
+  assert.equal(assertSingletonFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: expected 'class' or 'actor' at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED at byte 7"
+  }), /required compiler-owned admission gate/);
+  assert.throws(() => assertSingletonFrontendRejection({
+    ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
+  }), /diagnosed error/);
+});
+
+test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
+  const {assertSelectFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: native async/channel/select boundary unsupported at byte 17"
+  };
+  assert.equal(assertSelectFrontendRejection(diagnosed), true);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token select at byte 17"
+  }), /LLVM async\/channel\/select capability gate/);
+  assert.throws(() => assertSelectFrontendRejection({
+    ...diagnosed, stdout:"define i64 @main() { ret i64 0 }"
+  }), /diagnosed error/);
+});
+
+test("tuple-v2 real-compiler gate requires semantic diagnostic, not generic failure", async () => {
+  const {assertTupleV2FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native positional tuple parameter requires verified readonly-slot and optional-tail lowering";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected + " at byte 9"
+  };
+  assert.equal(assertTupleV2FrontendRejection(diagnosed, expected), true);
+  assert.throws(() => assertTupleV2FrontendRejection({
+    ...diagnosed, stderr:"oreslang-llvmc: unexpected token at byte 9"
+  }, expected), /required compiler-owned gate/);
+  assert.throws(() => assertTupleV2FrontendRejection({
+    ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
+  }, expected), /diagnosed error/);
+});
+
 test("real frontend diagnostics require whitespace, not a literal backslash-s", async () => {
   const {assertNativeFrontendRejection} = await import("../scripts/verify-real-compiler.mjs");
   assert.equal(assertNativeFrontendRejection({
@@ -79,4 +217,31 @@ test("real compiler workspace cleanup unseals readonly releases without followin
   } finally {
     await rm(outside,{recursive:true,force:true});
   }
+});
+
+
+test("opaque-top ternary fixture is pinned and remains source-only negative coverage", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const content = await readFile(new URL(
+    "../examples/unsupported-any-ternary.ores", import.meta.url));
+  const gitSha = createHash("sha1")
+    .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
+    .update(content).digest("hex");
+  assert.equal(gitSha, "e03fff33333ad9407b2d1151dc3a6355654349ed");
+});
+
+test("value-pipeline source fixture is byte-identical to shared conformance", async () => {
+  const {readFile} = await import("node:fs/promises");
+  const {createHash} = await import("node:crypto");
+  const content = await readFile(new URL("../examples/value-pipe-scalar.ores", import.meta.url));
+  const gitSha = createHash("sha1")
+    .update(Buffer.from("blob " + content.length + String.fromCharCode(0)))
+    .update(content).digest("hex");
+  assert.equal(gitSha, "1ce089ef1592b2c263a44bb6a71067f5785c6f58");
+  const invalid = await readFile(new URL("../examples/value-pipe-invalid.ores", import.meta.url));
+  const invalidGitSha = createHash("sha1")
+    .update(Buffer.from("blob " + invalid.length + String.fromCharCode(0)))
+    .update(invalid).digest("hex");
+  assert.equal(invalidGitSha, "7d0bb7f4984f22eb44d6d2c05c8008128aaed15a");
 });

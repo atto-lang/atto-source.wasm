@@ -1,6 +1,23 @@
 # Experimental Wasmtime strict-AOT host
 
-Stacked on Oreslang WASM PR #1. **Draft, unbuilt and unverified.**
+## Experimental per-tenant Wasmtime Stores
+
+A native tenant compartment prototype now lives in
+[`run/src/tenant_isolation.rs`](run/src/tenant_isolation.rs). One tenant
+owns one `wasmtime::Store` and one Wasm `Instance` with its own
+128-KiB bounded linear memory. A shared `Engine` and compiled `Module`
+may be reused across tenants. The debug-only
+`--tenant-isolation-smoke` runner path executes a real precompiled
+counter guest across two separate Stores and checks lifecycle fencing.
+
+**This is not a production-enabled service or an OS sandbox.** The existing
+release-mode deny gate is unchanged. The tenant ID is not a credential;
+the deployment broker, authenticated approval and process sandbox are
+still required. See [the full contract](../docs/WASMTIME_TENANT_STORES_V0.md).
+
+The Wasm/AOT foundation was merged into `main` through [PR #4](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/4) and [PR #3](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/3).
+**This remains an experimental development-only loader, not a production sandbox.** The independent [private Rust AOT verification run](https://github.com/embedded-alerts-test/web-ui-e2e/actions/runs/38755259716) passed its `wasm-aot` job, but [source-repository CI issue #5](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/issues/5) remains unresolved. Neither result authorizes production execution.
+
 The builder uses Wasmtime's Cranelift compilation in a trusted build job;
 the runner is a *separately built crate* without Cranelift or Winch features.
 Cargo feature unification across the two crates would defeat that design.
@@ -10,11 +27,12 @@ toolchain. The caller can choose both the native artifact and its hash; this
 debug mode is deliberately insecure and **must not be deployed**:
 
 ```sh
-cargo build --manifest-path aot-host/precompile/Cargo.toml
-cargo build --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
-aot-host/precompile/target/debug/oreslang-aot-build VERIFIED.wasm NEW.cwasm
-sha256sum NEW.cwasm
-aot-host/run/target/debug/oreslang-aot-run NEW.cwasm LOCAL_DEVELOPMENT_SHA256
+cargo build --locked --manifest-path aot-host/precompile/Cargo.toml
+cargo build --locked --manifest-path aot-host/run/Cargo.toml --features insecure-dev-caller-pin
+SOURCE_PIN="$(sha256sum VERIFIED.wasm | cut -d ' ' -f 1)"
+aot-host/precompile/target/debug/oreslang-aot-build VERIFIED.wasm "$SOURCE_PIN" NEW.cwasm
+AOT_PIN="$(sha256sum NEW.cwasm | cut -d ' ' -f 1)"
+aot-host/run/target/debug/oreslang-aot-run NEW.cwasm "$AOT_PIN"
 ```
 
 Without the insecure feature, even debug builds refuse execution; all
@@ -36,12 +54,14 @@ native serialized artifacts are executable code; arbitrary bytes passed
 to `deserialize` can cause native code execution. The supplied pin by
 itself cannot distinguish a legitimate release unless its origin is trusted.
 
-**Not production safe yet:** no OS sandbox/process supervisor, signature
-verification, anti-rollback, reliable CPU/heap/process limits, Cargo.lock
-files, Rust compiler testing, or cross-platform compatibility verification.
+**Not production safe yet:** no OS sandbox/process supervisor, independently
+authenticated deployment signatures, anti-rollback, reliable native CPU/heap/
+process limits, or cross-platform compatibility verification. Separate pinned
+Cargo.lock files are committed and the strict AOT smoke passed on a private
+runner. These are build/integration checks, not production safety evidence.
 Wasm validation in PR #1 must precede building, including denial of
-start sections, tables and hidden non-exported memories. The runner needs a
-trusted, read-only artifact store and immutable admission manifest.
+start sections, tables and hidden non-exported memories. A future production runner needs an independently authenticated artifact
+approval mechanism, a trusted read-only store and OS process isolation.
 
 Wasmtime versions/configurations/CPU features must match AOT artifacts.
 Rust crates use the same exact Wasmtime release but do not share a workspace.
@@ -58,7 +78,7 @@ of two pages. This closes gaps left by checking exported Wasmtime metadata
 alone: otherwise a hidden internal table/start function/extra memory would
 be invisible. The precompiler serializes the single already-validated native
 module instead of compiling it again. The source verifier includes unit tests;
-all native tests still require execution on a real Rust toolchain.
+the native gates require a Rust toolchain, and remain mandatory on any changed source revision.
 
 ### Native file-read boundary
 
@@ -80,7 +100,7 @@ no artifact produced, independently of generic Wasm parsing.
 The AOT branch pins Rust **1.96.0**, consistent with the minimum toolchain
 expected for Wasmtime 49.x. This pin prevents GitHub runner updates from
 changing the compiler selected during verification. The feature-graph and
-AOT execution checks remain required on an actual hosted or trusted runner.
+AOT execution checks remain required on every relevant source revision.
 
 ### Format discrimination before unsafe AOT deserialization
 
