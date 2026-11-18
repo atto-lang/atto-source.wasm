@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "oreslang.binary-floating.v1",
+  "status": "normative-target-not-backend-proof",
+  "default_profile": {
+    "rounding": "round-to-nearest-ties-to-even",
+    "reassociation": "forbidden",
+    "implicit_fma_contraction": "forbidden",
+    "flush_subnormals_to_zero": "forbidden",
+    "signed_zero": "observable",
+    "infinities": "IEEE-754",
+    "nan_comparisons": "unordered",
+    "nan_payload_portability": "not guaranteed",
+    "fast_math": "never implicit"
+  },
+  "types": {
+    "f64": "IEEE-754 binary64",
+    "f32": "IEEE-754 binary32 and must use distinct storage/round-after-each-operation semantics"
+  },
+  "exact_bit_semantics": {
+    "Math.abs": "clear sign bit",
+    "Math.neg": "toggle sign bit",
+    "Math.signbit": "observe sign bit including negative zero and NaN",
+    "Math.is_nan": "classification only",
+    "Math.is_finite": "classification only",
+    "Math.is_infinite": "classification only",
+    "Math.next_after": "adjacent representable value toward target",
+    "Math.ulp": "spacing at the operand under the selected type",
+    "Math.fma": "explicit fused multiply-add with one final rounding",
+    "Math.sqrt": "correctly rounded when capability is declared"
+  },
+  "comparison": {
+    "default_eq": "IEEE numeric equality; +0 == -0; NaN != NaN",
+    "ordering": "unordered for NaN",
+    "approx_eq": {
+      "signature": "Math.approx_eq(a: f64, b: f64, abs_tol: f64, rel_tol: f64) -> bool",
+      "rule": "abs(a-b) <= max(abs_tol, rel_tol * max(abs(a), abs(b)))",
+      "requirements": [
+        "tolerances must be finite and nonnegative",
+        "NaN always returns false",
+        "same-sign infinities return true only when a == b before difference arithmetic",
+        "no universal machine-epsilon default"
+      ]
+    }
+  },
+  "transcendentals": {
+    "policy": "A backend must publish and test a finite max-ULP bound per function before declaring portable support. Host libm presence alone is not evidence.",
+    "functions": [
+      "sin", "cos", "tan", "asin", "acos", "atan", "atan2",
+      "exp", "exp2", "expm1", "log", "log2", "log10", "log1p",
+      "pow", "cbrt", "hypot"
+    ],
+    "bitwise_cross_backend_parity": "not required until a shared deterministic Oreslang implementation is adopted"
+  },
+  "optimization_gate": {
+    "portable_math": [
+      "no LLVM fast-math flags",
+      "no C/C++ -ffast-math or -Ofast",
+      "no target FTZ/DAZ mode unless explicitly selected outside portable Math",
+      "no a*b+c contraction into FMA except explicit Math.fma",
+      "constant folding must preserve the same observable result as runtime evaluation"
+    ]
+  },
+  "cases": [
+    {"id":"abs-negative-zero","operation":"abs","input_bits":"8000000000000000","expect_bits":"0000000000000000"},
+    {"id":"neg-positive-zero","operation":"neg","input_bits":"0000000000000000","expect_bits":"8000000000000000"},
+    {"id":"next-after-zero-up","operation":"next_after","a_bits":"0000000000000000","b_bits":"3ff0000000000000","expect_bits":"0000000000000001"},
+    {"id":"next-after-zero-down","operation":"next_after","a_bits":"0000000000000000","b_bits":"bff0000000000000","expect_bits":"8000000000000001"},
+    {"id":"ulp-one","operation":"ulp","input_bits":"3ff0000000000000","expect_bits":"3cb0000000000000"},
+    {"id":"approx-relative","operation":"approx_eq","a":1000000.0,"b":1000000.5,"abs_tol":0.0,"rel_tol":0.000001,"expect":true},
+    {"id":"approx-absolute-near-zero","operation":"approx_eq","a":0.0,"b":1e-12,"abs_tol":1e-11,"rel_tol":0.0,"expect":true},
+    {"id":"approx-nan","operation":"approx_eq","a":"NaN","b":1.0,"abs_tol":1.0,"rel_tol":1.0,"expect":false}
+  ]
+}

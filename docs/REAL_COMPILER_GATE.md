@@ -14,8 +14,8 @@ Without that secret, the workflow fails closed. It does not copy source to
 public repositories, mirror across organizations, or assume the default
 `GITHUB_TOKEN` has cross-repository permissions.
 
-The workflow pins LLVM main revision
-`0ee060aafbc079150541dac6d3ab6b177b7b1670`, checks the
+The workflow pins the reviewed LLVM generator revision
+`b364f613870f7382307e79bc30d67833a1e24841`, checks the
 exact checkout commit, builds `oreslang-llvmc`, and records the SHA-256
 of the actual executable before running the integration gate.
 This source commit is an immutable input, **not** proof of source/toolchain
@@ -123,3 +123,9 @@ before linking or publication. The check lives in
 `scripts/wasm32-ir-target.mjs` and has dedicated positive/negative unit
 regressions. This is **not** a complete LLVM IR verifier; the native frontend
 still must be pinned and its generated module verified.
+
+## Verified scalar value-pipeline integration, October 16, 2026
+
+[Private exact-source Actions run 38932825727](https://github.com/voxletra/voxletra-e2e/actions/runs/38932825727) compiled the byte-pinned Oreslang LLVM source and byte-pinned Wasm bridge/worker sources, executed the canonical scalar `|>` fixture as an actual wasm32 guest, and verified result **7**, no imported host modules, no host capabilities, and exactly two pages of maximum memory. The invalid-stage fixture produced a diagnosed compiler rejection without published Wasm output. No private cross-organization checkout token or secret was needed: approved sources were mirrored into a private carrier via the GitHub connector and checked for exact blob identity before testing.
+
+This branch incorporates the same Git-blob-identical scalar fixture into the opt-in real-compiler matrix. **Do not treat the earlier external-run result as proof of a green test for a later compiler source commit**, and do not claim `Option`/`Result`, actor isolation or broader Wasm guest parity. The new matrix requires a real compiler executable and source/compiler SHA pins, not a mock compiler.

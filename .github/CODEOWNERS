@@ -1,11 +1,25 @@
-# Mandatory owner review requires protected-main branch settings.
+# Private CI export authorization policy.
+# Protect all workflow changes from unreviewed same-name GitHub Actions check spoofing.
+# Keep the directory wildcard directly before the final exact policy rules.
+
+# Wasm guest, AOT host, publication, and conformance trust boundaries.
+/src/ @ORESoftware
+/aot-host/ @ORESoftware
+/tests/ @ORESoftware
+/contracts/ @ORESoftware
+/tools/ @ORESoftware
+/scripts/ @ORESoftware
+/package.json @ORESoftware
+
+# Integration metadata and pinned Rust toolchain are release inputs.
+/.oreslang/ @ORESoftware
+/rust-toolchain.toml @ORESoftware
+
+# Final, fail-closed private-CI ownership block (directory wildcard precedes exact paths).
+/.github/workflows/ @ORESoftware
 /.github/CODEOWNERS @ORESoftware
-/contracts/private-ci-security.v1.json @ORESoftware
-/scripts/check_backend_private_ci_contract.py @ORESoftware
-/tests/test_backend_private_ci_contract.py @ORESoftware
-/.github/workflows/backend-private-ci-contract.yml @ORESoftware
-/docs/security/BACKEND_SECURITY_PARITY.md @ORESoftware
-/contracts/guest-capability-admission.v1.json @ORESoftware
-/scripts/check_guest_capability_admission.py @ORESoftware
-/tests/test_guest_capability_admission.py @ORESoftware
-/tests/parity-zero-import-admission.test.mjs @ORESoftware
+/.github/private-ci-approved-repositories.txt @ORESoftware
+/.github/private-ci-approved-source-snapshots.txt @ORESoftware
+/.github/private-ci-independent-reviewer.json @ORESoftware
+/.github/private-ci-required-checks.json @ORESoftware
+/.github/workflows/private-ci-policy.yml @ORESoftware

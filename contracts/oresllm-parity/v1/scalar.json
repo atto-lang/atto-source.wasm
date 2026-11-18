@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "contract": "oresllm-scalar-i64-intersection-v1",
+  "classification": "candidate-parity-not-native-execution",
+  "required_backends": [
+    "java",
+    "llvm",
+    "wasm",
+    "cranelift",
+    "net"
+  ],
+  "positive": [
+    {
+      "id": "zero",
+      "expression": "0",
+      "expected_i64": "0"
+    },
+    {
+      "id": "literal-42",
+      "expression": "42",
+      "expected_i64": "42"
+    },
+    {
+      "id": "precedence",
+      "expression": "2 + 3 * 4",
+      "expected_i64": "14"
+    },
+    {
+      "id": "parentheses",
+      "expression": "(2 + 3) * 4",
+      "expected_i64": "20"
+    },
+    {
+      "id": "signed-add",
+      "expression": "-7 + 3",
+      "expected_i64": "-4"
+    },
+    {
+      "id": "signed-multiply",
+      "expression": "-7 * -6",
+      "expected_i64": "42"
+    },
+    {
+      "id": "max",
+      "expression": "9223372036854775807",
+      "expected_i64": "9223372036854775807"
+    },
+    {
+      "id": "min",
+      "expression": "-9223372036854775808",
+      "expected_i64": "-9223372036854775808"
+    },
+    {
+      "id": "max-minus-one",
+      "expression": "9223372036854775807 - 1",
+      "expected_i64": "9223372036854775806"
+    },
+    {
+      "id": "min-plus-one",
+      "expression": "-9223372036854775808 + 1",
+      "expected_i64": "-9223372036854775807"
+    },
+    {
+      "id": "signed-subtract",
+      "expression": "1 - 9",
+      "expected_i64": "-8"
+    },
+    {
+      "id": "grouped-negative",
+      "expression": "(-5) * (3 + 4)",
+      "expected_i64": "-35"
+    },
+    {
+      "id": "left-associative",
+      "expression": "(17 - 2) * 3",
+      "expected_i64": "45"
+    },
+    {
+      "id": "multiply-before-subtract",
+      "expression": "0 - (4 * 5)",
+      "expected_i64": "-20"
+    },
+    {
+      "id": "nested-precedence",
+      "expression": "1 + (2 * (3 + 4))",
+      "expected_i64": "15"
+    },
+    {
+      "id": "double-negation",
+      "expression": "-(-5)",
+      "expected_i64": "5"
+    },
+    {
+      "id": "zero-times-max",
+      "expression": "0 * 9223372036854775807",
+      "expected_i64": "0"
+    }
+  ],
+  "checked_overflow": [
+    {
+      "id": "add-overflow",
+      "expression": "9223372036854775807 + 1"
+    },
+    {
+      "id": "subtract-overflow",
+      "expression": "-9223372036854775808 - 1"
+    },
+    {
+      "id": "multiply-overflow",
+      "expression": "9223372036854775807 * 2"
+    },
+    {
+      "id": "negate-min",
+      "expression": "-(-9223372036854775808)"
+    },
+    {
+      "id": "eager-overflow",
+      "expression": "(9223372036854775807 + 1) * 0"
+    },
+    {
+      "id": "nested-overflow",
+      "expression": "0 - (9223372036854775807 + 1)"
+    }
+  ],
+  "compile_reject": [
+    {
+      "id": "unknown-identifier",
+      "expression": "unknown_value"
+    },
+    {
+      "id": "integer-division-not-i64",
+      "expression": "7 / 2"
+    },
+    {
+      "id": "caret-xor-banned",
+      "expression": "5 ^ 3"
+    },
+    {
+      "id": "double-caret-banned",
+      "expression": "5 ^^ 3"
+    },
+    {
+      "id": "invalid-separator",
+      "expression": "1__0"
+    }
+  ],
+  "known_drift": [
+    {
+      "id": "legacy-percent-operator",
+      "expression": "7 % 3",
+      "required_language_policy": "reject-percent-operator",
+      "observed_older_backends": "some still accept literal-divisor signed remainder; not a parity pass"
+    }
+  ]
+}

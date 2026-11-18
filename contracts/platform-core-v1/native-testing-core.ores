@@ -1,0 +1,41 @@
+// Canonical Oreslang-native reference scalar suite.
+// These authored cases are not proof of backend execution or stdlib import parity.
+import class TestCase, TestSuite, TestOptions, TestOutcome, RunSummary from "ores.std/testing";
+import fnc expect_true, run_suite, require_success from "ores.std/testing";
+
+fnc precedence(): TestOutcome {
+  return expect_true((2 + 3) * 8 - (9 - 1) == 32, "precedence violated core scalar semantics");
+}
+fnc negative_multiplication(): TestOutcome {
+  return expect_true((-7 * -6) == 42, "negative_multiplication violated core scalar semantics");
+}
+fnc negative_product(): TestOutcome {
+  return expect_true((-7 * 6) == -42, "negative_product violated core scalar semantics");
+}
+fnc nested_unary(): TestOutcome {
+  return expect_true(-(-(41 + 1)) == 42, "nested_unary violated core scalar semantics");
+}
+fnc max_subtraction(): TestOutcome {
+  return expect_true(9223372036854775807 - 5 == 9223372036854775802, "max_subtraction violated core scalar semantics");
+}
+fnc checked_intermediate_safe(): TestOutcome {
+  return expect_true((9223372036854775807 - 9223372036854775800) * 6 == 42, "checked_intermediate_safe violated core scalar semantics");
+}
+fnc signed_comparisons(): TestOutcome {
+  return expect_true((-42 < 0) && (42 > 0) && !(7 < 0), "signed_comparisons violated core scalar semantics");
+}
+pub routine main(): void {
+  val TestSuite suite = new TestSuite("platform-core-v1", arr[
+    new TestCase("precedence", precedence, false, ""),
+    new TestCase("negative_multiplication", negative_multiplication, false, ""),
+    new TestCase("negative_product", negative_product, false, ""),
+    new TestCase("nested_unary", nested_unary, false, ""),
+    new TestCase("max_subtraction", max_subtraction, false, ""),
+    new TestCase("checked_intermediate_safe", checked_intermediate_safe, false, ""),
+    new TestCase("signed_comparisons", signed_comparisons, false, "")
+  ]);
+  val TestOptions options = new TestOptions("", false, true);
+  val RunSummary summary = run_suite(rt borrow suite, rt borrow options);
+  require_success(rt borrow summary);
+  return;
+}

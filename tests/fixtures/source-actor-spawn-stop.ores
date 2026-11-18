@@ -1,0 +1,11 @@
+// LLVM source compiler must call generated actor ctor on a scheduler worker.
+define actor Worker as {
+  const base: int = 40;
+  let total: int = 0;
+  pub fnc on_message(int n): int { return base + n; }
+}
+pub fnc main(): int {
+  const worker = spawn Worker();
+  stop worker;
+  return 43;
+}
