@@ -15,12 +15,17 @@ import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
 import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
 
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
-const cases = Object.freeze([
-  ["arrow-bare", "int <- main()", "end"],
-  ["bullet-bare", "int• main()", "end."],
-  ["arrow-fnc", "fnc int <- main()", "end;"],
-  ["bullet-fnc", "fnc int• main()", "end"]
+const headers = Object.freeze([
+  ["arrow-bare", "int <- main()"],
+  ["bullet-bare", "int• main()"],
+  ["arrow-fnc", "fnc int <- main()"],
+  ["bullet-fnc", "fnc int• main()"]
 ]);
+const terminators = Object.freeze([
+  ["plain", "end"], ["dot", "end."], ["semicolon", "end;"]
+]);
+const cases = Object.freeze(headers.flatMap(([name,header]) =>
+  terminators.map(([suffix,closer])=>Object.freeze([name+"-"+suffix,header,closer]))));
 const negatives = Object.freeze([
   "int <- main() begin return 42; end",
   "int <- main()\nbegin return 42;\nend",
@@ -48,8 +53,8 @@ function compilerIdentity(env) {
 }
 
 test("source fixture matrix is unambiguously the four return-first spellings (STATIC ONLY)", () => {
-  assert.equal(cases.length, 4);
-  assert.equal(new Set(cases.map(([name])=>name)).size, 4);
+  assert.equal(cases.length,12);
+  assert.equal(new Set(cases.map(([name])=>name)).size,12);
   for (const [,header,closer] of cases) {
     assert.match(header,/^(?:fnc )?int(?: <- |• )main\(\)$/);
     assert.match(closer,/^end[.;]?$/);
@@ -113,9 +118,9 @@ test("real pinned native LLVM -> wasm32 -> isolated i64 guest syntax parity",{
       await assert.rejects(stat(output),{code:"ENOENT"});
       rejected++;
     }
-    assert.equal(executed,4);
+    assert.equal(executed,12);
     assert.equal(rejected,5);
-    console.log("RETURN_FIRST_WASM32_EXECUTED=4 NATIVE_REJECTIONS=5 LLVM_HEAD="+llvmHead+
+    console.log("RETURN_FIRST_WASM32_EXECUTED=12 NATIVE_REJECTIONS=5 LLVM_HEAD="+llvmHead+
       " WASM_HEAD="+wasmHead+" JAVA_DIFFERENTIAL=NOT_EXECUTED");
   }finally{
     await cleanupRealCompilerWorkspace(tmp);
