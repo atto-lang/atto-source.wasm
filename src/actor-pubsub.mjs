@@ -15,6 +15,7 @@ const MAX_MEMBERSHIPS = 4096;
 const MAX_TOPICS = 4096;
 const MAX_SUBSCRIPTIONS = 1024;
 const MAX_QUEUE_DEPTH = 1024;
+const MAX_QUEUED_SLOTS = 65536;
 const MAX_EVENT_CODE_UNITS = 4096;
 const MIN_I64 = -(1n << 63n);
 const MAX_I64 = (1n << 63n) - 1n;
@@ -86,6 +87,8 @@ export class WasmActorPubSub {
   #maxSubscriptionsPerActor;
   #maxActors;
   #maxActorHistories;
+  #maxQueuedSlots;
+  #queuedSlots = 0;
 
   constructor({
     maxGroups = 4096,
@@ -93,7 +96,8 @@ export class WasmActorPubSub {
     maxTopics = 4096,
     maxSubscriptionsPerActor = 1024,
     maxActors = 4096,
-    maxActorHistories = 65536
+    maxActorHistories = 65536,
+    maxQueuedSlots = 16384
   } = {}) {
     this.#maxGroups = boundedPositiveInt(maxGroups, "maxGroups", MAX_GROUPS);
     this.#maxGroupsPerActor = boundedPositiveInt(
@@ -106,6 +110,13 @@ export class WasmActorPubSub {
     // incarnation semantics. Bound the entire lifetime history instead.
     this.#maxActorHistories = boundedPositiveInt(
       maxActorHistories, "maxActorHistories", MAX_ACTOR_HISTORIES);
+    this.#maxQueuedSlots = boundedPositiveInt(
+      maxQueuedSlots, "maxQueuedSlots", MAX_QUEUED_SLOTS);
+  }
+
+  #releaseQueue(queue) {
+    this.#queuedSlots -= queue.length;
+    queue.length = 0;
   }
 
   registerActor({actorId, incarnation, kind = "shared"} = {}) {
@@ -142,8 +153,13 @@ export class WasmActorPubSub {
 
     for (const groupId of actor.groups)
       this.#groups.get(groupId)?.members.delete(ref);
-    for (const topic of this.#topics.values())
-      topic.subscribers.delete(ref);
+    for (const topic of this.#topics.values()) {
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
+      }
+    }
     this.#actors.delete(ref);
     if (this.#actorIds.get(actor.actorId) === ref)
       this.#actorIds.delete(actor.actorId);
@@ -183,8 +199,13 @@ export class WasmActorPubSub {
     if (!actor || !group || !actor.groups.delete(groupId)) return false;
     group.members.delete(ref);
     for (const topic of this.#topics.values()) {
-      if (topic.groupId === groupId && topic.subscribers.delete(ref))
+      if (topic.groupId !== groupId) continue;
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
         actor.subscriptions--;
+      }
     }
     return true;
   }
@@ -254,7 +275,10 @@ export class WasmActorPubSub {
   _unsubscribe(groupId, name, ref, brand) {
     requireTopicHandle(brand);
     const topic = this.#requireTopic(groupId, name);
-    if (!topic.subscribers.delete(ref)) return false;
+    const queue = topic.subscribers.get(ref);
+    if (!queue) return false;
+    this.#releaseQueue(queue);
+    topic.subscribers.delete(ref);
     const actor = this.#actors.get(ref);
     if (actor && actor.subscriptions > 0) actor.subscriptions--;
     return true;
@@ -279,8 +303,10 @@ export class WasmActorPubSub {
     const topic = this.#requireTopic(groupId, name);
     const queue = topic.subscribers.get(ref);
     if (!queue) throw new Error("actor is not subscribed to topic");
-    return queue.length ? {present: true, value: queue.shift()} :
-      {present: false, value: undefined};
+    if (!queue.length) return {present: false, value: undefined};
+    const value = queue.shift();
+    this.#queuedSlots--;
+    return {present: true, value};
   }
 
   _closeGroup(groupId, brand) {
@@ -291,7 +317,8 @@ export class WasmActorPubSub {
       this.#actors.get(ref)?.groups.delete(groupId);
     for (const [key, topic] of this.#topics) {
       if (topic.groupId !== groupId) continue;
-      for (const ref of topic.subscribers.keys()) {
+      for (const [ref, queue] of topic.subscribers) {
+        this.#releaseQueue(queue);
         const actor = this.#actors.get(ref);
         if (actor && actor.subscriptions > 0) actor.subscriptions--;
       }
@@ -314,7 +341,14 @@ export class WasmActorPubSub {
             backpressured: true
           });
       }
+      // Global admission must also be fail-atomic across every subscriber.
+      if (subscribers > this.#maxQueuedSlots - this.#queuedSlots)
+        return Object.freeze({
+          subscribers, accepted: 0, dropped: 0, coalesced: 0,
+          backpressured: true
+        });
       for (const queue of topic.subscribers.values()) queue.push(value);
+      this.#queuedSlots += subscribers;
       return Object.freeze({
         subscribers, accepted: subscribers, dropped: 0, coalesced: 0,
         backpressured: false
@@ -327,12 +361,20 @@ export class WasmActorPubSub {
         if (queue.length) {
           queue[0] = value;
           coalesced++;
-        } else queue.push(value);
+        } else if (this.#queuedSlots >= this.#maxQueuedSlots) {
+          dropped++;
+          continue;
+        } else {
+          queue.push(value);
+          this.#queuedSlots++;
+        }
         accepted++;
-      } else if (queue.length >= topic.capacity) {
+      } else if (queue.length >= topic.capacity ||
+                 this.#queuedSlots >= this.#maxQueuedSlots) {
         dropped++;
       } else {
         queue.push(value);
+        this.#queuedSlots++;
         accepted++;
       }
     }
@@ -345,7 +387,10 @@ export class WasmActorPubSub {
     const group = this.#groups.get(groupId);
     for (const ref of [...topic.subscribers.keys()]) {
       if (this.#actors.has(ref) && group?.members.has(ref)) continue;
-      if (topic.subscribers.delete(ref)) {
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
         const actor = this.#actors.get(ref);
         if (actor && actor.subscriptions > 0) actor.subscriptions--;
       }
@@ -391,6 +436,7 @@ export class WasmActorPubSub {
     this.#actors.clear();
     this.#actorIds.clear();
     this.#lastIncarnation.clear();
+    this.#queuedSlots = 0;
     return true;
   }
 }
