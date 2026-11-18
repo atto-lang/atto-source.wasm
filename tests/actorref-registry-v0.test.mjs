@@ -310,3 +310,34 @@ test('rotation begun before close cannot publish a late successor after pool shu
   assert.equal(spawnCalls, 2);
   assert.equal(stops, 2);
 });
+
+
+test('ActorRef delegated depth is bounded without revoking valid ancestors', async () => {
+  const {registry,spawn} = fixture();
+  const root = await spawn();
+  let descendant = root;
+  for (let i = 0; i < 64; i++)
+    descendant = registry.attenuate(descendant, {send:true,stop:false});
+  assert.throws(() => registry.attenuate(descendant, {send:true,stop:false}),
+    /attenuation depth exceeded/);
+  assert.equal(await registry.send(root,1n,2n),2n);
+  assert.equal(await registry.send(descendant,2n,3n),5n);
+  await registry.close();
+});
+
+test('ActorRef grant exhaustion is fail-atomic and revocation is not a quota refund', async () => {
+  const {registry,spawn} = fixture();
+  const root = await spawn();
+  // One root + 4095 delegated grants: exact maximum of 4096.
+  let last;
+  for (let i = 0; i < 4095; i++)
+    last = registry.attenuate(root, {send:true,stop:false});
+  assert.throws(() => registry.attenuate(root, {send:true,stop:false}),
+    /grant capacity exceeded/);
+  registry.revoke(last);
+  assert.throws(() => registry.attenuate(root, {send:true,stop:false}),
+    /grant capacity exceeded/,
+    'revoke does not prove the host/guest discarded every copy of a grant');
+  assert.equal(await registry.send(root,1n,7n),7n);
+  await registry.close();
+});
