@@ -31,7 +31,7 @@ All four spellings are covered by tests/return-first-begin-wasm32-parity.test.mj
 
 - Without an externally pinned LLVM compiler, npm tests provide STATIC-ONLY
   fixture checks. Skips are NOT native execution evidence.
-- Actual guest parity requires 4 executed zero-import Wasm guests returning
+- Actual guest parity requires 12 executed zero-import Wasm guests (four headers × three terminators) returning
   42 and 5 real native compiler rejections for malformed declaration syntax.
 - Set ORESLANG_RETURN_FIRST_WASM_PARITY_REQUIRED=1 to fail closed if the LLVM
   compiler or exact commit/SHA pin is absent, or if any test is skipped.
@@ -41,6 +41,11 @@ All four spellings are covered by tests/return-first-begin-wasm32-parity.test.mj
   ORESLANG_RETURN_FIRST_WASM_EXPECTED_HEAD (Git HEAD, 40 lowercase hex).
 - Run: node --test tests/return-first-begin-wasm32-parity.test.mjs
 
-Full native/actor/method parity is NOT CERTIFIED, and the wasm32 proof cannot
-pass until the upstream LLVM parser learns this source syntax. It must fail,
-not silently rewrite source to the legacy grammar.
+Full native/actor/method parity is NOT CERTIFIED. The upstream LLVM grammar
+is proposed in draft PR #1889, but its compiler binary has not been built,
+validated or connected to a passing WASM guest run. Passing an environment
+variable named LLVM_SOURCE_SHA is not by itself a provenance attestation:
+CI must build the pinned compiler from that exact reviewed source tree, verify
+its executable digest, and retain the build receipt. Do not silently rewrite
+source to the legacy grammar. Do not export private source to another org
+without the independently reviewed carrier/source authorization gates.
