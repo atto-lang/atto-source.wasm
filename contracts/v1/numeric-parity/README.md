@@ -1,8 +1,34 @@
 # Numerical parity admission contract v1
 
 All five private repos track the same immutable fixture blob
-`80436f21a95816e2d5e40274daba9b923b3bcec9`, first staged on Java
+`cb28b5678d380f02c5e4e43bd763da04bdb996fe`, first staged on Java
 PR #1033 and LLVM PR #427. Copy it without changing a byte.
+
+## Shared signed-i64 overflow rejection contract
+
+The exact four-case fixture
+`source-i64-overflow-cases.json` has reviewed Git blob
+`2ce0b0ff5c52e54a788280fd64d67fa8dc32614a` in **all five**
+backends. Each backend manifest pins this immutable blob; the common
+`test_numeric_source_i64_cases.py` verifies the source bytes, IDs, policy,
+and independent integer-oracle rejection of every expression. This Python
+gate validates reference data only, never guest compilation.
+
+Executable source-level negative gates are **separate**:
+Java/GraalVM `NumericPortableI64GuestTest`; LLVM
+`native_numeric_portable_i64_source.py`; .NET typed IR plus emitted CIL in
+`verification/Ores.Net.Tests/Program.cs`; Forge parser/verified IR/interpreter
+with `verification/generate_numeric_overflow_cases.py` and
+`verification/tests.cpp`; and Wasm's pinned external LLVM compiler plus
+isolated runtime in `tests/numeric-source-parity.test.mjs`.
+All reject or signal overflow; none may return a normal wrapped signed-i64
+value. A test skip, stale compiler, unassigned runner, or source-free LLVM
+control is **not** proof of compiled parity.
+
+Java/LLVM full-source Actions currently fail before jobs can execute; the
+other backends have no demonstrated exact-source green run for these new
+checks. Preserve their existing unverified/unsupported capability statuses
+until independently validated executable CI and code-owner review pass.
 
 ## Shared real-source i64 corpus
 
@@ -24,36 +50,6 @@ immutable fixtures, **not compiled source**. Implemented guest adapters:
   compiler executable, compile source to wasm32, execute with zero host
   capabilities and verify full-width `BigInt` results; **skips when the
   real compiler is not supplied**, and a skip never counts as parity.
-
-## Shared signed-i64 overflow corpus
-
-`source-i64-overflow-cases.json` is byte-identical to the Java, LLVM,
-.NET and Forge corpus (Git blob
-`2ce0b0ff5c52e54a788280fd64d67fa8dc32614a`), and is pinned in
-`backend.json`. The four cases cover positive addition overflow,
-negative subtraction overflow, multiplication overflow and nested unary
-negation overflow. The Python gate validates the pinned bytes and
-independent rejecting oracle. `numeric-source-parity.test.mjs` additionally
-feeds each source through the pinned real LLVM->wasm32 compiler and accepts
-exactly the two outcomes permitted by `reject-or-runtime-error`:
-(1) an explicit Oreslang compiler diagnostic with **no** published atomic
-release pointer, or (2) successful checked compilation into a pinned,
-zero-import Wasm guest that raises an actual `WebAssembly.RuntimeError`
-when executed. Guest validation failures, timeouts, toolchain errors and
-normal wrapped i64 results are **not** accepted as an overflow proof.
-The worker identifies actual runtime traps separately from admission errors.
-Before accepting a runtime trap, the compiler bridge also verifies that the
-**exact IR handed to Clang**, within the sole actual `i64 @main()` body (not an unused helper), contains the expected signed-i64 overflow
-intrinsic, the associated extracted overflow flag, a conditional branch
-using that flag, and its matching `llvm.trap` block. Unrelated instructions
-and comment-spoofed guards are rejected. Four source-level safe near-boundary
-companions must execute and return full-width i64 values. This is a
-conservative attribution gate, not a formal proof of general arithmetic or
-actor/ownership correctness. Its structural self-tests use independently
-authored IR and do **not** establish compiled Oreslang parity.
-The latter test **skips when a real pinned compiler is unavailable**;
-it must not be counted as guest parity. `checked_i64_overflow` remains
-`delegated_unverified`.
 
 Actual-feature parity is **not established**: Actions attempts in the
 source org have zero executed steps, and the bootstrap engines still

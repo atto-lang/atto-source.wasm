@@ -59,24 +59,34 @@ class PortableI64ReferenceTest(unittest.TestCase):
                 self.assertTrue(LO <= int(case["expected"]) <= HI)
 
 
-    def test_shared_overflow_corpus_is_pinned_and_rejected_by_reference(self):
+
+    def test_pinned_shared_overflow_corpus_rejects_all_four_cases(self):
+        """A data-only oracle: failure at any i64 intermediate is mandatory.
+
+        Never count this as native compilation or source-guest evidence.
+        """
         raw = OVERFLOW_FILE.read_bytes()
         digest = hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") +
                               bytes((0,)) + raw).hexdigest()
-        self.assertEqual(digest, OVERFLOW_BLOB)
-        corpus = json.loads(raw)
-        self.assertEqual(corpus["schema_version"], "1.0.0")
-        self.assertEqual(corpus["status"], "requires-executable-negative-tests")
-        self.assertEqual(corpus["policy"], "no-wrapping-i64")
-        self.assertEqual(len(corpus["cases"]), 4)
-        identifiers = set()
-        for case in corpus["cases"]:
+        self.assertEqual(digest, OVERFLOW_BLOB,
+                         "shared overflow corpus drifted across backends")
+        doc = json.loads(raw)
+        self.assertEqual(doc["schema_version"], "1.0.0")
+        self.assertEqual(doc["status"], "requires-executable-negative-tests")
+        self.assertEqual(doc["policy"], "no-wrapping-i64")
+        cases = doc["cases"]
+        self.assertEqual(len(cases), 4)
+        self.assertEqual([case["id"] for case in cases], [
+            "positive-add-overflow", "negative-sub-overflow",
+            "positive-multiply-overflow", "negative-unary-overflow"])
+        for case in cases:
             with self.subTest(case=case["id"]):
-                self.assertNotIn(case["id"], identifiers)
-                identifiers.add(case["id"])
                 self.assertEqual(case["expected"], "reject-or-runtime-error")
+                expression = case["source"]
+                self.assertIsInstance(expression, str)
+                self.assertLessEqual(len(expression), 128)
                 with self.assertRaises(ValueError):
-                    interpret(ast.parse(case["source"], mode="eval").body)
+                    interpret(ast.parse(expression, mode="eval").body)
 
     def test_i64_minimum_has_no_positive_out_of_range_intermediate(self):
         for expression, expected in (

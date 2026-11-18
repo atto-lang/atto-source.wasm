@@ -14,10 +14,36 @@ let activeGuestWorkers = 0;
  * Resolves only after the guest worker has terminated.
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
-export async function runIsolatedCoreGuest(input, {
-  expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
-} = {}) {
+export async function runIsolatedCoreGuest(input, options = {}) {
+  // A caller option getter is executable host code. Do not run it on the
+  // privileged worker-admission path, even for an option later rejected.
+  if(options===null || typeof options!=="object" || Array.isArray(options))
+    throw new TypeError("guest runner options must be plain data");
+  const proto=Object.getPrototypeOf(options);
+  if(proto!==Object.prototype && proto!==null)
+    throw new TypeError("guest runner options must be plain data");
+  const fields=["expectedSha256","entry","maxMemoryPages","maxModuleBytes",
+                "timeoutMs","namespaceBindings"];
+  if(Reflect.ownKeys(options).some(key=>!fields.includes(key)))
+    throw new TypeError("unknown guest runner option");
+  const own=(name,fallback)=>{
+    const d=Object.getOwnPropertyDescriptor(options,name);
+    if(d && (!d.enumerable || !Object.hasOwn(d,"value")))
+      throw new TypeError("guest runner options require own data fields");
+    return d?.value===undefined?fallback:d.value;
+  };
+  const expectedSha256=own("expectedSha256",undefined);
+  const entry=own("entry","main");
+  const maxMemoryPages=own("maxMemoryPages",2);
+  const maxModuleBytes=own("maxModuleBytes",16 * 1024 * 1024);
+  const timeoutMs=own("timeoutMs",2000);
+  const namespaceBindings=own("namespaceBindings",null);
+  if (namespaceBindings !== null) {
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  }
+  if (entry === "init") {
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
+  }
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }

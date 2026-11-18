@@ -1,0 +1,268 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {ActorPipelineSelector, routeKeySlot} from "../src/actor-pipeline-selector.mjs";
+
+const stages = () => [
+  {id:"source", actorType:"Producer", role:"readable", inbound:"", outbound:"Event"},
+  ...["worker-a","worker-b","worker-c"].map(id => (
+    {id, actorType:"Worker", role:"writable", inbound:"Event", outbound:""}))
+];
+const edges = () => ["worker-a","worker-b","worker-c"].map(target => (
+  {source:"source", target, payload:"Event"}));
+test("v1 exact unsigned FNV-1a 64-bit slot vectors", () => {
+  const contract = JSON.parse(readFileSync(new URL(
+    "../contracts/v1/actor-pipeline-routing-v1.json", import.meta.url), "utf8"));
+  assert.equal(contract.schema, "oreslang.actor-pipeline-routing.v1");
+  for (const vector of contract.operations.by_key)
+    assert.equal(["worker-a","worker-b","worker-c"][routeKeySlot(vector.key,3)],
+      vector.target, vector.key);
+  for (const [key, slot] of [["customer-7",0],["alpha",0],["beta",2],["🌍",0],["",2],["\0",0]])
+    assert.equal(routeKeySlot(key, 3), slot, key);
+  assert.throws(() => routeKeySlot("\ud800",3));
+  assert.throws(() => routeKeySlot("e".repeat(4097),3));
+  assert.equal(routeKeySlot("e".repeat(4096),3)>=0, true);
+});
+test("v1 deterministic DAG fanout, named, strict RR and generation reset", () => {
+  const p = new ActorPipelineSelector(stages(),edges(),7);
+  assert.deepEqual(p.forwardAll("source").map(e=>e.target),
+    ["worker-a","worker-b","worker-c"]);
+  assert.throws(()=>p.forward("source"));
+  assert.equal(p.forwardTo("source","worker-b").target,"worker-b");
+  assert.throws(()=>p.forwardTo("source","worker-z"));
+  assert.throws(()=>p.forwardTo("worker-b","source"));
+  p.requireIngressRoot("source");
+  assert.throws(()=>p.requireIngressRoot("worker-a"));
+  assert.deepEqual(Array.from({length:6},()=>p.forwardRoundRobin("source").target),
+    ["worker-a","worker-b","worker-c","worker-a","worker-b","worker-c"]);
+  assert.equal(p.forwardByKey("source","beta").target,"worker-c");
+  assert.throws(()=>p.advanceGeneration(8));
+  assert.equal(p.generation,7);
+  p.advanceGeneration(8,{quiescent:true});
+  assert.equal(p.forwardRoundRobin("source").target,"worker-a");
+  assert.throws(()=>p.advanceGeneration(8,{aborted:true}));
+  assert.throws(()=>p.forwardAll("worker-a"));
+  assert.throws(() => p.forwardByKey("worker-a", "\ud800"),
+    /source has no downstream/);
+});
+test("reject graph getter reentrancy and snapshot alias mutation", () => {
+  let calls = 0;
+  const getterStage = {
+    ...stages()[0],
+    get id() { calls++; return calls === 1 ? "source" : "forged"; }
+  };
+  assert.throws(() => new ActorPipelineSelector(
+    [getterStage, ...stages().slice(1)], edges()), /own data fields/);
+  assert.equal(calls, 0, "graph must never invoke identity getters");
+
+  let edgeCalls = 0;
+  const getterEdge = {
+    ...edges()[0],
+    get target() { edgeCalls++; return "worker-a"; }
+  };
+  assert.throws(() => new ActorPipelineSelector(
+    stages(), [getterEdge, ...edges().slice(1)]), /own data fields/);
+  assert.equal(edgeCalls, 0, "graph must never invoke edge getters");
+
+  const inherited = Object.create({id:"source"});
+  Object.assign(inherited, {actorType:"Producer", role:"readable",
+    inbound:"", outbound:"Event"});
+  assert.throws(() => new ActorPipelineSelector(
+    [inherited, ...stages().slice(1)], edges()), /own data fields/);
+
+  const ownStages = stages(), ownEdges = edges();
+  const selected = new ActorPipelineSelector(ownStages, ownEdges);
+  ownStages[0].id = "rewritten";
+  ownStages[0].role = "writable";
+  ownEdges[0].source = "forged";
+  ownEdges[0].target = "worker-c";
+  assert.equal(selected.forwardAll("source")[0].target, "worker-a");
+  assert.equal(selected.forwardRoundRobin("source").target, "worker-a");
+  assert.throws(() => selected.forwardAll("rewritten"));
+  assert.ok(Object.isFrozen(selected.forwardAll("source")));
+  assert.ok(Object.isFrozen(selected.forwardAll("source")[0]));
+});
+
+test("bounded DAG snapshots reject holes and accessors without executing iterators", () => {
+  const stageData = stages(), linkData = edges();
+  let iterations = 0;
+  Object.defineProperty(stageData, Symbol.iterator, {value() {
+    iterations++;
+    throw new Error("caller iterator must not run");
+  }});
+  Object.defineProperty(linkData, Symbol.iterator, {value() {
+    iterations++;
+    throw new Error("caller edge iterator must not run");
+  }});
+  const plan = new ActorPipelineSelector(stageData, linkData);
+  assert.equal(iterations, 0, "untrusted iterators must never execute");
+  assert.deepEqual(plan.forwardAll("source").map(x => x.target),
+    ["worker-a","worker-b","worker-c"]);
+
+  const sparse = stages();
+  delete sparse[1];
+  assert.throws(() => new ActorPipelineSelector(sparse, edges()), /own data fields/);
+  let getterCalls = 0;
+  const accessor = stages();
+  Object.defineProperty(accessor, "1", {configurable: true, get() {
+    getterCalls++;
+    return stages()[1];
+  }});
+  assert.throws(() => new ActorPipelineSelector(accessor, edges()), /own data fields/);
+  assert.equal(getterCalls, 0, "array element getters must not execute");
+
+  const inherited = stages();
+  delete inherited[1];
+  const prototype = Object.create(Array.prototype);
+  Object.defineProperty(prototype, "1", {value: stages()[1], configurable: true});
+  Object.setPrototypeOf(inherited, prototype);
+  assert.throws(() => new ActorPipelineSelector(inherited, edges()), /own data fields/);
+
+  const sparseEdges = edges();
+  delete sparseEdges[0];
+  assert.throws(() => new ActorPipelineSelector(stages(), sparseEdges), /own data fields/);
+  let edgeGetterCalls = 0;
+  const accessorEdges = edges();
+  Object.defineProperty(accessorEdges, "0", {configurable: true, get() {
+    edgeGetterCalls++;
+    return edges()[0];
+  }});
+  assert.throws(() => new ActorPipelineSelector(stages(), accessorEdges), /own data fields/);
+  assert.equal(edgeGetterCalls, 0, "edge array getters must not execute");
+});
+
+test("seeded UTF-8 affinity differential across 2,048 Unicode keys", () => {
+  // Independent encoder based on URI scalar escaping, not TextEncoder;
+  // this catches normalization, NUL truncation and surrogate mishandling.
+  let seed = 0x5e17ac69;
+  function next() {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return seed >>> 0;
+  }
+  const alphabet = ["", "a", "\0", "\u007f", "\u0080", "\u07ff",
+    "\u0800", "\u00e9", "e\u0301", "中", "🌍", "💫", "\u{10ffff}"];
+  for (let i=0; i<2048; i++) {
+    let key = "";
+    for (let j=0, width=next() % 49; j<width; j++)
+      key += alphabet[next() % alphabet.length];
+    const uri = encodeURIComponent(key);
+    const bytes = [];
+    for (let j=0; j<uri.length; j++) {
+      if (uri[j]==="%") {
+        bytes.push(Number.parseInt(uri.slice(j+1,j+3), 16));
+        j += 2;
+      } else bytes.push(uri.charCodeAt(j));
+    }
+    let h=14695981039346656037n;
+    for (const value of bytes)
+      h=((h ^ BigInt(value)) * 1099511628211n) % (1n << 64n);
+    const count=(i%17)+1;
+    assert.equal(routeKeySlot(key,count), Number(h % BigInt(count)),
+      "Unicode routing mismatch at seeded case " + i);
+  }
+  assert.equal(routeKeySlot("x".repeat(4096),3),
+    routeKeySlot("x".repeat(4096),3));
+  assert.throws(() => routeKeySlot("x".repeat(4097),3));
+  assert.throws(() => routeKeySlot("\ud800",3));
+});
+
+test("v1 maximum 1024 actors and 4096 connections stay bounded", () => {
+  const count = 1024;
+  const chain = Array.from({length:count}, (_, i) => ({
+    id:"node-"+i, actorType:i===0?"Ingress":i===count-1?"Sink":"Worker",
+    role:i===0?"readable":i===count-1?"writable":"transform",
+    inbound:i===0?"":"Event",outbound:i===count-1?"":"Event"
+  }));
+  const links = Array.from({length:count-1}, (_, i) => ({
+    source:"node-"+i,target:"node-"+(i+1),payload:"Event"
+  }));
+  outer: for (let i=0; i<count; i++) {
+    for (let j=i+2; j<count; j++) {
+      links.push({source:"node-"+i,target:"node-"+j,payload:"Event"});
+      if (links.length===4096) break outer;
+    }
+  }
+  assert.equal(links.length,4096);
+  const p = new ActorPipelineSelector(chain,links);
+  assert.equal(p.forwardAll("node-0").length,1023);
+  assert.equal(p.forwardTo("node-0","node-1023").target,"node-1023");
+  assert.throws(()=>new ActorPipelineSelector(chain,
+    [...links,{source:"node-1",target:"node-1023",payload:"Event"}]));
+  assert.throws(()=>new ActorPipelineSelector([...chain,
+    {id:"over-limit",actorType:"Sink",role:"writable",inbound:"Event",outbound:""}],links));
+});
+
+test("generation barrier rejects accessor, inherited and truthy-object flags", () => {
+  const plan = new ActorPipelineSelector(stages(),edges(),51);
+  let evaluated = 0;
+  const malicious = {get quiescent() { evaluated++; return true; }};
+  assert.throws(()=>plan.advanceGeneration(52,malicious),/own booleans/);
+  assert.equal(evaluated,0,"lifecycle accessor executed before authority check");
+  assert.equal(plan.generation,51);
+
+  const inherited = Object.create({quiescent:true});
+  assert.throws(()=>plan.advanceGeneration(52,inherited),/barrier required/);
+  assert.throws(()=>plan.advanceGeneration(52,{quiescent:"true"}),/own booleans/);
+  assert.throws(()=>plan.advanceGeneration(52,{aborted:1}),/own booleans/);
+  assert.throws(()=>plan.advanceGeneration(52,null),/generation options/);
+  assert.equal(plan.generation,51);
+  plan.advanceGeneration(52,{quiescent:true});
+  assert.equal(plan.generation,52);
+  plan.retire();
+  assert.throws(()=>plan.advanceGeneration(53,malicious),/retired/);
+  assert.equal(evaluated,0,"retired lifecycle invoked caller-provided getter");
+});
+
+test("terminal selector retirement never reopens by generation", () => {
+  const plan = new ActorPipelineSelector(stages(), edges(), 9);
+  assert.equal(plan.forwardAll("source").length, 3);
+  plan.retire();
+  const rejected = [
+    () => plan.forward("source"),
+    () => plan.forwardAll("source"),
+    () => plan.forwardRoundRobin("source"),
+    () => plan.forwardTo("source","worker-a"),
+    () => plan.forwardByKey("source","alpha"),
+    () => plan.requireIngressRoot("source"),
+    () => plan.advanceGeneration(10,{quiescent:true}),
+    () => plan.advanceGeneration(10,{aborted:true})
+  ];
+  for (const operation of rejected)
+    assert.throws(operation, /retired/);
+  assert.equal(plan.generation, 9);
+  plan.retire(); // idempotent STOP
+  assert.throws(() => plan.forwardAll("source"), /retired/);
+  assert.throws(() => plan.forwardByKey("source", "\ud800"), /retired/);
+  const replacement = new ActorPipelineSelector(stages(),edges(),10);
+  assert.equal(replacement.forwardRoundRobin("source").target,"worker-a");
+});
+
+test("v1 rejects malformed nominal graph components and cycles", () => {
+  const invalid = (fn) => assert.throws(fn);
+  invalid(()=>new ActorPipelineSelector([...stages(),stages()[1]],edges()));
+  invalid(()=>new ActorPipelineSelector(
+    stages().map((s,i)=>i===1?{...s,id:"\0evil"}:s),edges()));
+  invalid(()=>new ActorPipelineSelector(
+    stages().map((s,i)=>i===1?{...s,id:"\ud800"}:s),edges()));
+  invalid(()=>new ActorPipelineSelector(
+    stages().map((s,i)=>i===1?{...s,id:"é".repeat(129)}:s),edges()));
+  invalid(()=>new ActorPipelineSelector(stages(),[...edges(),edges()[0]]));
+  invalid(()=>new ActorPipelineSelector(stages(),[
+    {...edges()[0],target:"source"},...edges().slice(1)]));
+  invalid(()=>new ActorPipelineSelector(stages(),[
+    {...edges()[0],payload:"Other"},...edges().slice(1)]));
+  const cyclic = [
+    {id:"a",actorType:"Node",role:"duplex",inbound:"X",outbound:"X"},
+    {id:"b",actorType:"Node",role:"duplex",inbound:"X",outbound:"X"},
+    {id:"root",actorType:"Root",role:"readable",inbound:"",outbound:"X"}
+  ];
+  invalid(()=>new ActorPipelineSelector(cyclic,[
+    {source:"root",target:"a",payload:"X"},
+    {source:"a",target:"b",payload:"X"},
+    {source:"b",target:"a",payload:"X"}]));
+  const p = new ActorPipelineSelector(stages(),edges());
+  assert.ok(Object.isFrozen(p.forwardAll("source")));
+  assert.ok(Object.isFrozen(p.forwardAll("source")[0]));
+});

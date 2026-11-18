@@ -1,0 +1,37 @@
+name: Runner admission canary
+
+on:
+  push:
+    branches:
+      - ci/source-free-runner-admission-20261027
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/runner-admission-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-admission-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  admission:
+    name: source-free-runner-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Execute source-free admission probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_OS" = "Linux"
+          python3 - <<'PY'
+          import hashlib
+          payload = b"oreslang-source-free-runner-admission-v1"
+          assert hashlib.sha256(payload).hexdigest()
+          print("RUNNER_ADMISSION_MEANINGFUL_STEP_EXECUTED")
+          PY

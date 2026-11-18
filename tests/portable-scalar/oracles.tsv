@@ -1,0 +1,6 @@
+tests/portable-scalar/32-grouping-multiplication.ores|42|95a3f972fa6404bed6812397860c222b135d8202
+tests/portable-scalar/33-subtraction-precedence.ores|42|c72b62d86dbb076f46bc16bbb265b8b19f15b08d
+tests/portable-scalar/34-unary-plus-digit-separator.ores|42|34d8d32122c08a11c60f942f2c5edd6daeba97bc
+tests/portable-scalar/35-upper-bound-difference.ores|42|d6a6e2f02d90a6bf111467970abb9390908f8fc9
+tests/portable-scalar/36-lower-bound-cancellation.ores|42|a0ffb94b4fc1123c1d2721d2d8e79527b2295a74
+tests/portable-scalar/37-named-bitxor.ores|42|855141b7ad25bdca471239cdfe4b5dcfd26b8ca2

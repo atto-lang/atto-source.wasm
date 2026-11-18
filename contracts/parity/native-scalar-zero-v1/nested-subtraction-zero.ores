@@ -1,0 +1,1 @@
+pub fnc main():int{return (100 - (50 - (20 - 7))) - 63;}
