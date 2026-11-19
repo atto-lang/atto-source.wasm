@@ -2,6 +2,8 @@
 // This is DATA validation, not an ActorRef, capability, supervisor CONTROL or
 // authenticated network protocol. Never accept remote arbitrary schema IDs.
 import {createHash, timingSafeEqual} from 'node:crypto';
+import {types} from 'node:util';
+import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 
 export const REQUEST_SCHEMA = 'oreslang.native_wasm.data.request.v0';
 export const RESPONSE_SCHEMA = 'oreslang.native_wasm.data.response.v0';
@@ -10,6 +12,16 @@ export const MAX_FRAME_BYTES = 4096;
 const MIN = -(1n << 63n), MAX = (1n << 63n) - 1n;
 const SCHEMAS = new Set([REQUEST_SCHEMA, RESPONSE_SCHEMA, ACK_SCHEMA]);
 const DIGEST = createHash('sha256').update('oreslang.actor.shape.v2/T[I,I]').digest();
+// Reject Proxy-wrapped typed arrays before any trap-controlled property read.
+// Snapshot using native ArrayBuffer/View slots; never retain shared or mutable
+// producer storage as an authoritative DATA frame. This is host admission, not
+// compiled guest proof, and it does not authenticate an external pipe peer.
+const isNativeUint8Array = types.isUint8Array;
+function ownWireBytes(bytes, maxBytes) {
+  if (!isNativeUint8Array(bytes))
+    throw new TypeError('binary native/WASM frame requires a genuine Uint8Array');
+  return snapshotGuestBytes(bytes, maxBytes);
+}
 
 function requireI64(n) {
   if (typeof n !== 'bigint' || n < MIN || n > MAX) throw TypeError('expected signed i64');
@@ -101,9 +113,9 @@ export function encodeNativeWasmPair(schema, ticket, value) {
 }
 export function decodeNativeWasmPair(schema, bytes) {
   requireSchema(schema);
-  if (!(bytes instanceof Uint8Array) || bytes.length===0 || bytes.length>MAX_FRAME_BYTES)
-    throw Error('invalid native/WASM frame budget');
-  const r=new Reader(bytes);
+  const owned=ownWireBytes(bytes,MAX_FRAME_BYTES);
+  if(owned.length===0)throw Error('invalid native/WASM frame budget');
+  const r=new Reader(owned);
   if(r.byte()!==0x94 || readInt(r)!==2n)throw Error('wrong native/WASM MessagePack v2 envelope');
   if(readStr(r)!==schema)throw Error('wrong native/WASM DATA schema');
   if(r.byte()!==0xc4 || r.byte()!==32)throw Error('wrong native/WASM digest header');
@@ -111,23 +123,23 @@ export function decodeNativeWasmPair(schema, bytes) {
   if(r.byte()!==0x92)throw Error('wrong native/WASM tuple arity');
   const ticket=readInt(r), value=readInt(r);
   if(ticket<=0n)throw Error('invalid native/WASM ticket');
-  if(r.at!==bytes.length)throw Error('trailing native/WASM payload');
+  if(r.at!==owned.length)throw Error('trailing native/WASM payload');
   return Object.freeze({ticket,value});
 }
 export function frameNativeWasm(bytes) {
-  if(!(bytes instanceof Uint8Array) || !bytes.length || bytes.length>MAX_FRAME_BYTES)
-    throw Error('native/WASM frame length rejected');
-  const out=Buffer.allocUnsafe(bytes.length+4);
-  out.writeUInt32BE(bytes.length,0); out.set(bytes,4); return out;
+  const owned=ownWireBytes(bytes,MAX_FRAME_BYTES);
+  if(!owned.length)throw Error('native/WASM frame length rejected');
+  const out=Buffer.allocUnsafe(owned.length+4);
+  out.writeUInt32BE(owned.length,0); out.set(owned,4); return out;
 }
 export class NativeWasmFrameReader {
   #buffer=Buffer.alloc(0);
   push(chunk) {
-    if(!(chunk instanceof Uint8Array))throw TypeError('binary pipe chunk required');
+    const owned=ownWireBytes(chunk,MAX_FRAME_BYTES*16);
     // No unbounded accumulation for a malicious native child process.
-    if (this.#buffer.length + chunk.length > MAX_FRAME_BYTES*16)
+    if (this.#buffer.length > MAX_FRAME_BYTES*16 - owned.length)
       throw Error('native/WASM pipe admission budget exceeded');
-    this.#buffer=Buffer.concat([this.#buffer,chunk]);
+    this.#buffer=Buffer.concat([this.#buffer,owned]);
     const frames=[];
     while(this.#buffer.length>=4) {
       const n=this.#buffer.readUInt32BE(0);
