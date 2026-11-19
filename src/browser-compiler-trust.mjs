@@ -2,6 +2,7 @@
 // compiler or a substitute for an independently authenticated source pin.
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { snapshotGuestBytes } from './snapshot-guest-bytes.mjs';
+import { snapshotCompilerTrustRecord } from './compiler-trust-record.mjs';
 
 const FIELDS = ['abi','compiler_bytes','compiler_sha256','exports','import_count','schema','source_head','source_tree','target'];
 const REQUIRED = {
@@ -58,23 +59,22 @@ function inspectSections(bytes) {
   if(memory===null) fail('compiler must declare bounded linear memory');
   return memory;
 }
-function exactKeys(obj,keys) {
-  return !!obj && typeof obj==='object' && !Array.isArray(obj)
-    && Object.keys(obj).sort().join('\0')===keys.slice().sort().join('\0');
-}
 /**
  * Only externally pinned values count as trust. A receipt shipped next to the
  * binary cannot authenticate itself; caller must obtain pins independently.
  */
-export function verifyCompilerArtifact({wasm,receipt,trust}) {
+export function verifyCompilerArtifact(request) {
+  const envelope=snapshotCompilerTrustRecord(request,['wasm','receipt','trust'],'invalid request fields');
+  const {wasm}=envelope;
+  const receipt=snapshotCompilerTrustRecord(envelope.receipt,FIELDS,'missing/unrecognized receipt fields');
+  const trust=snapshotCompilerTrustRecord(envelope.trust,
+    ['source_head','source_tree','compiler_sha256'],'three independent trust pins required');
   // One immutable native-slot snapshot is used for every subsequent check.
   // Reject proxy/SharedArrayBuffer backing before reading caller properties.
   let bytes;
   try { bytes=snapshotGuestBytes(wasm,MAX_ARTIFACT); }
   catch { fail('invalid artifact length or backing'); }
   if(bytes.length===0) fail('invalid artifact length');
-  if (!exactKeys(receipt,FIELDS)) fail('missing/unrecognized receipt fields');
-  if (!exactKeys(trust,['source_head','source_tree','compiler_sha256'])) fail('three independent trust pins required');
   if (!SHA1.test(trust.source_head) || !SHA1.test(trust.source_tree) || !SHA256.test(trust.compiler_sha256)) fail('invalid trust pins');
   if (!SHA1.test(receipt.source_head) || !SHA1.test(receipt.source_tree)
       || !SHA256.test(receipt.compiler_sha256)) fail('malformed receipt identity');
