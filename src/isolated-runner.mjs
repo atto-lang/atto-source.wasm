@@ -23,7 +23,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   if(proto!==Object.prototype && proto!==null)
     throw new TypeError("guest runner options must be plain data");
   const fields=["expectedSha256","entry","maxMemoryPages","maxModuleBytes",
-                "timeoutMs","namespaceBindings"];
+                "timeoutMs","namespaceBindings","threadPolicy"];
   if(Reflect.ownKeys(options).some(key=>!fields.includes(key)))
     throw new TypeError("unknown guest runner option");
   const own=(name,fallback)=>{
@@ -38,6 +38,9 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   const maxModuleBytes=own("maxModuleBytes",16 * 1024 * 1024);
   const timeoutMs=own("timeoutMs",2000);
   const namespaceBindings=own("namespaceBindings",null);
+  const threadPolicy=own("threadPolicy",null);
+  if(threadPolicy!==null && threadPolicy!=="single-threaded")
+    throw new TypeError("unsupported guest threading policy");
   if (namespaceBindings !== null) {
     throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
   }
@@ -96,7 +99,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           // environment from the trusted parent into the Wasm worker.
           execArgv: [],
           env: {},
-          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
+          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes, threadPolicy}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
         timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
@@ -110,6 +113,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
                      message.admission.bytes !== bytes.length ||
                      message.admission.imports !== 0 ||
                      message.admission.hostCapabilities !== 0 ||
+                     message.admission.threadPolicy !== (threadPolicy || undefined) ||
                      !/^[a-f0-9]{64}$/.test(message.admission.sha256) ||
                      message.admission.sha256 !== submittedSha256 ||
                      (expectedSha256 !== undefined &&

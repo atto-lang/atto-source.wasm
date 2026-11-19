@@ -24,3 +24,33 @@ A Wasm module emitted ahead of time can use explicit linear-memory ownership whi
 | Real emitted AOT guest artifact + native/Wasm guest execution | source-only fixture, parser-only check, host mock, interpreter fallback, empty job steps |
 
 Report exact main/PR head and tree SHA, canonical fixture blob, compiler executable hash, target artifact digest, runner and nonzero executed steps, and allocator/GC instrumentation. `steps=[]` or `steps=null` means runner-admission failure / **NOT_EXECUTED**. Unimplemented strict-profile constructs must fail closed; no JIT workaround. No claimed five-backend parity until independently verified.
+
+
+## Two-i64-column inverted-class Rust oracle (experimental)
+
+A native Rust reference model lives at
+`aot-host/run/src/inverted_columns.rs` and is compiled **only during
+`cargo test`**. It represents a fixed-capacity (1..256 rows) actor-local
+inverted class with two contiguous `i64` columns, explicitly generation-
+checked row handles, owner/incarnation plus opaque arena identity, detached
+read snapshots, transactional checked field updates and a retirement scrub.
+
+The constructor allocates its fixed boxed slices and one opaque identity.
+Subsequent row insert/read/update/erase operations use only preallocated
+slots; they never call a tracing GC or resize columns. `close()` revokes
+handles and performs volatile column zeroing. This is a **Rust host model**,
+not Oreslang guest codegen, a wasm32 module, a guest-owned heap, an exposed
+host capability or proof of steady-state allocator/RSS behavior.
+
+Rust unit tests cover 128 generations of slot churn, capacity bounds,
+cross-arena handle forgery, atomic numeric-overflow denial, copy snapshots,
+close-time scrubbing and invalid owner/capacity. They execute through the
+existing native AOT runner `cargo test --locked` CI job.
+
+**Integration remains blocked** until the LLVM backend emits checked
+source-language typed inverted-class MIR/guest code and independently
+proves borrow/owner guards, actor-context authentication and real compiled
+Wasm execution. The Java layout-epoch and LLVM inverted-class PRs are
+under review, not implemented parity. Switching AoS/SoA should be a
+closed-world AOT layout choice or independently authorized prebuilt variant;
+it must never silently invoke runtime source compilation in sealed AOT.

@@ -19,6 +19,7 @@ export function compileAdmittedCoreGuest(input, {
   actorPhysicalTurns = 0,
   hardRealtime = false,
   namespaceBindings = null,
+  threadPolicy = null,
   // Stage-0 WASM does not implement VM-owned physical TCP pooling.
   sharedTcpPool = false,
   tcpPoolLeaseCount = 0,
@@ -30,6 +31,11 @@ export function compileAdmittedCoreGuest(input, {
   // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
   // Keeping unsupported features at zero is semantic parity, not a fallback
   // to blocking host I/O or a pretend concurrent actor.
+  // A scalar guest is instantiated on exactly one Node Worker with an
+  // import-free, private, non-shared bounded linear memory. This is a real
+  // per-memory-space enforcement path, not an Atto actor scheduler.
+  if (threadPolicy !== null && threadPolicy !== "single-threaded")
+    throw new TypeError("unsupported guest threading policy");
   if (ioMode !== "nio-only")
     throw new TypeError("WASM runtime refuses legacy/blocking host I/O");
   if (guestNetworkIo !== false)
@@ -99,7 +105,8 @@ export function compileAdmittedCoreGuest(input, {
     schemaVersion: 1, profile: "core-wasm.i64-v1",
     sha256, bytes: bytes.byteLength, entry,
     memoryInitialPages: memoryInitial, memoryMaximumPages: memoryMaximum,
-    imports: 0, hostCapabilities: 0
+    imports: 0, hostCapabilities: 0,
+    ...(threadPolicy === "single-threaded" ? {threadPolicy} : {})
   });
   return {module, admission};
 }

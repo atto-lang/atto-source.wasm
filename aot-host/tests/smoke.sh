@@ -96,13 +96,13 @@ fi
 "$fixtures" generate "$tmp"
 node --input-type=module - "$tmp" <<'JS'
 import {readFileSync} from 'node:fs';
-for (const name of ['valid','start','table','extra-memory','import','element']) {
+for (const name of ['valid','start','table','extra-memory','import','element','simd','tail-call']) {
   const bytes=readFileSync(process.argv[2]+'/'+name+'.wasm');
   if (!WebAssembly.validate(bytes)) throw Error(name+' negative fixture is malformed');
 }
 JS
 "$builder" "$tmp/valid.wasm" "$(sha256sum "$tmp/valid.wasm" | cut -d ' ' -f 1)" "$tmp/valid.cwasm" > "$tmp/valid.meta"
-for reason in start table extra-memory import element; do
+for reason in start table extra-memory import element simd tail-call; do
   if "$builder" "$tmp/$reason.wasm" "$(sha256sum "$tmp/$reason.wasm" | cut -d ' ' -f 1)" "$tmp/$reason.cwasm" > /dev/null 2>&1; then
     echo "AOT precompiler admitted forbidden $reason section" >&2
     exit 1
