@@ -1,0 +1,4 @@
+// Verified Oreslang LLVM fixture: zero is a valid return value.
+pub fnc main(): int {
+  return 0;
+}

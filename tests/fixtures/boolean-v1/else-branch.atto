@@ -1,0 +1,1 @@
+pub fnc main():int{if(true eq false){return 11;}else{return 13;}fi return 7;}

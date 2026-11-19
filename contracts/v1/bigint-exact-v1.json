@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "oreslang.bigint-exact.v1",
+  "status": "normative-reference-not-backend-proof",
+  "semantics": {
+    "representation": "signed arbitrary-precision integer, resource-bounded",
+    "arithmetic": "addition, subtraction, multiplication, negation and absolute value are exact",
+    "quot": "BigInt.quot truncates toward zero",
+    "rem": "BigInt.rem has the dividend sign and satisfies a == quot(a,b)*b + rem(a,b)",
+    "div_rem": "BigInt.div_rem returns the same quotient/remainder pair in one operation",
+    "slash": "The / operator is not an implicit truncating BigInt quotient. Use a named exact-domain operation or an explicitly selected Decimal/Rational conversion.",
+    "zero_divisor": "BigInt.quot, BigInt.rem and BigInt.div_rem report DIVISOR_ZERO",
+    "float_conversion": "BigInt.to_f64_exact rejects inexact values; BigInt.to_f64_nearest is explicit round-to-nearest-ties-to-even and must reject overflow to infinity unless an infinity-producing API is separately selected.",
+    "narrowing": "BigInt.to_i64_checked rejects values outside signed64",
+    "canonical_text": "base-10 ASCII; zero is 0; no leading +; no redundant leading zeros; negative zero canonicalizes to 0",
+    "resource_policy": "bit length, decimal digit count, exponent/shift, output allocation and work are bounded before catastrophic allocation; arbitrary precision is outside hard-RT unless WCET and memory are statically bounded"
+  },
+  "arithmetic_cases": [
+    {
+      "id": "add-above-i128",
+      "operation": "add",
+      "left": "170141183460469231731687303715884105728",
+      "right": "1",
+      "expect": "170141183460469231731687303715884105729"
+    },
+    {
+      "id": "sub-negative-large",
+      "operation": "sub",
+      "left": "-170141183460469231731687303715884105728",
+      "right": "1",
+      "expect": "-170141183460469231731687303715884105729"
+    },
+    {
+      "id": "mul-2pow64",
+      "operation": "mul",
+      "left": "18446744073709551616",
+      "right": "18446744073709551616",
+      "expect": "340282366920938463463374607431768211456"
+    },
+    {
+      "id": "neg-2pow256",
+      "operation": "neg",
+      "operand": "115792089237316195423570985008687907853269984665640564039457584007913129639936",
+      "expect": "-115792089237316195423570985008687907853269984665640564039457584007913129639936"
+    },
+    {
+      "id": "abs-negative-2pow256",
+      "operation": "abs",
+      "operand": "-115792089237316195423570985008687907853269984665640564039457584007913129639936",
+      "expect": "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+    }
+  ],
+  "division_cases": [
+    {"id":"quot-rem-pp","left":"7","right":"3","quot":"2","rem":"1"},
+    {"id":"quot-rem-np","left":"-7","right":"3","quot":"-2","rem":"-1"},
+    {"id":"quot-rem-pn","left":"7","right":"-3","quot":"-2","rem":"1"},
+    {"id":"quot-rem-nn","left":"-7","right":"-3","quot":"2","rem":"-1"},
+    {
+      "id":"quot-rem-large-exact",
+      "left":"115792089237316195423570985008687907853269984665640564039457584007913129639936",
+      "right":"340282366920938463463374607431768211456",
+      "quot":"340282366920938463463374607431768211456",
+      "rem":"0"
+    },
+    {
+      "id":"quot-rem-large-nonzero",
+      "left":"115792089237316195423570985008687907853269984665640564039457584007913129652281",
+      "right":"340282366920938463463374607431768211456",
+      "quot":"340282366920938463463374607431768211456",
+      "rem":"12345"
+    },
+    {"id":"division-by-zero","left":"1","right":"0","error":"DIVISOR_ZERO"}
+  ],
+  "conversion_cases": [
+    {"id":"to-i64-max","operation":"to_i64_checked","operand":"9223372036854775807","expect":"9223372036854775807"},
+    {"id":"to-i64-over-max","operation":"to_i64_checked","operand":"9223372036854775808","error":"OVERFLOW"},
+    {"id":"to-i64-min","operation":"to_i64_checked","operand":"-9223372036854775808","expect":"-9223372036854775808"},
+    {"id":"to-i64-under-min","operation":"to_i64_checked","operand":"-9223372036854775809","error":"OVERFLOW"},
+    {"id":"to-f64-exact-2pow53","operation":"to_f64_exact","operand":"9007199254740992","expect_bits":"4340000000000000"},
+    {"id":"to-f64-exact-2pow53-plus1","operation":"to_f64_exact","operand":"9007199254740993","error":"INEXACT"},
+    {"id":"to-f64-nearest-2pow53-plus1","operation":"to_f64_nearest","operand":"9007199254740993","expect_bits":"4340000000000000"}
+  ]
+}

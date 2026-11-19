@@ -1,0 +1,9 @@
+// Current LLVM integer subset: no capability headers until native admission is implemented.
+pub fnc main(): int {
+  return 40 + 2;
+}
+
+// Must not survive application tree shaking.
+fnc unreachable_tree_shake_probe(): int {
+  return 99;
+}

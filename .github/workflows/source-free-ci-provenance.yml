@@ -1,0 +1,42 @@
+name: Source-free CI provenance parity
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/source-free-ci-provenance.yml'
+      - 'scripts/source-free-ci-provenance.mjs'
+      - 'tests/source-free-ci-provenance.test.mjs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/source-free-ci-provenance.yml'
+      - 'scripts/source-free-ci-provenance.mjs'
+      - 'tests/source-free-ci-provenance.test.mjs'
+permissions:
+  contents: read
+jobs:
+  source-free-provenance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact candidate without private credentials or submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 1
+          clean: true
+      - name: Install Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Run cross-backend negative admission tests
+        run: node --test tests/source-free-ci-provenance.test.mjs
+      - name: Verify exact Git commit/tree and synthetic artifact SHA256
+        env:
+          EXPECTED_REPO: ${{ github.repository }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/source-free-ci-provenance.mjs --verify "$EXPECTED_REPO" "$EXPECTED_HEAD"
+      - name: Record non-authorization boundary
+        run: |
+          echo 'Source-free CI proof only. It is not private-source export approval or compiler/dependency integration evidence.' >> "$GITHUB_STEP_SUMMARY"

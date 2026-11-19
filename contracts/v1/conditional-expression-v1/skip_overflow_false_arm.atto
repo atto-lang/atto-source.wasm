@@ -1,0 +1,2 @@
+fnc add_one(x: int): int { return x + 1; }
+pub fnc main(): int { return true ? 42 : add_one(9223372036854775807); }

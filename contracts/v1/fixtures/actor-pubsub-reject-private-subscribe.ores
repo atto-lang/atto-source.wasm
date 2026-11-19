@@ -1,0 +1,21 @@
+define isoactor PrivateSubscriber as
+  receive(ActorMail<String> mail): void {
+    val group = actor.group("private-events");
+    val topic = group.topic<String>("events");
+    val subscription = topic.subscribe();
+    self.end();
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val group = actor.group("private-events");
+  group.topic<String>("events", "reliable", 4);
+  val subscriber = spawn PrivateSubscriber();
+  await subscriber.get_ready();
+  group.join(subscriber);
+  subscriber.send("start");
+  await subscriber.get_done();
+  group.close();
+  return;
+}

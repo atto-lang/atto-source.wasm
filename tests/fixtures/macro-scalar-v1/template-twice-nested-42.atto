@@ -1,0 +1,9 @@
+define macro literal(Const<int> value) -> Syntax<Expr> {
+    return quote(value);
+}
+define macro twice(Syntax<Expr> value) -> Syntax<Expr> {
+    return quote(unquote(value) + unquote(value));
+}
+pub fnc main() -> int {
+    return twice!(syntax expr literal!(const 20 + 1));
+}
