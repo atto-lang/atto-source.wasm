@@ -115,3 +115,11 @@ Read [isolation and roadmap](docs/ISOLATION.md), [portable guest builds](docs/PO
 Keep current `.atto` semantics aligned with [atto-spec](https://github.com/atto-lang/atto-spec). Implementation gaps must be reported explicitly instead of silently claiming compatibility.
 
 Changes asserting compiler/runtime support must identify the exact source head, target, toolchain, executed positive and negative guest tests, and failure/unsupported status; an empty CI step list is **not executed**. Documentation records responsibility, **not** a claim of feature completion.
+
+## Callable ABI v1 verification boundary (draft)
+
+The proposed owned-callable ABI is tracked in [atto-spec](https://github.com/atto-lang/atto-spec/blob/spec/owned-callable-abi-v1-20261115/language/callable-owned-closure-abi-v1.md) and [issue #12](https://github.com/atto-lang/atto-source.wasm/issues/12). This repository **does not yet contain an independent AttoLang Wasm compiler** and does not emit Atto closure environments or safe callable handles.
+
+The executable regression test can be run with npm test (Node 22). It builds a small native Wasm module using exact binary sections and executes actual WebAssembly **call_indirect**: a matching signature returns 42; an incompatible function type and an out-of-range table index trap. This is a Wasm-engine primitive check, **not** proof that the Rust compiler can compile an escaping Atto lambda, nor a proof of stale-handle validation or browser parity.
+
+Rust compiler integration must implement owned environment creation, generation/owner checks, cleanup, signature-checked typed indirect calls, and the actual .atto factory/higher-order examples before this backend or /play can be marked executable. The compiler's existing guest ABI v2 and the public playground binary pins must remain unchanged until review, executed guest tests and release approval.
