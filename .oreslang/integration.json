@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "protocol": "oreslang-ecosystem-integration",
+  "repository": "ores-truffle-oreslang/oreslang-source.wasm",
+  "role": "compiler",
+  "upstreams": [
+    "oreslang-source.llvm",
+    "oreslang-target-profiles",
+    "oreslang-wasm"
+  ],
+  "evidence": "not-attested",
+  "note": "Declared integration touchpoints only; no CI or runtime parity is asserted."
+}

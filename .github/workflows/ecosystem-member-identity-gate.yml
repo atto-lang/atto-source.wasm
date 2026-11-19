@@ -1,0 +1,30 @@
+name: compiler member identity (metadata only)
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  source-member-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact source head
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Validate local compiler ecosystem manifest (not parity)
+        run: |
+          node --check tests/ecosystem-member-identity-gate-20261105.test.mjs
+          node --test tests/ecosystem-member-identity-gate-20261105.test.mjs

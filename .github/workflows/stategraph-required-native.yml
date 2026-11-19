@@ -1,0 +1,31 @@
+name: StateGraph required real Wasm guest parity
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stategraph-wasm-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install wasm32 clang and lld
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Verify exact source and required native Wasm guest
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          ORESLANG_LLVM_COMPILER: ${{ vars.ORESLANG_LLVM_COMPILER }}
+          ORESLANG_LLVM_COMPILER_SHA256: ${{ vars.ORESLANG_LLVM_COMPILER_SHA256 }}
+          ORESLANG_LLVM_SOURCE_SHA: ${{ vars.ORESLANG_LLVM_SOURCE_SHA }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          node scripts/stategraph-required-native.mjs

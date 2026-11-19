@@ -1,0 +1,123 @@
+name: Exact GitHub run evidence contract
+
+on:
+  pull_request:
+    paths:
+      - scripts/verify_ci_run.py
+      - scripts/test_verify_ci_run.py
+      - docs/EXACT_GITHUB_RUN_EVIDENCE_V1.md
+      - .github/workflows/ci-run-evidence-contract.yml
+
+permissions:
+  contents: read
+
+jobs:
+  exact-run-evidence-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current repository only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Bind evidence to actual checked-out Git tree
+        id: source_head
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$EXPECTED_HEAD" || {
+            echo "::error::CI verifier checkout differs from approved PR head"
+            exit 1
+          }
+          git diff --quiet
+          git diff --cached --quiet
+          # Proofs must reject untracked and .gitignore-hidden local payloads.
+          test -z "$(git ls-files --others --exclude-standard)"
+          test -z "$(git ls-files --others --ignored --exclude-standard)"
+          printf 'commit=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+          printf 'tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_OUTPUT"
+      - name: Run all eight-repository source-free security regressions
+        id: regressions
+        run: |
+          set -euo pipefail
+          python3 -I -m py_compile scripts/verify_ci_run.py scripts/test_verify_ci_run.py
+          python3 -I - <<'PY'
+          import importlib.util
+          import unittest
+          from pathlib import Path
+
+          path = Path("scripts/test_verify_ci_run.py")
+          spec = importlib.util.spec_from_file_location("ci_evidence_tests", path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("CI proof tests missing")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          for round_id in range(1, 4):
+              suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+              discovered = suite.countTestCases()
+              if discovered < 97:
+                  raise SystemExit(f"CI verifier tests shrank: {discovered}")
+              result = unittest.TextTestRunner(verbosity=1).run(suite)
+              if (result.testsRun != discovered or not result.wasSuccessful()
+                      or result.skipped or result.expectedFailures or result.unexpectedSuccesses):
+                  raise SystemExit("CI verifier test suite was skipped, incomplete or failed")
+              print(f"VERIFIED_CI_EVIDENCE_TESTS_ROUND_{round_id}={discovered}")
+          PY
+
+      - name: Write minimal run evidence (not compiled guest parity)
+        if: ${{ always() }}
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          OBSERVED_HEAD: ${{ steps.source_head.outputs.commit }}
+          OBSERVED_TREE: ${{ steps.source_head.outputs.tree }}
+          SOURCE_OUTCOME: ${{ steps.source_head.outcome }}
+          REGRESSION_OUTCOME: ${{ steps.regressions.outcome }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+          RUN_TRIGGER_SHA: ${{ github.sha }}
+          RUN_TRIGGER_EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          evidence = {
+              "schema": "oreslang-source-free-ci-evidence-v1",
+              "classification": "NOT_NATIVE_COMPILER_OR_GUEST_PARITY_CERTIFICATION",
+              "repository": os.environ["GITHUB_REPOSITORY"],
+              "repository_id": os.environ["REPOSITORY_ID"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "expected_commit": os.environ["EXPECTED_HEAD"],
+              "observed_checkout_commit": os.environ["OBSERVED_HEAD"],
+              "observed_checkout_tree": os.environ["OBSERVED_TREE"],
+              "head_verification_outcome": os.environ["SOURCE_OUTCOME"],
+              "regression_step_outcome": os.environ["REGRESSION_OUTCOME"],
+              "runner_name": os.environ.get("RUNNER_NAME", ""),
+              "workflow_trigger_sha": os.environ["RUN_TRIGGER_SHA"],
+              "workflow_trigger_event": os.environ["RUN_TRIGGER_EVENT"],
+              "trigger_sha_matches_reported_checkout": (
+                  os.environ["RUN_TRIGGER_SHA"] == os.environ["OBSERVED_HEAD"]
+                  and os.environ["SOURCE_OUTCOME"] == "success"
+              ),
+              "verified_execution_claim": False,
+          }
+          path = Path(os.environ["RUNNER_TEMP"]) / "source-free-ci-evidence.json"
+          path.write_text(json.dumps(evidence, sort_keys=True, indent=2) + "\n",
+                          encoding="utf-8")
+          print("SOURCE_FREE_EVIDENCE_WRITTEN=YES; EXTERNAL_VERIFICATION_REQUIRED")
+          PY
+      - name: Upload minimal source-free CI evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: source-free-ci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/source-free-ci-evidence.json
+          if-no-files-found: error
+          retention-days: 3

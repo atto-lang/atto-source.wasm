@@ -1,15 +1,16 @@
 # Experimental native Wasmtime tenant AOT prototype
 
-Status: **DEVELOPMENT ONLY**. This is a narrow migration seed from
+Status: **DEVELOPMENT ONLY**. The native AOT runtime already exists on current AttoLang main. This reconciled PR adds the seed provenance and executable smoke runner without reverting subsequent Rust safety hardening. It carries historical migration context from
 `ores-truffle-oreslang/oreslang-source.wasm` PR #403, stacked on PR #173,
 at Git head `78b2a80203a3e0a977c4e75479b6c5c672904c42`.
 
 ## Scope and provenance
 
-The 12 original Rust/Cargo source and lockfile blobs were copied unchanged
-from the source Git tree. `ci/native-aot/source-provenance.json` records every
-source blob SHA and the originating commit. The CI runner checks each Git blob
-against the exact bytes before compiling. The migration does not copy a full
+The 12 historical Rust/Cargo seed blobs are recorded in
+`ci/native-aot/source-provenance.json`, separately from the corresponding
+12 current-main native AOT blob SHA values. Three of the original files were
+superseded by later mainline hardening; this PR does not restore old code.
+The CI runner checks exact current source blob SHAs before compiling. The migration does not copy a full
 Wasm compiler, original JS worker runtime, or original source-org CI tree.
 
 The prototype has a Wasmtime 49.0.3 **compiler-free** AOT runner and

@@ -1,0 +1,124 @@
+{
+  "schema": "oreslang.wrapper-flattening.v1",
+  "contract_version": 1,
+  "status": "normative-contract-not-backend-execution-evidence",
+  "type_cases": [
+    {
+      "id": "future-single",
+      "source": "Future<int>",
+      "canonical": "Future<int>"
+    },
+    {
+      "id": "future-three",
+      "source": "Future<Future<Future<int>>>",
+      "canonical": "Future<int>"
+    },
+    {
+      "id": "future-void",
+      "source": "Future<Future<void>>",
+      "canonical": "Future<void>"
+    },
+    {
+      "id": "future-option-boundary",
+      "source": "Future<Future<Option<int>>>",
+      "canonical": "Future<Option<int>>"
+    },
+    {
+      "id": "option-nested-preserved",
+      "source": "Option<Option<int>>",
+      "canonical": "Option<Option<int>>"
+    },
+    {
+      "id": "option-future-boundary",
+      "source": "Option<Future<int>>",
+      "canonical": "Option<Future<int>>"
+    }
+  ],
+  "option_cases": [
+    {
+      "id": "none",
+      "input": {
+        "tag": "none"
+      },
+      "after_explicit_flatten": {
+        "tag": "none"
+      }
+    },
+    {
+      "id": "some-none",
+      "input": {
+        "tag": "some",
+        "value": {
+          "tag": "none"
+        }
+      },
+      "after_explicit_flatten": {
+        "tag": "none"
+      }
+    },
+    {
+      "id": "some-some",
+      "input": {
+        "tag": "some",
+        "value": {
+          "tag": "some",
+          "value": 42
+        }
+      },
+      "after_explicit_flatten": {
+        "tag": "some",
+        "value": 42
+      }
+    },
+    {
+      "id": "some-some-none",
+      "input": {
+        "tag": "some",
+        "value": {
+          "tag": "some",
+          "value": {
+            "tag": "none"
+          }
+        }
+      },
+      "after_explicit_flatten": {
+        "tag": "none"
+      }
+    }
+  ],
+  "future_runtime_cases": [
+    {
+      "id": "pending-inner",
+      "expected": "outer success does not complete observer until inner settles"
+    },
+    {
+      "id": "inner-failure",
+      "expected": "inner failure propagates without success conversion"
+    },
+    {
+      "id": "inner-cancel",
+      "expected": "cancellation remains terminal cancellation"
+    },
+    {
+      "id": "cancel-observer",
+      "expected": "detach without cancelling shared producer"
+    },
+    {
+      "id": "cancel-owned-task",
+      "expected": "revoke task the caller owns"
+    },
+    {
+      "id": "self-cycle",
+      "expected": "reject cyclic adoption"
+    },
+    {
+      "id": "deep-completed-2048",
+      "expected": "iterative completion without stack overflow"
+    },
+    {
+      "id": "actor-lifecycle",
+      "expected": "CONTROL and message credits settle only after adopted inner completion"
+    }
+  ],
+  "verification_rule": "Only tests executing the real backend implementation on the exact PR Git tree qualify as full language/runtime parity. Host helper tests prove only host helper behavior."
+}

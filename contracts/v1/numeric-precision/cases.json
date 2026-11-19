@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0.0",
+  "status": "reference-only-not-guest-execution",
+  "notes": "Golden vectors for future Java/LLVM numeric conformance. Binary64 operands use raw IEEE bits and decimal matrices use exact base-10 strings; no backend may claim success simply by parsing this file.",
+  "binary64_comparisons": [
+    {
+      "id": "nan-eq-self",
+      "lhs": {
+        "kind": "bits",
+        "hex": "7ff8000000000000"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "7ff8000000000000"
+      },
+      "eq": false,
+      "lt": false,
+      "le": false,
+      "gt": false,
+      "ge": false
+    },
+    {
+      "id": "nan-left",
+      "lhs": {
+        "kind": "bits",
+        "hex": "7ff8000000000000"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "3ff0000000000000"
+      },
+      "eq": false,
+      "lt": false,
+      "le": false,
+      "gt": false,
+      "ge": false
+    },
+    {
+      "id": "signed-zero",
+      "lhs": {
+        "kind": "bits",
+        "hex": "8000000000000000"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "0000000000000000"
+      },
+      "eq": true,
+      "lt": false,
+      "le": true,
+      "gt": false,
+      "ge": true
+    },
+    {
+      "id": "int64-above-exact-float",
+      "lhs": {
+        "kind": "int64",
+        "decimal": "9007199254740993"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "4340000000000000"
+      },
+      "eq": false,
+      "lt": false,
+      "le": false,
+      "gt": true,
+      "ge": true
+    },
+    {
+      "id": "int64-at-2pow63",
+      "lhs": {
+        "kind": "int64",
+        "decimal": "9223372036854775807"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "43e0000000000000"
+      },
+      "eq": false,
+      "lt": true,
+      "le": true,
+      "gt": false,
+      "ge": false
+    },
+    {
+      "id": "infinity-vs-finite",
+      "lhs": {
+        "kind": "bits",
+        "hex": "7ff0000000000000"
+      },
+      "rhs": {
+        "kind": "bits",
+        "hex": "7fefffffffffffff"
+      },
+      "eq": false,
+      "lt": false,
+      "le": false,
+      "gt": true,
+      "ge": true
+    }
+  ],
+  "decimal_matrices": [
+    {
+      "id": "fractional-rectangular-2x2",
+      "lhs": [
+        [
+          "0.1",
+          "0.2"
+        ],
+        [
+          "1e30",
+          "-1e30"
+        ]
+      ],
+      "rhs": [
+        [
+          "0.3",
+          "2"
+        ],
+        [
+          "0.4",
+          "2"
+        ]
+      ],
+      "expected": [
+        [
+          "0.11",
+          "0.6"
+        ],
+        [
+          "-1e29",
+          "0"
+        ]
+      ]
+    },
+    {
+      "id": "catastrophic-cancellation-1x3-by-3x1",
+      "lhs": [
+        [
+          "1e80",
+          "1",
+          "-1e80"
+        ]
+      ],
+      "rhs": [
+        [
+          "1"
+        ],
+        [
+          "1"
+        ],
+        [
+          "1"
+        ]
+      ],
+      "expected": [
+        [
+          "1"
+        ]
+      ]
+    },
+    {
+      "id": "zero-rows-0x3-by-3x2",
+      "lhs": [],
+      "lhs_shape": [
+        0,
+        3
+      ],
+      "rhs": [
+        [
+          "1",
+          "2"
+        ],
+        [
+          "3",
+          "4"
+        ],
+        [
+          "5",
+          "6"
+        ]
+      ],
+      "expected": [],
+      "expected_shape": [
+        0,
+        2
+      ]
+    },
+    {
+      "id": "empty-inner-2x0-by-0x3",
+      "lhs": [
+        [],
+        []
+      ],
+      "rhs": [],
+      "rhs_shape": [
+        0,
+        3
+      ],
+      "expected": [
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "0"
+        ]
+      ]
+    },
+    {
+      "id": "dimension-mismatch",
+      "lhs": [
+        [
+          "1",
+          "2"
+        ]
+      ],
+      "rhs": [
+        [
+          "3",
+          "4"
+        ]
+      ],
+      "error": "shape_mismatch"
+    }
+  ]
+}

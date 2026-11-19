@@ -1,0 +1,64 @@
+{
+  "schema": "oreslang.platform-core.v1",
+  "scope": "candidate signed-i64 scalar intersection; no backend support is asserted",
+  "positive": [
+    {
+      "file": "arith-precedence.ores",
+      "expected_stdout": "32\n"
+    },
+    {
+      "file": "signed-minimum.ores",
+      "expected_stdout": "-9223372036854775808\n"
+    },
+    {
+      "file": "max-minus-five.ores",
+      "expected_stdout": "9223372036854775802\n"
+    },
+    {
+      "file": "two-negative-factors.ores",
+      "expected_stdout": "42\n"
+    },
+    {
+      "file": "nested-unary.ores",
+      "expected_stdout": "42\n"
+    },
+    {
+      "file": "negative-product.ores",
+      "expected_stdout": "-42\n"
+    },
+    {
+      "file": "eager-checked-int.ores",
+      "expected_stdout": "42\n"
+    }
+  ],
+  "negative": [
+    {
+      "file": "reject-unknown-symbol.ores",
+      "reason": "unresolved identifier",
+      "expected_exit": "nonzero"
+    },
+    {
+      "file": "reject-string-as-int.ores",
+      "reason": "no implicit string-to-int conversion",
+      "expected_exit": "nonzero"
+    },
+    {
+      "file": "reject-overflow.ores",
+      "reason": "checked arithmetic overflow during guest run",
+      "expected_exit": "nonzero"
+    },
+    {
+      "file": "reject-xor-operator.ores",
+      "reason": "removed ^ operator",
+      "expected_exit": "nonzero"
+    },
+    {
+      "file": "reject-no-value-return.ores",
+      "reason": "explicit return required",
+      "expected_exit": "nonzero"
+    }
+  ],
+  "required_receipt": "real compiler executable and version, source sha/tree, exact-head run, steps >= 1, source/blob IDs, process exit+stdout/stderr, negative diagnostic review",
+  "stdlib_suite": "native-testing-core.ores",
+  "note": "std/testing import support must be proven per backend; Cranelift stage-0 does not implement stdlib/imports"
+}
