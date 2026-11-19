@@ -4,6 +4,7 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
+import {types} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -20,12 +21,42 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
+const intrinsicGetter = (prototype, name) => Function.prototype.call.bind(
+ Object.getOwnPropertyDescriptor(prototype, name).get);
+const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+const sourceTypedLength = intrinsicGetter(typedArrayProto, "byteLength");
+const sourceTypedBuffer = intrinsicGetter(typedArrayProto, "buffer");
+const sourceDataViewLength = intrinsicGetter(DataView.prototype, "byteLength");
+const sourceDataViewBuffer = intrinsicGetter(DataView.prototype, "buffer");
+const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLength");
+
+// Source admission must enforce the physical byte budget, never a spoofable
+// .byteLength property from a Uint8Array/DataView subclass or a Proxy.
+// Shared backing is rejected: another worker could change source during scanning.
+function physicalSourceByteLength(input) {
+ if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+  throw new TypeError("WASM source preflight requires nonshared byte input");
+ if(types.isTypedArray(input)) {
+  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceTypedLength(input);
+ }
+ if(types.isDataView(input)) {
+  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceDataViewLength(input);
+ }
+ if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ throw new TypeError("WASM source preflight requires byte input");
+}
+
 function tupleV2Tokens(sourceBytes){
  // Exported source-admission gates can be called before the CLI's bounded file
  // snapshot. Enforce the same byte budget before decode or token allocation.
- if(!sourceBytes || !Number.isSafeInteger(sourceBytes.byteLength))
+ const physicalLength=physicalSourceByteLength(sourceBytes);
+ if(!Number.isSafeInteger(physicalLength))
   throw new TypeError("WASM source preflight requires byte input");
- if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
+ if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
