@@ -2,6 +2,7 @@
 // This matches actor_receive(i32 actor_type,i64 payload,i64 sequence) emitted
 // by the Rust compiler; the browser host owns actor ID and sequence values.
 const MIN_I64=-(1n<<63n), MAX_I64=(1n<<63n)-1n;
+const arrayBufferByteLength=Object.getOwnPropertyDescriptor(ArrayBuffer.prototype,'byteLength').get;
 export const ROUTE_WIRE='atto.browser.route.v1';
 export const I64_ROUTE_BYTES=8;
 export function encode_i64_route(value) {
@@ -12,7 +13,11 @@ export function encode_i64_route(value) {
   return buffer;
 }
 export function decode_i64_route(buffer) {
-  if(!(buffer instanceof ArrayBuffer))throw new TypeError('E_ROUTE_BUFFER');
-  if(buffer.byteLength!==I64_ROUTE_BYTES)throw new Error('E_ROUTE_WIRE');
+  // Native internal-slot getter accepts genuine cross-realm ArrayBuffers but
+  // rejects forged/proxy objects, SharedArrayBuffer, and detached buffers.
+  let length;
+  try { length=arrayBufferByteLength.call(buffer); }
+  catch { throw new TypeError('E_ROUTE_BUFFER'); }
+  if(length!==I64_ROUTE_BYTES)throw new Error('E_ROUTE_WIRE');
   return new DataView(buffer).getBigInt64(0,true);
 }

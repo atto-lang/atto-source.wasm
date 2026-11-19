@@ -2,45 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 repo="$PWD"
-node --input-type=module <<'NODE'
-import {readFileSync} from 'node:fs';
-import {execFileSync} from 'node:child_process';
-const m=JSON.parse(readFileSync('ci/native-aot/source-provenance.json','utf8'));
-const seed=m.source_blobs;
-const current=m.current_source_blobs;
-const entries=Object.entries(current||{});
-if(m.schema!=='atto.source-wasm-seeded-native-aot-prototype.v1' ||
-   !seed||entries.length!==12||
-   Object.keys(seed).length!==12 ||
-   entries.some(([path,sha])=>
-     !path.startsWith('aot-host/') ||
-     path.includes('..') ||
-     !/^[0-9a-f]{40}$/.test(sha) ||
-     !Object.hasOwn(seed,path)))
-  throw Error('invalid native AOT provenance schema');
-let migrated=0;
-for(const [path,expected] of entries){
-  const actual=execFileSync('git',['hash-object','--',path],{encoding:'utf8'}).trim();
-  if(actual!==expected)throw Error('native AOT current blob mismatch: '+path);
-  if(actual!==seed[path])migrated++;
-}
-const extensions=Object.entries(m.local_test_extensions||{});
-for(const [path,meta] of extensions){
-  if(!Object.hasOwn(current,path) || !Object.hasOwn(seed,path) ||
-      !path.startsWith('aot-host/') ||
-      path.includes('..') ||
-      meta.upstream_sha!==seed[path] ||
-      meta.current_sha!==current[path] ||
-      !/^[0-9a-f]{40}$/.test(meta.current_sha) ||
-      meta.current_sha===meta.upstream_sha)
-    throw Error('invalid local native AOT Rust test-extension provenance');
-}
-console.log('NATIVE_AOT_LOCAL_EXTENSIONS_VERIFIED='+extensions.length);
-console.log('NATIVE_AOT_CURRENT_BLOBS_VERIFIED='+entries.length);
-console.log('NATIVE_AOT_HISTORIC_SEED_REPLACEMENTS='+migrated);
-console.log('NATIVE_AOT_ORIGIN_HEAD='+m.origin.commit);
-console.log('NATIVE_AOT_RECONCILIATION_PARENT='+m.current_snapshot.base_commit);
-NODE
+node ci/native-aot/verify-provenance.mjs
+node --test tests/native-aot-provenance.test.mjs
+node --test tests/scalar-bridge-negatives.test.mjs
 cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
 cargo test --locked --manifest-path aot-host/run/Cargo.toml
 cargo build --locked --manifest-path aot-host/precompile/Cargo.toml
@@ -112,5 +76,4 @@ if "$runner" --tenant-fuel-starvation-smoke "$tmp/spin.cwasm" "$(printf '0%.0s' 
   echo 'insecure development digest mismatch was accepted' >&2; exit 1
 fi
 echo 'native_wasmtime_spinning_guest_fuel_retirement=ok'
-python3 -m unittest discover -s tests -p 'test_atto_scalar_aot_bridge.py' -v
 echo 'SCOPE=NATIVE_WASMTIME_DEV_PROTO_ONLY_NO_COMPILED_ATTO_LANG_OR_PRODUCTION_SANDBOX'

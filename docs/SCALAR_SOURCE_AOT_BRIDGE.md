@@ -13,7 +13,7 @@ precompiler refuses **every imported function**. The existing LLVM
 imports **cannot** be smuggled through this scalar adapter. Actor/tenant guest
 compiler integration requires a separate, explicitly designed ABI.
 
-The bridge `tools/atto_scalar_aot.py` rejects non-`.atto` inputs and refuses
+The Node 22 bridge `tools/atto_scalar_aot.mjs` rejects non-`.atto` inputs and refuses
 missing or incorrectly pinned compiler binaries. It invokes a real AttoLang
 LLVM compiler in wasm32 mode, captures the compiler's emitted LLVM IR,
 links it to a bounded private-memory wasm32 module, then invokes the
@@ -34,10 +34,11 @@ builder="$(realpath aot-host/precompile/target/debug/oreslang-aot-build)"
 runner="$(realpath aot-host/run/target/debug/oreslang-aot-run)"
 clang="$(realpath "$(command -v clang)")"
 ld="$(realpath "$(command -v wasm-ld)")"
-python3 tools/atto_scalar_aot.py "$source" \
+node tools/atto_scalar_aot.mjs "$source" \
   --source-sha256 "$(sha256sum "$source" | cut -d' ' -f1)" \
   --compiler "$compiler" --compiler-sha256 "$(sha256sum "$compiler" | cut -d' ' -f1)" \
-  --wasm-clang "$clang" --wasm-ld "$ld" \
+  --wasm-clang "$clang" --wasm-clang-sha256 "$(sha256sum "$clang" | cut -d' ' -f1)" \
+  --wasm-ld "$ld" --wasm-ld-sha256 "$(sha256sum "$ld" | cut -d' ' -f1)" \
   --precompiler "$builder" --precompiler-sha256 "$(sha256sum "$builder" | cut -d' ' -f1)" \
   --debug-runner "$runner" --debug-runner-sha256 "$(sha256sum "$runner" | cut -d' ' -f1)" \
   --expect-scalar 7 --out /tmp/atto-scalar-aot-test
@@ -46,7 +47,7 @@ python3 tools/atto_scalar_aot.py "$source" \
 The runner must have been built in the nonproduction debug feature
 `insecure-dev-caller-pin`. It is **not** a trusted deployment authority;
 SHA-256 supplied by a caller is only an integrity comparison, not
-authorization. The temporary compiler process is also trusted code,
+authorization. Negative-path tests use `node --test tests/scalar-bridge-negatives.test.mjs` without Python. The LLVM compiler, Clang, wasm-ld, native precompiler and debug runner now all require explicit independent SHA-256 pins. The temporary compiler process is also trusted code,
 not a sandbox for arbitrary tenant-supplied source.
 
 ## Hard release conditions

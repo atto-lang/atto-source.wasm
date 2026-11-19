@@ -1,6 +1,9 @@
 // Trusted-host immutable TCP slab. This is NOT a guest Wasm memory import,
 // socket connector, network capability, or unsafe shared-memory pointer.
 const MAX_BYTES = 1024 * 1024;
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get;
+const typedArrayBuffer = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'buffer').get;
+const nativeTypedValues = Uint8Array.prototype.values;
 export class FrozenTcpSlab {
   #bytes;
   #size;
@@ -8,13 +11,25 @@ export class FrozenTcpSlab {
   #pinCount = 0;
   #retiring = false;
   constructor(source) {
-    if (source == null || typeof source[Symbol.iterator] !== 'function')
-      throw new TypeError('invalid TCP byte source');
-    if (typeof SharedArrayBuffer !== 'undefined' &&
-        ArrayBuffer.isView(source) && source.buffer instanceof SharedArrayBuffer)
-      throw new TypeError('mutable shared backing memory is forbidden');
+    // A typed view can override @@iterator to execute arbitrary host code.
+    // Iterate via the captured native TypedArray method instead.
+    const isView = ArrayBuffer.isView(source);
+    let values;
+    if (isView) {
+      try {
+        const backing = typedArrayBuffer.call(source);
+        arrayBufferByteLength.call(backing); // Reject SAB or detached backing.
+        values = nativeTypedValues.call(source);
+      } catch {
+        throw new TypeError('mutable shared backing memory is forbidden');
+      }
+    } else {
+      if (source == null || typeof source[Symbol.iterator] !== 'function')
+        throw new TypeError('invalid TCP byte source');
+      values = source;
+    }
     const copy = [];
-    for (const byte of source) {
+    for (const byte of values) {
       if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
       if (!Number.isInteger(byte) || byte < 0 || byte > 255)
         throw new TypeError('TCP slab requires unsigned byte values');

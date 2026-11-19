@@ -5,7 +5,7 @@
     "commit": "78b2a80203a3e0a977c4e75479b6c5c672904c42",
     "pull_request": 403
   },
-  "scope": "Historical original native Wasmtime seed retained; current hardened snapshot includes explicit Rust host-import denial test. Scalar Atto compiler bridge remains development-only and unexecuted.",
+  "scope": "Historical original native Wasmtime seed retained; current hardened snapshot includes explicit Rust host-import denial test. Scalar Atto compiler bridge is Node-only and requires a pinned, executed native compiler for any positive result.",
   "source_blobs": {
     "aot-host/profile.rs": "3162e92ba188eb631c0cf816a79f8f1a77431040",
     "aot-host/io.rs": "2d50da4348c0993b46adc7ed10b0e601ecd3faa2",
@@ -23,7 +23,7 @@
   "current_snapshot": {
     "base_commit": "879b4d9246e107e993cb60e6375426f2c5ca5c19",
     "notes": "Exactly pinned current-main native AOT source objects; historic original blobs retained separately and never claimed to equal newer content.",
-    "reconciled_parent_head": "107d9cdd8af2041747ec22fbdf852ca06e27c435"
+    "reconciled_parent_head": "441b26f1ed5eca84b3a39080373650166346d251"
   },
   "current_source_blobs": {
     "aot-host/profile.rs": "3162e92ba188eb631c0cf816a79f8f1a77431040",

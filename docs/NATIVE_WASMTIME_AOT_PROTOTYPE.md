@@ -45,6 +45,9 @@ On a Linux runner with Rust 1.96, Clang wasm32, wasm-ld and Node 22:
 bash ci/native-aot/verify.sh
 ```
 
+The script first runs six Node-only provenance regression tests (exact 12 Git
+blobs, tamper rejection, manifest shape, symlinks and malformed origin) before
+running Cargo. A passing Node test is **not** native Wasmtime execution proof.
 The script checks Git source provenance, Rust unit tests, default execution
 denial, distinct native guest Store memory, a fuel-exhausted spinning guest,
 surviving neighbor, fresh reincarnation and an incorrect development digest.
