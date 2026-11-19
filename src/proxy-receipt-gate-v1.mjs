@@ -8,7 +8,7 @@ const stages = Object.freeze({dispatched: 0, admitted: 1, started: 2, processed:
 const outcomes = Object.freeze(['pending', 'rejected', 'failed', 'indeterminate']);
 function checked_identity(value) {
   if (!value || Object.getPrototypeOf(value) !== Object.prototype ||
-      !Object.hasOwn(value, 'protocol_major') || value.protocol_major !== 1)
+      Object.getOwnPropertyDescriptor(value, 'protocol_major')?.value !== 1)
     throw Error('E_PROXY_IDENTITY');
   const copy = {protocol_major: 1};
   for (const field of fields) {
