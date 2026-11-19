@@ -1,4 +1,5 @@
 import { snapshotGuestBytes } from './snapshot-guest-bytes.mjs';
+import { assertCoreI64Entry } from '../scripts/core-i64-abi.mjs';
 import { fixed_memory_pages, actor_names, MAX_WASM_BYTES as MAX_BYTES } from './wasm-profile.mjs';
 
 // Validate a Rust-compiler-produced browser guest before giving it to the
@@ -31,6 +32,9 @@ export function admit_browser_guest(input) {
   const exports = WebAssembly.Module.exports(module);
   const entry = exports.find(x=>x.name==='main');
   if (entry?.kind !== 'function') throw new Error('E_WASM_MAIN');
+  // Exported .length checks params, not return type. Enforce i64 statically.
+  try { assertCoreI64Entry(owned,'main'); }
+  catch { throw new Error('E_WASM_MAIN_SIGNATURE'); }
   const has_init = exports.some(x=>x.name==='actor_init' && x.kind==='function');
   const has_receive = exports.some(x=>x.name==='actor_receive' && x.kind==='function');
   if (has_init !== has_receive) throw new Error('E_WASM_ACTOR_ABI');
