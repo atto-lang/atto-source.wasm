@@ -2,21 +2,45 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 repo="$PWD"
-python3 - <<'PY'
-import json, subprocess
-from pathlib import Path
-m=json.loads(Path("ci/native-aot/source-provenance.json").read_text())
-for path,sha in m["source_blobs"].items():
-    actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
-    if actual!=sha: raise SystemExit(f"mismatch: {path}: {actual} != {sha}")
-for path,meta in m.get("local_test_extensions",{}).items():
-    actual=subprocess.check_output(["git","hash-object",path],text=True).strip()
-    if actual!=meta["current_sha"] or actual==meta["upstream_sha"]:
-        raise SystemExit(f"LOCAL_TEST_EXTENSION_MISMATCH: {path}")
-print(f"LOCAL_TEST_EXTENSION_BLOBS_VERIFIED={len(m.get('local_test_extensions',{}))}")
-print(f"UPSTREAM_GIT_BLOBS_VERIFIED={len(m['source_blobs'])}")
-print(f"UPSTREAM_SOURCE_HEAD={m['origin']['commit']}")
-PY
+node --input-type=module <<'NODE'
+import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
+const m=JSON.parse(readFileSync('ci/native-aot/source-provenance.json','utf8'));
+const seed=m.source_blobs;
+const current=m.current_source_blobs;
+const entries=Object.entries(current||{});
+if(m.schema!=='atto.source-wasm-seeded-native-aot-prototype.v1' ||
+   !seed||entries.length!==12||
+   Object.keys(seed).length!==12 ||
+   entries.some(([path,sha])=>
+     !path.startsWith('aot-host/') ||
+     path.includes('..') ||
+     !/^[0-9a-f]{40}$/.test(sha) ||
+     !Object.hasOwn(seed,path)))
+  throw Error('invalid native AOT provenance schema');
+let migrated=0;
+for(const [path,expected] of entries){
+  const actual=execFileSync('git',['hash-object','--',path],{encoding:'utf8'}).trim();
+  if(actual!==expected)throw Error('native AOT current blob mismatch: '+path);
+  if(actual!==seed[path])migrated++;
+}
+const extensions=Object.entries(m.local_test_extensions||{});
+for(const [path,meta] of extensions){
+  if(!Object.hasOwn(current,path) || !Object.hasOwn(seed,path) ||
+      !/^aot-host\\/[a-zA-Z0-9_./-]+$/.test(path) ||
+      path.includes('..') ||
+      meta.upstream_sha!==seed[path] ||
+      meta.current_sha!==current[path] ||
+      !/^[0-9a-f]{40}$/.test(meta.current_sha) ||
+      meta.current_sha===meta.upstream_sha)
+    throw Error('invalid local native AOT Rust test-extension provenance');
+}
+console.log('NATIVE_AOT_LOCAL_EXTENSIONS_VERIFIED='+extensions.length);
+console.log('NATIVE_AOT_CURRENT_BLOBS_VERIFIED='+entries.length);
+console.log('NATIVE_AOT_HISTORIC_SEED_REPLACEMENTS='+migrated);
+console.log('NATIVE_AOT_ORIGIN_HEAD='+m.origin.commit);
+console.log('NATIVE_AOT_RECONCILIATION_PARENT='+m.current_snapshot.base_commit);
+NODE
 cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
 cargo test --locked --manifest-path aot-host/run/Cargo.toml
 cargo build --locked --manifest-path aot-host/precompile/Cargo.toml

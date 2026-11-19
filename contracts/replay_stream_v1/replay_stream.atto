@@ -1,0 +1,159 @@
+// Bounded actor-owned byte replay window (payload bytes, not RSS).
+// Pure AttoLang policy; no sockets, codecs, persistence, timers, or FFI.
+// An authenticated transport adapter MUST validate ACK/stream identity.
+define module replay_stream as
+  // Coherent metadata snapshot; not the replay bytes and not a durable write.
+  // Stream/session identity and ACK authority belong to the trusted adapter.
+  pub define class ReplayCheckpoint as
+    pub val int generation;
+    pub val int capacity_bytes;
+    pub val int retained_from;
+    pub val int produced_until;
+    pub val int sent_until;
+    pub val int acked_until;
+
+    pub constructor(int generation, int capacity_bytes, int retained_from,
+                    int produced_until, int sent_until, int acked_until) {
+      self.generation = generation;
+      self.capacity_bytes = capacity_bytes;
+      self.retained_from = retained_from;
+      self.produced_until = produced_until;
+      self.sent_until = sent_until;
+      self.acked_until = acked_until;
+    }
+  end
+
+  pub define class ReplayWindow as
+    let int generation;
+    let int capacity;
+    let mut Array<int> slots = new Array<int>();
+    let mut int floor_offset = 0;
+    let mut int next_offset = 0;
+    let mut int sent_offset = 0;
+    let mut int acked_offset = 0;
+
+    pub constructor(int generation, int capacity_bytes) {
+      if generation < 1 || capacity_bytes < 1 || capacity_bytes > 2097152; do
+        rt fail("replay_stream: invalid incarnation or capacity");
+      fi
+      self.generation = generation;
+      self.capacity = capacity_bytes;
+      // Slots grow lazily, but never beyond capacity_bytes logical bytes.
+      // Array<int> physical memory is larger than capacity_bytes. A byte
+      // storage backend is needed before making RSS/zero-copy guarantees.
+    }
+
+    // Only the owner actor may mutate this window. A caller must not
+    // hold a state/critical loan across a suspending transport operation.
+    // Appends are atomic with respect to invalid data, capacity and bounds:
+    // no bytes or offsets change on an Err.
+    pub append(mut self)(int generation, Array<int> bytes): Result<int, String> {
+      if generation != self.generation; do
+        return Err("StaleGeneration");
+      fi
+      let int count = bytes.size;
+      if count < 1 || count > 65536; do
+        return Err("InvalidChunkSize");
+      fi
+      if self.next_offset > 2147483647 - count; do
+        return Err("OffsetExhausted");
+      fi
+      if count > self.capacity - (self.next_offset - self.acked_offset); do
+        return Err("Backpressure");
+      fi
+      for (let int i = 0; i < count; i = i + 1) {
+        let int value = bytes.get(i);
+        if value < 0 || value > 255; do
+          return Err("InvalidByte");
+        fi
+      }
+      let int end_offset = self.next_offset + count;
+      for (let int i = 0; i < count; i = i + 1) {
+        let int index = (self.next_offset + i) % self.capacity;
+        if index == self.slots.size; do
+          self.slots.add(bytes.get(i));
+        else
+          self.slots.set(index, bytes.get(i));
+        fi
+      }
+      self.next_offset = end_offset;
+      if self.next_offset - self.floor_offset > self.capacity; do
+        self.floor_offset = self.next_offset - self.capacity;
+      fi
+      return Ok(end_offset);
+    }
+
+    // Called ONLY by the trusted transport owner after ordered transmission
+    // admission. This is NOT a network or receiver acknowledgment.
+    pub mark_sent(mut self)(int generation, int end_offset): bool {
+      if generation != self.generation ||
+         end_offset < self.sent_offset || end_offset > self.next_offset; do
+        return false;
+      fi
+      self.sent_offset = end_offset;
+      return true;
+    }
+
+    // ACKs must be authenticated, monotonically contiguous and scoped to
+    // the stream + incarnation by the external transport/session adapter.
+    // Do not treat arbitrary client-provided offsets as authenticated ACKs.
+    pub acknowledge(mut self)(int generation, int end_offset): bool {
+      if generation != self.generation ||
+         end_offset < self.acked_offset || end_offset > self.sent_offset; do
+        return false;
+      fi
+      self.acked_offset = end_offset;
+      return true;
+    }
+
+    // Explicit replay: empty Ok means "no bytes available yet", NOT EOF.
+    // An expired or future offset never produces a misleading empty chunk.
+    // Replay copies bytes; the caller owns the returned array.
+    pub replay_from(int generation, int offset, int maximum): Result<Array<int>, String> {
+      if generation != self.generation; do
+        return Err("StaleGeneration");
+      fi
+      if maximum < 1 || maximum > 65536; do
+        return Err("InvalidReadSize");
+      fi
+      if offset < self.floor_offset; do
+        return Err("ReplayWindowExpired");
+      fi
+      if offset > self.next_offset; do
+        return Err("OffsetNotProduced");
+      fi
+      let int available = self.next_offset - offset;
+      let int count = maximum;
+      if count > available; do
+        count = available;
+      fi
+      let mut Array<int> result = new Array<int>();
+      for (let int i = 0; i < count; i = i + 1) {
+        result.add(self.slots.get((offset + i) % self.capacity));
+      }
+      return Ok(result);
+    }
+
+    pub checkpoint(): ReplayCheckpoint {
+      return new ReplayCheckpoint(self.generation, self.capacity,
+                                  self.floor_offset, self.next_offset,
+                                  self.sent_offset, self.acked_offset);
+    }
+
+    pub retained_from(): int { return self.floor_offset; }
+    pub produced_until(): int { return self.next_offset; }
+    pub sent_until(): int { return self.sent_offset; }
+    pub acked_until(): int { return self.acked_offset; }
+    pub unacked_bytes(): int { return self.next_offset - self.acked_offset; }
+    pub capacity_bytes(): int { return self.capacity; }
+    pub incarnation(): int { return self.generation; }
+  end
+
+  pub fnc window(int generation, int capacity_bytes): ReplayWindow {
+    return new ReplayWindow(generation, capacity_bytes);
+  }
+
+  pub fnc default_window(int generation): ReplayWindow {
+    return new ReplayWindow(generation, 2097152);
+  }
+end

@@ -1,0 +1,119 @@
+{
+  "schema_version": "2026-11-01.scalar-v1",
+  "scope": "import-free-pure-i64",
+  "semantics": "Checked signed i64 values with no implicit conversions and no removed operators. These fixtures do not claim stdlib, actors, WASI or guest receipt parity.",
+  "positive": [
+    {
+      "id": "zero",
+      "expression": "0",
+      "expected": "0"
+    },
+    {
+      "id": "positive-forty-two",
+      "expression": "6 * 7",
+      "expected": "42"
+    },
+    {
+      "id": "negative-forty-two",
+      "expression": "-7 * 6",
+      "expected": "-42"
+    },
+    {
+      "id": "max-i64",
+      "expression": "9223372036854775807",
+      "expected": "9223372036854775807"
+    },
+    {
+      "id": "min-i64",
+      "expression": "-9223372036854775808",
+      "expected": "-9223372036854775808"
+    },
+    {
+      "id": "max-minus-one",
+      "expression": "9223372036854775807 - 1",
+      "expected": "9223372036854775806"
+    },
+    {
+      "id": "min-plus-one",
+      "expression": "-9223372036854775808 + 1",
+      "expected": "-9223372036854775807"
+    },
+    {
+      "id": "over-binary64-mantissa",
+      "expression": "9007199254740993 - 9007199254740992",
+      "expected": "1"
+    },
+    {
+      "id": "negative-over-binary64",
+      "expression": "-9007199254740993 - (-9007199254740992)",
+      "expected": "-1"
+    },
+    {
+      "id": "precedence",
+      "expression": "2 + 3 * 4",
+      "expected": "14"
+    },
+    {
+      "id": "parentheses",
+      "expression": "(2 + 3) * 4",
+      "expected": "20"
+    },
+    {
+      "id": "subtraction-left-assoc",
+      "expression": "20 - 5 - 3",
+      "expected": "12"
+    },
+    {
+      "id": "grouped-subtraction",
+      "expression": "20 - (5 - 3)",
+      "expected": "18"
+    },
+    {
+      "id": "double-negative",
+      "expression": "-(-42)",
+      "expected": "42"
+    },
+    {
+      "id": "two-negative-factors",
+      "expression": "(-7) * (-6)",
+      "expected": "42"
+    },
+    {
+      "id": "underscore-literal",
+      "expression": "1_000 + 24",
+      "expected": "1024"
+    }
+  ],
+  "negative": [
+    {
+      "id": "div-int",
+      "expression": "7 / 2",
+      "reason": "unsupported-int-division"
+    },
+    {
+      "id": "forbidden-caret",
+      "expression": "7 ^ 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "forbidden-double-caret",
+      "expression": "7 ^^ 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "forbidden-remainder",
+      "expression": "7 % 3",
+      "reason": "removed-operator"
+    },
+    {
+      "id": "i64-overflow-literal",
+      "expression": "9223372036854775808",
+      "reason": "literal-out-of-range"
+    },
+    {
+      "id": "negative-i64-underflow-literal",
+      "expression": "-9223372036854775809",
+      "reason": "literal-out-of-range"
+    }
+  ]
+}

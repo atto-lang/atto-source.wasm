@@ -1,0 +1,1 @@
+pub fnc main(): int { return 20 + 1 == 21 ? 42 : 7; }

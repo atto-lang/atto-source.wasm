@@ -1,6 +1,9 @@
 #[path="../../profile.rs"] mod profile;
 #[path="../../io.rs"] mod io;
 mod tenant_isolation;
+mod durable_lock_queues;
+// Native Rust reference oracle only; no runtime Wasm host imports or guest ABI.
+#[cfg(test)] mod inverted_columns;
 use std::env;
 use sha2::{Digest,Sha256};
 use wasmtime::{Engine,Instance,Module,Precompiled,Store,StoreLimitsBuilder};
