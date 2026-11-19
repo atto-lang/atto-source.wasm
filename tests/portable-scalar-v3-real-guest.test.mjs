@@ -10,7 +10,10 @@ import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 import {semanticCompilerRejection} from "../src/oresllm-compiler-evidence.mjs";
 
-const corpus=JSON.parse(readFileSync(new URL("../contracts/parity/portable-scalar-v3-20261101.json",import.meta.url),"utf8"));
+const manifestBytes=readFileSync(new URL("../contracts/parity/portable-scalar-v3-20261101.json",import.meta.url));
+const corpus=JSON.parse(manifestBytes.toString("utf8"));
+const canonicalGitBlob="cd51c7320812d1ee032a211890cb427c984b2ea2";
+const gitBlobSha=bytes=>createHash("sha1").update("blob "+bytes.length+"\0").update(bytes).digest("hex");
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256;
 const required=process.env.ORESLANG_REQUIRE_REAL_COMPILER==="1";
@@ -18,6 +21,7 @@ const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 const all=[...corpus.positive,...corpus.compile_reject,...corpus.checked_overflow];
 
 test("scalar v3 manifest is unique, complete and mode-separated",()=>{
+  assert.equal(gitBlobSha(manifestBytes),canonicalGitBlob,"manifest drift across backends");
   assert.equal(corpus.schema_version,"2026-11-01.scalar-v3");
   assert.equal(corpus.scope,"import-free-pure-i64");
   assert.equal(corpus.positive.length,12);
@@ -40,7 +44,7 @@ async function guest(t,x,kind){
   assert.match(compilerSha256,/^[0-9a-f]{64}$/);
   const dir=await mkdtemp(join(tmpdir(),"ores-wasm-scalar-v3-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
-  const source=join(dir,"main.ores"),output=join(dir,"main.wasm");
+  const source=join(dir,"main.atto"),output=join(dir,"main.wasm");
   const bytes=Buffer.from("pub fnc main(): int { return "+x.expression+"; }\n");
   await writeFile(source,bytes,{flag:"wx",mode:0o400});
   const go=()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256,source,output});
