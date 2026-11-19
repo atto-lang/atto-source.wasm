@@ -10,12 +10,26 @@ export const RECEIPT_CODES=Object.freeze([
   'E_ROUTE_UNAVAILABLE','E_ROUTE_CRASH','E_ROUTE_REVOKED',
   'E_ROUTE_RECEIVER','E_ROUTE_PROTOCOL','E_ROUTE_UNKNOWN'
 ]);
+// Capture only own data descriptors. Never execute untrusted getters when
+// converting a transport record into a validated host observation.
+function ownData(record, name) {
+  const slot=Object.getOwnPropertyDescriptor(record,name);
+  if(!slot || !Object.hasOwn(slot,'value')) throw new Error('E_RECEIPT_PROTOCOL');
+  return slot.value;
+}
+const RECEIPT_FIELDS=['protocol','receipt_id','route_id','source',
+  'source_generation','target','target_generation','actor_id','outcome','code'];
+const FAILURE_FIELDS=['protocol','code','outcome','receipt','prior_receipts'];
 const valid_id=n=>Number.isSafeInteger(n) && n>0;
 const valid_tenant=s=>typeof s==='string' &&
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(s);
 export function assert_send_receipt(value) {
-  if(!value || Object.getPrototypeOf(value)!==Object.prototype ||
-      value.protocol!==RECEIPT_PROTOCOL ||
+  if(!value || Object.getPrototypeOf(value)!==Object.prototype)
+    throw new Error('E_RECEIPT_PROTOCOL');
+  const checked=Object.create(null);
+  for(const key of RECEIPT_FIELDS) checked[key]=ownData(value,key);
+  value=checked;
+  if(value.protocol!==RECEIPT_PROTOCOL ||
       !valid_id(value.receipt_id) || !valid_id(value.route_id) ||
       !valid_tenant(value.source) || !valid_tenant(value.target) ||
       !valid_id(value.source_generation) || !valid_id(value.target_generation) ||
@@ -40,13 +54,22 @@ export function create_send_receipt(route,receipt_id,outcome,code) {
     actor_id:route.actor_id,outcome,code});
 }
 export function assert_send_failure(value) {
-  if(!value || Object.getPrototypeOf(value)!==Object.prototype ||
-      value.protocol!==RECEIPT_PROTOCOL ||
+  if(!value || Object.getPrototypeOf(value)!==Object.prototype)
+    throw new Error('E_RECEIPT_PROTOCOL');
+  const checked=Object.create(null);
+  for(const key of FAILURE_FIELDS) checked[key]=ownData(value,key);
+  value=checked;
+  if(value.protocol!==RECEIPT_PROTOCOL ||
       !['rejected','unknown'].includes(value.outcome) ||
       !RECEIPT_CODES.includes(value.code) || value.code==='OK' ||
       !Array.isArray(value.prior_receipts) || value.prior_receipts.length>16)
     throw new Error('E_RECEIPT_PROTOCOL');
-  const prior_receipts=value.prior_receipts.map(assert_send_receipt);
+  const prior_receipts=[];
+  for(let i=0;i<value.prior_receipts.length;i++) {
+    const slot=Object.getOwnPropertyDescriptor(value.prior_receipts,String(i));
+    if(!slot || !Object.hasOwn(slot,'value')) throw new Error('E_RECEIPT_PROTOCOL');
+    prior_receipts.push(assert_send_receipt(slot.value));
+  }
   if(prior_receipts.some(x=>x.outcome!=='processed'))
     throw new Error('E_RECEIPT_PROTOCOL');
   const receipt=value.receipt===null ? null : assert_send_receipt(value.receipt);

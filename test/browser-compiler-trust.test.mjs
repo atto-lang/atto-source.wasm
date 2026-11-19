@@ -97,3 +97,26 @@ test('synthetic ABI fixture does not pass real guest-execution smoke',async()=>{
   const admitted=verifyCompilerArtifact(opts);
   await assert.rejects(()=>smokeCompilerAndGuest(admitted),/invalid guest bytes/);
 });
+
+import vm from 'node:vm';
+test('compiler release verification uses immutable native-slot byte snapshot',()=>{
+  const native=fixture();
+  const owned=attested(native);
+  const foreign=vm.runInNewContext('new Uint8Array(input)',{input:[...native]});
+  owned.wasm=foreign;
+  const admitted=verifyCompilerArtifact(owned);
+  foreign.fill(0);
+  assert.ok(admitted.module instanceof WebAssembly.Module);
+  assert.ok(admitted.memory.maximum===1024);
+  if(typeof SharedArrayBuffer==='function') {
+    const shared=new Uint8Array(new SharedArrayBuffer(native.byteLength));
+    shared.set(native);
+    const candidate=attested(native);candidate.wasm=shared;
+    assert.throws(()=>verifyCompilerArtifact(candidate),/E_TRUST: invalid artifact length or backing/);
+  }
+  let traps=0;
+  const candidate=attested(native);
+  candidate.wasm=new Proxy(native,{get(){traps++;throw Error('untrusted getter');}});
+  assert.throws(()=>verifyCompilerArtifact(candidate),/E_TRUST: invalid artifact length or backing/);
+  assert.equal(traps,0);
+});

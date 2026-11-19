@@ -65,12 +65,16 @@ export function actor_names(module) {
   const count=uleb(bytes,state,bytes.length);
   if (count<1 || count>MAX_ACTOR_TYPES) throw new Error('E_WASM_ACTORS');
   const names=[],seen=new Set();
-  const decoder=new TextDecoder('utf-8',{fatal:true});
+  const decoder=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true});
   for (let k=0;k<count;k++) {
     const len=uleb(bytes,state,bytes.length);
     if (!len || len>256 || state.i+len>bytes.length) throw new Error('E_WASM_ACTORS');
     let name;
     try {name=decoder.decode(bytes.subarray(state.i,state.i+len));}catch{throw new Error('E_WASM_ACTORS');}
+    // NUL, control, format and invisible directional markers can turn a
+    // nominal actor identifier into a misleading broker/logging authority.
+    if(name.trim()!==name || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(name))
+      throw new Error('E_WASM_ACTORS');
     if(seen.has(name)) throw new Error('E_WASM_ACTORS');
     seen.add(name);names.push(name);state.i+=len;
   }

@@ -46,3 +46,27 @@ test('receipt ABI rejects contradictory success, unbounded history and malformed
   assert.throws(()=>assert_send_failure({...failure,prior_receipts:[
     create_send_receipt(route,2,'unknown','E_ROUTE_CRASH')]}),/E_RECEIPT_PROTOCOL/);
 });
+
+test('receipt and failure accessors never execute; sparse history cannot hide entries',()=>{
+  const valid=create_send_receipt(route,6,'processed','OK');
+  let invoked=0;
+  for(const field of ['outcome','code','actor_id','route_id']) {
+    const attacker={...valid};
+    Object.defineProperty(attacker,field,{enumerable:true,get(){invoked++;return valid[field];}});
+    assert.throws(()=>assert_send_receipt(attacker),/E_RECEIPT_PROTOCOL/);
+  }
+  const failure=create_send_failure('E_ROUTE_TIMEOUT','unknown');
+  Object.defineProperty(failure,'prior_receipts',{enumerable:true,get(){invoked++;return []}});
+  assert.throws(()=>assert_send_failure(failure),/E_RECEIPT_PROTOCOL/);
+  assert.equal(invoked,0,'untrusted accessors never execute');
+  const sparse=create_send_failure('E_ROUTE_TIMEOUT','unknown');
+  sparse.prior_receipts=new Array(1);
+  assert.throws(()=>assert_send_failure(sparse),/E_RECEIPT_PROTOCOL/);
+  let historyReads=0;
+  const history=[valid];
+  Object.defineProperty(history,'0',{enumerable:true,get(){historyReads++;return valid}});
+  const injected=create_send_failure('E_ROUTE_TIMEOUT','unknown');
+  injected.prior_receipts=history;
+  assert.throws(()=>assert_send_failure(injected),/E_RECEIPT_PROTOCOL/);
+  assert.equal(historyReads,0);
+});
