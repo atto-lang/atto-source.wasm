@@ -1,0 +1,22 @@
+// Portable-bounds v1: every branch must reach native guest code.
+import fnc valid_index from "./bounds.atto";
+import fnc valid_slice from "./bounds.atto";
+import fnc valid_strided_slice from "./bounds.atto";
+
+pub fnc main(): int {
+  if valid_index(-1, 5) then return 91; fi
+  if valid_index(5, 5) then return 92; fi
+  if !valid_index(4, 5) then return 93; fi
+  if !valid_slice(0, 5, 5) then return 94; fi
+  if valid_slice(5, 1, 5) then return 95; fi
+  if !valid_slice(9223372036854775806, 1, 9223372036854775807) then return 96; fi
+  if valid_slice(9223372036854775806, 2, 9223372036854775807) then return 97; fi
+  if !valid_strided_slice(0, 2, 3, 5) then return 98; fi
+  if valid_strided_slice(0, 2, 4, 5) then return 99; fi
+  if !valid_strided_slice(5, 1, 0, 5) then return 100; fi
+  if valid_strided_slice(5, 1, 1, 5) then return 101; fi
+  if valid_strided_slice(0, 0, 1, 5) then return 102; fi
+  if !valid_strided_slice(9223372036854775806, 2, 1, 9223372036854775807) then return 103; fi
+  if valid_strided_slice(9223372036854775806, 2, 2, 9223372036854775807) then return 104; fi
+  return 42;
+}
