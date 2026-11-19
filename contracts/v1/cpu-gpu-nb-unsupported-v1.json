@@ -1,0 +1,12 @@
+{
+  "cpu-value": "pub fnc main():int{return cpu { 42 };}",
+  "gpu-value": "pub fnc main():int{return gpu { 42 };}",
+  "nb-cpu-future": "pub fnc main():int{return nb cpu { 42 };}",
+  "nb-gpu-future": "pub fnc main():int{return nb gpu { 42 };}",
+  "cpu-gpu-nested": "pub fnc main():int{return cpu { gpu { 42 } };}",
+  "gpu-cpu-nested": "pub fnc main():int{return gpu { cpu { 42 } };}",
+  "gpu-cpu-gpu-nested": "pub fnc main():int{return gpu { cpu { gpu { 42 } } };}",
+  "nb-mixed-nested": "pub fnc main():int{return nb cpu { nb gpu { 42 } };}",
+  "empty-gpu-value": "pub fnc main():int{return gpu {};}",
+  "empty-nb-gpu-value": "pub fnc main():int{return nb gpu {};}"
+}

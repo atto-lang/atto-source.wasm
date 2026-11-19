@@ -1,0 +1,2 @@
+// 32: 42 via nested grouping; same source bytes for six backends.
+pub fnc main(): int { return (7 + 5) * 3 + 6; }

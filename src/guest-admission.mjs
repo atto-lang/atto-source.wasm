@@ -1,57 +1,109 @@
-import { fixed_memory_pages, actor_names, MAX_WASM_BYTES as MAX_BYTES } from './wasm-profile.mjs';
+import {createHash} from "node:crypto";
+import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
+import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
+import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 
-// Validate a Rust-compiler-produced browser guest before giving it to the
-// per-tenant Wasm loader in atto-browser. Admission isn't a sandbox proof.
-export const SCHEMA = 'atto.browser.wasm-guest.v1';
-export const PROTOCOL = 'atto.browser.tenants.v1';
-export const MAX_WASM_BYTES = MAX_BYTES;
-export const ALLOWED_ATTO_IMPORTS = Object.freeze([
-  'print_i64','print_bool','print_str','print_newline','print_f64','actor_spawn','actor_send'
-]);
-export function admit_browser_guest(input) {
-  if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) throw new TypeError('E_WASM_INPUT');
-  const bytes = input instanceof ArrayBuffer ? new Uint8Array(input) : new Uint8Array(input.buffer,input.byteOffset,input.byteLength);
-  if (bytes.length === 0 || bytes.length > MAX_WASM_BYTES) throw new Error('E_WASM_SIZE');
-  const owned = Uint8Array.from(bytes);
-  if (!WebAssembly.validate(owned)) throw new Error('E_WASM_INVALID');
-  const pages = fixed_memory_pages(owned);
-  const module = new WebAssembly.Module(owned);
-  const imports = WebAssembly.Module.imports(module);
-  for (const item of imports) {
-    if (item.module !== 'atto' || item.kind !== 'function' || !ALLOWED_ATTO_IMPORTS.includes(item.name)) {
-      throw new Error('E_WASM_IMPORT: '+item.module+'.'+item.name);
-    }
+/**
+ * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
+ * Pure checking: no guest instantiation, no guest code execution.
+ * The result never exposes validated executable bytes to avoid a validation/use race.
+ */
+export function compileAdmittedCoreGuest(input, {
+  expectedSha256,
+  entry = "main",
+  maxModuleBytes = 16 * 1024 * 1024,
+  maxMemoryPages = 2,
+  ioMode = "nio-only",
+  guestNetworkIo = false,
+  nioReactors = 0,
+  actorPhysicalTurns = 0,
+  hardRealtime = false,
+  namespaceBindings = null,
+  // Stage-0 WASM does not implement VM-owned physical TCP pooling.
+  sharedTcpPool = false,
+  tcpPoolLeaseCount = 0,
+  tcpPoolPointerSharing = false,
+  ...additionalOptions
+} = {}) {
+  // This core-wasm.i64-v1 implementation has no guest network host imports,
+  // actor scheduler, or safe native reactor bridge. Fail explicitly before
+  // compiling any guest bytes. A max=1 actor lease is NOT a supported actor.
+  // Keeping unsupported features at zero is semantic parity, not a fallback
+  // to blocking host I/O or a pretend concurrent actor.
+  if (ioMode !== "nio-only")
+    throw new TypeError("WASM runtime refuses legacy/blocking host I/O");
+  if (guestNetworkIo !== false)
+    throw new TypeError("WASM guest NIO is not implemented; host network I/O denied");
+  if (nioReactors !== 0)
+    throw new TypeError("WASM reactor threads are unsupported in core-wasm.i64-v1");
+  if (actorPhysicalTurns !== 0)
+    throw new TypeError("WASM physical source actor execution is unsupported");
+  if (hardRealtime !== false)
+    throw new TypeError("WASM hard-real-time scheduling is unsupported");
+  // Do not allow a misspelled/forward-compat TCP capability switch to be
+  // silently ignored. No guest sockets, pinned readonly slabs, or immutable shared-slab imports, or
+  // transport lease ABI exist in this scalar-only profile.
+  if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
+      tcpPoolPointerSharing !== false ||
+      Object.keys(additionalOptions).some(key =>
+        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i.test(key)))
+    throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
+  // This profile has no extensible host-capability namespace. Reject ANY
+  // unrecognized option, including false-valued typos and Symbol keys, rather
+  // than silently implying that a requested capability was provided.
+  if (Reflect.ownKeys(additionalOptions).length !== 0)
+    throw new TypeError("WASM rejects unknown core-guest admission options");
+  // The scalar Wasm profile has no manifest-owned multi-file namespace
+  // graph, startup barrier or exact-symbol provider routing.
+  if (namespaceBindings !== null)
+    throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
+  if (entry === "init")
+    throw new TypeError("WASM init lifecycle cannot be invoked as a guest entry");
+  // Bound requested export names before scanning source/decoding Wasm bytes.
+  // This keeps the scalar guest API aligned with the browser host limit.
+  if (typeof entry!=="string" || entry.length>128 ||
+      !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) throw Error("invalid guest entry");
+  // Verify the pinned immutable byte snapshot BEFORE validating or JIT-compiling
+  // untrusted Wasm. Never hash one buffer and execute another.
+  if (!Number.isSafeInteger(maxModuleBytes) || maxModuleBytes < 8 ||
+      maxModuleBytes > 16 * 1024 * 1024) throw new TypeError("invalid maximum module size");
+  const snapshot = snapshotGuestBytes(input, maxModuleBytes);
+  const sha256 = createHash("sha256").update(snapshot).digest("hex");
+  if (expectedSha256 !== undefined) {
+    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) throw Error("invalid pinned SHA-256");
+    if (sha256 !== expectedSha256) throw Error("guest artifact SHA-256 mismatch");
   }
+  const inspected = inspectWasmBytes(snapshot, {maxModuleBytes, maxMemoryPages});
+  const {bytes, memoryCount, memoryInitial, memoryMaximum, hasMemoryMaximum} = inspected;
+  if (memoryCount !== 1 || !hasMemoryMaximum) {
+    throw Error("guest requires exactly one privately defined, bounded linear memory");
+  }
+  const module = new WebAssembly.Module(bytes);
+  const imports = WebAssembly.Module.imports(module);
+  if (imports.length !== 0) {
+    throw Error("host imports denied: " + imports.map(x => x.module + "." + x.name).join(", "));
+  }
+  // Check function signature; JavaScript can silently coerce omitted params.
+  assertCoreI64Entry(bytes, entry);
   const exports = WebAssembly.Module.exports(module);
-  const entry = exports.find(x=>x.name==='main');
-  if (entry?.kind !== 'function') throw new Error('E_WASM_MAIN');
-  const has_init = exports.some(x=>x.name==='actor_init' && x.kind==='function');
-  const has_receive = exports.some(x=>x.name==='actor_receive' && x.kind==='function');
-  if (has_init !== has_receive) throw new Error('E_WASM_ACTOR_ABI');
-  const actors=has_init && has_receive;
-  const types=actor_names(module);
-  if (actors !== (types.length>0)) throw new Error('E_WASM_ACTORS');
-  if (pages>0 && !exports.some(x=>x.name==='memory' && x.kind==='memory')) throw new Error('E_WASM_MEMORY_EXPORT');
-  if (actors && !pages) throw new Error('E_WASM_ACTOR_MEMORY');
-  // The v1 profile rejects start sections and non-function imports, so
-  // instantiating with inert host functions cannot execute guest code.
-  // Export names/kinds alone do not prove the callable browser ABI.
-  const host=Object.fromEntries(imports.map(x=>[x.name,()=>0]));
-  const instance=new WebAssembly.Instance(module,{atto:host});
-  if (instance.exports.main.length!==0)throw new Error('E_WASM_MAIN_SIGNATURE');
-  if (actors && (instance.exports.actor_init.length!==1 ||
-                 instance.exports.actor_receive.length!==3))
-    throw new Error('E_WASM_ACTOR_SIGNATURE');
-  return {bytes:owned,module,imports:imports.map(x=>x.module+'.'+x.name),actors,actor_names:types,memory_pages:pages};
+  if (!exports.some(x => x.name === entry && x.kind === "function")) {
+    throw Error("missing guest entry function");
+  }
+  // Match the native Wasmtime scalar ABI: memory is a required explicit export.
+  if (!exports.some(x => x.name === "memory" && x.kind === "memory")) {
+    throw Error("guest must export exactly one bounded memory");
+  }
+  const otherExports = exports.filter(x => x.name !== entry && !(x.name === "memory" && x.kind === "memory"));
+  if (otherExports.length) throw Error("unexpected guest exports: " + otherExports.map(x => x.name).join(", "));
+  const admission = Object.freeze({
+    schemaVersion: 1, profile: "core-wasm.i64-v1",
+    sha256, bytes: bytes.byteLength, entry,
+    memoryInitialPages: memoryInitial, memoryMaximumPages: memoryMaximum,
+    imports: 0, hostCapabilities: 0
+  });
+  return {module, admission};
 }
-export async function package_browser_guest(input) {
-  const admitted=admit_browser_guest(input);
-  const hash=await crypto.subtle.digest('SHA-256',admitted.bytes);
-  const sha256=Array.from(new Uint8Array(hash),x=>x.toString(16).padStart(2,'0')).join('');
-  return {wasm:admitted.bytes,manifest:{schema:SCHEMA,protocol:PROTOCOL,guest_abi:'atto.browser.guest.v2',
-    wasm_sha256:sha256,byte_length:admitted.bytes.length,has_actors:admitted.actors,actor_names:admitted.actor_names,memory_pages:admitted.memory_pages,imports:admitted.imports,
-    tenant_execution:'dedicated-worker',actor_heap:'separate-wasm-instances',
-    route_wire:'atto.browser.route.v1',route_payload:'i64-signed-le8',
-    send_receipt_protocol:'atto.browser.send-receipt.v1',
-    send_receipt_outcomes:['processed','rejected','unknown']}};
+// Preserve the existing metadata-only API: callers do not receive executable code.
+export function admitCoreGuest(input, options = {}) {
+  return compileAdmittedCoreGuest(input, options).admission;
 }

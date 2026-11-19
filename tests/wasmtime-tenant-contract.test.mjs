@@ -1,0 +1,115 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+
+// Contract checks catch accidental weakening before a full native Wasmtime
+// smoke can execute. They are NOT a substitute for Rust compilation or
+// actual cross-Store/guest-fault execution.
+const source = path => readFileSync(new URL("../" + path, import.meta.url), "utf8");
+const tenant = source("aot-host/run/src/tenant_isolation.rs");
+const main = source("aot-host/run/src/main.rs");
+const smoke = source("aot-host/tests/smoke.sh");
+
+test("tenants own separate Wasmtime Stores with bounded memories and no host imports", () => {
+  assert.match(tenant, /Store::new\(&self\.engine, limits\)/);
+  assert.match(tenant, /Instance::new\(&mut store, &self\.module, &\[\]\)/);
+  assert.match(tenant, /\.memory_size\(self\.memory_limit_bytes\)/);
+  assert.match(tenant, /Self::with_memory_limit\(engine, module, max_tenants, GUEST_MEMORY_BYTES\)/);
+  assert.match(tenant, /new_for_growth_smoke/);
+  assert.match(tenant, /Self::with_memory_limit\(engine, module, max_tenants, GUEST_MEMORY_BYTES \/ 2\)/);
+  assert.match(tenant, /host quota must deny guest-permitted growth/);
+  assert.match(tenant, /\.memories\(1\)/);
+  assert.match(tenant, /\.tables\(0\)/);
+  assert.match(tenant, /\.instances\(1\)/);
+  assert.match(tenant, /store\.limiter\(\|limits\| limits\)/);
+  assert.match(tenant, /crate::profile::check_abi\(&module\)\?/);
+  assert.match(tenant, /const MAX_TENANTS: usize = 32/);
+});
+
+test("tenant handles require private identity and generation fencing", () => {
+  assert.match(tenant, /identity: Arc<\(\)>/);
+  assert.match(tenant, /tenant\.generation != handle\.generation/);
+  assert.match(tenant, /Arc::ptr_eq\(&tenant\.identity, &handle\.identity\)/);
+  assert.match(tenant, /checked_add\(1\)/);
+  assert.match(tenant, /id != "\." && id != "\.\."/);
+  assert.match(tenant, /for candidate in \["", "\.", "\.\."/);
+  assert.match(tenant, /Phase::Quiescing/);
+  assert.match(tenant, /tenant\.phase != Phase::Quiescing/);
+});
+
+test("all post-admission execution errors reach Store retirement", () => {
+  const start = tenant.indexOf("pub fn invoke(");
+  const end = tenant.indexOf("pub fn begin_shutdown(", start);
+  assert.ok(start >= 0 && end > start);
+  const invoke = tenant.slice(start, end);
+  assert.match(invoke, /let outcome = \(\|\| -> Result<i64, Failure> \{/);
+  assert.match(invoke, /tenant\.store\.set_fuel\(fuel\)\?;/);
+  assert.match(invoke, /\.get_typed_func::<\(\), i64>/);
+  assert.match(invoke, /Ok\(main\.call\(&mut tenant\.store, \(\)\)\?\)/);
+  assert.match(invoke, /if outcome\.is_err\(\)\s*\{\s*self\.tenants\.remove\(&handle\.id\)/);
+  assert.ok(invoke.indexOf("let outcome =") < invoke.indexOf("if outcome.is_err()"));
+  assert.match(invoke, /\n        outcome\n/);
+});
+
+test("native AOT smoke covers independent memory, trap reincarnation and pin rejection", () => {
+  assert.match(main, /--tenant-isolation-smoke/);
+  assert.match(main, /observed != \[1,1,2,2\]/);
+  assert.match(main, /TenantRegistry::new\(engine\.clone\(\),module\.clone\(\),1\)/);
+  assert.match(main, /registry\.invoke\(&foreign_a,fuel\)\.is_ok\(\)/);
+  assert.match(main, /other_root\.invoke\(&a,fuel\)\.is_ok\(\)/);
+  assert.match(main, /registry\.begin_shutdown\(&foreign_a\)\.is_ok\(\)/);
+  assert.match(main, /registry\.invoke\(&a,0\)\.is_ok\(\)/);
+  assert.match(main, /registry\.admit\("\."\)\.is_ok\(\)/);
+  assert.match(main, /registry\.admit\("\.\."\)\.is_ok\(\)/);
+  assert.match(main, /other_root\.active_tenants\(\)!=0/);
+  assert.match(main, /registry\.invoke\(&b,1\)\.is_ok\(\)/);
+  assert.match(main, /registry\.invoke\(&b,fuel\)\.is_ok\(\)/);
+  assert.match(main, /registry\.admit\("tenant-b"\)\?/);
+  assert.match(main, /registry\.invoke\(&fresh_b,fuel\)\?!=1/);
+  assert.match(main, /registry\.active_tenants\(\)!=1 \|\| registry\.invoke\(&fresh_a,fuel\)\?!=2/);
+  assert.match(main, /registry\.begin_shutdown\(&b\)\.is_ok\(\)/);
+  assert.match(main, /registry\.destroy\(&b\)\.is_ok\(\)/);
+  assert.match(main, /registry\.invoke\(&fresh_a,fuel\)\?!=3/);
+  assert.match(main, /registry\.destroy\(&fresh_a\)\?/);
+  assert.match(smoke, /tenant-counter\.wasm/);
+  assert.match(smoke, /--tenant-isolation-smoke/);
+  assert.match(smoke, /tenant smoke bypassed AOT digest check/);
+  // Real guest memory.grow must trap via the pinned StoreLimits policy.
+  // This checks that native AOT smoke exercises the intended runtime path;
+  // it does not claim that native Wasmtime executed on this source head.
+  assert.match(main, /--tenant-memory-growth-smoke/);
+  assert.match(main, /denied guest memory\.grow returned instead of trapping/);
+  assert.match(main, /forcing trap when growing memory/);
+  assert.match(main, /forcing a memory growth failure to be a trap/);
+  assert.match(main, /guest failed without a Wasmtime memory-growth limiter cause/);
+  assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=2/);
+  assert.match(main, /registry\.invoke\(&healthy,fuel\)\?!=3/);
+  assert.match(main, /registry\.invoke\(&offender,fuel\)\.is_ok\(\)/);
+  assert.match(main, /registry\.active_tenants\(\)!=1/);
+  assert.match(main, /wasmtime_tenant_memory_growth_trap=ok/);
+  assert.match(smoke, /__builtin_wasm_memory_grow\(0, 1\)/);
+  assert.match(smoke, /node_standard_wasm_growth_succeeds_under_module_max=ok/);
+  assert.match(smoke, /initial-memory=65536/);
+  assert.match(smoke, /max-memory=131072/);
+  assert.match(smoke, /guest must begin at one Wasm page/);
+  assert.match(smoke, /standard Wasm must have really grown one page/);
+  assert.match(main, /TenantRegistry::new_for_growth_smoke\(engine,module,2\)/);
+  assert.match(smoke, /--tenant-memory-growth-smoke/);
+  assert.match(smoke, /growth smoke accepted incorrect AOT digest/);
+  assert.match(main, /#\[cfg\(not\(all\(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"\)\)\)\]/);
+  assert.match(main, /AOT execution is disabled unless/);
+});
+
+test("native AOT smoke uses real nonterminating Wasm guest and contains out-of-fuel tenant retirement", () => {
+  assert.match(main, /--tenant-fuel-starvation-smoke/);
+  assert.match(main, /let failure=registry\.invoke\(&offender,fuel\)/);
+  assert.match(main, /all fuel consumed/);
+  assert.match(main, /registry\.active_tenants\(\)!=1/);
+  assert.match(main, /healthy tenant lost state after neighbor fuel exhaustion/);
+  assert.match(main, /registry\.invoke\(&offender,fuel\)\.is_ok\(\)/);
+  assert.match(main, /wasmtime_tenant_fuel_starvation=ok/);
+  assert.match(smoke, /for \(;;\)/);
+  assert.match(smoke, /wasmtime_fuel_fixture_initial_turns=ok/);
+  assert.match(smoke, /--tenant-fuel-starvation-smoke/);
+  assert.match(smoke, /fuel smoke accepted an incorrect AOT digest/);
+});

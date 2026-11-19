@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {admit_browser_guest,package_browser_guest} from '../src/guest-admission.mjs';
+import {admit_browser_guest,package_browser_guest} from '../src/browser-tenant-guest-admission.mjs';
 const answer=Buffer.from('0061736d010000000105016000017e03020100070801046d61696e00000a06010400422a0b','hex');
 test('admit concrete Wasm main returns 42 and publish digest manifest',async()=>{
   assert.equal(WebAssembly.validate(answer),true);

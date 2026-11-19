@@ -1,0 +1,97 @@
+name: Real pinned Oreslang LLVM to Wasm gate
+
+# Manual: cross-private-repository read credential; never expose to PR code.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: real-llvm-wasm-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  integration:
+    # Credentialed build may execute only from the protected default branch.
+    # Never dispatch private compiler source into arbitrary PR-controlled code.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ORESLANG_LLVM_SOURCE_SHA: b83f540269a256e549cc9160b6b43bf37d33fb0f
+    steps:
+      - name: Require authorized private LLVM read access
+        shell: bash
+        env:
+          ORESLANG_READ_TOKEN: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
+        run: |
+          if [[ -z "$ORESLANG_READ_TOKEN" ]]; then
+            echo "Missing ORESLANG_LLVM_READ_TOKEN; refusing checkout" >&2
+            exit 1
+          fi
+      - name: Check out Wasm backend
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Bind protected Wasm main checkout
+      - name: Verify exact Wasm checkout and reviewed portable scalar source blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          echo "ORESLANG_BOOL_WASM_EXPECTED_HEAD=$EXPECTED_HEAD" >> "$GITHUB_ENV"
+          echo "ORESLANG_BOOL_WASM_RECEIPT_PATH=$RUNNER_TEMP/boolean-wasm32-guest-receipt.json" >> "$GITHUB_ENV"
+          echo "WASM_SOURCE_HEAD=$EXPECTED_HEAD TREE=$(git rev-parse 'HEAD^{tree}')"
+          test -z "$(git status --porcelain -- tests/portable-scalar)"
+          node --test tests/portable-scalar-inventory.test.mjs
+      - name: Check out immutable private LLVM compiler source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ores-truffle-oreslang/oreslang-source.llvm
+          ref: b83f540269a256e549cc9160b6b43bf37d33fb0f
+          path: llvm-source
+          token: ${{ secrets.ORESLANG_LLVM_READ_TOKEN }}
+          persist-credentials: false
+          submodules: false
+      - name: Verify exact LLVM source commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C llvm-source rev-parse HEAD)" = "$ORESLANG_LLVM_SOURCE_SHA"
+          test "$(git -C llvm-source rev-parse 'HEAD^{tree}')" = "26e85b258061b206e4a145825df6dfe11065a499"
+          test "$(git -C llvm-source hash-object tests/native_bool_types.py)" = "80056fbf9d67e3fb37a052652398c2dc3796540b"
+          test -z "$(git -C llvm-source status --porcelain)"
+          echo "ORESLANG_LLVM_SOURCE_TREE=26e85b258061b206e4a145825df6dfe11065a499" >> "$GITHUB_ENV"
+          echo "ORESLANG_LLVM_REFERENCE_BOOL_PATH=$PWD/llvm-source/tests/native_bool_types.py" >> "$GITHUB_ENV"
+      - name: Install required build tools
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake clang lld llvm-dev python3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Compile exact LLVM compiler checkout
+        shell: bash
+        run: |
+          cmake -S llvm-source -B llvm-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build llvm-build --target oreslang-llvmc --parallel 2
+          test -x "$PWD/llvm-build/oreslang-llvmc"
+      - name: Pin actual native compiler binary
+        shell: bash
+        run: |
+          echo "ORESLANG_LLVM_COMPILER=$PWD/llvm-build/oreslang-llvmc" >> "$GITHUB_ENV"
+          echo "ORESLANG_LLVM_COMPILER_SHA256=$(sha256sum llvm-build/oreslang-llvmc | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+      - name: Run WebAssembly regression suite
+        run: npm test
+      - name: Execute genuine Oreslang-to-Wasm end-to-end gate
+        run: npm run test:real-compiler
+      - name: Execute mandatory pinned boolean Wasm32 guest and type rejection matrix
+        run: npm run test:bool-wasm32
+      - name: Upload source-bound boolean guest evidence (not Java certification)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: boolean-wasm32-guest-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/boolean-wasm32-guest-receipt.json
+          if-no-files-found: error
+          retention-days: 7
