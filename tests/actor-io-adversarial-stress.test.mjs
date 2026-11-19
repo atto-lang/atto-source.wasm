@@ -125,3 +125,30 @@ test("deferred producers holding a retired generation cannot resurrect input", a
   assert.equal(io.tryFeedInput(fresh, Uint8Array.of(7)), false);
   assert.deepEqual([...io.readInput(fresh)], [4, 5, 6]);
 });
+
+
+test("actor I/O DATA queue ignores poisoned Array.prototype push/shift", () => {
+  const io = new ActorIoEnvelope({actorId: 98761, maxRecords: 3, maxBytes: 4});
+  const authority = io.authority();
+  const oldPush = Array.prototype.push, oldShift = Array.prototype.shift;
+  let inputAdmitted, outputAdmitted, input, output;
+  try {
+    Array.prototype.push = function () { return this.length; };
+    Array.prototype.shift = function () { return undefined; };
+    inputAdmitted = io.tryFeedInput(authority, Uint8Array.of(17, 29));
+    outputAdmitted = io.tryWriteOutput(authority, Uint8Array.of(31, 47));
+    input = io.readInput(authority);
+    output = io.readOutput(authority);
+  } finally {
+    Array.prototype.push = oldPush;
+    Array.prototype.shift = oldShift;
+  }
+  assert.equal(inputAdmitted, true);
+  assert.equal(outputAdmitted, true);
+  assert.deepEqual(Array.from(input), [17, 29]);
+  assert.deepEqual(Array.from(output), [31, 47]);
+  assert.equal(io.closeInput(authority), true);
+  assert.equal(io.inputAtEof(authority), true);
+  assert.equal(io.closeOutput(authority), true);
+  assert.equal(io.outputAtEof(authority), true);
+});
