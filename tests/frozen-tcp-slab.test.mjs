@@ -97,3 +97,20 @@ test('pin release before retire does not prematurely free backing storage', () =
   slab.releasePin(second);
   assert.equal(slab.freed, true);
 });
+
+import vm from 'node:vm';
+test('cross-realm SharedArrayBuffer views fail even when instanceof is false', () => {
+  const valid = vm.runInNewContext('new Uint8Array([4, 42])');
+  const slab = new FrozenTcpSlab(valid), pin = slab.pin();
+  assert.equal(slab.readByte(pin, 1), 42);
+  slab.releasePin(pin); slab.retire();
+  if (typeof SharedArrayBuffer === 'function') {
+    const shared = vm.runInNewContext('new Uint8Array(new SharedArrayBuffer(16), 4, 4)');
+    assert.throws(() => new FrozenTcpSlab(shared), /shared backing/);
+  }
+  const privateBytes = new Uint8Array([42]);
+  Object.defineProperty(privateBytes, 'buffer', {get() {throw Error('untrusted shadow getter');}});
+  const safe = new FrozenTcpSlab(privateBytes), reader = safe.pin();
+  assert.equal(safe.readByte(reader, 0), 42);
+  safe.releasePin(reader); safe.retire();
+});

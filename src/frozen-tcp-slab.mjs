@@ -1,6 +1,9 @@
 // Trusted-host immutable TCP slab. This is NOT a guest Wasm memory import,
 // socket connector, network capability, or unsafe shared-memory pointer.
 const MAX_BYTES = 1024 * 1024;
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get;
+const typedArrayBuffer = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'buffer').get;
+const dataViewBuffer = Object.getOwnPropertyDescriptor(DataView.prototype, 'buffer').get;
 export class FrozenTcpSlab {
   #bytes;
   #size;
@@ -10,9 +13,17 @@ export class FrozenTcpSlab {
   constructor(source) {
     if (source == null || typeof source[Symbol.iterator] !== 'function')
       throw new TypeError('invalid TCP byte source');
-    if (typeof SharedArrayBuffer !== 'undefined' &&
-        ArrayBuffer.isView(source) && source.buffer instanceof SharedArrayBuffer)
-      throw new TypeError('mutable shared backing memory is forbidden');
+    if (ArrayBuffer.isView(source)) {
+      // Use native internal slots, not realm-bound instanceof or a caller's
+      // overridable .buffer property. Cross-realm shared views must fail.
+      let backing;
+      try {
+        backing = (source instanceof DataView ? dataViewBuffer : typedArrayBuffer).call(source);
+        arrayBufferByteLength.call(backing);
+      } catch {
+        throw new TypeError('mutable shared backing memory is forbidden');
+      }
+    }
     const copy = [];
     for (const byte of source) {
       if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
