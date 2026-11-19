@@ -27,7 +27,7 @@ for(const [path,expected] of entries){
 const extensions=Object.entries(m.local_test_extensions||{});
 for(const [path,meta] of extensions){
   if(!Object.hasOwn(current,path) || !Object.hasOwn(seed,path) ||
-      !/^aot-host\\/[a-zA-Z0-9_./-]+$/.test(path) ||
+      !path.startsWith('aot-host/') ||
       path.includes('..') ||
       meta.upstream_sha!==seed[path] ||
       meta.current_sha!==current[path] ||
