@@ -47,3 +47,21 @@ test('original iterable behavior, byte cap, partial iterator failure, and retire
   assert.equal(new FrozenTcpSlab(new Uint8Array(1048576)).size, 1048576);
   assert.throws(() => new FrozenTcpSlab(new Uint8Array(1048577)), /one MiB/);
 });
+
+
+test('poisoned Array.prototype.push cannot suppress typed bytes or iterable bytes', () => {
+  const original = Array.prototype.push;
+  let typed, iterable;
+  try {
+    Array.prototype.push = function () { return this.length; };
+    typed = new FrozenTcpSlab(new Uint8Array([17, 29]));
+    iterable = new FrozenTcpSlab([31, 47]);
+  } finally {
+    Array.prototype.push = original;
+  }
+  const first = typed.pin(), second = iterable.pin();
+  assert.equal(typed.size, 2);
+  assert.deepEqual([typed.readByte(first, 0), typed.readByte(first, 1)], [17, 29]);
+  assert.equal(iterable.size, 2);
+  assert.deepEqual([iterable.readByte(second, 0), iterable.readByte(second, 1)], [31, 47]);
+});
