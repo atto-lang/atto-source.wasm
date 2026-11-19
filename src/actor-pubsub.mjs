@@ -5,6 +5,20 @@
 
 const actorKinds = new Set(["shared", "private", "untrusted"]);
 const policies = new Set(["reliable", "latest", "lossy"]);
+// Hard resource ceilings are independent of caller-supplied per-instance quotas.
+// An actor/topic capacity of MAX_SAFE_INTEGER is not meaningful backpressure.
+const MAX_ACTORS = 4096;
+const MAX_ACTOR_HISTORIES = 65536;
+const MAX_GROUPS = 4096;
+const MAX_MEMBERS_PER_GROUP = 4096;
+const MAX_MEMBERSHIPS = 4096;
+const MAX_TOPICS = 4096;
+const MAX_SUBSCRIPTIONS = 1024;
+const MAX_QUEUE_DEPTH = 1024;
+const MAX_QUEUED_SLOTS = 65536;
+const MAX_EVENT_CODE_UNITS = 4096;
+const MIN_I64 = -(1n << 63n);
+const MAX_I64 = (1n << 63n) - 1n;
 // Module-private constructors: public exported class names are not grant minting.
 const GROUP_HANDLE_BRAND = Symbol("WasmActorGroup capability");
 const TOPIC_HANDLE_BRAND = Symbol("WasmActorTopic capability");
@@ -21,9 +35,19 @@ function positiveSafeInt(value, name) {
   return value;
 }
 
+function boundedPositiveInt(value, name, maximum) {
+  positiveSafeInt(value, name);
+  if (value > maximum) throw new RangeError(name + " exceeds hard limit");
+  return value;
+}
+
+// Under the Unicode /u flag paired surrogates are one scalar and unpaired
+// UTF-16 surrogates are matched. Reject lossy UTF-8/MessagePack round-trips.
+const malformedUtf16 = /[\uD800-\uDFFF]/u;
 function topicName(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 256 ||
-      value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value))
+      value.trim().length === 0 || /[\u0000-\u001f\u007f-\u009f]/u.test(value) ||
+      malformedUtf16.test(value))
     throw new TypeError("invalid topic name");
   return value;
 }
@@ -33,9 +57,22 @@ function freezePayload(value) {
     throw new TypeError("Oreslang event payload uses Option<T>, not null");
   switch (typeof value) {
     case "string":
+      // Every UTF-16 code unit takes at most 3 UTF-8 bytes; this is a
+      // conservative, encoding-independent per-event memory bound.
+      if (value.length > MAX_EVENT_CODE_UNITS)
+        throw new RangeError("pub-sub string payload exceeds hard limit");
+      if (malformedUtf16.test(value))
+        throw new TypeError("pub-sub string payload contains malformed UTF-16");
+      return value;
     case "boolean":
+      return value;
     case "number":
+      if (!Number.isFinite(value))
+        throw new TypeError("pub-sub number payload must be finite");
+      return value;
     case "bigint":
+      if (value < MIN_I64 || value > MAX_I64)
+        throw new RangeError("pub-sub bigint payload must fit signed i64");
       return value;
     default:
       throw new TypeError("Wasm pub-sub payload is not a proven immutable scalar/string");
@@ -54,18 +91,38 @@ export class WasmActorPubSub {
   #maxGroupsPerActor;
   #maxTopics;
   #maxSubscriptionsPerActor;
+  #maxActors;
+  #maxActorHistories;
+  #maxQueuedSlots;
+  #queuedSlots = 0;
 
   constructor({
     maxGroups = 4096,
     maxGroupsPerActor = 64,
     maxTopics = 4096,
-    maxSubscriptionsPerActor = 1024
+    maxSubscriptionsPerActor = 1024,
+    maxActors = 4096,
+    maxActorHistories = 65536,
+    maxQueuedSlots = 16384
   } = {}) {
-    this.#maxGroups = positiveSafeInt(maxGroups, "maxGroups");
-    this.#maxGroupsPerActor = positiveSafeInt(maxGroupsPerActor, "maxGroupsPerActor");
-    this.#maxTopics = positiveSafeInt(maxTopics, "maxTopics");
-    this.#maxSubscriptionsPerActor =
-      positiveSafeInt(maxSubscriptionsPerActor, "maxSubscriptionsPerActor");
+    this.#maxGroups = boundedPositiveInt(maxGroups, "maxGroups", MAX_GROUPS);
+    this.#maxGroupsPerActor = boundedPositiveInt(
+      maxGroupsPerActor, "maxGroupsPerActor", MAX_MEMBERSHIPS);
+    this.#maxTopics = boundedPositiveInt(maxTopics, "maxTopics", MAX_TOPICS);
+    this.#maxSubscriptionsPerActor = boundedPositiveInt(
+      maxSubscriptionsPerActor, "maxSubscriptionsPerActor", MAX_SUBSCRIPTIONS);
+    this.#maxActors = boundedPositiveInt(maxActors, "maxActors", MAX_ACTORS);
+    // Historical actor IDs cannot be discarded without changing monotonic
+    // incarnation semantics. Bound the entire lifetime history instead.
+    this.#maxActorHistories = boundedPositiveInt(
+      maxActorHistories, "maxActorHistories", MAX_ACTOR_HISTORIES);
+    this.#maxQueuedSlots = boundedPositiveInt(
+      maxQueuedSlots, "maxQueuedSlots", MAX_QUEUED_SLOTS);
+  }
+
+  #releaseQueue(queue) {
+    this.#queuedSlots -= queue.length;
+    queue.length = 0;
   }
 
   registerActor({actorId, incarnation, kind = "shared"} = {}) {
@@ -76,6 +133,11 @@ export class WasmActorPubSub {
 
     if (this.#actorIds.has(actorId))
       throw new Error("actor ID still belongs to a live incarnation");
+    if (this.#actors.size >= this.#maxActors)
+      throw new RangeError("actor registry capacity exceeded");
+    if (!this.#lastIncarnation.has(actorId) &&
+        this.#lastIncarnation.size >= this.#maxActorHistories)
+      throw new RangeError("actor incarnation history capacity exceeded");
     const previousIncarnation = this.#lastIncarnation.get(actorId) ?? 0;
     if (incarnation <= previousIncarnation)
       throw new Error("actor incarnation must increase monotonically");
@@ -97,8 +159,13 @@ export class WasmActorPubSub {
 
     for (const groupId of actor.groups)
       this.#groups.get(groupId)?.members.delete(ref);
-    for (const topic of this.#topics.values())
-      topic.subscribers.delete(ref);
+    for (const topic of this.#topics.values()) {
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
+      }
+    }
     this.#actors.delete(ref);
     if (this.#actorIds.get(actor.actorId) === ref)
       this.#actorIds.delete(actor.actorId);
@@ -107,7 +174,7 @@ export class WasmActorPubSub {
 
   createGroup({maxMembers = 1024} = {}) {
     this.#requireOpen();
-    positiveSafeInt(maxMembers, "maxMembers");
+    boundedPositiveInt(maxMembers, "maxMembers", MAX_MEMBERS_PER_GROUP);
     if (this.#groups.size >= this.#maxGroups)
       throw new RangeError("ActorGroup capacity exceeded");
     if (this.#nextGroupId >= Number.MAX_SAFE_INTEGER)
@@ -138,8 +205,13 @@ export class WasmActorPubSub {
     if (!actor || !group || !actor.groups.delete(groupId)) return false;
     group.members.delete(ref);
     for (const topic of this.#topics.values()) {
-      if (topic.groupId === groupId && topic.subscribers.delete(ref))
+      if (topic.groupId !== groupId) continue;
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
         actor.subscriptions--;
+      }
     }
     return true;
   }
@@ -160,7 +232,7 @@ export class WasmActorPubSub {
     this.#requireGroup(groupId);
     name = topicName(name);
     if (!policies.has(policy)) throw new TypeError("invalid topic policy");
-    positiveSafeInt(capacity, "topic capacity");
+    boundedPositiveInt(capacity, "topic capacity", MAX_QUEUE_DEPTH);
     if (policy === "latest" && capacity !== 1)
       throw new RangeError("LATEST topic capacity must equal one");
 
@@ -209,7 +281,10 @@ export class WasmActorPubSub {
   _unsubscribe(groupId, name, ref, brand) {
     requireTopicHandle(brand);
     const topic = this.#requireTopic(groupId, name);
-    if (!topic.subscribers.delete(ref)) return false;
+    const queue = topic.subscribers.get(ref);
+    if (!queue) return false;
+    this.#releaseQueue(queue);
+    topic.subscribers.delete(ref);
     const actor = this.#actors.get(ref);
     if (actor && actor.subscriptions > 0) actor.subscriptions--;
     return true;
@@ -234,8 +309,10 @@ export class WasmActorPubSub {
     const topic = this.#requireTopic(groupId, name);
     const queue = topic.subscribers.get(ref);
     if (!queue) throw new Error("actor is not subscribed to topic");
-    return queue.length ? {present: true, value: queue.shift()} :
-      {present: false, value: undefined};
+    if (!queue.length) return {present: false, value: undefined};
+    const value = queue.shift();
+    this.#queuedSlots--;
+    return {present: true, value};
   }
 
   _closeGroup(groupId, brand) {
@@ -246,7 +323,8 @@ export class WasmActorPubSub {
       this.#actors.get(ref)?.groups.delete(groupId);
     for (const [key, topic] of this.#topics) {
       if (topic.groupId !== groupId) continue;
-      for (const ref of topic.subscribers.keys()) {
+      for (const [ref, queue] of topic.subscribers) {
+        this.#releaseQueue(queue);
         const actor = this.#actors.get(ref);
         if (actor && actor.subscriptions > 0) actor.subscriptions--;
       }
@@ -269,7 +347,14 @@ export class WasmActorPubSub {
             backpressured: true
           });
       }
+      // Global admission must also be fail-atomic across every subscriber.
+      if (subscribers > this.#maxQueuedSlots - this.#queuedSlots)
+        return Object.freeze({
+          subscribers, accepted: 0, dropped: 0, coalesced: 0,
+          backpressured: true
+        });
       for (const queue of topic.subscribers.values()) queue.push(value);
+      this.#queuedSlots += subscribers;
       return Object.freeze({
         subscribers, accepted: subscribers, dropped: 0, coalesced: 0,
         backpressured: false
@@ -282,12 +367,20 @@ export class WasmActorPubSub {
         if (queue.length) {
           queue[0] = value;
           coalesced++;
-        } else queue.push(value);
+        } else if (this.#queuedSlots >= this.#maxQueuedSlots) {
+          dropped++;
+          continue;
+        } else {
+          queue.push(value);
+          this.#queuedSlots++;
+        }
         accepted++;
-      } else if (queue.length >= topic.capacity) {
+      } else if (queue.length >= topic.capacity ||
+                 this.#queuedSlots >= this.#maxQueuedSlots) {
         dropped++;
       } else {
         queue.push(value);
+        this.#queuedSlots++;
         accepted++;
       }
     }
@@ -300,7 +393,10 @@ export class WasmActorPubSub {
     const group = this.#groups.get(groupId);
     for (const ref of [...topic.subscribers.keys()]) {
       if (this.#actors.has(ref) && group?.members.has(ref)) continue;
-      if (topic.subscribers.delete(ref)) {
+      const queue = topic.subscribers.get(ref);
+      if (queue) {
+        this.#releaseQueue(queue);
+        topic.subscribers.delete(ref);
         const actor = this.#actors.get(ref);
         if (actor && actor.subscriptions > 0) actor.subscriptions--;
       }
@@ -346,6 +442,7 @@ export class WasmActorPubSub {
     this.#actors.clear();
     this.#actorIds.clear();
     this.#lastIncarnation.clear();
+    this.#queuedSlots = 0;
     return true;
   }
 }
