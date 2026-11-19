@@ -1,5 +1,5 @@
 import { snapshotGuestBytes } from './snapshot-guest-bytes.mjs';
-import { assertCoreI64Entry } from '../scripts/core-i64-abi.mjs';
+import { assertCoreI64Entry, coreFunctionSignature } from '../scripts/core-i64-abi.mjs';
 import { fixed_memory_pages, actor_names, MAX_WASM_BYTES as MAX_BYTES } from './wasm-profile.mjs';
 
 // Validate a Rust-compiler-produced browser guest before giving it to the
@@ -43,6 +43,17 @@ export function admit_browser_guest(input) {
   if (actors !== (types.length>0)) throw new Error('E_WASM_ACTORS');
   if (pages>0 && !exports.some(x=>x.name==='memory' && x.kind==='memory')) throw new Error('E_WASM_MEMORY_EXPORT');
   if (actors && !pages) throw new Error('E_WASM_ACTOR_MEMORY');
+  if (actors) {
+    // Exported Wasm function.length checks count, not i32/i64 parameter types
+    // or the void result contract. Confirm exact actor ABI before instantiation.
+    const init=coreFunctionSignature(owned,'actor_init');
+    const receive=coreFunctionSignature(owned,'actor_receive');
+    const signature=(s,params)=>!!s && s.results.length===0 &&
+      s.params.length===params.length &&
+      params.every((type,i)=>s.params[i]===type);
+    if(!signature(init,[0x7f]) || !signature(receive,[0x7f,0x7e,0x7e]))
+      throw new Error('E_WASM_ACTOR_SIGNATURE');
+  }
   // The v1 profile rejects start sections and non-function imports, so
   // instantiating with inert host functions cannot execute guest code.
   // Export names/kinds alone do not prove the callable browser ABI.
