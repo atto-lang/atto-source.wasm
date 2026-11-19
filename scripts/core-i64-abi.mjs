@@ -3,7 +3,7 @@
  * Caller must first run WebAssembly.validate and enforce the appropriate
  * import allowlist. This reader supports function imports and plain types.
  */
-export function assertCoreI64Entry(bytes,entry) {
+export function coreFunctionSignature(bytes,entry) {
   let at=8;
   const u32=end=>{
     let value=0;
@@ -73,7 +73,10 @@ export function assertCoreI64Entry(bytes,entry) {
     at=end;
   }
   const allFunctionTypes=importedFunctionTypes.concat(functionTypes);
-  const signature=typeSignatures[allFunctionTypes[exportedFunctionIndex]];
+  return typeSignatures[allFunctionTypes[exportedFunctionIndex]] ?? null;
+}
+export function assertCoreI64Entry(bytes,entry) {
+  const signature=coreFunctionSignature(bytes,entry);
   if(!signature||signature.params.length!==0||
       signature.results.length!==1||signature.results[0]!==0x7e)
     throw Error("core Wasm entry must have exact () -> i64 signature");
