@@ -4,7 +4,7 @@ import {ProxyReceiptGateV1} from '../src/proxy-receipt-gate-v1.mjs';
 
 const id = Object.freeze({protocol_major: 1, tenant: 11n,
   caller_incarnation: 12n, target_actor: 13n, target_incarnation: 14n,
-  placement_epoch: 15n, message_id: 16n, attempt: 1n});
+  association_generation: 17n, placement_epoch: 15n, message_id: 16n, attempt: 1n});
 test('proxy queue or socket dispatch is never destination admission', () => {
   const gate = new ProxyReceiptGateV1(id);
   assert.equal(gate.stage, 'dispatched');
