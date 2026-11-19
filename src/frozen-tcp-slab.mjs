@@ -17,6 +17,8 @@ const resizableDescriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototyp
 const isResizable = resizableDescriptor?.get
   ? Function.prototype.call.bind(resizableDescriptor.get) : () => false;
 const setBytes = Function.prototype.call.bind(TypedBytes.prototype.set);
+// Intrinsic definition of own indices: inherited setters cannot spoof iterable bytes.
+const defineOwnByte = Object.defineProperty;
 export class FrozenTcpSlab {
   #bytes;
   #size;
@@ -40,7 +42,12 @@ export class FrozenTcpSlab {
       const offset = viewOffset(source);
       const privateBytes = new TypedBytes(size);
       setBytes(privateBytes, new TypedBytes(backing, offset, size));
-      for (let i = 0; i < size; i++) copy.push(privateBytes[i]);
+      // Never route a physically snapshotted view through Array.prototype.push:
+      // shared-realm prototype poisoning could silently drop or replace bytes.
+      // The copy is exclusively reachable through this class's private field.
+      this.#size = size;
+      this.#bytes = privateBytes;
+      return;
     } else {
       if (ArrayBuffer.isView(source)) {
         const backing = types.isDataView(source) ? dataBuffer(source) : viewBuffer(source);
@@ -55,7 +62,8 @@ export class FrozenTcpSlab {
         if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
         if (!Number.isInteger(byte) || byte < 0 || byte > 255)
           throw new TypeError('TCP slab requires unsigned byte values');
-        copy.push(byte);
+        defineOwnByte(copy, copy.length,
+          {value: byte, writable: true, enumerable: true, configurable: true});
       }
     }
     this.#size = copy.length;
