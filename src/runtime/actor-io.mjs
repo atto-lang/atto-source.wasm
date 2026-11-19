@@ -24,6 +24,9 @@ const resizableSlot = Object.getOwnPropertyDescriptor(arrayBufferPrototype, "res
 const intrinsicBuffer = Function.prototype.call.bind(
   Object.getOwnPropertyDescriptor(typedArrayPrototype, "buffer").get);
 const intrinsicFill = Function.prototype.call.bind(Uint8Array.prototype.fill);
+// Queue DATA must not depend on mutable shared-realm Array.prototype mutators.
+const defineQueueSlot = Object.defineProperty;
+const intrinsicQueueShift = Function.prototype.call.bind(Array.prototype.shift);
 
 
 class BoundedQueue {
@@ -48,12 +51,13 @@ class BoundedQueue {
     if (ownedBytes !== bytes) {
       throw new TypeError("actor I/O record size changed during snapshot");
     }
-    this.#items.push({owned, bytes: ownedBytes});
+    defineQueueSlot(this.#items, this.#items.length,
+      {value: {owned, bytes: ownedBytes}, writable: true, enumerable: true, configurable: true});
     this.#bytes += ownedBytes;
     return true;
   }
   shift() {
-    const item = this.#items.shift();
+    const item = intrinsicQueueShift(this.#items);
     if (!item) return undefined;
     this.#bytes -= item.bytes;
     return item.owned;
@@ -61,8 +65,10 @@ class BoundedQueue {
   clear() {
     // Erase only still-queued private DATA snapshots. Records already read
     // are caller-owned and must never be modified by actor restart.
-    for (const item of this.#items)
+    for (let i = 0; i < this.#items.length; i++) {
+      const item = this.#items[i];
       if (types.isUint8Array(item.owned)) intrinsicFill(item.owned, 0);
+    }
     this.#items.length = 0;
     this.#bytes = 0;
   }
