@@ -1,27 +1,30 @@
-name: Browser compiler release contract
+name: Terminal Worker Effect Protocol
 on:
   pull_request:
   push:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  browser-compiler-policy:
+  terminal-effect-transport:
     runs-on: ubuntu-24.04
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Bind to exact source head and tree
+      - name: Validate exact checked-out SHA
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          git rev-parse HEAD
           git rev-parse HEAD^{tree}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Run release-admission mutations
-        run: node --test test/browser-compiler-trust.test.mjs
+      - name: Execute terminal notice and real Worker tests
+        run: |
+          node --check runtime/terminal-effect-notice.mjs
+          node --test tests/terminal-effect-notice.test.mjs

@@ -1,0 +1,1 @@
+fnc flip(bool flag):bool{return !flag;}pub fnc main():int{const flag:bool=flip(flip(true));if(flag){return 42;}fi return 0;}

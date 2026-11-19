@@ -1,0 +1,121 @@
+{
+  "schema": "oreslang.structural.parity.audit.v1",
+  "contract_git_blob_sha1": "17f4da4a2cd3e55a968f9daf09395b000d79fc0b",
+  "cases": [
+    {
+      "id": "extra-public-members",
+      "stages": [
+        "typecheck",
+        "execute"
+      ]
+    },
+    {
+      "id": "nominal-not-implicit-structural",
+      "stages": [
+        "typecheck"
+      ]
+    },
+    {
+      "id": "missing-private-or-wrong-field",
+      "stages": [
+        "typecheck"
+      ]
+    },
+    {
+      "id": "method-signature-mode-effects",
+      "stages": [
+        "typecheck"
+      ]
+    },
+    {
+      "id": "function-routine-instance-static",
+      "stages": [
+        "typecheck",
+        "execute"
+      ]
+    },
+    {
+      "id": "declaration-metadata-orthogonal",
+      "stages": [
+        "parse",
+        "typecheck"
+      ]
+    },
+    {
+      "id": "named-inline-tuple-patterns",
+      "stages": [
+        "typecheck",
+        "execute"
+      ]
+    },
+    {
+      "id": "ordered-first-success-guard",
+      "stages": [
+        "typecheck",
+        "execute"
+      ]
+    },
+    {
+      "id": "unreachable-broad-before-narrow",
+      "stages": [
+        "typecheck"
+      ]
+    },
+    {
+      "id": "readonly-and-owner-reuse",
+      "stages": [
+        "ownership",
+        "execute"
+      ]
+    },
+    {
+      "id": "no-escape-await-or-actor-erasure",
+      "stages": [
+        "ownership"
+      ]
+    },
+    {
+      "id": "runtime-shape-fallback",
+      "stages": [
+        "execute"
+      ]
+    },
+    {
+      "id": "contextual-structural-identifier",
+      "stages": [
+        "parse",
+        "execute"
+      ]
+    },
+    {
+      "id": "real-guest-artifact-evidence",
+      "stages": [
+        "artifact",
+        "execute"
+      ]
+    }
+  ],
+  "backends": {
+    "java": {
+      "capability": "reference-partial",
+      "runtime_evidence": "unverified"
+    },
+    "llvm": {
+      "capability": "reject-only",
+      "runtime_evidence": "unverified"
+    },
+    "wasm": {
+      "capability": "conditional-reject-only",
+      "runtime_evidence": "unverified"
+    },
+    "net": {
+      "capability": "reject-only",
+      "runtime_evidence": "unverified"
+    },
+    "forge": {
+      "capability": "reject-only",
+      "runtime_evidence": "unverified"
+    }
+  },
+  "notice": "Conformance inventory only. A green audit is NOT compiled-guest structural parity. A release gate must fail until native evidence is independently checked."
+}

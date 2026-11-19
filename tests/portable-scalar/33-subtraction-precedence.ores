@@ -1,0 +1,2 @@
+// 33: subtraction and multiplication precedence; no implicit conversions.
+pub fnc main(): int { return 100 - 29 * 2; }

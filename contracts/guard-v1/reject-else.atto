@@ -1,0 +1,5 @@
+// Must fail at compile time: guard has no else.
+pub fnc main(): int {
+  guard true { return 1; } else { return 2; }
+  return 42;
+}

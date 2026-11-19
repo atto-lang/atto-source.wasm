@@ -1,0 +1,7 @@
+// Canonical AttoLang source for the WASM compiler-backed Core import gate.
+// The LLVM compiler must resolve this module from its owned registry; no
+// host import, heap allocator, actor runtime or embedded JS substitute.
+import module numeric from "atto.core/numeric";
+pub fnc main(): int {
+  return numeric.max_int(40, 42);
+}
