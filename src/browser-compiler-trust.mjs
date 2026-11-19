@@ -1,6 +1,7 @@
 // Trust boundary for browser compiler releases. This is a verifier, not a
 // compiler or a substitute for an independently authenticated source pin.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { snapshotGuestBytes } from './snapshot-guest-bytes.mjs';
 
 const FIELDS = ['abi','compiler_bytes','compiler_sha256','exports','import_count','schema','source_head','source_tree','target'];
 const REQUIRED = {
@@ -66,7 +67,12 @@ function exactKeys(obj,keys) {
  * binary cannot authenticate itself; caller must obtain pins independently.
  */
 export function verifyCompilerArtifact({wasm,receipt,trust}) {
-  if (!(wasm instanceof Uint8Array) || wasm.length===0 || wasm.length>MAX_ARTIFACT) fail('invalid artifact length');
+  // One immutable native-slot snapshot is used for every subsequent check.
+  // Reject proxy/SharedArrayBuffer backing before reading caller properties.
+  let bytes;
+  try { bytes=snapshotGuestBytes(wasm,MAX_ARTIFACT); }
+  catch { fail('invalid artifact length or backing'); }
+  if(bytes.length===0) fail('invalid artifact length');
   if (!exactKeys(receipt,FIELDS)) fail('missing/unrecognized receipt fields');
   if (!exactKeys(trust,['source_head','source_tree','compiler_sha256'])) fail('three independent trust pins required');
   if (!SHA1.test(trust.source_head) || !SHA1.test(trust.source_tree) || !SHA256.test(trust.compiler_sha256)) fail('invalid trust pins');
@@ -76,12 +82,12 @@ export function verifyCompilerArtifact({wasm,receipt,trust}) {
       receipt.target!=='wasm32-unknown-unknown' || receipt.import_count!==0) fail('unsupported compiler contract');
   if (receipt.source_head!==trust.source_head || receipt.source_tree!==trust.source_tree) fail('source identity mismatch');
   if (!equalDigest(receipt.compiler_sha256, trust.compiler_sha256)) fail('compiler digest not pinned');
-  if (receipt.compiler_bytes!==wasm.length) fail('artifact length mismatch');
-  const digest = createHash('sha256').update(wasm).digest('hex');
+  if (receipt.compiler_bytes!==bytes.length) fail('artifact length mismatch');
+  const digest = createHash('sha256').update(bytes).digest('hex');
   if (!equalDigest(digest,trust.compiler_sha256)) fail('artifact digest mismatch');
-  const memory=inspectSections(wasm);
-  if (!WebAssembly.validate(wasm)) fail('invalid WebAssembly binary');
-  const module=new WebAssembly.Module(wasm);
+  const memory=inspectSections(bytes);
+  if (!WebAssembly.validate(bytes)) fail('invalid WebAssembly binary');
+  const module=new WebAssembly.Module(bytes);
   if (WebAssembly.Module.imports(module).length!==0) fail('host imports forbidden');
   const exports=WebAssembly.Module.exports(module);
   const map=new Map(exports.map(x=>[x.name,x.kind]));
