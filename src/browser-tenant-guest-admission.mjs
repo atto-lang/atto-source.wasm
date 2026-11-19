@@ -1,3 +1,4 @@
+import { snapshotGuestBytes } from './snapshot-guest-bytes.mjs';
 import { fixed_memory_pages, actor_names, MAX_WASM_BYTES as MAX_BYTES } from './wasm-profile.mjs';
 
 // Validate a Rust-compiler-produced browser guest before giving it to the
@@ -9,10 +10,15 @@ export const ALLOWED_ATTO_IMPORTS = Object.freeze([
   'print_i64','print_bool','print_str','print_newline','print_f64','actor_spawn','actor_send'
 ]);
 export function admit_browser_guest(input) {
-  if (!(input instanceof ArrayBuffer) && !ArrayBuffer.isView(input)) throw new TypeError('E_WASM_INPUT');
-  const bytes = input instanceof ArrayBuffer ? new Uint8Array(input) : new Uint8Array(input.buffer,input.byteOffset,input.byteLength);
-  if (bytes.length === 0 || bytes.length > MAX_WASM_BYTES) throw new Error('E_WASM_SIZE');
-  const owned = Uint8Array.from(bytes);
+  // Snapshot with native buffer slots: no user getters, proxies, or shared
+  // backing can change the bytes between validation, hashing and execution.
+  let owned;
+  try { owned=snapshotGuestBytes(input,MAX_WASM_BYTES); }
+  catch(error) {
+    if(error?.message==='Wasm module exceeds maximum byte size') throw new Error('E_WASM_SIZE');
+    throw new TypeError('E_WASM_INPUT');
+  }
+  if(owned.length===0) throw new Error('E_WASM_SIZE');
   if (!WebAssembly.validate(owned)) throw new Error('E_WASM_INVALID');
   const pages = fixed_memory_pages(owned);
   const module = new WebAssembly.Module(owned);

@@ -32,3 +32,22 @@ test('admission rejects valid Wasm exports with bad main and actor arity',()=>{
   assert.throws(()=>admit_browser_guest(wrong_main),/E_WASM_MAIN_SIGNATURE/);
   assert.throws(()=>admit_browser_guest(wrong_actor),/E_WASM_ACTOR_SIGNATURE/);
 });
+
+import vm from 'node:vm';
+test('tenant Wasm admission snapshots cross-realm buffers and denies shared/proxy backing',()=>{
+  const foreignView=vm.runInNewContext('new Uint8Array(payload)',{payload:[...answer]});
+  const admitted=admit_browser_guest(foreignView);
+  foreignView.fill(0);
+  assert.equal(new WebAssembly.Instance(admitted.module).exports.main(),42n);
+  assert.deepEqual([...admitted.bytes],[...answer]);
+  const foreignBuffer=vm.runInNewContext('new Uint8Array(payload).buffer',{payload:[...answer]});
+  assert.equal(new WebAssembly.Instance(admit_browser_guest(foreignBuffer).module).exports.main(),42n);
+  if(typeof SharedArrayBuffer==='function') {
+    const shared=vm.runInNewContext('new Uint8Array(new SharedArrayBuffer(64))');
+    assert.throws(()=>admit_browser_guest(shared),/E_WASM_INPUT/);
+  }
+  let traps=0;
+  const forged=new Proxy(answer,{get(){traps++;throw Error('untrusted data getter');}});
+  assert.throws(()=>admit_browser_guest(forged),/E_WASM_INPUT/);
+  assert.equal(traps,0);
+});
