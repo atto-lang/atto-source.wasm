@@ -3,7 +3,7 @@
 // apply_verified() MUST only receive a destination-authorized receipt already
 // verified by the runtime's private authenticated sidecar.
 const fields = Object.freeze(['tenant', 'caller_incarnation', 'target_actor',
-  'target_incarnation', 'placement_epoch', 'message_id', 'attempt']);
+  'target_incarnation', 'association_generation', 'placement_epoch', 'message_id', 'attempt']);
 const stages = Object.freeze({dispatched: 0, admitted: 1, started: 2, processed: 3});
 const outcomes = Object.freeze(['pending', 'rejected', 'failed', 'indeterminate']);
 function checked_identity(value) {
