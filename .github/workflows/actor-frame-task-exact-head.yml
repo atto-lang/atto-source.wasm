@@ -60,7 +60,8 @@ jobs:
             tests/actor-frame-reconciliation.test.mjs \
             tests/actor-frame-profile-admission.test.mjs \
             tests/pooled-actor-task-frame-reconciliation.test.mjs \
-            tests/actor-profile-approval.test.mjs | tee /tmp/atto-frame-security.tap
+            tests/actor-profile-approval.test.mjs \
+            tests/pooled-actor-guest-scrub.test.mjs | tee /tmp/atto-frame-security.tap
           grep -qx '# fail 0' /tmp/atto-frame-security.tap
           grep -qx '# skipped 0' /tmp/atto-frame-security.tap
       - name: Execute real Wasm pooled actor and arena regressions
