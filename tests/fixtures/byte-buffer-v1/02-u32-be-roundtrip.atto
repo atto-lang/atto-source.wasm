@@ -1,0 +1,8 @@
+import module buffer from pkg "std.buffer";
+
+pub fnc main(): int throws Error {
+  val mut bytes = buffer.ByteBuffer.allocate(8);
+  bytes.write_u32_be(0, 0x12345678);
+  val int header = bytes.read_u32_be(0);
+  return header eq 0x12345678 ? 1 : 0;
+}
