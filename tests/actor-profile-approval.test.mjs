@@ -83,5 +83,6 @@ test('a signed profile statement must not contain extra capabilities or ambiguou
   assert.throws(()=>verifySignedActorProfileApproval(
     {...signed,actorAbi:'pooled-actor-i64-v2'},hash('a'),publicKey),/versioned/);
   assert.throws(()=>verifySignedActorProfileApproval(signed,'not-a-digest',publicKey),/SHA-256/);
+  assert.throws(()=>verifySignedActorProfileApproval(signed,hash('a'),privateKey),/public verification key/);
   assert.throws(()=>actorProfileApprovalPayload({...statement(), signature:'extra'}),/unexpected fields/);
 });
