@@ -25,6 +25,9 @@ test('canonical #415 receipt accepts only complete, exact operation-specific qui
       ['frameBytesInUse', 1], ['retired', operation !== 'stop']
     ]) assert.throws(() => assertActorFrameReceipt({...correct, [key]: replacement}, operation), /receipt/);
     assert.throws(() => assertActorFrameReceipt({...correct, unexpected: true}, operation), /receipt/);
+    const hostile = new Proxy({...correct}, {get() {throw Error('proxy getter touched');}});
+    assert.throws(() => assertActorFrameReceipt(hostile, operation), /receipt/);
+
     assert.throws(() => assertActorFrameReceipt(Object.assign(Object.create({inherited: 1}), correct), operation),
       /receipt/);
   }
