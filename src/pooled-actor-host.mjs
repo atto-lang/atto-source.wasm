@@ -3,6 +3,7 @@ import {createHash, randomBytes} from 'node:crypto';
 import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
+import {assertActorFrameReceipt} from './actor-frame-quiescence.mjs';
 
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
 const bounded = (n, min, max, name) => {
@@ -114,6 +115,12 @@ export class PooledWasmActors {
           message.result < I64_MIN || message.result > I64_MAX)) ||
         (op.kind !== 'send' && message.result !== null))
       return void this.#retireCarrier(carrier, Error('invalid actor result ABI'));
+    // #415 is canonical: no ACK may settle without the trusted frame ledger
+    // proving that the specific physical turn unwound and STOP retired storage.
+    // #416's old bare-ACK protocol is intentionally incompatible.
+    try { assertActorFrameReceipt(message.frame, op.kind); }
+    catch { return void this.#retireCarrier(carrier,
+      Error('invalid actor frame quiescence receipt')); }
     clearTimeout(carrier.timer);
     carrier.timer = null;
     carrier.active = null;
