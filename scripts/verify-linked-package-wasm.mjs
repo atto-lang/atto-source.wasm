@@ -72,9 +72,15 @@ try {
   assert.ok(size > 8 && size <= 1024 * 1024, 'bounded real guest bytes');
   const bytes = readFileSync(output);
   assert.ok(WebAssembly.validate(bytes), 'compiler emitted invalid wasm32');
-  assert.ok(fixed_memory_pages(bytes) > 0, 'guest must own fixed private memory');
+  const pages=fixed_memory_pages(bytes); // 0 is valid for scalar-only guests.
+  assert.ok(pages>=0,'invalid memory layout');
   const module = new WebAssembly.Module(bytes);
   assert.deepEqual(WebAssembly.Module.imports(module), [], 'linked guest must have zero host imports');
+  const exports = WebAssembly.Module.exports(module);
+  const memoryExports=exports.filter(x=>x.kind==='memory');
+  assert.equal(memoryExports.length,pages===0?0:1,'memory export must match fixed memory layout');
+  assert.ok(exports.some(x=>x.name==='main'&&x.kind==='function'),'entry must be a function');
+  assert.ok(exports.some(x=>x.name==='panic_code'&&x.kind==='global'),'panic code must be a global');
   const names = WebAssembly.Module.exports(module).map(x => x.name);
   assert.ok(names.includes('main') && names.includes('panic_code'));
   assert.ok(names.every(x => ['main','panic_code','memory'].includes(x)), 'unknown guest authority');
