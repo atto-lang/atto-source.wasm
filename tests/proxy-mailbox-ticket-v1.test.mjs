@@ -31,6 +31,8 @@ test('exact-mail authority rejects other actor commit, forged route and full mai
   assert.equal(a.snapshot(queued).stage, 'admitted');
   assert.equal(b.commit(turn, 999n), false);
   assert.equal(a.commit(bTurn, 999n), false);
+  assert.equal(a.commit({ticket: first, value: 11n}, 999n), false);
+  assert.equal(a.panic({ticket: first, value: 11n}), false);
   assert.equal(a.snapshot({}), null);
   for (const bad of [
     route(1005, {tenant: 88n}),
