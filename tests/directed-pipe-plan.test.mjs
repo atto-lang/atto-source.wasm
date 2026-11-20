@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {planDirectedPipe} from '../src/directed-pipe-plan.mjs';
+import {planDirectedPipe,checkUnicastDirectedPipes} from '../src/directed-pipe-plan.mjs';
 import {ActorPipelinePolicy} from '../src/actor-pipeline-policy.mjs';
 
 const producer = Object.freeze({id:'producer',type:'Producer',tenant:'tenant-A',
@@ -18,6 +18,8 @@ test('named ActorRef pipe and reverse-written rpipe have identical DATA edges',(
  assert.deepEqual(a.edges,[{source:'producer',target:'consumer',payload:'int'}]);
  assert.equal(a.selector.forward('producer').target,'consumer');
  assert.equal(b.selector.forward('producer').target,'consumer');
+ assert.deepEqual(b.writtenStages.map(x=>x.id),['consumer','producer']);
+ assert.deepEqual(b.flowIndices,[1,0]);
  assert.throws(()=>b.selector.forward('consumer'),/no downstream/);
 });
 
@@ -71,4 +73,19 @@ test('plan is immutable and never starts guest work or exposes supervisor CONTRO
  assert.equal(typeof p.send,'undefined');
  assert.equal(typeof p.start,'undefined');
  assert.equal(typeof p.supervisor,'undefined');
+});
+
+test('unicast preflight rejects implicit fan-in and duplicate direction, allows disjoint ports',()=>{
+ const first=planDirectedPipe([producer,consumer],'pipe');
+ const reverse=planDirectedPipe([consumer,producer],'rpipe');
+ assert.throws(()=>checkUnicastDirectedPipes([first,reverse]),/E_PIPE_DUPLICATE_EDGE/);
+ const alternateProducer={...producer,id:'other_producer'};
+ const inbound=planDirectedPipe([alternateProducer,consumer],'pipe');
+ assert.throws(()=>checkUnicastDirectedPipes([first,inbound]),/E_PIPE_INPUT_OCCUPIED/);
+ const otherConsumer={...consumer,id:'other_consumer'};
+ const outbound=planDirectedPipe([producer,otherConsumer],'pipe');
+ assert.throws(()=>checkUnicastDirectedPipes([first,outbound]),/E_PIPE_OUTPUT_OCCUPIED/);
+ const independent=planDirectedPipe([alternateProducer,otherConsumer],'pipe');
+ assert.equal(checkUnicastDirectedPipes([first,independent]),true);
+ assert.throws(()=>checkUnicastDirectedPipes([{...first}]),/E_PIPE_PLAN_CAPABILITY/);
 });
