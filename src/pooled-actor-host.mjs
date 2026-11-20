@@ -1,10 +1,11 @@
 import {Worker} from 'node:worker_threads';
-import {createHash, randomBytes} from 'node:crypto';
+import {createHash, createPublicKey, randomBytes} from 'node:crypto';
 import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 import {assertActorFrameReceipt} from './actor-frame-quiescence.mjs';
 import {assertActorTaskReceipt} from './actor-task-quiescence.mjs';
+import {verifySignedActorProfileApproval} from './actor-profile-approval.mjs';
 
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
 const bounded = (n, min, max, name) => {
@@ -28,15 +29,23 @@ export class PooledWasmActors {
   #mailboxCapacity;
   #timeoutMs;
   #threadPolicy;
+  #profileVerificationKey;
 
   constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
-    threadPolicy = null} = {}) {
+    threadPolicy = null, profileVerificationKey = null} = {}) {
     // Every admitted actor owns private, import-free, non-shared linear memory.
     // A single OS Worker serializes all turns of actors assigned to it;
     // distinct workers may execute disjoint actor memories in parallel.
     if (threadPolicy !== null && threadPolicy !== 'single-threaded')
       throw new TypeError('unsupported WASM actor pool threading policy');
     this.#threadPolicy = threadPolicy;
+    // Configured exclusively by trusted host policy; untrusted guest bytes
+    // cannot select or replace the profile trust root.
+    this.#profileVerificationKey = profileVerificationKey === null ? null :
+      createPublicKey(profileVerificationKey);
+    if (this.#profileVerificationKey !== null &&
+        this.#profileVerificationKey.asymmetricKeyType !== 'ed25519')
+      throw TypeError('actor frame profile trust root must be Ed25519');
     bounded(workers, 1, 4, 'worker count');
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
@@ -92,7 +101,10 @@ export class PooledWasmActors {
       try {
         carrier.worker.postMessage({kind: op.kind, id: actor.id,
           incarnation: actor.incarnation, ticket: op.ticket,
-          ...(op.kind === 'init' ? {bytes: op.bytes} : {}),
+          ...(op.kind === 'init' ? {
+            bytes: op.bytes, expectedSha256: actor.artifactSha256,
+            actorFrameProfile: actor.approvedFrameProfile
+          } : {}),
           ...(op.kind === 'send' ? {value: op.value} : {})});
       } catch (error) {void this.#retireCarrier(carrier, error);}
       return;
@@ -231,7 +243,7 @@ export class PooledWasmActors {
     return this.#shutdownPromise;
   }
 
-  async spawn(bytes, {expectedSha256, trusted = false} = {}) {
+  async spawn(bytes, {expectedSha256, trusted = false, artifactApproval = null} = {}) {
     if (this.#closed) throw Error('actor pool retired');
     // Do not place untrusted or noncooperating code alongside other actors.
     if (trusted !== true) throw Error('pooled WASM actors require trusted guest admission');
@@ -241,6 +253,20 @@ export class PooledWasmActors {
     const snapshot = snapshotGuestBytes(bytes, 1048576);
     const digest = createHash('sha256').update(snapshot).digest('hex');
     if (digest !== expectedSha256) throw Error('actor artifact digest mismatch');
+    // The secure profiled lane requires a host-configured signer and a
+    // signature binding exact Wasm bytes to the compiler/source IR hashes.
+    // No profile label or guest-controlled manifest can grant this authority.
+    let approvedFrameProfile = null;
+    if (this.#profileVerificationKey === null) {
+      if (artifactApproval !== null)
+        throw Error('profiled actor requires configured host verification key');
+    } else {
+      if (artifactApproval === null)
+        throw Error('signed actor profile approval required; no legacy downgrade');
+      const verified = verifySignedActorProfileApproval(artifactApproval, digest,
+        this.#profileVerificationKey);
+      approvedFrameProfile = verified.profile;
+    }
     // Admission is performed BEFORE occupying a carrier or creating actor
     // authority: malformed artifacts must not terminate healthy peer actors.
     // The Worker rechecks the same independently snapshotted bytes before
@@ -257,7 +283,8 @@ export class PooledWasmActors {
     const live = this.#carriers.filter(c => !c.dead);
     if (!live.length) throw Error('no live actor carriers');
     const carrier = live[(id - 1) % live.length];
-    const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
+    const actor = {id, incarnation, carrier, phase: 'starting',
+      artifactSha256: digest, approvedFrameProfile, queue: [],
       pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
     this.#actors.set(id, actor);
     await this.#enqueue(actor, 'init', {bytes: snapshot});
