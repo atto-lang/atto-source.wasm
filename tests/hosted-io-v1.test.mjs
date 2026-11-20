@@ -156,3 +156,33 @@ test('invalid configuration cannot introduce ambient HTTP or excessive capacity'
     assert.throws(()=>new TenantHostedIoV1({tenantId:'test',...opts}),rejectCode('E_IO_CONFIG'));
   }
 });
+
+
+test('host transport ignoring AbortSignal remains charged against physical slot',async()=>{
+  let complete;
+  const origin='http://127.0.0.1:45988';
+  const vm=new TenantHostedIoV1({tenantId:'delayed',allowedOrigins:[origin],maxInflight:1,
+    fetchImpl:()=>new Promise(resolve=>{complete=resolve})});
+  const first=vm.open_actor(1,1,{network:true});
+  const pending=vm.request_bytes(first,origin+'/probe');
+  vm.revoke_actor(1,1);
+  await assert.rejects(pending,rejectCode('E_IO_CANCELLED'));
+  const second=vm.open_actor(1,2,{network:true});
+  await assert.rejects(vm.request_bytes(second,origin+'/probe'),rejectCode('E_NET_BUSY'));
+  complete({url:origin+'/probe',status:200,type:'basic',body:null});
+  await new Promise(resolve=>setImmediate(resolve));
+  vm.close();
+});
+
+test('invalid or ungranted URL rejects before touching transport',async()=>{
+  let calls=0;
+  const vm=new TenantHostedIoV1({tenantId:'deny',allowedOrigins:['http://127.0.0.1:45989'],
+    fetchImpl:()=>{calls++;throw Error('must not reach host transport')}});
+  const actor=vm.open_actor(1,1,{network:true});
+  for(const url of ['file:///etc/passwd','https://example.com/','http://127.0.0.1:7/x',
+    'http://evil@127.0.0.1:45989/x','http://127.0.0.1:45989/x#frag']) {
+    await assert.rejects(vm.request_bytes(actor,url),HostIoError);
+  }
+  assert.equal(calls,0);
+  vm.close();
+});
