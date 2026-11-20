@@ -34,19 +34,23 @@ export function withManagedActorTurn(arena, invoke, {input = 0n, resultType = 'v
 
   // beginTurn is authoritative: it rejects reentrancy and retired arenas.
   const turn = arena.beginTurn();
+  let value;
   try {
     const frame = arena.allocScratch(turn, 16);
     arena.write(turn, frame, encodeFrame(input));
-    const value = invoke();
+    value = invoke();
     if (value !== null && (typeof value === 'object' || typeof value === 'function') &&
         typeof value.then === 'function')
       throw Error('suspending guest frame is unsupported');
     if (resultType === 'i64') requireI64(value);
     else if (value !== undefined) throw Error('void actor guest returned a value');
     arena.write(turn, frame, encodeFrame(input, resultType === 'i64' ? value : null));
-    return {value, frame: makeActorFrameReceipt(false)};
   } finally {
     // Always zero scratch and revoke turn authority. Errors remain carrier-fatal.
     arena.endTurn(turn);
   }
+  if (arena.pendingLifetimePins !== 0)
+    throw Error('actor guest turn left outstanding lifetime leases');
+  // Mint receipt ONLY after the authoritative endTurn completed.
+  return {value, frame: makeActorFrameReceipt(false)};
 }
