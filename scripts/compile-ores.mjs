@@ -200,6 +200,32 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  * only after guest, Worker and linear-memory lifetime evidence exists.
  * Lexical tokenization ignores source comments and string contents.
  */
+/**
+ * A Mutex<T> is a sealed, identity-bearing class. This scalar Wasm bridge
+ * cannot execute its async lease ABI, but must distinguish a missing `new`
+ * from a legal class constructor with unavailable runtime lowering. The
+ * bounded shared tokenizer excludes nested comments and quoted literals.
+ */
+export function rejectMutexResourceClassSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!tokens[i]?.id||tokens[i].text!=="Mutex"||tokens[i+1]?.text!=="<")continue;
+  let depth=0,close=-1;
+  for(let j=i+1;j<tokens.length;j++){
+   if(tokens[j].text==="<")depth++;
+   else if(tokens[j].text===">"){
+    if(--depth===0){close=j;break}
+    if(depth<0)break;
+   }
+  }
+  if(close<0||tokens[close+1]?.text!=="(")continue; // type, not invocation
+  const offset=tokens[i].offset;
+  if(tokens[i-1]?.text!=="new")
+   throw Error("E_NEW_REQUIRED: Mutex<T> is a resource class at byte "+offset);
+  throw Error("E_LOCK_UNSUPPORTED: wasm scalar bridge lacks mutex scheduler at byte "+offset);
+ }
+}
+
 export function rejectUnsupportedHeapContainerSource(sourceBytes){
  const tokens=tupleV2Tokens(sourceBytes);
  const nominal=new Set(["Box","Arc","Weak","Rc","RefCell",
@@ -463,6 +489,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
  rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ rejectMutexResourceClassSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
