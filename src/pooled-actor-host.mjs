@@ -42,7 +42,8 @@ export class PooledWasmActors {
     // Configured exclusively by trusted host policy; untrusted guest bytes
     // cannot select or replace the profile trust root.
     this.#profileVerificationKey = profileVerificationKey === null ? null :
-      createPublicKey(profileVerificationKey);
+      (profileVerificationKey?.type === 'public' ? profileVerificationKey :
+        createPublicKey(profileVerificationKey));
     if (this.#profileVerificationKey !== null &&
         this.#profileVerificationKey.asymmetricKeyType !== 'ed25519')
       throw TypeError('actor frame profile trust root must be Ed25519');
