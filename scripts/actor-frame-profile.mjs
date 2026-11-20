@@ -14,8 +14,25 @@ export function assertActorFrameProfile(ir, profile) {
     fail('unknown or implicit compiler frame profile');
   if (typeof ir !== 'string' || ir.length === 0 || ir.length > 2 * 1024 * 1024)
     fail('bounded LLVM IR text required');
-  // Strip full-line LLVM comments. A comment can never satisfy ABI evidence.
-  const code = ir.replace(/^[ \t]*;[^\n]*$/gm, '');
+  // IR frame admission must never count stores, pointers or cleanup symbols
+  // embedded in LLVM comments, including inline comments after real code.
+  // Quoted LLVM identifiers may contain a semicolon; preserve their bytes.
+  let code = '', inQuotedIdentifier = false, escaped = false;
+  for (let i = 0; i < ir.length; i++) {
+    const ch = ir[i];
+    if (!inQuotedIdentifier && ch === ';') {
+      while (i < ir.length && ir[i] !== '\\n') i++;
+      if (i < ir.length) code += '\\n';
+      continue;
+    }
+    code += ch;
+    if (inQuotedIdentifier) {
+      if (escaped) escaped = false;
+      else if (ch === '\\\\') escaped = true;
+      else if (ch === '"') inQuotedIdentifier = false;
+    } else if (ch === '"') inQuotedIdentifier = true;
+  }
+  if (inQuotedIdentifier) fail('unterminated quoted LLVM identifier');
   const scalar = [...code.matchAll(
     /^[ \t]*@(?:"atto\.wasm\.actor\.scalar\.frame\.v1"|atto\.wasm\.actor\.scalar\.frame\.v1)\s*=\s*internal global\s*\[(\d+) x i64\]\s+zeroinitializer\b/gm)];
   const stack = [...code.matchAll(
