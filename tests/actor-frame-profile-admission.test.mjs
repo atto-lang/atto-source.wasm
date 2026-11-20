@@ -9,9 +9,11 @@ const scalarIR = n => [
   '@atto.wasm.actor.scalar.frame.v1 = internal global [' + n + ' x i64] zeroinitializer',
   'define i64 @oreslang_wasm_actor_on_message(i64 %input) {',
   'entry:',
-  '  %slot = getelementptr inbounds [' + n + ' x i64], ptr @atto.wasm.actor.scalar.frame.v1, i32 0, i32 0',
-  ...Array.from({length:n}, () => '  store volatile i64 9, ptr %slot'),
-  ...Array.from({length:n}, () => '  store volatile i64 0, ptr %slot'),
+  ...Array.from({length:n}, (_, i) => '  %slot' + i +
+    ' = getelementptr inbounds [' + n +
+    ' x i64], ptr @atto.wasm.actor.scalar.frame.v1, i32 0, i32 ' + i),
+  ...Array.from({length:n}, (_, i) => '  store volatile i64 9, ptr %slot' + i),
+  ...Array.from({length:n}, (_, i) => '  store volatile i64 0, ptr %slot' + i),
   '  ret i64 0',
   '}',
   ''
@@ -50,6 +52,10 @@ test('mis-sized, competing, comment-only and unclean frames fail closed', () => 
     /missing/);
   assert.throws(() => assertActorFrameProfile(scalarIR(4).replaceAll('store volatile i64 0,', 'store volatile i64 1,'), SCALAR),
     /zeroization/);
+  assert.throws(() => assertActorFrameProfile(
+    scalarIR(3).replace('ptr %slot1', 'ptr %unrelated'), SCALAR), /zeroization/);
+  assert.throws(() => assertActorFrameProfile(
+    scalarIR(3).replace('i32 0, i32 2', 'i32 0, i32 3'), SCALAR), /out of bounds/);
   assert.throws(() => assertActorFrameProfile(scalarIR(4) + '\n%message.slot = alloca i64', SCALAR),
     /alloca/);
   assert.throws(() => assertActorFrameProfile(stackIR.replace('frame.depth', 'frame.depth.deleted'), STACK64),
