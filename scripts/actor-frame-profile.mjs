@@ -29,10 +29,43 @@ export function assertActorFrameProfile(ir, profile) {
     const cells = Number(scalar[0][1]);
     if (!Number.isSafeInteger(cells) || cells < 2 || cells > 17)
       fail('scalar cell budget must be 2..17');
-    if (!new RegExp('getelementptr inbounds\\s*\\[\\s*' + cells + ' x i64\\s*\\]').test(code) ||
-        (code.match(/\bstore volatile i64\b/g) || []).length < cells * 2 ||
-        (code.match(/\bstore volatile i64 0\s*,/g) || []).length < cells)
-      fail('scalar frame bounded access/initialization/zeroization not demonstrated');
+
+    // #419's stronger policy: per-cell compiler-generated bounded GEP,
+    // actual volatile writes to that cell, and terminal volatile zero.
+    // Merely counting unrelated volatile stores is NOT frame evidence.
+    const handler = code.match(
+      /define\s+i64\s+@oreslang_wasm_actor_on_message\s*\([^)]*\)[^{]*\{([\s\S]*?)^\}/m);
+    if (!handler) fail('source-compiled scalar actor handler missing');
+    const gepexpr = new RegExp(
+      'getelementptr inbounds\\s*\\(?\\[\\s*' + cells +
+      ' x i64\\s*\\][^\\n]*?@(?:"atto\\.wasm\\.actor\\.scalar\\.frame\\.v1"|' +
+      'atto\\.wasm\\.actor\\.scalar\\.frame\\.v1)[^\\n]*?,\\s*i(?:32|64)\\s+0,\\s*i(?:32|64)\\s+(\\d+)');
+    const aliases = new Map();
+    const writes = Array.from({length: cells}, () => []);
+    const sawSlot = new Set();
+    for (const line of handler[1].split('\n')) {
+      let slot = null;
+      const gep = line.match(gepexpr);
+      if (gep) {
+        slot = Number(gep[1]);
+        if (!Number.isSafeInteger(slot) || slot < 0 || slot >= cells)
+          fail('scalar GEP index out of bounds');
+        sawSlot.add(slot);
+        const declaration = line.match(/^\s*(%[A-Za-z0-9.$_-]+)\s*=\s*getelementptr inbounds/);
+        if (declaration) aliases.set(declaration[1], slot);
+      }
+      if (!/\bstore volatile i64\b/.test(line)) continue;
+      if (slot === null) {
+        const target = line.match(/,\s*(?:ptr|i64\*)\s+(%[A-Za-z0-9.$_-]+)/);
+        if (target && aliases.has(target[1])) slot = aliases.get(target[1]);
+      }
+      if (slot !== null) writes[slot].push({zero: /\bstore volatile i64 0\s*,/.test(line)});
+    }
+    if (sawSlot.size !== cells)
+      fail('scalar frame lacks explicit bounded GEP for every cell');
+    for (const writesForCell of writes)
+      if (writesForCell.length < 2 || !writesForCell[writesForCell.length - 1].zero)
+        fail('scalar frame initialization/terminal zeroization stores incomplete');
     return Object.freeze({actorFrameProfile: profile, actorFrameCells: cells});
   }
   if (stack.length !== 1 || Number(stack[0][1]) !== 64)
