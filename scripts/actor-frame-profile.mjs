@@ -19,7 +19,7 @@ export function assertActorFrameProfile(ir, profile) {
   const scalar = [...code.matchAll(
     /^[ \t]*@(?:"atto\.wasm\.actor\.scalar\.frame\.v1"|atto\.wasm\.actor\.scalar\.frame\.v1)\s*=\s*internal global\s*\[(\d+) x i64\]\s+zeroinitializer\b/gm)];
   const stack = [...code.matchAll(
-    /^[ \t]*@oreslang\.wasm\.actor\.frame\.slots\s*=\s*internal global\s*\[(\d+) x i64\]\b/gm)];
+    /^[ \t]*@oreslang\.wasm\.actor\.frame\.slots\s*=\s*internal global\s*\[(\d+) x i64\](?:[ \t]|$)/gm)];
   if (scalar.length + stack.length !== 1)
     fail('missing, competing or duplicate compiler frame layouts');
   if (/%message\.slot\s*=\s*alloca\b/.test(code))
