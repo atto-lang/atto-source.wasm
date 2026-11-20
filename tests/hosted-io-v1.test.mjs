@@ -186,3 +186,20 @@ test('invalid or ungranted URL rejects before touching transport',async()=>{
   assert.equal(calls,0);
   vm.close();
 });
+
+
+test('malformed host response body errors are sanitized and empty 204 is supported',async()=>{
+  const origin='http://127.0.0.1:45990';
+  const bad=new TenantHostedIoV1({tenantId:'bad',allowedOrigins:[origin],
+    fetchImpl:async url=>({status:200,url,type:'basic',body:{getReader:()=>({
+      read:async()=>{throw Error('sensitive adapter details')},releaseLock:()=>{}
+    })}})});
+  const badActor=bad.open_actor(1,1,{network:true});
+  await assert.rejects(bad.request_text(badActor,origin+'/x'),rejectCode('E_NET_TRANSPORT'));
+  bad.close();
+  const empty=new TenantHostedIoV1({tenantId:'empty',allowedOrigins:[origin],
+    fetchImpl:async url=>({status:204,url,type:'basic',body:null})});
+  const actor=empty.open_actor(1,1,{network:true});
+  assert.deepEqual(await empty.request_text(actor,origin+'/empty'),{status:204,text:''});
+  empty.close();
+});
