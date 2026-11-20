@@ -186,3 +186,54 @@ the blocked hosted jobs.
 
 **Keep draft until real executed tests, #49 merge reconciliation and
 independent review are complete.**
+
+
+## 2026-11-20 inline IR comment spoof and physical scrub fixes
+
+Security audit reproduced a concrete compiler-profile verifier bypass:
+valid per-cell GEP aliases plus **volatile writes appearing only inside
+LLVM inline semicolon comments** passed the earlier text-shape gate.
+This is not executable IR evidence. The verifier now strips both standalone
+and inline LLVM comments while preserving quoted identifiers and fails
+closed if any required store/cleanup marker vanishes. A negative regression
+checks both scalar and stack64 profiles. The static IR-shape check remains
+insufficient to certify native compiler control flow and runtime isolation.
+
+STOP no longer directly invokes the ambient mutable
+`Uint8Array.prototype.fill` method. The new
+`src/pooled-actor-guest-scrub.mjs` captures native byte operations,
+rejects shared/wrong-sized/forged Wasm Memory, scrubs the entire private
+128 KiB and checks all bytes are zero before permitting STOP ACK.
+This is defense against accidental regression or monkeypatching, not proof
+of physical zeroization in CPU caches or persistent storage.
+
+**Executed local evidence, Node 22.16.0 and Clang 17** (same SHA-1 Git blobs as
+PR source): 12/12 focused Node test cases passed with 0 skipped, including
+Ed25519 profile signatures, task STOP/WAKE quiescence, explicit memory
+scrubbing, monkeypatched fill denial, and a real Clang-generated,
+zero-import Wasm actor guest executed and scrubbed after teardown.
+Separate direct Node test verifies the previously successful comment spoof
+is rejected after the patch and a valid frame is still admitted. This is
+not an exact-head full repository checkout, pooled Worker integration
+suite or native .atto compiler/Wasmtime AOT certification.
+
+**Cross-org capacity check (NO Atto code transferred):**
+- Public zed-pkg-test/polyglot-node-app source-free canary
+  [run 44800058181](https://github.com/zed-pkg-test/polyglot-node-app/actions/runs/44800058181)
+  genuinely succeeded with 3 job steps. Public runner capacity does NOT
+  establish private repository minute allocation.
+- Private zed-pkg-test/atto-ci source-free canary
+  [run 44800562946](https://github.com/zed-pkg-test/atto-ci/actions/runs/44800562946)
+  failed pre-run, with zero steps. Other checked private destinations
+  (voxletra/vxl-infra, benefactor-cc/benefactor-infra,
+  scintilla-run/scintilla-e2e) also had failed zero-step probes.
+- Private CI export policy still has no approved destination and no
+  approved source snapshot; independent reviewer approval is disabled.
+  No source mirror was attempted. Source-free temporary probe branches
+  remain in zed-pkg-test public/private repos because branch deletion is
+  unavailable in the active GitHub connector.
+
+**Draft and release hold unchanged:** require an independently authorized
+private destination, stepful exact-head CI, all Node/Clang pooled-actor
+integration tests, full repo suite, both LLVM compiler-generated .atto
+frame profiles, native Wasmtime AOT and independent security review.
