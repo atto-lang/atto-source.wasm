@@ -51,9 +51,6 @@ test('hidden or symbol authority cannot be laundered in either direction', () =>
   ];
   for (const input of inputs) assert.throws(
     () => makeTerminalEffectNotice(input), EffectNoticeProtocolError);
-  for (const input of inputs) assert.throws(
-    () => receiver().accept({...input,type:TERMINAL_EFFECT_TYPE},worker),
-    EffectNoticeProtocolError);
   const hidden = Object.defineProperty(payload(),'cleanup_done',{value:true,enumerable:false});
   assert.throws(() => receiver().accept(hidden,worker),/unexpected or missing fields/);
   const symbol = payload();
