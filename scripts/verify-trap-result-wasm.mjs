@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {isRuntimeTrapWithPanicCode} from '../src/trap-result-guest-outcome.mjs';
+import {isRuntimeTrapWithPanicCode, guardHostImport} from '../src/trap-result-guest-outcome.mjs';
 
 const [compilerPath, samplePath, compilerSha, sampleBlob] = process.argv.slice(2);
 if (process.argv.length !== 6 || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
@@ -64,7 +64,7 @@ function run(guest) {
   assert.ok(exports.every(x => ['main', 'panic_code', 'memory'].includes(x.name)), 'unexpected guest export');
   let stdout = '';
   let instance;
-  const atto = {
+  const trustedPrintCallbacks = {
     print_i64: v => { stdout += String(v); },
     print_bool: v => { stdout += v ? 'true' : 'false'; },
     print_f64: v => { stdout += String(v); },
@@ -75,6 +75,11 @@ function run(guest) {
     },
     print_newline: () => { stdout += '\n'; }
   };
+  // Every host callback is guarded, including unexpected RuntimeError
+  // subclasses: only an actual Wasm instruction may satisfy the fatal trap
+  // witness. Untrusted guest source cannot supply or replace these imports.
+  const atto = Object.fromEntries(Object.entries(trustedPrintCallbacks)
+    .map(([name, callback]) => [name, guardHostImport(name, callback)]));
   instance = new WebAssembly.Instance(module, {atto});
   try {
     const value = instance.exports.main();
