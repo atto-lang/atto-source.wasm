@@ -43,6 +43,8 @@ export class PooledWasmActors {
     this.#threadPolicy = threadPolicy;
     // Configured exclusively by trusted host policy; untrusted guest bytes
     // cannot select or replace the profile trust root.
+    if (profileVerificationKey?.type === 'private')
+      throw TypeError('actor profile verification key must not be private');
     this.#profileVerificationKey = profileVerificationKey === null ? null :
       (profileVerificationKey?.type === 'public' ? profileVerificationKey :
         createPublicKey(profileVerificationKey));
