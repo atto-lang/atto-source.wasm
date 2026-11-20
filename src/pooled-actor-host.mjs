@@ -29,10 +29,12 @@ export class PooledWasmActors {
   #mailboxCapacity;
   #timeoutMs;
   #threadPolicy;
+  #terminationTimeoutMs;
   #profileVerificationKey;
 
   constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
-    threadPolicy = null, profileVerificationKey = null} = {}) {
+    threadPolicy = null, profileVerificationKey = null,
+    terminationTimeoutMs = 5000} = {}) {
     // Every admitted actor owns private, import-free, non-shared linear memory.
     // A single OS Worker serializes all turns of actors assigned to it;
     // distinct workers may execute disjoint actor memories in parallel.
@@ -51,16 +53,31 @@ export class PooledWasmActors {
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
     this.#timeoutMs = bounded(timeoutMs, 1, 30000, 'deadline');
+    this.#terminationTimeoutMs = bounded(terminationTimeoutMs, 10, 30000,
+      'physical exit deadline');
     for (let i = 0; i < workers; i++) {
       const worker = new Worker(new URL('./pooled-actor-worker.mjs', import.meta.url), {
         type: 'module', execArgv: [], env: {},
         resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
       });
-      const carrier = {worker, ready: [], active: null, timer: null, dead: false, termination: null, retirePromise: null};
+      const carrier = {worker, ready: [], active: null, timer: null, dead: false,
+        termination: null, retirePromise: null, exitObserved: null, exited: false,
+        terminationFailed: false, reclaimed: false};
+      // Neither a forged 'exit' event nor a fulfilled terminate() Promise alone
+      // proves physical quiescence. Require native Worker.threadId === -1.
+      carrier.exitObserved = new Promise(resolve => worker.on('exit', code => {
+        if (worker.threadId !== -1 || carrier.exited) return;
+        carrier.exited = true;
+        resolve(code);
+        if (carrier.terminationFailed)
+          this.#finalizeExitedCarrier(carrier, Error('actor carrier late physical exit'));
+      }));
       worker.on('message', message => this.#onMessage(carrier, message));
       worker.on('error', error => void this.#retireCarrier(carrier, error));
       worker.on('exit', () => {
-        if (!this.#closed) void this.#retireCarrier(carrier, Error('actor carrier exited unexpectedly'));
+        if (!carrier.exited) return;
+        if (!this.#closed && !carrier.retirePromise)
+          void this.#retireCarrier(carrier, Error('actor carrier exited unexpectedly'));
       });
       this.#carriers.push(carrier);
     }
@@ -152,17 +169,53 @@ export class PooledWasmActors {
     op.resolve(message.result);
     this.#pump(carrier);
   }
-  // Shared-carrier failure domains: a guest trap, deadline, forged receipt or
-  // unexpected Worker exit retires ONLY the actors pinned to that carrier.
-  // Accepted work is not settled until physical Worker termination confirms.
+  // Physically confirmed retirement is the ONLY resource reclamation authority.
+  #finalizeExitedCarrier(carrier, reason) {
+    if (!carrier.exited || carrier.worker.threadId !== -1 || carrier.reclaimed)
+      return false;
+    carrier.reclaimed = true;
+    carrier.dead = true;
+    clearTimeout(carrier.timer);
+    carrier.timer = null;
+    for (const actor of this.#actors.values()) {
+      if (actor.carrier !== carrier) continue;
+      actor.phase = 'retired';
+      for (const op of actor.pending) op.reject(reason);
+      actor.pending.clear();
+      actor.queue.length = 0;
+      actor.outstanding = 0;
+      this.#actors.delete(actor.id);
+    }
+    carrier.ready.length = 0;
+    carrier.active = null;
+    return true;
+  }
+
+  // Shared-carrier failure domains: retire only actors on that physical Worker.
+  // A synchronous terminate() throw, rejected Promise, or timeout is NOT exit.
   #terminateCarrier(carrier) {
     if (carrier.termination) return carrier.termination;
-    carrier.termination = Promise.resolve().then(() => {
+    let deadline;
+    const timedOut = new Promise((_, reject) => {
+      deadline = setTimeout(() =>
+        reject(Error('actor carrier termination unconfirmed: physical exit deadline exceeded')),
+        this.#terminationTimeoutMs);
+    });
+    const completion = Promise.resolve().then(async () => {
+      if (carrier.exited) return;
       const receipt = carrier.worker.terminate();
       if (!receipt || typeof receipt.then !== 'function')
         throw Error('actor carrier returned no physical termination receipt');
-      return receipt;
+      await receipt;
+      await carrier.exitObserved;
     });
+    carrier.termination = Promise.race([completion, timedOut]).catch(error => {
+      carrier.terminationFailed = true;
+      // Independently observed physical exit can reclaim bytes, while the
+      // caller's failed termination receipt must remain failed forever.
+      this.#finalizeExitedCarrier(carrier, Error('actor carrier termination unconfirmed'));
+      throw error;
+    }).finally(() => clearTimeout(deadline));
     return carrier.termination;
   }
 
@@ -176,28 +229,19 @@ export class PooledWasmActors {
       if (actor.carrier === carrier) actor.phase = 'quarantining';
     }
     carrier.retirePromise = this.#terminateCarrier(carrier).then(
+      () => {this.#finalizeExitedCarrier(carrier, error);},
       () => {
-        for (const actor of this.#actors.values()) {
-          if (actor.carrier !== carrier) continue;
-          actor.phase = 'retired';
-          for (const op of actor.pending) op.reject(error);
-          actor.pending.clear();
-          actor.queue.length = 0;
-          this.#actors.delete(actor.id);
-        }
-        // Memory may be released only after the terminated Worker cannot
-        // execute any more guest turns. Drop dead dispatch references here.
-        carrier.ready.length = 0;
-        carrier.active = null;
-      }, () => {
         const reason = Error('actor carrier termination unconfirmed');
-        for (const actor of this.#actors.values()) {
-          if (actor.carrier !== carrier) continue;
-          actor.phase = 'retirement-unconfirmed';
-          for (const op of actor.pending) op.reject(reason);
-          actor.pending.clear();
-          actor.queue.length = 0;
-          // Keep actor/instance authority pinned; no safe reclamation proof.
+        if (!this.#finalizeExitedCarrier(carrier, reason)) {
+          // Pending requests fail, but authority and host memory stay pinned
+          // while OS-thread termination is unconfirmed.
+          for (const actor of this.#actors.values()) {
+            if (actor.carrier !== carrier) continue;
+            actor.phase = 'retirement-unconfirmed';
+            for (const op of actor.pending) op.reject(reason);
+            actor.pending.clear();
+            actor.queue.length = 0;
+          }
         }
         throw reason;
       }
@@ -213,35 +257,27 @@ export class PooledWasmActors {
       clearTimeout(carrier.timer);
       carrier.timer = null;
     }
-    // Do not settle accepted work or release actors before physical Worker
-    // termination. A rejected terminate() is NOT quiescence evidence.
     this.#shutdownPromise = Promise.allSettled(
-      // A terminated Worker may throw synchronously (or return a rejected
-      // Promise). Still attempt EVERY carrier and retain unconfirmed leases.
       this.#carriers.map(c => this.#terminateCarrier(c))
     ).then(results => {
-      const uncertain = results.some(r => r.status !== 'fulfilled');
-      const reason = uncertain ? Error('actor carrier termination unconfirmed') : error;
-      for (const actor of this.#actors.values()) {
-        actor.phase = uncertain ? 'retirement-unconfirmed' : 'retired';
-        for (const op of actor.pending) op.reject(reason);
-        actor.pending.clear();
-        actor.queue.length = 0;
-      }
-      // A failed termination is NOT physical quiescence. Keep actor identities
-      // and their carrier references pinned; callers must not infer safe reuse
-      // or reclamation from a rejected close() or the absence of pending work.
-      if (!uncertain) {
-        this.#actors.clear();
-        for (const carrier of this.#carriers) {
-          carrier.ready.length = 0;
-          carrier.active = null;
+      let uncertain = false;
+      for (let i = 0; i < this.#carriers.length; i++) {
+        const carrier = this.#carriers[i];
+        const failed = results[i].status !== 'fulfilled';
+        if (failed) uncertain = true;
+        const reason = failed ? Error('actor carrier termination unconfirmed') : error;
+        if (!this.#finalizeExitedCarrier(carrier, reason)) {
+          for (const actor of this.#actors.values()) {
+            if (actor.carrier !== carrier) continue;
+            actor.phase = 'retirement-unconfirmed';
+            for (const op of actor.pending) op.reject(reason);
+            actor.pending.clear();
+            actor.queue.length = 0;
+          }
         }
       }
-      if (uncertain) throw reason;
+      if (uncertain) throw Error('actor carrier termination unconfirmed');
     });
-    // Event handlers may initiate a terminal shutdown without an awaiting
-    // caller; keep an observer for an uncertain termination failure.
     this.#shutdownPromise.catch(() => {});
     return this.#shutdownPromise;
   }
