@@ -59,3 +59,40 @@ also requires that this verifier's controlled import callbacks do not
 themselves throw `WebAssembly.RuntimeError`; such callbacks must fail as
 ordinary host errors. Real authenticated Rust compiler → Wasm guest positives,
 negatives and exact-head CI remain **NOT_EXECUTED**.
+
+## Trusted host import exception provenance (2026-11-20 follow-up)
+
+A further verifier spoofing path existed: a trusted JavaScript print callback
+could itself throw `WebAssembly.RuntimeError`, either intentionally or from
+host implementation mistakes. Classification by `instanceof
+WebAssembly.RuntimeError` and `panic_code === 1` alone would not distinguish
+that host failure from a native Wasm trap.
+
+The artifact verifier now wraps **every** fixed trusted `atto.print_*` host
+callback through `guardHostImport`. Any callback exception, including a
+`WebAssembly.RuntimeError`, is replaced with a bounded `HostImportFault`
+rather than propagating the attacker-originated exception as a guest trap.
+The wrapper does not expose the original error or its cause. The classifier
+continues to require a native `WebAssembly.RuntimeError` and `panic_code=1`.
+The gate's checked-positive successful guests must have `panic_code=0`.
+
+Exact committed Git blobs:
+- `src/trap-result-guest-outcome.mjs`:
+  `5786a26b07b9de4789f54b306eb8bee1a34ac83a`
+- `tests/trap-result-guest-outcome.test.mjs`:
+  `4300088e1a5051fea3b6322cfdf22cb557307ff5`
+
+The Node v22.16.0 local host-policy suite executed **4 tests, 4 passed,
+0 failed, 0 skipped**, with local `git hash-object` matching both GitHub
+blobs. The new test executes an actual hand-authored Wasm module that calls
+`atto.print_i64`, injects both forged `WebAssembly.RuntimeError` and
+ordinary host Error from that imported callback, verifies neither can qualify
+as a guest panic, and checks the guarded successful callback still executes
+exactly once. A separate actual `unreachable` Wasm module proves native
+traps are still recognized. The exact-head workflow includes all four cases.
+
+**Evidence scope is host verifier policy, NOT compiled AttoLang guest
+semantics.** The current branch does not independently authenticate or run a
+source-built Rust compiler Wasm artifact, nor assert cross-backend Error object
+identity, actor cancellation, or Native AOT. Material exact-head GitHub Actions
+execution and independent review remain required.
