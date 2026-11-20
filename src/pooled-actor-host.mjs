@@ -119,7 +119,9 @@ export class PooledWasmActors {
         !['ack', 'fatal'].includes(message.kind) ||
         message.ticket !== active.op.ticket ||
         message.id !== active.actor.id ||
-        message.incarnation !== active.actor.incarnation)
+        message.incarnation !== active.actor.incarnation ||
+        (message.kind === 'ack' &&
+          message.actorFrameProfile !== active.actor.approvedFrameProfile))
       return void this.#retireCarrier(carrier, Error('invalid or replayed actor carrier receipt'));
     if (message.kind === 'fatal')
       return void this.#retireCarrier(carrier, Error('WASM actor trap: ' + String(message.reason).slice(0, 200)));
