@@ -15,17 +15,14 @@ const unreachableWasm = Uint8Array.from([
 test('actual Wasm unreachable trap with matching panic code is classified', () => {
   const module = new WebAssembly.Module(unreachableWasm);
   const instance = new WebAssembly.Instance(module, {});
-  const trapped = assert.throws(() => instance.exports.main(),
-    WebAssembly.RuntimeError);
-  // assert.throws returns the caught exception on current Node versions;
-  // use a direct try/catch to remain independent of that return behavior.
+  // Check the error thrown by this actual WebAssembly instruction, not
+  // an Error synthesized by JavaScript or a host import adapter.
   let error;
   try { instance.exports.main(); } catch (caught) { error = caught; }
   assert.ok(error instanceof WebAssembly.RuntimeError);
   assert.equal(isRuntimeTrapWithPanicCode(error, 1), true);
   assert.equal(isRuntimeTrapWithPanicCode(error, 0), false);
   assert.equal(isRuntimeTrapWithPanicCode(error, '1'), false);
-  void trapped;
 });
 
 test('host callback faults cannot impersonate a checked-overflow guest trap', () => {
