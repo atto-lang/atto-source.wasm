@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
+import {createHash, generateKeyPairSync, sign} from 'node:crypto';
+import {actorProfileApprovalPayload} from '../src/actor-profile-approval.mjs';
+import {ACTOR_FRAME_PROFILES} from '../scripts/actor-frame-profile.mjs';
 import {mkdtempSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -251,4 +253,50 @@ test('single-threaded policy executes private actors on distinct workers without
     /unsupported WASM actor pool threading policy/);
   assert.throws(() => new PooledWasmActors({threadPolicy:2}),
     /unsupported WASM actor pool threading policy/);
+});
+
+
+test('signed synthetic actor artifact binds exact bytes and profile across pooled Worker ACKs', async () => {
+  // This signs a synthetic fixture in test only; it does NOT certify an LLVM
+  // compiler build or authorize an untrusted TenantVM in production.
+  const wasm=compile(), digest=pin(wasm);
+  const {publicKey,privateKey}=generateKeyPairSync('ed25519');
+  const statement={
+    schema:1, profile:ACTOR_FRAME_PROFILES.SCALAR, wasmSha256:digest,
+    sourceSha256:'a'.repeat(64), compilerSha256:'b'.repeat(64),
+    llvmIrSha256:'c'.repeat(64), actorFrameCells:2,
+    actorAbi:'pooled-actor-i64-v0'
+  };
+  const signature=sign(null,actorProfileApprovalPayload(statement),privateKey)
+    .toString('base64url');
+  const approval={...statement,signature};
+  const pool=new PooledWasmActors({workers:1,maxActors:3,profileVerificationKey:publicKey});
+  try {
+    await assert.rejects(pool.spawn(wasm,{trusted:true,expectedSha256:digest}),
+      /signed actor profile approval required/);
+    assert.equal(pool.actorCount,0);
+    await assert.rejects(pool.spawn(wasm,{trusted:true,expectedSha256:digest,
+      artifactApproval:{...approval,profile:ACTOR_FRAME_PROFILES.STACK64}}),
+      /versioned|signature/);
+    await assert.rejects(pool.spawn(wasm,{trusted:true,expectedSha256:digest,
+      artifactApproval:{...approval,wasmSha256:'d'.repeat(64)}}),
+      /another Wasm/);
+    const a=await pool.spawn(wasm,{trusted:true,expectedSha256:digest,
+      artifactApproval:approval});
+    const b=await pool.spawn(wasm,{trusted:true,expectedSha256:digest,
+      artifactApproval:approval});
+    assert.equal(await a.send(7n),7n);
+    assert.equal(await b.send(3n),3n);
+    assert.equal(await a.send(2n),9n);
+    assert.equal(await b.send(4n),7n);
+    await a.stop();
+    assert.equal(await b.send(1n),8n);
+    await b.stop();
+    assert.equal(pool.actorCount,0);
+  } finally {await pool.close();}
+  const legacy=new PooledWasmActors({workers:1});
+  try {
+    await assert.rejects(legacy.spawn(wasm,{trusted:true,expectedSha256:digest,
+      artifactApproval:approval}),/configured host verification key/);
+  } finally {await legacy.close();}
 });
