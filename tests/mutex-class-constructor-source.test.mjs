@@ -16,7 +16,7 @@ test('canonical new remains unsupported until Wasm mutex guest runtime exists',(
     /E_LOCK_UNSUPPORTED/);
 });
 test('comment/string text cannot trick constructor admission',()=>{
-  const source=bytes('// Mutex<int>(0) old constructor\\n/* new Mutex<int>(0) */\\n'
+  const source=bytes('// Mutex<int>(0) old constructor\n/* new Mutex<int>(0) */\n'
       +'pub fnc main(): int { val src = \"Mutex<int>(0)\"; return 42; }');
   assert.doesNotThrow(()=>rejectMutexResourceClassSource(source));
 });
