@@ -22,6 +22,25 @@ for(const [label,s] of [
 ]){
  test('semantic compiler reject '+label,()=>assert.equal(semanticCompilerRejection(new Error(s)),true));
 }
+for(const [label,s] of [
+ ['native async modifier','command failed (/tmp/compiler-exact): legacy async modifier forbidden; use suspends'],
+ ['native critical-suspends','command failed (/tmp/compiler-exact): critical suspends modifier combination forbidden'],
+ ['native suspends-critical','command failed (/tmp/compiler-exact): suspends critical fnc modifier is disallowed']
+]){
+ test('native effect diagnostic stays compiler-owned '+label,()=>{
+   assert.equal(semanticCompilerRejection(new Error(s)),true);
+ });
+}
+for(const s of [
+ 'command failed (clang): async modifier forbidden',
+ 'command failed (/tmp/compiler-exact): async modifier forbidden\\nspawn EACCES',
+ 'command failed (/tmp/compiler-exact): critical suspends modifier forbidden\\nout of memory',
+ 'command failed (/tmp/compiler-exact): async modifier forbidden\\nexit 124'
+]){
+ test('effect diagnostic cannot launder infrastructure failure '+s.slice(0,36),()=>{
+   assert.equal(semanticCompilerRejection(new Error(s)),false);
+ });
+}
 test('real multiline native compiler syntax diagnostics remain semantic rejects',()=>{
  assert.equal(semanticCompilerRejection(new Error(
    'command failed (/tmp/compiler-exact): invalid token at byte 13\\n' +

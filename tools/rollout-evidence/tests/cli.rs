@@ -83,4 +83,14 @@ fn cli_accepts_only_consistent_synthetic_metadata() {
     assert!(!Receipt::new(stale.as_bytes()).inspect().status.success());
     let skipped = text.replace("\tpass\t", "\tskipped\t");
     assert!(!Receipt::new(skipped.as_bytes()).inspect().status.success());
+    for invalid in [
+        text.trim_end_matches('\n').to_owned(),
+        text.replace("\tpass\t", "\tpa\x1bss\t"),
+        text.replace("\tpass\t", "\tpa\x07ss\t"),
+        text.replace("\tpass\t", "\tpa\x7fss\t"),
+    ] {
+        let output = Receipt::new(invalid.as_bytes()).inspect();
+        assert!(!output.status.success(), "accepted noncanonical CLI receipt");
+        assert!(output.stderr.starts_with(b"REJECTED:"));
+    }
 }

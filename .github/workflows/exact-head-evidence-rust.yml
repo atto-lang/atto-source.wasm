@@ -1,0 +1,41 @@
+name: Exact-head Rust evidence verifier
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exact-head-evidence-rust.yml'
+      - '.github/actions/exact-head-evidence/action.yml'
+      - 'verification/exact-head-evidence.rs'
+      - 'docs/EXACT_HEAD_EVIDENCE_V1.md'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-head-rust-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checkout identity
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Compile with warnings denied and execute all Rust adversarial tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustc --edition=2021 --deny warnings --test verification/exact-head-evidence.rs -o "$RUNNER_TEMP/exact-head-evidence-tests"
+          "$RUNNER_TEMP/exact-head-evidence-tests" --nocapture
+      - name: Compile production verifier independently
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 --deny warnings verification/exact-head-evidence.rs -o "$RUNNER_TEMP/exact-head-evidence"
+          test -s "$RUNNER_TEMP/exact-head-evidence"

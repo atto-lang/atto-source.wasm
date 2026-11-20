@@ -1,9 +1,28 @@
+import {types} from 'node:util';
+
 // Trusted-host immutable TCP slab. This is NOT a guest Wasm memory import,
 // socket connector, network capability, or unsafe shared-memory pointer.
 const MAX_BYTES = 1024 * 1024;
-const arrayBufferByteLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'byteLength').get;
-const typedArrayBuffer = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'buffer').get;
-const nativeTypedValues = Uint8Array.prototype.values;
+// Read genuine typed-array slots instead of overridden source properties or
+// iterators; a Uint8Array subclass must not substitute fabricated DATA bytes.
+const TypedBytes = Uint8Array;
+const typedPrototype = Object.getPrototypeOf(TypedBytes.prototype);
+const intrinsicGetter = (prototype, name) => Function.prototype.call.bind(
+  Object.getOwnPropertyDescriptor(prototype, name).get);
+const viewBuffer = intrinsicGetter(typedPrototype, 'buffer');
+const viewSize = intrinsicGetter(typedPrototype, 'byteLength');
+const viewOffset = intrinsicGetter(typedPrototype, 'byteOffset');
+const dataBuffer = intrinsicGetter(DataView.prototype, 'buffer');
+const resizableDescriptor = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable');
+const isResizable = resizableDescriptor?.get
+  ? Function.prototype.call.bind(resizableDescriptor.get) : () => false;
+const setBytes = Function.prototype.call.bind(TypedBytes.prototype.set);
+// Intrinsic definition of own indices: inherited setters cannot spoof iterable bytes.
+const defineOwnByte = Object.defineProperty;
+// A typed view can override @@iterator to execute arbitrary host code; iterate
+// non-Uint8Array typed arrays through the captured native method instead.
+const nativeTypedValues = Function.prototype.call.bind(typedPrototype.values);
+const arrayBufferByteLength = intrinsicGetter(ArrayBuffer.prototype, 'byteLength');
 export class FrozenTcpSlab {
   #bytes;
   #size;
@@ -11,29 +30,55 @@ export class FrozenTcpSlab {
   #pinCount = 0;
   #retiring = false;
   constructor(source) {
-    // A typed view can override @@iterator to execute arbitrary host code.
-    // Iterate via the captured native TypedArray method instead.
-    const isView = ArrayBuffer.isView(source);
-    let values;
-    if (isView) {
-      try {
-        const backing = typedArrayBuffer.call(source);
-        arrayBufferByteLength.call(backing); // Reject SAB or detached backing.
-        values = nativeTypedValues.call(source);
-      } catch {
+    if (source == null || types.isProxy(source))
+      throw new TypeError('invalid TCP byte source');
+    let copy = [];
+    if (types.isUint8Array(source)) {
+      // Backing ownership and credit accounting must use actual typed-array
+      // internal slots. Do not call a subclass iterator or byteLength getter.
+      const backing = viewBuffer(source);
+      if (types.isSharedArrayBuffer(backing))
         throw new TypeError('mutable shared backing memory is forbidden');
-      }
+      if (!types.isArrayBuffer(backing) || isResizable(backing))
+        throw new TypeError('resizable or invalid TCP byte backing is forbidden');
+      const size = viewSize(source);
+      if (size > MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
+      const offset = viewOffset(source);
+      const privateBytes = new TypedBytes(size);
+      setBytes(privateBytes, new TypedBytes(backing, offset, size));
+      // Never route a physically snapshotted view through Array.prototype.push:
+      // shared-realm prototype poisoning could silently drop or replace bytes.
+      // The copy is exclusively reachable through this class's private field.
+      this.#size = size;
+      this.#bytes = privateBytes;
+      return;
     } else {
-      if (source == null || typeof source[Symbol.iterator] !== 'function')
+      let values = source;
+      if (ArrayBuffer.isView(source)) {
+        const backing = types.isDataView(source) ? dataBuffer(source) : viewBuffer(source);
+        if (types.isSharedArrayBuffer(backing))
+          throw new TypeError('mutable shared backing memory is forbidden');
+        if (!types.isDataView(source)) {
+          // Never call a typed-array subclass @@iterator; reject detached backing.
+          try {
+            arrayBufferByteLength(backing);
+            values = nativeTypedValues(source);
+          } catch {
+            throw new TypeError('mutable shared backing memory is forbidden');
+          }
+        }
+      }
+      if (values === source && typeof source[Symbol.iterator] !== 'function')
         throw new TypeError('invalid TCP byte source');
-      values = source;
-    }
-    const copy = [];
-    for (const byte of values) {
-      if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
-      if (!Number.isInteger(byte) || byte < 0 || byte > 255)
-        throw new TypeError('TCP slab requires unsigned byte values');
-      copy.push(byte);
+      // Non-Uint8Array iterables are interpreted as explicit byte sequences,
+      // not as a view into some presumed physical backing store.
+      for (const byte of values) {
+        if (copy.length === MAX_BYTES) throw new RangeError('TCP slab exceeds one MiB');
+        if (!Number.isInteger(byte) || byte < 0 || byte > 255)
+          throw new TypeError('TCP slab requires unsigned byte values');
+        defineOwnByte(copy, copy.length,
+          {value: byte, writable: true, enumerable: true, configurable: true});
+      }
     }
     this.#size = copy.length;
     this.#bytes = Object.freeze(copy);
