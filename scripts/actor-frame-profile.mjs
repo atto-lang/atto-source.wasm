@@ -21,14 +21,14 @@ export function assertActorFrameProfile(ir, profile) {
   for (let i = 0; i < ir.length; i++) {
     const ch = ir[i];
     if (!inQuotedIdentifier && ch === ';') {
-      while (i < ir.length && ir[i] !== '\\n') i++;
-      if (i < ir.length) code += '\\n';
+      while (i < ir.length && ir[i] !== '\n') i++;
+      if (i < ir.length) code += '\n';
       continue;
     }
     code += ch;
     if (inQuotedIdentifier) {
       if (escaped) escaped = false;
-      else if (ch === '\\\\') escaped = true;
+      else if (ch === '\\') escaped = true;
       else if (ch === '"') inQuotedIdentifier = false;
     } else if (ch === '"') inQuotedIdentifier = true;
   }
