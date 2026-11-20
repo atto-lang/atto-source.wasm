@@ -68,8 +68,9 @@ function reject(id, edit, code) {
 try {
   const {invocation, output} = build('good');
   assert.equal(invocation.status, 0, invocation.stderr);
+  const size = statSync(output).size;
+  assert.ok(size > 8 && size <= 1024 * 1024, 'bounded real guest bytes');
   const bytes = readFileSync(output);
-  assert.ok(bytes.length > 8 && bytes.length <= 1024 * 1024, 'bounded real guest bytes');
   assert.ok(WebAssembly.validate(bytes), 'compiler emitted invalid wasm32');
   assert.ok(fixed_memory_pages(bytes) > 0, 'guest must own fixed private memory');
   const module = new WebAssembly.Module(bytes);
@@ -98,7 +99,8 @@ try {
 
   reject('transitive-cycle', project => {
     const path=join(project,'lib/math.atto');
-    writeFileSync(path,'import module Orders from "./orders.atto";\n'+readFileSync(path,'utf8'));
+    writeFileSync(path,readFileSync(path,'utf8').replace('use namespace maths;\n',
+      'use namespace maths;\nimport module Orders from "./orders.atto";\n'));
   }, 'E_IMPORT_CYCLE');
 
   reject('symlink-outside-package', project => {
