@@ -51,7 +51,7 @@ The local Node v22.16.0 targeted test
 `tests/trap-result-guest-outcome.test.mjs` passed **2/2**, using an actual
 hand-authored Wasm `unreachable` instruction and host-fault negatives.
 The exact local test/helper Git blobs were verified against this PR:
-`eee3dad0d83679aa7894d2d0fe1e4bbfa9348886` and
+`d929c2c2a35fa3238715366c021ee873eae6a02c` and
 `4e65854e7fcbc669bd167d5fcbcd6aa1401db296`.
 This is **host-policy verification only**. It is not proof of an Atto
 compiler artifact or signed-i64 overflow source behavior. The trust model
