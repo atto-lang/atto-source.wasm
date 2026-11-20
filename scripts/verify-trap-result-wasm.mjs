@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {isRuntimeTrapWithPanicCode} from '../src/trap-result-guest-outcome.mjs';
 
 const [compilerPath, samplePath, compilerSha, sampleBlob] = process.argv.slice(2);
 if (process.argv.length !== 6 || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
@@ -75,8 +76,16 @@ function run(guest) {
     print_newline: () => { stdout += '\n'; }
   };
   instance = new WebAssembly.Instance(module, {atto});
-  try { return {ok: true, value: instance.exports.main(), stdout}; }
-  catch (error) { return {ok: false, error: String(error), panic: instance.exports.panic_code.value, stdout}; }
+  try {
+    const value = instance.exports.main();
+    return {ok: true, value, panic: instance.exports.panic_code.value, stdout};
+  } catch (error) {
+    const panic = instance.exports.panic_code.value;
+    return {
+      ok: false, error: String(error), panic, stdout,
+      runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic)
+    };
+  }
 }
 
 // This gate is intentionally separate from the historical Option-era /play/
@@ -112,6 +121,7 @@ for (const testCase of positive) {
   assert.ok(output.ok, testCase.id + ' rejected by real compiler: ' + output.diagnostic);
   const execution = run(output.wasm);
   assert.ok(execution.ok, testCase.id + ' trapped: ' + execution.error);
+  assert.equal(execution.panic, 0, testCase.id + ' returned with pending panic code');
   assert.equal(execution.value, testCase.expected, testCase.id + ' result mismatch');
   assert.equal(execution.stdout, '', testCase.id + ' unexpected guest output');
   compiledCases.push({id: testCase.id, guest_sha256: sha256(output.wasm)});
@@ -144,8 +154,8 @@ const overflow = compile([
 ].join('\n'));
 assert.ok(overflow.ok, 'overflow test cannot compile: ' + overflow.diagnostic);
 const fatal = run(overflow.wasm);
-assert.ok(!fatal.ok && fatal.panic === 1,
-  'checked overflow panic must bypass Result trap');
+assert.ok(!fatal.ok && fatal.runtimeTrapWithPanicCode && fatal.panic === 1,
+  'checked overflow must produce a real Wasm trap with panic_code=1, not a host import failure');
 
 console.log(JSON.stringify({
   status: 'PASS',
