@@ -59,7 +59,7 @@ test('Clang-generated zero-import Wasm guest memory scrubs after lifecycle teard
     '  ret i64 %value',
     '}',
     'define void @oreslang_wasm_actor_teardown() { ret void }'
-  ].join('\\n');
+  ].join('\n');
   try {
     const args = ['--target=wasm32', '-x', 'ir', '-O0', '-nostdlib',
       '-Wl,--no-entry', '-Wl,--export-memory',
