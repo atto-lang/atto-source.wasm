@@ -23,7 +23,7 @@ Requires Node 22+ and no external network access:
 
     node --test tests/hosted-io-v1.test.mjs
 
-The file is also picked up by the existing npm test wildcard. The test runs a local HTTP server on a random loopback port. The original source and 10 host tests passed locally on Node 22.16.0. This is **host-only** evidence, not a GitHub Actions or compiled Atto guest pass. Rerun exact-PR-head tests and require independent review before merging.
+The file is also picked up by the existing npm test wildcard. The test runs a local HTTP server on a random loopback port. The original source and 11 host tests passed locally on Node 22.16.0. This is **host-only** evidence, not a GitHub Actions or compiled Atto guest pass. Rerun exact-PR-head tests and require independent review before merging.
 
 ## Not yet implemented
 
