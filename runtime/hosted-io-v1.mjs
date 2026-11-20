@@ -199,17 +199,22 @@ export class TenantHostedIoV1 {
       if (!response.body || typeof response.body.getReader !== 'function') fail('E_NET_BODY');
       const chunks = [];
       let size = 0;
-      const reader = response.body.getReader();
+      let reader;
+      try { reader = response.body.getReader(); } catch { fail('E_NET_BODY'); }
       try {
         while (true) {
-          const {done, value} = await reader.read();
+          let part;
+          try { part = await reader.read(); } catch { fail('E_NET_TRANSPORT'); }
+          const {done, value} = part;
           if (done) break;
           if (!(value instanceof Uint8Array) || value.byteLength > this.#maxBodyBytes - size)
             fail('E_NET_LIMIT');
           size += value.byteLength;
           chunks.push(new Uint8Array(value));
         }
-      } finally { reader.releaseLock(); }
+      } finally {
+        try { reader.releaseLock(); } catch { /* Abort may have retired reader. */ }
+      }
       const bytes = new Uint8Array(size);
       let offset = 0;
       for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
