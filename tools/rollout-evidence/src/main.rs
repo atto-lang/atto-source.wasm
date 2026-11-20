@@ -14,6 +14,15 @@ fn digest(s: &str, size: usize) -> bool {
         && s.bytes().any(|b| b != b'0')
 }
 
+fn canonical_tsv(text: &str) -> bool {
+    !text.is_empty()
+        && (text.len() as u64) <= LIMIT
+        && text.ends_with('\n')
+        && text
+            .bytes()
+            .all(|b| b == b'\t' || b == b'\n' || (b' '..=b'~').contains(&b))
+}
+
 fn positive(s: &str) -> bool {
     s.bytes().all(|b| b.is_ascii_digit())
         && !s.starts_with('0')
@@ -21,6 +30,9 @@ fn positive(s: &str) -> bool {
 }
 
 fn manifest(text: &str) -> Result<BTreeSet<(String, String, String)>, String> {
+    if !canonical_tsv(text) {
+        return Err("acceptance manifest must be canonical ASCII/LF TSV".into());
+    }
     let mut result = BTreeSet::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let c: Vec<_> = line.split('\t').collect();
@@ -51,7 +63,7 @@ fn inspect(
     if !digest(commit, 40) || !digest(tree, 40) || !digest(corpus, 64) {
         return Err("expected pins must be nonzero lowercase full digests".into());
     }
-    if text.len() as u64 > LIMIT || !text.is_ascii() || text.contains('\r') {
+    if !canonical_tsv(text) {
         return Err("receipt must be bounded canonical ASCII/LF TSV".into());
     }
     let expected = manifest(cases)?;
@@ -140,6 +152,25 @@ mod tests {
         let (commit, tree, corpus) = pins();
         inspect(text, cases, REPOSITORY, &commit, &tree, &corpus)
     }
+    #[test]
+    fn reject_control_characters_and_missing_lf_in_receipts_and_manifest() {
+        let cases = "sample\tjava\texecution\n";
+        let valid = receipt(cases);
+        assert!(check(&valid, cases).is_ok());
+        assert!(check(valid.trim_end_matches('\n'), cases).is_err());
+        assert!(manifest("sample\tjava\texecution").is_err());
+        for code in ['\x07', '\x1b', '\x7f', '\x0b'] {
+            let bad_name = format!("sam{code}ple");
+            let bad_cases = cases.replace("sample", &bad_name);
+            let bad_receipt = valid.replace("sample", &bad_name);
+            assert!(manifest(&bad_cases).is_err(), "control {code:?} in manifest");
+            assert!(
+                check(&bad_receipt, &bad_cases).is_err(),
+                "control {code:?} in receipt"
+            );
+        }
+    }
+
     #[test]
     fn complete_local_profile_is_consistent_only() {
         assert_eq!(

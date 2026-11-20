@@ -40,6 +40,22 @@ for (const [index, source] of [
   });
 }
 
+test("Wasm preflight rejects raw NUL before comment and string elision", () => {
+  const examples = [
+    ["/* hidden\0 */ fnc main():int{return 42;}", 9],
+    ["// hidden\0 tail\nfnc main():int{return 42;}", 9],
+    ['fnc main():int{val s="hidden\0";return 42;}', 28]
+  ];
+  for(const [source,offset] of examples)
+    assert.throws(() => rejectUnsupportedDurableM0Source(bytes(source)),
+      new RegExp("WASM source preflight contains NUL byte at byte offset "+offset+"$"));
+  const unicode="/* 😀 */\0 fnc main():int{return 42;}";
+  assert.throws(() => rejectUnsupportedDurableM0Source(bytes(unicode)),
+    /WASM source preflight contains NUL byte at byte offset 10$/);
+  assert.doesNotThrow(() =>
+    rejectUnsupportedDurableM0Source(bytes("/* café */ fnc main():int{return 42;}")));
+});
+
 test("Wasm M0 checks malformed UTF-8 and unterminated comments before compiler", () => {
   assert.throws(() => rejectUnsupportedDurableM0Source(new Uint8Array([0xff])),
     /encoded|valid|UTF/i);
@@ -86,4 +102,34 @@ test("Wasm bridge rejects shared 464-byte corpus before LLVM compilation", () =>
   assert.equal(raw.length, 464);
   assert.throws(() => rejectUnsupportedDurableM0Source(raw),
     /DURABLE_M0_BACKEND_UNSUPPORTED: Wasm durable activity/);
+});
+
+
+test("Wasm source budget uses physical typed-array size, not spoofed getters", () => {
+  class SpoofedBytes extends Uint8Array {
+    get byteLength() { throw Error("spoofed byteLength getter must not run"); }
+  }
+  const tooLarge = new SpoofedBytes(1024 * 1024 + 1);
+  tooLarge.fill(0x61);
+  assert.throws(() => rejectUnsupportedDurableM0Source(tooLarge),
+    /WASM source preflight byte budget exceeded/);
+  assert.doesNotThrow(() =>
+    rejectUnsupportedDurableM0Source(new SpoofedBytes(bytes("fnc main():int{return 42;}"))));
+  const view = new DataView(new ArrayBuffer(0));
+  Object.defineProperty(view, "byteLength",
+    {get() { throw Error("forged DataView length"); }});
+  assert.doesNotThrow(() => rejectUnsupportedDurableM0Source(view));
+});
+
+test("Wasm source preflight rejects Proxy and shared backing without invoking hooks", () => {
+  let calls = 0;
+  const proxy = new Proxy(new Uint8Array([97]), {
+    get() { calls++; throw Error("untrusted proxy trap"); }
+  });
+  assert.throws(() => rejectUnsupportedDurableM0Source(proxy),
+    /requires nonshared byte input/);
+  assert.equal(calls, 0);
+  assert.throws(() =>
+    rejectUnsupportedDurableM0Source(new Uint8Array(new SharedArrayBuffer(2))),
+    /forbids shared backing/);
 });
