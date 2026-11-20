@@ -54,7 +54,7 @@ function snapshot(value, fields) {
   for (const k of fields) {
     const d = Object.getOwnPropertyDescriptor(value, k);
     if (!d || !Object.hasOwn(d, 'value') || d.enumerable !== true)
-      bad('accessor, hidden or missing notice field');
+      bad('accessor field denied or hidden/missing notice field');
     data[k] = d.value;
   }
   return data;
