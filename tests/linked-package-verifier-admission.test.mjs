@@ -1,3 +1,4 @@
+import {fixed_memory_pages} from '../src/wasm-profile.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -54,4 +55,14 @@ test('nonmatching real file bytes reject before any source graph compilation',()
   }finally{
     rmSync(dir,{recursive:true,force:true});
   }
+});
+
+// Rust wasm.rs emits no memory for scalar-only/inline-task source.
+// A present memory must be fixed; growth/oversize is denied.
+test('scalar-only guests may omit memory, while present memories remain bounded',()=>{
+  const header=Buffer.from([0,97,115,109,1,0,0,0]);
+  assert.equal(fixed_memory_pages(header),0,'no memory is a valid scalar guest');
+  assert.equal(fixed_memory_pages(Buffer.concat([header,Buffer.from([5,4,1,1,1,1])])),1);
+  assert.throws(()=>fixed_memory_pages(Buffer.concat([header,Buffer.from([5,3,1,0,1])])),/E_WASM_MEMORY/);
+  assert.throws(()=>fixed_memory_pages(Buffer.concat([header,Buffer.from([5,4,1,1,1,17])])),/E_WASM_MEMORY/);
 });
