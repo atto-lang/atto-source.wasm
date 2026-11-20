@@ -26,7 +26,7 @@ Required actual compiler + guest gate:
 
     node scripts/verify-linked-package-wasm.mjs /absolute/reviewed/attoc <exact-compiler-sha256>
 
-The mandatory gate builds and executes a real import-free wasm32 guest returning signed `42` from three linked source files. It also requires no output artifact on private member access, missing transitive dependency, path traversal, import cycle and symlink escape. The binary size, fixed private memory, imports, export names, source blob identities, toolchain digest and child-process outcome are bounded. Compiler SHA alone is NOT proof of reviewed source-to-binary provenance.
+The mandatory gate builds and executes a real import-free wasm32 guest returning signed `42` from three linked source files. It also requires no output artifact on private member access, missing transitive dependency, path traversal, import cycle and symlink escape. The binary size, optional private linear memory (absent for scalar-only guests, fixed and bounded if present), imports, typed export ABI, source blob identities, toolchain digest and child-process outcome are bounded. Memoryless scalar guests must not be rejected merely because they lack a memory section; unbounded or hidden present memory is denied. Compiler SHA alone is NOT proof of reviewed source-to-binary provenance.
 
 This is a trusted test fixture and not a production untrusted-TenantVM sandbox. It does not grant Wasm imports, guest filesystem or sockets; the package source filesystem access occurs in the trusted compiler process, not guest execution.
 
