@@ -67,7 +67,7 @@ export function verifySignedActorProfileApproval(approval, expectedWasmSha256, k
   const signature = Buffer.from(x.signature, 'base64url');
   if (signature.length !== 64 || signature.toString('base64url') !== x.signature)
     throw Error('noncanonical actor profile approval signature');
-  const publicKey = createPublicKey(key);
+  const publicKey = key?.type === 'public' ? key : createPublicKey(key);
   if (publicKey.asymmetricKeyType !== 'ed25519')
     throw TypeError('actor profile approval requires trusted Ed25519 key');
   if (!verify(null, bytes, publicKey, signature))
