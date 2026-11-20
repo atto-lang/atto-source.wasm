@@ -26,6 +26,8 @@ export class HostProxyMailboxTicketsV1 {
   #queued = [];
   #current = null;
   #tickets = new WeakMap();
+  // A forged object containing a ticket cannot impersonate a carrier-issued turn.
+  #turnLeases = new WeakSet();
   #closed = false;
   #fenced = false;
   #admitted = 0;
@@ -81,11 +83,14 @@ export class HostProxyMailboxTicketsV1 {
       throw Error('E_PROXY_TICKET_CONSERVATION');
     state.stage = 'started';
     this.#current = ticket;
-    return Object.freeze({ticket, value: state.value});
+    const turn = Object.freeze({ticket, value: state.value});
+    this.#turnLeases.add(turn);
+    return turn;
   }
   // commit only after real handler return; never infer from aggregate counters.
   commit(turn, result) {
-    if (!turn || turn.ticket !== this.#current || !this.#current)
+    if (!turn || typeof turn !== 'object' || !this.#turnLeases.has(turn) ||
+        turn.ticket !== this.#current || !this.#current)
       return false;
     const state = this.#tickets.get(turn.ticket);
     if (!state || state.stage !== 'started' || this.#fenced) return false;
@@ -95,17 +100,20 @@ export class HostProxyMailboxTicketsV1 {
     state.stage = 'processed';
     this.#processed++;
     this.#current = null;
+    this.#turnLeases.delete(turn);
     return true;
   }
   // A handler exception faults exactly the active mail, then fences and
   // abandons all waiting tickets. CONTROL notification is a separate contract.
   panic(turn) {
-    if (!turn || turn.ticket !== this.#current || !this.#current) return false;
+    if (!turn || typeof turn !== 'object' || !this.#turnLeases.has(turn) ||
+        turn.ticket !== this.#current || !this.#current) return false;
     const state = this.#tickets.get(turn.ticket);
     if (!state || state.stage !== 'started') return false;
     state.stage = 'failed';
     this.#failed++;
     this.#current = null;
+    this.#turnLeases.delete(turn);
     this.#fenced = true;
     this.#closed = true;
     for (const ticket of this.#queued) {
