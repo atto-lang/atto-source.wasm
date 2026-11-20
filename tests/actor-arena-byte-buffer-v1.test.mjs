@@ -49,7 +49,7 @@ test('actor arena opaque handles, turn identity, and drops prevent foreign acces
   const owned = a.allocPersistent(ta, 8), foreign = b.allocPersistent(tb, 8);
   a.writeUnsigned(ta, owned, 4, 4, 4294967295, 'le');
   assert.equal(a.readUnsigned(ta, owned, 4, 4, 'le'), 4294967295);
-  assert.throws(() => b.readUnsigned(tb, owned, 4, 'le'), /foreign|stale/);
+  assert.throws(() => b.readUnsigned(tb, owned, 0, 4, 'le'), /foreign|stale/);
   assert.throws(() => a.writeUnsigned(ta, foreign, 0, 4, 1, 'le'), /foreign|stale/);
   a.dropPersistent(ta, owned);
   assert.throws(() => a.readUnsigned(ta, owned, 0, 1, 'le'), /foreign|stale/);
