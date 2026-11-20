@@ -62,6 +62,18 @@ test('mis-sized, competing, comment-only and unclean frames fail closed', () => 
     /depth/);
   assert.throws(() => assertActorFrameProfile(stackIR.replace('[64 x i64]', '[63 x i64]'), STACK64),
     /stack64/);
+  // Regression: LLVM ignores everything after ';' on a code line.
+  // Old profile parser incorrectly counted forged volatile stores in comments.
+  const commentSpoof = scalarIR(2).split('\\n').map((line, i) =>
+    line.includes('store volatile i64')
+      ? '  %comment_spoof_' + i + ' = add i64 0, 0 ; ' + line.trim()
+      : line).join('\\n');
+  assert.throws(() => assertActorFrameProfile(commentSpoof, SCALAR),
+    /zeroization|stores incomplete/);
+  const stackCommentSpoof = stackIR.replace('store volatile i64 0, ptr %slot',
+    '%noop = add i64 0, 0 ; store volatile i64 0, ptr %slot');
+  assert.throws(() => assertActorFrameProfile(stackCommentSpoof, STACK64),
+    /cleanup evidence missing/);
   assert.throws(() => assertActorFrameProfile(stackIR, 'auto'), /unknown or implicit/);
   assert.throws(() => assertActorFrameProfile('', SCALAR), /bounded/);
   assert.throws(() => assertActorFrameProfile('x'.repeat(2 * 1024 * 1024 + 1), SCALAR), /bounded/);
