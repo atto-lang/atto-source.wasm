@@ -16,7 +16,7 @@ The verifier also compiles and executes an ordinary thrown `Error` caught as `Er
 
 Source-only host tests (not guest proof):
 
-    node --test tests/trap-result-verifier-v1.test.mjs
+    node --test tests/trap-result-verifier-v1.test.mjs tests/trap-result-guest-outcome.test.mjs
 
 Guest gate (requires independently reviewed compiler and the exact source blob):
 
@@ -32,3 +32,30 @@ An artifact SHA-256 identifies bytes but does not authenticate the compiler buil
 Not verified: general Error subtype union joins, actor-local traps, suspension, TaskScope, TenantVM security, external I/O, or multi-file source linking. Zero-step CI, unavailable compiler and skipped tests are NOT_EXECUTED.
 
 Conformance #68 owns canonical semantic fixtures, Rust #331 owns compiler lowering, and this Wasm branch owns the missing artifact verifier. Wasm migration #49 remains independent but must be reconciled before merging; no history squashing.
+
+## Guest trap versus host callback failure (2026-11-20)
+
+The previous verifier accepted `!execution.ok && panic_code === 1` as an
+overflow-panic witness. But its trusted JS print adapters could throw an
+ordinary host-side `Error` (for example an invalid string pointer) after
+guest code wrote `panic_code=1`. That combination is **not** evidence of a
+real Wasm trap or of correct `trap` semantics.
+
+The current verifier requires both a `WebAssembly.RuntimeError` during
+`main()` and `panic_code === 1` for the overflow bypass. Ordinary
+host `Error`, `RangeError`, `TypeError`, Wasm compilation and linking
+failures cannot satisfy the witness. On all three positive executions the
+verifier also requires `panic_code === 0`.
+
+The local Node v22.16.0 targeted test
+`tests/trap-result-guest-outcome.test.mjs` passed **2/2**, using an actual
+hand-authored Wasm `unreachable` instruction and host-fault negatives.
+The exact local test/helper Git blobs were verified against this PR:
+`eee3dad0d83679aa7894d2d0fe1e4bbfa9348886` and
+`4e65854e7fcbc669bd167d5fcbcd6aa1401db296`.
+This is **host-policy verification only**. It is not proof of an Atto
+compiler artifact or signed-i64 overflow source behavior. The trust model
+also requires that this verifier's controlled import callbacks do not
+themselves throw `WebAssembly.RuntimeError`; such callbacks must fail as
+ordinary host errors. Real authenticated Rust compiler → Wasm guest positives,
+negatives and exact-head CI remain **NOT_EXECUTED**.
