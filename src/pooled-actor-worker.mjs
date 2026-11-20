@@ -6,6 +6,7 @@ import {ActorArena} from './actor-arena.mjs';
 import {withManagedActorTurn} from './pooled-actor-frame-turn.mjs';
 import {ActorTaskLedger} from './actor-task-lifecycle.mjs';
 import {makeActorTaskReceipt} from './actor-task-quiescence.mjs';
+import {scrubFixedGuestMemory} from './pooled-actor-guest-scrub.mjs';
 import {ACTOR_FRAME_PROFILES} from '../scripts/actor-frame-profile.mjs';
 
 // Experimental trusted scalar actor carrier. One OS Worker owns MANY distinct
@@ -94,7 +95,7 @@ parentPort.on('message', request => {
         throw Error('actor task physical quiescence not proven');
       const stopped = withManagedActorTurn(actor.frames,
         () => actor.exports.oreslang_wasm_actor_teardown());
-      new Uint8Array(actor.exports.memory.buffer).fill(0);
+      scrubFixedGuestMemory(actor.exports.memory);
       actor.frames.retire();
       if (!actor.frames.retired || actor.frames.pendingLifetimePins !== 0)
         throw Error('actor frame physical retirement not proven');
