@@ -3,6 +3,8 @@ import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 import {ActorArena} from './actor-arena.mjs';
 import {withManagedActorTurn} from './pooled-actor-frame-turn.mjs';
+import {ActorTaskLedger} from './actor-task-lifecycle.mjs';
+import {makeActorTaskReceipt} from './actor-task-quiescence.mjs';
 
 // Experimental trusted scalar actor carrier. One OS Worker owns MANY distinct
 // Wasm instances. Never accept raw host imports or cross-instance pointers.
@@ -43,12 +45,14 @@ parentPort.on('message', request => {
       // Transport checks the random incarnation; worker-local IDs are never reused.
       // ActorArena is the single canonical turn/frame authority (#415).
       const actor = {incarnation, exports: e,
-        frames: new ActorArena({actorId: id, incarnation: 1})};
+        frames: new ActorArena({actorId: id, incarnation: 1}),
+        tasks: new ActorTaskLedger()};
       actors.set(id, actor);
       const opened = withManagedActorTurn(actor.frames,
         () => e.oreslang_wasm_actor_init());
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket,
-        result: null, frame: opened.frame});
+        result: null, frame: opened.frame,
+        task: makeActorTaskReceipt(actor.tasks, 'init')});
       return;
     }
     const actor = actors.get(id);
@@ -60,19 +64,29 @@ parentPort.on('message', request => {
         () => actor.exports.oreslang_wasm_actor_on_message(request.value),
         {input: request.value, resultType: 'i64'});
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket,
-        result: handled.value, frame: handled.frame});
+        result: handled.value, frame: handled.frame,
+        task: makeActorTaskReceipt(actor.tasks, 'send')});
       return;
     }
     if (kind === 'stop') {
       // Revoke the binding before guest teardown; failure is terminal for
       // this entire carrier, never a retry on partly retired state.
-      actors.delete(id);
+      // #49 task ledger STOP is authoritative: cancellation alone is NOT
+      // physical quiescence. Any live/suspended task forbids teardown ACK.
+      actor.tasks.stop();
+      if (!actor.tasks.isQuiescent())
+        throw Error('actor task physical quiescence not proven');
       const stopped = withManagedActorTurn(actor.frames,
         () => actor.exports.oreslang_wasm_actor_teardown());
       new Uint8Array(actor.exports.memory.buffer).fill(0);
       actor.frames.retire();
+      if (!actor.frames.retired || actor.frames.pendingLifetimePins !== 0)
+        throw Error('actor frame physical retirement not proven');
+      const task = makeActorTaskReceipt(actor.tasks, 'stop');
+      // Revoke actor registry only AFTER independent task/frame and scrub gates.
+      actors.delete(id);
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket,
-        result: null, frame: {...stopped.frame, retired: actor.frames.retired}});
+        result: null, frame: {...stopped.frame, retired: true}, task});
       return;
     }
     throw Error('unsupported actor operation');
