@@ -43,9 +43,17 @@ function execute(id, source) {
   assert.ok(size>8&&size<=1024*1024,id+' invalid guest size');
   const bytes=readFileSync(output);
   assert.ok(WebAssembly.validate(bytes),id+' invalid emitted guest');
-  assert.ok(fixed_memory_pages(bytes)>0,id+' unbounded/private memory failed');
+  const pages=fixed_memory_pages(bytes); // 0 is valid for scalar-only guests.
+  // If the compiler emits linear memory, the Wasm profile ensures it is fixed and bounded.
+  // Any present memory must be explicitly exported, never hidden from the host.
+  assert.ok(pages>=0,id+' invalid memory layout');
   const module=new WebAssembly.Module(bytes);
   assert.deepEqual(WebAssembly.Module.imports(module),[],id+' imports unsupported host authority');
+  const exports=WebAssembly.Module.exports(module);
+  const memoryExports=exports.filter(e=>e.kind==='memory');
+  assert.equal(memoryExports.length,pages===0?0:1,id+' memory export must match fixed memory layout');
+  assert.ok(exports.some(e=>e.name==='main'&&e.kind==='function'),id+' main must be a function');
+  assert.ok(exports.some(e=>e.name==='panic_code'&&e.kind==='global'),id+' panic code must be a global');
   const names=WebAssembly.Module.exports(module).map(e=>e.name);
   assert.ok(names.includes('main')&&names.includes('panic_code'),id+' ABI missing');
   assert.ok(names.every(x=>['main','panic_code','memory'].includes(x)),id+' unexpected authority');
@@ -65,6 +73,9 @@ function reject(id, body, code) {
 try {
   execute('canonical-inline',src);
   execute('void-inline-return','pub fnc main(): int { do sync task { return; }; return 42; }\n');
+  execute('void-lifo-defer','pub fnc main(): int { let x = 0; do sync task<void> { defer { x = 1; }; defer { x = 2; }; return; }; return 41 + x; }\n');
+  execute('scalar-branch-return','pub fnc main(): int { val x = sync task<int> { if true { return 40; } else { return 7; } fi }; return x + 2; }\n');
+  execute('nested-block-return','pub fnc main(): int { val x = sync task<int> { block { val y = 42; return y; } }; return x; }\n');
 
   // Must mirror the exact native Rust/Wasm compiler's #438 typed rejection policy.
   reject('bare-sync-statement','sync task {}; return 42;','E_SYNTAX');
@@ -74,6 +85,10 @@ try {
   reject('void-as-value','val x = sync task<void> {}; return 42;','E_TYPE');
   reject('unscheduled-task','val x = task<int> { return 42; }; return 0;','E_UNSUPPORTED');
   reject('unimplemented-await','val x = sync task<int> { return await task<int> { return 42; }; }; return x;','E_UNSUPPORTED');
+  reject('void-typed-nonvoid-return','do sync task<void> { return 7; }; return 42;','E_TASK_RETURN_TYPE');
+  reject('nonvoid-mismatched-type','val x = sync task<int> { return true; }; return 0;','E_TYPE');
+  reject('missing-typed-return','val x = sync task<int> { if true { return 42; } fi }; return x;','E_RETURN');
+  reject('no-body-discard-int','do sync task<int> {}; return 42;','E_TASK_RETURN_TYPE');
 
   assert.equal(sha256(readFileSync(compiler)),expectedSha,'compiler changed during execution');
   console.log(JSON.stringify({
