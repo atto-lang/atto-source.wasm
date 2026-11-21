@@ -9,7 +9,6 @@ const alloc=ActorArena.prototype.allocPersistent;
 const drop=ActorArena.prototype.dropPersistent;
 const readBytes=ActorArena.prototype.readRangeInto;
 const writeBytes=ActorArena.prototype.writeRange;
-const subarray=Uint8Array.prototype.subarray;
 const fill=Uint8Array.prototype.fill;
 const readU32=DataView.prototype.getUint32;
 const writeU32=DataView.prototype.setUint32;
@@ -20,6 +19,8 @@ const writeU8=DataView.prototype.setUint8;
 
 export class ActorMixedShard {
   #arena; #handle; #geometry; #staging=new Uint8Array(8);
+  #one=new Uint8Array(this.#staging.buffer,0,1);
+  #four=new Uint8Array(this.#staging.buffer,0,4);
   #view=new DataView(this.#staging.buffer); #released=false;
   constructor(arena,turn,options) {
     if(!options || typeof options!=="object")throw new TypeError("mixed shard options required");
@@ -37,10 +38,12 @@ export class ActorMixedShard {
   #live(){if(this.#released)throw new Error("mixed actor shard released");}
   address(row,field){this.#live();return this.#geometry.address(row,field);}
   read(turn,row,field){
-    const addr=this.address(row,field),width=addr.type==="f64"?8:addr.type==="bool"?1:4;
-    readBytes.call(this.#arena,turn,this.#handle,addr.absoluteByteOffset,
-      subarray.call(this.#staging,0,width));
-    switch(addr.type){
+    this.#live();
+    const offset=this.#geometry.offsetAt(row,field);
+    const type=this.#geometry.typeOf(field);
+    const cell=type==="f64"?this.#staging:type==="bool"?this.#one:this.#four;
+    readBytes.call(this.#arena,turn,this.#handle,offset,cell);
+    switch(type){
       case "u32":case "ref32":return readU32.call(this.#view,0,true);
       case "f64":return readF64.call(this.#view,0,true);
       case "bool": {
@@ -52,23 +55,24 @@ export class ActorMixedShard {
     }
   }
   write(turn,row,field,value){
-    const addr=this.address(row,field);
-    let width;
-    switch(addr.type){
+    this.#live();
+    const offset=this.#geometry.offsetAt(row,field);
+    const type=this.#geometry.typeOf(field);
+    let cell;
+    switch(type){
       case "u32":case "ref32":
         if(!nativeInteger(value)||value<0||value>0xffffffff)
           throw new RangeError("u32/ref32 must be an unsigned 32-bit word");
-        writeU32.call(this.#view,0,value,true);width=4;break;
+        writeU32.call(this.#view,0,value,true);cell=this.#four;break;
       case "f64":
         if(typeof value!=="number")throw new TypeError("f64 required");
-        writeF64.call(this.#view,0,value,true);width=8;break;
+        writeF64.call(this.#view,0,value,true);cell=this.#staging;break;
       case "bool":
         if(typeof value!=="boolean")throw new TypeError("bool required");
-        writeU8.call(this.#view,0,value?1:0);width=1;break;
+        writeU8.call(this.#view,0,value?1:0);cell=this.#one;break;
       default:throw new Error("unsupported mixed scalar");
     }
-    writeBytes.call(this.#arena,turn,this.#handle,addr.absoluteByteOffset,
-      subarray.call(this.#staging,0,width));
+    writeBytes.call(this.#arena,turn,this.#handle,offset,cell);
   }
   integrate(turn,positionField,velocityField,dt){
     this.#live();

@@ -113,7 +113,10 @@ class MixedLayoutGeometry {
     if(physical>NativeBigInt(maxBytes))throw new RangeError("mixed layout exceeds actor physical byte cap");
     this.#fields=nativeFreeze(declarations);this.#byName=map;
     this.#segments=nativeFreeze(arrayMap.call(segments,seg=>nativeFreeze({bytes:NativeNumber(seg.bytes),alignment:NativeNumber(seg.alignment),stride:NativeNumber(seg.stride),base:NativeNumber(seg.base)})));
-    this.#locators=nativeFreeze(arrayMap.call(locators,nativeFreeze));
+    // Quota admission above proves numeric coordinates fit in 256 MiB.
+    this.#locators=nativeFreeze(arrayMap.call(locators,loc=>nativeFreeze({
+      segment:loc.segment,offset:NativeNumber(loc.offset),stride:NativeNumber(loc.stride)
+    })));
     this.#rows=rows;this.#layout=layout;this.#tileWidth=tileWidth??1;this.#allocationBytes=NativeNumber(physical);this.#totalBytes=NativeNumber(total);
   }
   get rows(){return this.#rows;} get layout(){return this.#layout;}
@@ -124,15 +127,25 @@ class MixedLayoutGeometry {
       throw new RangeError("unknown mixed field");
     return this.#fields[mapGet.call(this.#byName,name)].type;
   }
-  address(row,field){
-    if(!safeInteger(row)||row<0||row>=this.#rows||typeof field!=="string"||!mapHas.call(this.#byName,field))throw new RangeError("mixed row/field out of bounds");
+  // Checked primitive offset: avoids frozen records/BigInt on ECS hot path.
+  offsetAt(row,field){
+    if(!safeInteger(row)||row<0||row>=this.#rows||
+        typeof field!=="string"||!mapHas.call(this.#byName,field))
+      throw new RangeError("mixed row/field out of bounds");
     const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
-    const byteOffset=this.#layout==="aosoa" ?
-      NativeNumber(NativeBigInt(nativeFloor(row/this.#tileWidth))*NativeBigInt(seg.stride)+loc.offset+NativeBigInt(row%this.#tileWidth)*loc.stride):
-      NativeNumber(NativeBigInt(row)*loc.stride+loc.offset);
-    const width=this.#fields[at].bytes;
-    if(byteOffset<0||byteOffset+width>seg.bytes)throw new RangeError("mixed cell outside segment");
-    return nativeFreeze({segment:loc.segment,byteOffset,absoluteByteOffset:seg.base+byteOffset,type:this.#fields[at].type});
+    const byteOffset=this.#layout==="aosoa"
+      ? nativeFloor(row/this.#tileWidth)*seg.stride+loc.offset+
+        (row%this.#tileWidth)*loc.stride
+      : row*loc.stride+loc.offset;
+    if(byteOffset<0||byteOffset+this.#fields[at].bytes>seg.bytes)
+      throw new RangeError("mixed cell outside segment");
+    return seg.base+byteOffset;
+  }
+  address(row,field){
+    const absoluteByteOffset=this.offsetAt(row,field);
+    const at=mapGet.call(this.#byName,field),loc=this.#locators[at],seg=this.#segments[loc.segment];
+    return nativeFreeze({segment:loc.segment,byteOffset:absoluteByteOffset-seg.base,
+      absoluteByteOffset,type:this.#fields[at].type});
   }
 }
 export {MixedLayoutGeometry};
