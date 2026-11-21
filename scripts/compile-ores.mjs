@@ -188,7 +188,7 @@ function tupleV2Tokens(sourceBytes){
    if(depth)throw Error("unterminated block comment at byte "+start);
    continue;
   }
-  if(c==="\""||c==="'"){
+  if(c==="\""||c==="'"||c==="`"){
    const quote=c;const start=i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
