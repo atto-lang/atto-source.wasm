@@ -56,3 +56,18 @@ test('rejects NUL and malformed UTF-8 and tolerates NEL trivia',()=>{
   assert.throws(()=>rejectImport(Uint8Array.from([0xc3,0x28])),/encoded|valid|UTF/i);
   assert.doesNotThrow(()=>check('// benign\u0085fnc main():int{return 42;}'));
 });
+
+
+test('mutating RegExp.exec cannot admit imports, including after NEL line comments', () => {
+  const prior = RegExp.prototype.exec;
+  const seen = [];
+  RegExp.prototype.exec = () => null;
+  try {
+    for(const source of ['import +private/secret;',
+      '// benign\u0085import +private/secret;']) {
+      try {check(source);} catch (error) {seen.push(error.message);}
+    }
+  } finally {RegExp.prototype.exec = prior;}
+  assert.equal(seen.length,2);
+  for(const message of seen) assert.match(message,/imports require verified complete Wasm module graph/);
+});
