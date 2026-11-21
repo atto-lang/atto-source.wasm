@@ -89,3 +89,18 @@ test('unicast preflight rejects implicit fan-in and duplicate direction, allows 
  assert.equal(checkUnicastDirectedPipes([first,independent]),true);
  assert.throws(()=>checkUnicastDirectedPipes([{...first}]),/E_PIPE_PLAN_CAPABILITY/);
 });
+
+test('contextual pipe! and rpipe! normalize to the same canonical DATA edges',()=> {
+ const plain=planDirectedPipe([producer,consumer],'pipe');
+ const forward=planDirectedPipe([producer,consumer],'pipe!');
+ const reverse=planDirectedPipe([consumer,producer],'rpipe!');
+ assert.deepEqual(forward.edges,plain.edges);
+ assert.deepEqual(reverse.edges,plain.edges);
+ assert.equal(forward.direction,'pipe');
+ assert.equal(reverse.direction,'rpipe');
+ assert.deepEqual(reverse.flowIndices,[1,0]);
+ assert.throws(()=>planDirectedPipe([producer,consumer],'pipe !'),/direction/);
+ assert.throws(()=>planDirectedPipe([producer,consumer],'stop!'),/direction/);
+ assert.throws(()=>planDirectedPipe([producer,{...consumer,tenant:'tenant-B'}],'pipe!'),/cross-tenant/);
+ assert.throws(()=>planDirectedPipe([producer,{...consumer,inbound:'string'}],'pipe!'),/type/);
+});
