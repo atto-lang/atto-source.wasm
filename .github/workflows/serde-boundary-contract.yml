@@ -28,10 +28,17 @@ jobs:
           test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
           test -z "$(git status --porcelain)"
           printf 'source=%s tree=%s\n' "$(git rev-parse HEAD)" "$(git rev-parse 'HEAD^{tree}')"
-      - name: Verify byte-pinned DATA CONTROL contract
-        run: python3 scripts/verify_serde_contract.py
-      - name: Run exactly 25 security regressions without skips
-        run: python3 scripts/test_serde_contract.py
+      - name: Pin exact five-backend sealed serde source Git blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object contracts/v1/serde_boundary_v1.json)" = "93ea02c4192be3910391311febae6dc1ffcd24f1"
+          test "$(git hash-object scripts/verify_serde_contract.py)" = "02cfacc284be6fd9ea677ad770723a83b153e0a9"
+          test "$(git hash-object scripts/test_serde_contract.py)" = "5d828fbbad26d5f471c89eaa7a406c7626efab53"
+      - name: Verify byte-pinned DATA CONTROL contract in isolated Python
+        run: python3 -I scripts/verify_serde_contract.py
+      - name: Run exactly 31 serde security regressions without skips in isolated Python
+        run: python3 -I scripts/test_serde_contract.py
       - name: Compare six canonical MessagePack v2 wire vectors and 36 mutations (source-free)
         run: python3 scripts/check_messagepack_v2_golden.py
       - name: Run exactly 16 pinned-oracle regressions without skips (source-free)

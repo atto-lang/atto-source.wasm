@@ -2,11 +2,21 @@
 """Negative/mutation tests for the common STATIC serde policy validator."""
 import copy
 import json
+import os
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-import verify_serde_contract as policy
+# Absolute adjacent pinned module import remains valid with python3 -I.
+# Ambient PYTHONPATH modules must never replace the reviewed verifier.
+_spec = importlib.util.spec_from_file_location(
+    "_oreslang_serde_policy", Path(__file__).with_name("verify_serde_contract.py"))
+if _spec is None or _spec.loader is None:
+    raise RuntimeError("adjacent serde policy verifier unavailable")
+policy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(policy)
 
 
 class SerdePolicyRegression(unittest.TestCase):
@@ -120,10 +130,80 @@ class SerdePolicyRegression(unittest.TestCase):
                 policy.verify_file(oversized)
 
 
+    def test_reject_hardlinked_contract(self):
+        with tempfile.TemporaryDirectory() as root:
+            source = Path(root) / 'policy.json'
+            source.write_bytes(policy.CONTRACT.read_bytes())
+            alias = Path(root) / 'hardlink.json'
+            os.link(source, alias)
+            with self.assertRaisesRegex(policy.ContractError, 'unique regular file'):
+                policy.verify_file(alias)
+
+    def test_missing_no_follow_denies_before_open(self):
+        with patch.object(os, 'O_NOFOLLOW', None, create=True):
+            with patch.object(os, 'open', side_effect=AssertionError('unsafe open')) as opened:
+                with self.assertRaisesRegex(policy.ContractError, 'non-following'):
+                    policy.verify_file()
+                opened.assert_not_called()
+
+    def test_aliased_open_flags_deny_before_open(self):
+        with patch.object(os, 'O_NOFOLLOW', os.O_NONBLOCK, create=True):
+            with patch.object(os, 'open', side_effect=AssertionError('unsafe open')) as opened:
+                with self.assertRaisesRegex(policy.ContractError, 'non-following'):
+                    policy.verify_file()
+                opened.assert_not_called()
+
+    def test_descriptor_inode_swap_during_read_denied(self):
+        original = os.fstat
+        calls = [0]
+        def mutate(fd):
+            stat_value = original(fd)
+            calls[0] += 1
+            if calls[0] == 2:
+                fields = list(stat_value)
+                fields[1] += 1
+                return os.stat_result(fields)
+            return stat_value
+        with patch.object(os, 'fstat', side_effect=mutate):
+            with self.assertRaisesRegex(policy.ContractError, 'changed during read'):
+                policy.verify_file()
+        self.assertEqual(calls[0], 2)
+
+    def test_pathname_swap_after_read_denied(self):
+        original = Path.lstat
+        calls = [0]
+        def mutate(path):
+            stat_value = original(path)
+            calls[0] += 1
+            if calls[0] == 2:
+                fields = list(stat_value)
+                fields[1] += 1
+                return os.stat_result(fields)
+            return stat_value
+        with patch.object(Path, 'lstat', mutate):
+            with self.assertRaisesRegex(policy.ContractError, 'path changed during read'):
+                policy.verify_file()
+        self.assertEqual(calls[0], 2)
+
+    def test_short_read_with_stable_descriptor_denied(self):
+        open_real = os.fdopen
+        class ShortReadStream:
+            def __init__(self, stream): self.stream = stream
+            def __enter__(self): return self
+            def __exit__(self, *args): return self.stream.__exit__(*args)
+            def fileno(self): return self.stream.fileno()
+            def read(self, limit): return self.stream.read(limit)[:-1]
+        def short_fdopen(fd, mode):
+            return ShortReadStream(open_real(fd, mode))
+        with patch.object(os, 'fdopen', side_effect=short_fdopen):
+            with self.assertRaisesRegex(policy.ContractError, 'short read'):
+                policy.verify_file()
+
+
 if __name__ == '__main__':
     # unittest discover exits 0 even if no tests are discovered. A security
     # gate cannot treat a renamed/deleted suite or skipped test as green.
-    expected = 25
+    expected = 31
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(SerdePolicyRegression)
     if suite.countTestCases() != expected:
         raise SystemExit(f'FAIL: expected {expected} serde regressions, '

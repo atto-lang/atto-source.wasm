@@ -1,36 +1,67 @@
 // Host-only checked route selector; does not expose guest imports or actor execution.
-const encoder = new TextEncoder();
+const NativeMap = Map;
+const NativeSet = Set;
+const NativeNumber = Number;
+const NativeBigInt = BigInt;
+const NativeTextEncoder = TextEncoder;
+const encoder = new NativeTextEncoder();
+// Capture graph-authority operations at module import. Guest libraries may
+// subsequently replace these prototype methods; selector authority must
+// never follow those replacements.
+const safeMapGet = Map.prototype.get;
+const safeMapSet = Map.prototype.set;
+const safeMapKeys = Map.prototype.keys;
+const safeMapEntries = Map.prototype.entries;
+const safeMapIteratorNext = Object.getPrototypeOf(new NativeMap().entries()).next;
+const safeMapHas = Map.prototype.has;
+const safeSetHas = Set.prototype.has;
+const safeSetAdd = Set.prototype.add;
+const safeArrayPush = Array.prototype.push;
+const safeArrayIsArray = Array.isArray;
+const safeStringIncludes = String.prototype.includes;
+const safeCharCodeAt = String.prototype.charCodeAt;
+const safeJSONStringify = JSON.stringify;
+const safeEncode = TextEncoder.prototype.encode;
+const nativeByteLength = Object.getOwnPropertyDescriptor(
+  Object.getPrototypeOf(Uint8Array.prototype), "byteLength").get;
+const safeArrayFind = Array.prototype.find;
+const safeFreeze = Object.freeze;
 function utf8(value, limit, optional = false, allowNul = false) {
-  if (typeof value !== "string" || (!optional && !value) || (!allowNul && value.includes("\0")))
+  if (typeof value !== "string" || (!optional && !value) || (!allowNul && safeStringIncludes.call(value, "\0")))
     throw new TypeError("invalid pipeline identifier");
   if (value.length > limit) throw new RangeError("pipeline byte limit");
   for (let i = 0; i < value.length; ++i) {
-    const c = value.charCodeAt(i);
+    const c = safeCharCodeAt.call(value, i);
     if (c >= 0xd800 && c <= 0xdbff) {
-      if (++i >= value.length || value.charCodeAt(i) < 0xdc00 ||
-          value.charCodeAt(i) > 0xdfff) throw new TypeError("invalid Unicode");
+      if (++i >= value.length || safeCharCodeAt.call(value, i) < 0xdc00 ||
+          safeCharCodeAt.call(value, i) > 0xdfff) throw new TypeError("invalid Unicode");
     } else if (c >= 0xdc00 && c <= 0xdfff) throw new TypeError("invalid Unicode");
   }
-  const data = encoder.encode(value);
-  if (data.length > limit) throw new RangeError("pipeline UTF-8 byte budget");
+  const data = safeEncode.call(encoder, value);
+  if (nativeByteLength.call(data) > limit)
+    throw new RangeError("pipeline UTF-8 byte budget");
   return data;
 }
 export function actorRouteHash64(key) {
   let hash = 0xcbf29ce484222325n;
-  for (const b of utf8(key, 4096, true, true))
-    hash = ((hash ^ BigInt(b)) * 0x100000001b3n) & 0xffffffffffffffffn;
+  // Never invoke mutable Uint8Array.prototype[Symbol.iterator]. A guest
+  // monkey patch must not substitute hash bytes and redirect a route.
+  const encoded = utf8(key, 4096, true, true);
+  const size = nativeByteLength.call(encoded);
+  for (let i = 0; i < size; ++i)
+    hash = ((hash ^ NativeBigInt(encoded[i])) * 0x100000001b3n) & 0xffffffffffffffffn;
   return hash;
 }
 export class ActorPipelinePolicy {
   #routes;
-  #cursor = new Map();
+  #cursor = new NativeMap();
   #retired = false;
   constructor(stages, edges) {
-    if (!Array.isArray(stages) || !Array.isArray(edges))
+    if (!safeArrayIsArray(stages) || !safeArrayIsArray(edges))
       throw new RangeError("pipeline graph budget");
-    // Read each caller-owned length once. Array iterators (including proxy
-    // custom iterators) can otherwise grow while being traversed, bypassing
-    // the checked 1024/4096 graph budget. Copy only indexed, admitted slots.
+    // Snapshot bounded caller-owned graph arrays by numeric index only.
+    // A proxy iterator or a mutated length must not bypass budget/cycle
+    // checks or inject an edge after the graph was accepted.
     const stageCount = stages.length, edgeCount = edges.length;
     if (stageCount < 2 || stageCount > 1024 || edgeCount < 1 || edgeCount > 4096)
       throw new RangeError("pipeline graph budget");
@@ -40,76 +71,91 @@ export class ActorPipelinePolicy {
       if (!item || typeof item !== "object")
         throw new TypeError("invalid pipeline stage");
       const {id, type, role, inbound = "", outbound = ""} = item;
-      stageSnapshot.push({id, type, role, inbound, outbound});
+      safeArrayPush.call(stageSnapshot, {id, type, role, inbound, outbound});
     }
     for (let i = 0; i < edgeCount; ++i) {
       const item = edges[i];
       if (!item || typeof item !== "object")
         throw new TypeError("invalid pipeline edge");
       const {source, target, payload} = item;
-      edgeSnapshot.push({source, target, payload});
+      safeArrayPush.call(edgeSnapshot, {source, target, payload});
     }
-    const byId = new Map(), routes = new Map(), parents = new Map();
-    for (const {id, type, role, inbound, outbound} of stageSnapshot) {
+    const byId = new NativeMap(), routes = new NativeMap(), parents = new NativeMap();
+    for (let i = 0; i < stageSnapshot.length; ++i) {
+      const {id, type, role, inbound, outbound} = stageSnapshot[i];
       utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
       utf8(outbound, 256, true);
-      if (byId.has(id)) throw new TypeError("duplicate pipeline instance");
+      if (safeMapHas.call(byId, id)) throw new TypeError("duplicate pipeline instance");
       if (!((role === "readable" && !inbound && outbound) ||
             (role === "writable" && inbound && !outbound) ||
-            (["transform", "duplex"].includes(role) && inbound && outbound)))
+            ((role === "transform" || role === "duplex") && inbound && outbound)))
         throw new TypeError("invalid pipeline role or ports");
-      byId.set(id, {role, inbound, outbound});
-      parents.set(id, 0);
+      safeMapSet.call(byId, id, {role, inbound, outbound});
+      safeMapSet.call(parents, id, 0);
     }
-    const seen = new Set();
-    for (const edge of edgeSnapshot) {
+    const seen = new NativeSet();
+    for (let i = 0; i < edgeSnapshot.length; ++i) {
+      const edge = edgeSnapshot[i];
       const {source, target, payload} = edge;
       utf8(source, 256); utf8(target, 256); utf8(payload, 256);
-      const from = byId.get(source), to = byId.get(target);
+      const from = safeMapGet.call(byId, source), to = safeMapGet.call(byId, target);
       if (!from || !to || source === target ||
           from.role === "writable" || to.role === "readable" ||
           from.outbound !== payload || to.inbound !== payload)
         throw new TypeError("unknown or mistyped pipeline edge");
-      const pair = JSON.stringify([source, target]);
-      if (seen.has(pair)) throw new TypeError("duplicate pipeline edge");
-      seen.add(pair);
-      if (!routes.has(source)) routes.set(source, []);
-      routes.get(source).push(Object.freeze({source, target, payload}));
-      parents.set(target, parents.get(target) + 1);
+      const pair = safeJSONStringify([source, target]);
+      if (safeSetHas.call(seen, pair)) throw new TypeError("duplicate pipeline edge");
+      safeSetAdd.call(seen, pair);
+      if (!safeMapHas.call(routes, source)) safeMapSet.call(routes, source, []);
+      safeArrayPush.call(safeMapGet.call(routes, source), safeFreeze({source, target, payload}));
+      safeMapSet.call(parents, target, safeMapGet.call(parents, target) + 1);
     }
-    const indegree = new Map(parents), ready = [];
+    const indegree = new NativeMap(), ready = [];
+    // Iterate native Map internal entries without invoking a replaceable
+    // Map.prototype[Symbol.iterator] or MapIterator.prototype.next.
+    const forEachTrustedEntry = (map, fn) => {
+      const iterator = safeMapEntries.call(map);
+      for (let step = safeMapIteratorNext.call(iterator); !step.done;
+           step = safeMapIteratorNext.call(iterator)) {
+        fn(step.value[0], step.value[1]);
+      }
+    };
+    forEachTrustedEntry(parents, (id, count) => safeMapSet.call(indegree, id, count));
     let root = false;
-    for (const [id, stage] of byId) {
-      const input = parents.get(id), output = routes.get(id)?.length ?? 0;
+    forEachTrustedEntry(byId, (id, stage) => {
+      const input = safeMapGet.call(parents, id), output = safeMapGet.call(routes, id)?.length ?? 0;
       if ((!input && !output) || (stage.role === "readable" && !output) ||
           (stage.role === "writable" && !input) ||
           (stage.role === "transform" && (!input || !output)))
         throw new TypeError("pipeline actor missing port");
       if (!input) {
-        ready.push(id);
+        safeArrayPush.call(ready, id);
         if (stage.role === "readable" || stage.role === "duplex") root = true;
       }
-    }
+    });
     if (!root) throw new TypeError("pipeline requires ingress root");
     let visited = 0;
     for (let i = 0; i < ready.length; i++) {
       const id = ready[i]; visited++;
-      for (const edge of routes.get(id) ?? []) {
-        const n = indegree.get(edge.target) - 1;
-        indegree.set(edge.target, n);
-        if (n === 0) ready.push(edge.target);
+      const outgoing = safeMapGet.call(routes, id) ?? [];
+      for (let j = 0; j < outgoing.length; j++) {
+        const edge = outgoing[j];
+        const n = safeMapGet.call(indegree, edge.target) - 1;
+        safeMapSet.call(indegree, edge.target, n);
+        if (n === 0) safeArrayPush.call(ready, edge.target);
       }
     }
-    // Use the admitted snapshot count: caller-owned proxy lengths may change
-    // after admission; rereading them would reject valid DAGs or hide cycles.
     if (visited !== stageCount) throw new TypeError("cyclic pipeline graph");
-    this.#routes = new Map([...routes].map(([id, list])=>[id, Object.freeze(list)]));
+    this.#routes = new NativeMap();
+    forEachTrustedEntry(routes, (id, list) =>
+      safeMapSet.call(this.#routes, id, safeFreeze(list)));
     // Pre-seed all RR cursors at trusted graph construction, never on a turn.
-    for (const source of this.#routes.keys()) this.#cursor.set(source, 0);
+    forEachTrustedEntry(this.#routes, (source) =>
+      safeMapSet.call(this.#cursor, source, 0));
   }
   #connected(source) {
     if (this.#retired) throw new Error("retired pipeline generation");
-    const routes = this.#routes.get(source);
+    const routes = safeMapGet.call(this.#routes, source);
     if (!routes?.length) throw new TypeError("source has no downstream");
     return routes;
   }
@@ -120,18 +166,18 @@ export class ActorPipelinePolicy {
   }
   forwardAll(source) { return this.#connected(source); }
   forwardRoundRobin(source) {
-    const routes = this.#connected(source), cursor = this.#cursor.get(source);
-    this.#cursor.set(source, (cursor + 1) % routes.length);
+    const routes = this.#connected(source), cursor = safeMapGet.call(this.#cursor, source);
+    safeMapSet.call(this.#cursor, source, (cursor + 1) % routes.length);
     return routes[cursor];
   }
   forwardTo(source, target) {
-    const route = this.#connected(source).find(e => e.target === target);
+    const route = safeArrayFind.call(this.#connected(source), e => e.target === target);
     if (!route) throw new TypeError("target is not connected");
     return route;
   }
   forwardByKey(source, key) {
     const routes = this.#connected(source);
-    return routes[Number(actorRouteHash64(key) % BigInt(routes.length))];
+    return routes[NativeNumber(actorRouteHash64(key) % NativeBigInt(routes.length))];
   }
   close() { this.#retired = true; }
 }

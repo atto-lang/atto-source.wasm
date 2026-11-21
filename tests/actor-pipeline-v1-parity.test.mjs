@@ -15,6 +15,30 @@ for (const {key, fnv1a64_hex, target} of fixture.operations.by_key) {
   });
 }
 
+test('FNV route bytes are immune to poisoned typed-array iterator and byteLength', () => {
+  const expected = actorRouteHash64('device-42');
+  const expectedTarget = policy().forwardByKey('producer-1', 'device-42').target;
+  const iterator = Object.getOwnPropertyDescriptor(Uint8Array.prototype, Symbol.iterator);
+  const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+  const size = Object.getOwnPropertyDescriptor(typedArrayProto, 'byteLength');
+  try {
+    Object.defineProperty(Uint8Array.prototype, Symbol.iterator, {
+      configurable: true, value: function* () { yield 0; yield 0; }
+    });
+    Object.defineProperty(typedArrayProto, 'byteLength', {
+      configurable: true, get() { return 0; }
+    });
+    assert.equal(actorRouteHash64('device-42'), expected);
+    const p = policy();
+    assert.equal(p.forwardByKey('producer-1', 'device-42').target, expectedTarget);
+    assert.throws(() => actorRouteHash64('x'.repeat(4097)), /byte limit/);
+  } finally {
+    if (iterator) Object.defineProperty(Uint8Array.prototype, Symbol.iterator, iterator);
+    else delete Uint8Array.prototype[Symbol.iterator];
+    Object.defineProperty(typedArrayProto, 'byteLength', size);
+  }
+});
+
 test('full immutable fan-out and explicit destination', () => {
   const p = policy();
   assert.deepEqual(p.forwardAll('producer-1').map(x => x.target), fixture.operations.forward_all);
@@ -22,6 +46,91 @@ test('full immutable fan-out and explicit destination', () => {
   assert.equal(p.forwardTo('producer-1', 'worker-b').target, 'worker-b');
   assert.throws(() => p.forwardTo('producer-1','worker-z'), /not connected/);
   assert.throws(() => p.forward('producer-1'), /ambiguous/);
+});
+
+test('route selectors ignore monkey-patched Map.get/set and Array.find', () => {
+  const p = policy(); // graph was approved before hostile prototype changes
+  const savedGet = Object.getOwnPropertyDescriptor(Map.prototype, 'get');
+  const savedSet = Object.getOwnPropertyDescriptor(Map.prototype, 'set');
+  const savedFind = Object.getOwnPropertyDescriptor(Array.prototype, 'find');
+  const results = [];
+  try {
+    Object.defineProperty(Map.prototype, 'get', {
+      ...savedGet, value() { return Object.freeze([{target: 'attacker'}]); }
+    });
+    Object.defineProperty(Map.prototype, 'set', {
+      ...savedSet, value() { throw new Error('hijacked Map.set'); }
+    });
+    Object.defineProperty(Array.prototype, 'find', {
+      ...savedFind, value() { return {target: 'attacker'}; }
+    });
+    results.push(p.forwardTo('producer-1', 'worker-b').target);
+    results.push(p.forwardRoundRobin('producer-1').target);
+    results.push(p.forwardRoundRobin('producer-1').target);
+    results.push(p.forwardByKey('producer-1', fixture.operations.by_key[0].key).target);
+    try { p.forwardTo('producer-1', 'attacker'); results.push('incorrectly admitted'); }
+    catch (err) { results.push(err instanceof TypeError ? 'rejected' : 'wrong failure'); }
+  } finally {
+    Object.defineProperty(Map.prototype, 'get', savedGet);
+    Object.defineProperty(Map.prototype, 'set', savedSet);
+    Object.defineProperty(Array.prototype, 'find', savedFind);
+  }
+  assert.deepEqual(results, [
+    'worker-b',
+    fixture.operations.forward_round_robin[0],
+    fixture.operations.forward_round_robin[1],
+    fixture.operations.by_key[0].target,
+    'rejected'
+  ]);
+});
+
+test('approved routing and FNV hash survive hostile globals during graph construction', () => {
+  const restore = [
+    [Map.prototype, 'get', Object.getOwnPropertyDescriptor(Map.prototype, 'get')],
+    [Map.prototype, 'set', Object.getOwnPropertyDescriptor(Map.prototype, 'set')],
+    [Map.prototype, 'has', Object.getOwnPropertyDescriptor(Map.prototype, 'has')],
+    [Set.prototype, 'has', Object.getOwnPropertyDescriptor(Set.prototype, 'has')],
+    [Set.prototype, 'add', Object.getOwnPropertyDescriptor(Set.prototype, 'add')],
+    [Array.prototype, 'push', Object.getOwnPropertyDescriptor(Array.prototype, 'push')],
+    [String.prototype, 'includes', Object.getOwnPropertyDescriptor(String.prototype, 'includes')],
+    [TextEncoder.prototype, 'encode', Object.getOwnPropertyDescriptor(TextEncoder.prototype, 'encode')]
+  ];
+  const oldFreeze = Object.freeze, oldIsArray = Array.isArray;
+  const oldBigInt = globalThis.BigInt, oldNumber = globalThis.Number;
+  let outcome;
+  try {
+    for (const [object, name, descriptor] of restore)
+      Object.defineProperty(object, name, {
+        ...descriptor, value() { throw new Error('poisoned ' + name); }
+      });
+    Object.freeze = value => value;
+    Array.isArray = () => true;
+    globalThis.BigInt = () => { throw new Error('poisoned BigInt'); };
+    globalThis.Number = () => { throw new Error('poisoned Number'); };
+    const route = policy();
+    const chosen = route.forwardTo('producer-1', 'worker-b');
+    const roundRobin = route.forwardRoundRobin('producer-1');
+    const byKey = route.forwardByKey('producer-1', fixture.operations.by_key[0].key);
+    let rejected;
+    try { route.forwardTo('producer-1', 'attacker'); rejected = false; }
+    catch (error) { rejected = error instanceof TypeError; }
+    outcome = {
+      explicit: chosen.target, rr: roundRobin.target,
+      hash: byKey.target, rejected,
+      frozen: Object.isFrozen(route.forwardAll('producer-1')[0])
+    };
+  } finally {
+    for (const [object, name, descriptor] of restore)
+      Object.defineProperty(object, name, descriptor);
+    Object.freeze = oldFreeze;
+    Array.isArray = oldIsArray;
+    globalThis.BigInt = oldBigInt;
+    globalThis.Number = oldNumber;
+  }
+  assert.deepEqual(outcome, {
+    explicit: 'worker-b', rr: fixture.operations.forward_round_robin[0],
+    hash: fixture.operations.by_key[0].target, rejected: true, frozen: true
+  });
 });
 
 test('constructor-seeded RR cycles, independent sessions, fresh generation', () => {
@@ -67,7 +176,6 @@ test('parallel pipelines maintain independent selectors', () => {
     if(i%2===0) assert.equal(p2.forwardRoundRobin('producer-1').target,fixture.operations.forward_all[(i/2)%3]);
   }
 });
-
 
 test('bounded graph snapshot ignores hostile iterators and changing lengths', () => {
   function adversarial(items) {

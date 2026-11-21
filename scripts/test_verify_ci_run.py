@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-free regression matrix for five-backend GitHub run proof."""
+"""Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
 import importlib.util
 from pathlib import Path
@@ -126,6 +126,51 @@ class RunContract(unittest.TestCase):
                         expected_run_attempt=1)
         self.assertEqual(calls[0], 2)
 
+    def test_final_repository_metadata_must_remain_private_and_identical(self):
+        path = self.prefix
+        baseline = copy.deepcopy(self.values[path])
+        for field, value in (("id", self.repo_id + 1),
+                             ("full_name", "rebound/foreign"),
+                             ("private", False),
+                             ("archived", True),
+                             ("disabled", True),
+                             ("id", True)):
+            with self.subTest(field=field, value=value):
+                seen = [0]
+                def mutate_on_second_metadata_read(resource):
+                    data = copy.deepcopy(self.values[resource])
+                    if resource == path:
+                        seen[0] += 1
+                        if seen[0] == 2:
+                            data[field] = value
+                    return data
+                with self.assertRaisesRegex(
+                        module.Denied, "changed identity or privacy"):
+                    self.verify(mutate_on_second_metadata_read, self.backend,
+                                self.commit, self.tree, self.run_id,
+                                ["unit"], ["Execute test suite"])
+                self.assertEqual(seen[0], 2)
+        self.values[path] = baseline
+
+    def test_final_workflow_id_must_have_exact_integer_type(self):
+        # True == 1 in Python: without a strict type check the old final
+        # reread could mistake a boolean for reviewed numeric workflow ID 1.
+        run_path = self.prefix + "/actions/runs/17"
+        self.values[run_path]["workflow_id"] = 1
+        seen = [0]
+        def change_final_run_id(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                seen[0] += 1
+                if seen[0] == 2:
+                    data["workflow_id"] = True
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(change_final_run_id, self.backend, self.commit,
+                        self.tree, self.run_id, ["unit"],
+                        ["Execute test suite"], workflow_id=1)
+        self.assertEqual(seen[0], 2)
+
     def test_run_changed_during_collection_denied(self):
         run_path = self.prefix + "/actions/runs/17"
         original = copy.deepcopy(self.values[run_path])
@@ -219,6 +264,51 @@ class RunContract(unittest.TestCase):
                                 self.run_id, ["unit"], ["Execute test suite"],
                                 workflow_id=value)
 
+    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        normal = job["runner_name"]
+        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
+                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
+            with self.subTest(label=repr(malicious)):
+                job["runner_name"] = malicious
+                self.rejected()
+        job["runner_name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+    def test_observed_job_and_step_names_reject_spoofed_labels(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        for target in (job, job["steps"][1]):
+            normal = target["name"]
+            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
+                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
+                with self.subTest(target=normal, label=repr(malicious)):
+                    target["name"] = malicious
+                    self.rejected()
+            target["name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
+        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
+                          "CI\u2066Fake", "CI\u200bFake"):
+            with self.subTest(name=repr(malicious)):
+                for job_names, step_names in (([malicious], ["Execute test suite"]),
+                                              (["unit"], [malicious])):
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, job_names, step_names)
+
+    def test_legible_unicode_display_names_are_not_disallowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        job["name"] = "native — unité"
+        job["runner_name"] = "GitHub Actions — runner"
+        job["steps"][1]["name"] = "Exécuter native tests"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
+        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
+
     def test_duplicate_step_names_within_job_denied(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
         steps = self.values[page]["jobs"][0]["steps"]
@@ -242,9 +332,33 @@ class RunContract(unittest.TestCase):
         self.assertEqual(self.validate()["workflow_run_path"], ".github/workflows/ci.yml")
         self.assertEqual(self.validate()["event"], "push")
 
-    def test_inventory_has_all_five_distinct_pinned_repositories(self):
-        self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge"})
-        self.assertEqual(len({v[1] for v in module.REPOS.values()}), 5)
+    def test_inventory_has_all_eight_distinct_pinned_repositories(self):
+        self.assertEqual(set(module.REPOS), {"java", "llvm", "net", "wasm", "forge",
+                                                     "rx_pull", "rx_callbacks", "rx_channels"})
+        self.assertEqual(len({v[1] for v in module.REPOS.values()}), 8)
+
+    def test_rx_models_use_exact_pinned_private_repository_ids(self):
+        expected = {
+            "rx_pull": ("ores-truffle-oreslang/rx-ores", 1407870560),
+            "rx_callbacks": ("ores-truffle-oreslang/rx-ores-callbacks", 1407871059),
+            "rx_channels": ("ores-truffle-oreslang/rx-oreslang-channels", 1407757001),
+        }
+        self.assertEqual({key: module.REPOS[key] for key in expected}, expected)
+        self.assertEqual(len(set(expected.values())), 3)
+
+    def test_rx_repository_denies_foreign_numeric_identity(self):
+        for backend in ("rx_pull", "rx_callbacks", "rx_channels"):
+            with self.subTest(backend=backend):
+                self.setUp()
+                rx_repo, _ = module.REPOS[backend]
+                next_prefix = "repos/" + rx_repo
+                self.values = {key.replace(self.prefix, next_prefix): copy.deepcopy(value)
+                               for key, value in self.values.items()}
+                self.backend = backend
+                self.prefix = next_prefix
+                # Old Java ID deliberately remains in the RX metadata.
+                with self.assertRaisesRegex(module.Denied, "identity/visibility"):
+                    self.validate()
 
     def test_wrong_repo_id(self):
         self.values[self.prefix]["id"] += 1
@@ -564,7 +678,7 @@ class RunContract(unittest.TestCase):
                                   self.tree, self.run_id, ["unit"],
                                   ["Execute test suite"], job_step_pairs=pairs)
 
-    def test_success_for_all_five_pinned_backend_ids(self):
+    def test_success_for_all_eight_pinned_repository_ids(self):
         for backend, (repo, numeric_id) in module.REPOS.items():
             with self.subTest(backend=backend):
                 self.setUp()
@@ -606,11 +720,126 @@ class RunContract(unittest.TestCase):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
 
+    def test_overlapping_step_timestamps_cannot_prove_execution(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        for index, bad_start in ((1, "2026-10-16T10:00:30Z"),
+                                 (2, "2026-10-16T10:01:30Z")):
+            with self.subTest(step=index):
+                original = steps[index]["started_at"]
+                steps[index]["started_at"] = bad_start
+                try:
+                    with self.assertRaisesRegex(module.Denied, "overlap|execution order"):
+                        self.validate()
+                finally:
+                    steps[index]["started_at"] = original
+
+    def test_adjacent_equal_step_timestamps_allowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        steps = self.values[page]["jobs"][0]["steps"]
+        steps[1]["started_at"] = steps[0]["completed_at"]
+        steps[2]["started_at"] = steps[1]["completed_at"]
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
     def test_negative_or_uppercase_sha(self):
         for sha in ("A"*40,"zz"*20,"a"*39):
             with self.subTest(sha=sha):
                 with self.assertRaises(module.Denied):
                     self.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
+
+
+
+class StrictApiJSONContract(unittest.TestCase):
+    """API transport must not silently reinterpret ambiguous run metadata."""
+
+    def test_canonical_github_object_is_accepted(self):
+        data = module._strict_api_json(
+            b'{"id":17,"repository":{"id":1400792274},"ok":true}')
+        self.assertEqual(data["repository"]["id"], 1400792274)
+        self.assertIs(data["ok"], True)
+
+    def test_duplicate_keys_rejected_even_in_nested_metadata(self):
+        for raw in (
+            b'{"id":17,"id":18}',
+            b'{"repository":{"id":1,"id":2}}',
+            b'{"repository":{"owner":{"login":"a","login":"b"}}}',
+        ):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(module.Denied, "duplicate"):
+                    module._strict_api_json(raw)
+
+    def test_nonstandard_and_nonfinite_json_denied(self):
+        for raw in (
+            b'{"id":NaN}', b'{"id":Infinity}', b'{"id":-Infinity}',
+            b'{"id":1e999}', b'{"id":-1e999}',
+            b'{"id":' + b"9" * 65 + b"}",
+            b'{"id":1.' + b"1" * 130 + b"}",
+            b'{"id":+1}', b'{"id":01}', b'{"id":1} trailing',
+        ):
+            with self.subTest(raw=raw[:80]):
+                with self.assertRaises(module.Denied):
+                    module._strict_api_json(raw)
+
+    def test_input_shape_encoding_and_size_denied(self):
+        for raw in (b'[]', b'null', b'2', b'""', b'{not-json}',
+                    b'{"id":"\\xff"}', b'{"bad":' + b"x" * 20 + b"}",
+                    b'{"id":1}\xff', "{}", None,
+                    b' ' * (module.MAX_API_JSON_BYTES + 1)):
+            with self.subTest(sample=str(raw)[:65]):
+                with self.assertRaises(module.Denied):
+                    module._strict_api_json(raw)
+
+    def test_authenticated_fetch_applies_strict_parser(self):
+        class Response:
+            status = 200
+            def __init__(self, body):
+                self.body = body
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, length):
+                return self.body[:length]
+
+        with patch.dict("os.environ", {"GH_TOKEN": "synthetic-only"}, clear=True):
+            with patch.object(module.urllib.request, "urlopen",
+                              return_value=Response(b'{"id":17,"id":18}')):
+                with self.assertRaisesRegex(module.Denied, "duplicate"):
+                    module._api_get("repos/example/repo")
+            with patch.object(module.urllib.request, "urlopen",
+                              return_value=Response(b'{"id":17}')):
+                self.assertEqual(module._api_get("repos/example/repo"), {"id":17})
+
+
+
+class WorkflowIsolationContract(unittest.TestCase):
+    """Validate the checked-in workflow, never non-existent template steps."""
+
+    @staticmethod
+    def workflow_text():
+        return (Path(__file__).resolve().parents[1]
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(
+                    encoding="utf-8")
+
+    def test_all_inline_python_heredocs_use_isolated_mode(self):
+        workflow = self.workflow_text()
+        inline = [line.strip() for line in workflow.splitlines()
+                  if "python3" in line and "<<'PY'" in line]
+        self.assertGreaterEqual(len(inline), 1)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline))
+        self.assertNotIn("python3 - <<'PY'", workflow)
+        self.assertIn("python3 -I -m py_compile", workflow)
+
+    def test_workflow_checkout_is_pinned_and_uncredentialed(self):
+        workflow = self.workflow_text()
+        self.assertIn(
+            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+            workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("secrets.", workflow)
 
 
 if __name__ == "__main__":
