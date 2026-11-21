@@ -35,6 +35,7 @@ const tokenRegExpExec = RegExp.prototype.exec;
 const tokenStringSlice = String.prototype.slice;
 const tokenStringIndexOf = String.prototype.indexOf;
 const tokenArrayIncludes = Array.prototype.includes;
+const tokenArrayPush = Array.prototype.push;
 const tokenSetHas = Set.prototype.has;
 const tokenDecoder = new NodeTextDecoder('utf-8', {fatal:true});
 const tokenDecode = NodeTextDecoder.prototype.decode;
@@ -163,7 +164,9 @@ function tupleV2Tokens(sourceBytes){
  const pushToken=token=>{
   if(tokens.length>=MAX_SOURCE_TOKENS)
    throw new RangeError("WASM source preflight token budget exceeded");
-  tokens.push(token);
+  // Discarding tokens on a patched Array.prototype.push must never admit
+  // unsupported source into the scalar guest compilation path.
+  tokenApply(tokenArrayPush,tokens,[token]);
  };
  const idStart=c=>tokenRegex(/[A-Za-z_]/,c), idPart=c=>tokenRegex(/[A-Za-z0-9_]/,c);
  for(let i=0;i<text.length;){
