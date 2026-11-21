@@ -13,7 +13,7 @@ const sec=(id,bytes)=>[id,...uleb(bytes.length),...bytes];
 
 // Purpose-built *synthetic* module. This is NOT an Atto compiler output or
 // a backend parity fixture. The positive ABI shape only tests child isolation.
-function guest({body=[0,0x42,7,0x0b],returnsI64=true,importModule=null}={}){
+function guest({body=[0,0x42,7,0x0b],returnsI64=true,importModule=null,panicCode=0}={}){
   const type=returnsI64?0x7e:0x7f;
   const types=importModule?[2,0x60,0,0,0x60,0,1,type]:[1,0x60,0,1,type];
   const imports=importModule?sec(2,[1,...str(importModule),...str('print_newline'),0,0]):[];
@@ -22,7 +22,9 @@ function guest({body=[0,0x42,7,0x0b],returnsI64=true,importModule=null}={}){
     ...sec(1,types),...imports,
     ...sec(3,[1,importModule?1:0]),
     ...sec(5,[1,0,1]),
-    ...sec(7,[2,...str('main'),0,funcIndex,...str('memory'),2,0]),
+    ...sec(6,[1,0x7f,1,0x41,panicCode,0x0b]),
+    ...sec(7,[3,...str('main'),0,funcIndex,...str('memory'),2,0,
+      ...str('panic_code'),3,0]),
     ...sec(10,[1,...uleb(body.length),...body])]);
 }
 function launch(bytes,timeout=3000){
@@ -37,7 +39,14 @@ test('synthetic i64 guest runs in isolated child with bounded JSON receipt',()=>
   assert.equal(r.error,undefined);
   assert.equal(r.status,0,r.stderr);
   assert.deepEqual(JSON.parse(r.stdout),{
-    scope:'ISOLATED_COMPILED_GUEST',value:'7',stdout:''});
+    scope:'ISOLATED_COMPILED_GUEST',value:'7',stdout:'',panic_code:'0'});
+});
+test('a forged successful return with terminal panic_code=1 must be rejected',()=>{
+  const module=guest({panicCode:1});
+  assert.ok(WebAssembly.validate(module));
+  const r=launch(module);
+  assert.notEqual(r.status,0);
+  assert.match(r.stderr,/entered terminal panic/);
 });
 test('child refuses an i32 return masquerading as required i64 guest result',()=>{
   const module=guest({returnsI64:false,body:[0,0x41,7,0x0b]});
