@@ -191,3 +191,27 @@ test('enforces exact 1 MiB physical source-byte boundary', () => {
   assert.doesNotThrow(() => rejectRawSourceControls(new Uint8Array(1_048_576)));
   assert.throws(() => rejectRawSourceControls(new Uint8Array(1_048_577)), /1 MiB/);
 });
+
+test('deterministic astral/BMP Unicode prefixes preserve control byte offsets', () => {
+  const encoder = new TextEncoder();
+  const marks = [0x1b, 0x7f, 0x61c, 0x200e, 0x200f,
+    0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069];
+  const allowed = ['a', '\n', 'é', 'α', '⛄', '🧪', '\r', '\u2028', '🦀'];
+  let state = 0x9e3779b9;
+  const next = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>> 0;
+  };
+  for (let i = 0; i < 256; i++) {
+    const prefix = Array.from({length: next() % 35}, () => allowed[next() % allowed.length]).join('');
+    const codepoint = marks[next() % marks.length];
+    const expectedOffset = encoder.encode(prefix).length;
+    const expectedHex = codepoint.toString(16).toUpperCase().padStart(4, '0');
+    const bytes = encoder.encode(prefix + String.fromCodePoint(codepoint) + ' suffix');
+    assert.throws(() => rejectRawSourceControls(bytes), e =>
+      e.message === `WASM_SOURCE_CONTROL_REJECTED U+${expectedHex} at byte ${expectedOffset}`);
+    assert.doesNotThrow(() => rejectRawSourceControls(encoder.encode(prefix)));
+  }
+});
