@@ -38,8 +38,8 @@ export function rejectRawSourceControls(sourceBytes) {
       !trustedIsUint8Array(sourceBytes))
     throw new TypeError('WASM source control preflight requires genuine Uint8Array bytes');
   // Read actual typed-array slots, not spoofable subclass properties.
-  const length = actualByteLength.call(sourceBytes);
-  const backing = actualBuffer.call(sourceBytes);
+  const length = trustedApply(actualByteLength, sourceBytes, []);
+  const backing = trustedApply(actualBuffer, sourceBytes, []);
   if (trustedIsSharedArrayBuffer(backing))
     throw new TypeError('WASM source control preflight refuses shared backing');
   if (length > MAX_SOURCE_BYTES)
