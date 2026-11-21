@@ -104,3 +104,36 @@ test('contextual pipe! and rpipe! normalize to the same canonical DATA edges',()
  assert.throws(()=>planDirectedPipe([producer,{...consumer,tenant:'tenant-B'}],'pipe!'),/cross-tenant/);
  assert.throws(()=>planDirectedPipe([producer,{...consumer,inbound:'string'}],'pipe!'),/type/);
 });
+
+
+test('rejects Proxy stage records and stage arrays before descriptor traps',()=>{
+ let descriptorTraps = 0;
+ const onDescriptor = {getOwnPropertyDescriptor(target,key){
+   descriptorTraps++; return Reflect.getOwnPropertyDescriptor(target,key);
+ }};
+ const proxyStage = new Proxy(producer,onDescriptor);
+ assert.throws(()=>planDirectedPipe([proxyStage,consumer],'pipe'),/proxy/i);
+ assert.equal(descriptorTraps,0);
+ const proxyStages = new Proxy([producer,consumer],onDescriptor);
+ assert.throws(()=>planDirectedPipe(proxyStages,'pipe!'),/proxy/i);
+ assert.equal(descriptorTraps,0);
+});
+
+test('rejects Proxy plan lists before any descriptor trap or iteration',()=>{
+ const p=planDirectedPipe([producer,consumer],'pipe');
+ let traps=0;
+ const proxyPlans=new Proxy([p],{getOwnPropertyDescriptor(target,key){
+   traps++; return Reflect.getOwnPropertyDescriptor(target,key);
+ }});
+ assert.throws(()=>checkUnicastDirectedPipes(proxyPlans),/E_PIPE_PLAN_PROXY/);
+ assert.equal(traps,0);
+});
+
+test('rejects revoked proxies with no access to user traps',()=>{
+ const {proxy:stage,revoke}=Proxy.revocable(producer,{});
+ revoke();
+ assert.throws(()=>planDirectedPipe([stage,consumer],'rpipe!'),/proxy/i);
+ const plans=Proxy.revocable([],{});
+ plans.revoke();
+ assert.throws(()=>checkUnicastDirectedPipes(plans.proxy),/E_PIPE_PLAN_PROXY/);
+});
