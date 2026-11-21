@@ -4,7 +4,7 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
-import {types} from "node:util";
+import {types, TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -22,6 +22,25 @@ import {rejectRawSourceControls} from "../src/raw-source-control-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// Snapshot tokenization intrinsics before same-realm plugins can monkeypatch
+// host globals. This admission scanner is not a guest-language parser.
+const tokenApply = Reflect.apply;
+const tokenRegExpTest = RegExp.prototype.test;
+const tokenStringSlice = String.prototype.slice;
+const tokenStringIndexOf = String.prototype.indexOf;
+const tokenArrayIncludes = Array.prototype.includes;
+const tokenSetHas = Set.prototype.has;
+const tokenDecoder = new NodeTextDecoder('utf-8', {fatal:true});
+const tokenDecode = NodeTextDecoder.prototype.decode;
+const tokenEncoder = new NodeTextEncoder();
+const tokenEncode = NodeTextEncoder.prototype.encode;
+const tokenRegex = (re,c) => tokenApply(tokenRegExpTest,re,[c]);
+const tokenSlice = (s,a,b) => tokenApply(tokenStringSlice,s,[a,b]);
+const tokenIndexOf = (s,c) => tokenApply(tokenStringIndexOf,s,[c]);
+const tokenIncludes = (arr,c) => tokenApply(tokenArrayIncludes,arr,[c]);
+const tokenHas = (set,c) => tokenApply(tokenSetHas,set,[c]);
+const tokenUtf8 = s => tokenApply(tokenEncode,tokenEncoder,[s]);
+const tokenUtf8Text = bytes => tokenApply(tokenDecode,tokenDecoder,[bytes]);
 // The scalar Wasm bridge accepts ONE standalone source file, not a graph.
 // Validate the pinned source snapshot before invoking even a "real" compiler:
 // a compiler silently ignoring an import must not publish a valid-looking
@@ -117,13 +136,13 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const text=tokenUtf8Text(sourceBytes);
  // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
  // can erase a comment or quoted literal, and prior to compiler invocation or
  // staging. The byte budget above bounds this conversion and its allocation.
- const nul=text.indexOf("\0");
+ const nul=tokenIndexOf(text,"\0");
  if(nul!==-1) {
-  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  const offset=tokenUtf8(tokenSlice(text,0,nul)).byteLength;
   throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
  }
  const tokens=[];
@@ -133,15 +152,15 @@ function tupleV2Tokens(sourceBytes){
    throw new RangeError("WASM source preflight token budget exceeded");
   tokens.push(token);
  };
- const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
+ const idStart=c=>tokenRegex(/[A-Za-z_]/,c), idPart=c=>tokenRegex(/[A-Za-z0-9_]/,c);
  for(let i=0;i<text.length;){
   const c=text[i];
   // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
   // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
   // declarations can be split into punctuation tokens and evade preflight.
-  if(/\s/.test(c)||c==="\u0085"){i++;continue}
+  if(tokenRegex(/\s/,c)||c==="\u0085"){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
+   i+=2;while(i<text.length&&!tokenIncludes(["\n","\r","\u0085","\u2028","\u2029"],text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
@@ -166,7 +185,7 @@ function tupleV2Tokens(sourceBytes){
   }
   if(idStart(c)){
    const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
+   pushToken({text:tokenSlice(text,start,i),offset:start,id:true});continue;
   }
   pushToken({text:c,offset:i,id:false});i++;
  }
@@ -332,8 +351,8 @@ export function rejectUnsupportedActorPipeSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
  // The shared tokenizer's offsets are UTF-16 indices, not physical byte
  // offsets. Convert lazily on a failure so compiler diagnostics remain exact.
- const sourceText=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);
- const byteOffset=index=>new TextEncoder().encode(sourceText.slice(0,index)).length;
+ const sourceText=tokenUtf8Text(sourceBytes);
+ const byteOffset=index=>tokenUtf8(tokenSlice(sourceText,0,index)).length;
  const reservedBefore=new Set([
   "fnc","routine","method","define","pub","static","val",
   "let","const","final","return","spawn","pipe","rpipe",
@@ -343,7 +362,7 @@ export function rejectUnsupportedActorPipeSource(sourceBytes) {
  for(let i=0;i<tokens.length;i++) {
   const current=tokens[i];
   if(!current.id)continue;
-  if(!["pipe","rpipe","stop"].includes(current.text))continue;
+  if(!tokenIncludes(["pipe","rpipe","stop"],current.text))continue;
   const prev=tokens[i-1],next=tokens[i+1];
   // The ! belongs to the contextual operator only when contiguous. A
   // separate logical ! or an identifier suffix must never be rewritten.
@@ -370,10 +389,10 @@ export function rejectUnsupportedActorPipeSource(sourceBytes) {
   const classColonCall=current.text==="pipe" && prev?.text===":" &&
       tokens[i-2]?.text===":" &&
       tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
-  const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
-      [")","]","}"].includes(prev.text));
-  const rightStart=rhs && ((rhs.id&&!forbiddenNext.has(rhs.text)) ||
-      ["(","["].includes(rhs.text));
+  const leftEnd=prev && ((prev.id && !tokenHas(reservedBefore,prev.text)) ||
+      tokenIncludes([")","]","}"],prev.text));
+  const rightStart=rhs && ((rhs.id&&!tokenHas(forbiddenNext,rhs.text)) ||
+      tokenIncludes(["(","["],rhs.text));
   // Reject named-actor and stream/channel edges in both lexical directions.
   // Never emit a scalar Wasm guest for unknown continuous transport.
   if(classCall||classColonCall||(leftEnd&&rightStart))
