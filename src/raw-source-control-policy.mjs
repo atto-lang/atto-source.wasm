@@ -18,6 +18,11 @@ const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const trustedDecode = NodeTextDecoder.prototype.decode;
 const trustedCodePointAt = String.prototype.codePointAt;
+// An attacker-controlled Number/String prototype must not forge diagnostic
+// codepoints or insert fake CI success lines into rejection messages.
+const trustedNumberToString = Number.prototype.toString;
+const trustedToUpperCase = String.prototype.toUpperCase;
+const trustedPadStart = String.prototype.padStart;
 const trustedApply = Reflect.apply;
 const decoder = new NodeTextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -48,10 +53,13 @@ export function rejectRawSourceControls(sourceBytes) {
   let byteOffset = 0;
   for (let i = 0; i < text.length;) {
     const cp = trustedApply(trustedCodePointAt, text, [i]);
-    if (forbiddenCodePoint(cp))
+    if (forbiddenCodePoint(cp)) {
+      const hex = trustedApply(trustedPadStart,
+        trustedApply(trustedToUpperCase,
+          trustedApply(trustedNumberToString, cp, [16]), []), [4, '0']);
       throw new Error('WASM_SOURCE_CONTROL_REJECTED U+' +
-        cp.toString(16).toUpperCase().padStart(4, '0') +
-        ' at byte ' + byteOffset);
+        hex + ' at byte ' + byteOffset);
+    }
     // Fatal UTF-8 decoder guarantees well-formed Unicode scalar values.
     // Compute offsets without mutable Buffer.byteLength or string iterators.
     i += cp > 0xffff ? 2 : 1;
