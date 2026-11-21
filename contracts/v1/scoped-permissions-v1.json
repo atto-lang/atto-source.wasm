@@ -1,0 +1,682 @@
+{
+  "schema": "oreslang.scoped-permissions.v1",
+  "version": 1,
+  "spec_revision": "2026-10-15",
+  "backends": [
+    "llvm",
+    "net",
+    "wasm",
+    "forge",
+    "java"
+  ],
+  "cases": [
+    {
+      "id": "default-read-denied",
+      "kind": "authorize",
+      "permission": "read",
+      "resource": "/workspace/input.txt",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "CLI has no inherited ambient filesystem read"
+    },
+    {
+      "id": "default-write-denied",
+      "kind": "authorize",
+      "permission": "write",
+      "resource": "/workspace/out.txt",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No implicit write grant"
+    },
+    {
+      "id": "default-net-denied",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:443",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No implicit socket access"
+    },
+    {
+      "id": "default-env-denied",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No ambient environment read"
+    },
+    {
+      "id": "default-run-denied",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No ambient child process"
+    },
+    {
+      "id": "default-sys-denied",
+      "kind": "authorize",
+      "permission": "sys",
+      "resource": "os",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No ambient host introspection"
+    },
+    {
+      "id": "default-ffi-denied",
+      "kind": "authorize",
+      "permission": "ffi",
+      "resource": "/workspace/libplugin.so",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No ambient FFI"
+    },
+    {
+      "id": "default-import-denied",
+      "kind": "authorize",
+      "permission": "import",
+      "resource": "/workspace/import.ores",
+      "coarse": false,
+      "allow": [],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No ambient import roots"
+    },
+    {
+      "id": "coarse-ceiling-net",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:443",
+      "coarse": false,
+      "allow": [
+        "*"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Scoped grants cannot exceed isolate capability ceiling"
+    },
+    {
+      "id": "coarse-ceiling-env",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": false,
+      "allow": [
+        "*"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Cannot reconstruct an absent coarse capability"
+    },
+    {
+      "id": "explicit-net-grant",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:443",
+      "coarse": true,
+      "allow": [
+        "api.example.com:443"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Explicit endpoint and coarse capability"
+    },
+    {
+      "id": "explicit-env-grant",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "API_KEY"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Exact key scope allowed"
+    },
+    {
+      "id": "explicit-run-grant",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": true,
+      "allow": [
+        "git"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Exactly specified command token"
+    },
+    {
+      "id": "deny-wins-net",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "api.example.com:443"
+      ],
+      "expected": "deny",
+      "reason": "Explicit deny wins over wildcard allow"
+    },
+    {
+      "id": "deny-wins-env",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "API_KEY"
+      ],
+      "expected": "deny",
+      "reason": "Explicit token deny wins"
+    },
+    {
+      "id": "deny-all-wins",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "other.example.org:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "*"
+      ],
+      "expected": "deny",
+      "reason": "Global deny wins"
+    },
+    {
+      "id": "endpoint-port-separation",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:444",
+      "coarse": true,
+      "allow": [
+        "api.example.com:443"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Port-scoped allow does not grant adjacent port"
+    },
+    {
+      "id": "endpoint-upper-normalized",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "API.EXAMPLE.COM.:0443",
+      "coarse": true,
+      "allow": [
+        "api.example.com:443"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Canonical host/port comparison"
+    },
+    {
+      "id": "endpoint-deny-fqdn",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "API.EXAMPLE.COM.:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "api.example.com:443"
+      ],
+      "expected": "deny",
+      "reason": "Trailing final DNS dot cannot bypass deny"
+    },
+    {
+      "id": "endpoint-subdomain-yes",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "a.example.com:443",
+      "coarse": true,
+      "allow": [
+        "*.example.com:443"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Wildcard includes subdomain"
+    },
+    {
+      "id": "endpoint-subdomain-no-apex",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "example.com:443",
+      "coarse": true,
+      "allow": [
+        "*.example.com:443"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Wildcard excludes bare apex"
+    },
+    {
+      "id": "endpoint-subdomain-no-suffix",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "badexample.com:443",
+      "coarse": true,
+      "allow": [
+        "*.example.com:443"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Wildcard must respect label boundary"
+    },
+    {
+      "id": "endpoint-deny-portless",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "api.example.com:443"
+      ],
+      "expected": "deny",
+      "reason": "Portless request cannot disprove a port-specific denial"
+    },
+    {
+      "id": "endpoint-deny-wildcard-port",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "a.example.com:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "*.example.com:443"
+      ],
+      "expected": "deny",
+      "reason": "Deny wildcard must compare host and port separately"
+    },
+    {
+      "id": "endpoint-ipv6-short",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "[::1]:443",
+      "coarse": true,
+      "allow": [
+        "[0:0:0:0:0:0:0:1]:443"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Equivalent IPv6 spellings"
+    },
+    {
+      "id": "endpoint-ipv6-deny",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "[0:0:0:0:0:0:0:1]:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "[::1]:443"
+      ],
+      "expected": "deny",
+      "reason": "Equivalent IPv6 cannot bypass deny"
+    },
+    {
+      "id": "endpoint-ipv4-alias",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "127.1:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "127.0.0.1"
+      ],
+      "expected": "deny",
+      "reason": "Ambiguous numeric IPv4 alias fail closed"
+    },
+    {
+      "id": "endpoint-ipv4-hex-alias",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "0x7f.0.0.1:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "127.0.0.1"
+      ],
+      "expected": "deny",
+      "reason": "Hex alias cannot bypass explicit deny"
+    },
+    {
+      "id": "endpoint-invalid-port",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "api.example.com:0",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Invalid service port"
+    },
+    {
+      "id": "endpoint-invalid-credentials",
+      "kind": "authorize",
+      "permission": "net",
+      "resource": "alice@api.example.com:443",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "No URL credentials in endpoints"
+    },
+    {
+      "id": "env-whitespace-exact",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY ",
+      "coarse": true,
+      "allow": [
+        "API_KEY"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Environment key whitespace is identity"
+    },
+    {
+      "id": "env-case-exact",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "api_key",
+      "coarse": true,
+      "allow": [
+        "API_KEY"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Environment exact case"
+    },
+    {
+      "id": "run-prefix",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git-status",
+      "coarse": true,
+      "allow": [
+        "git*"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Token prefix pattern supported"
+    },
+    {
+      "id": "run-prefix-no-match",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "curl",
+      "coarse": true,
+      "allow": [
+        "git*"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Prefix cannot overgrant"
+    },
+    {
+      "id": "path-child-allowed",
+      "kind": "authorize",
+      "permission": "read",
+      "resource": "/workspace/data/file.txt",
+      "coarse": true,
+      "allow": [
+        "/workspace/data"
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "Directory subtree scope"
+    },
+    {
+      "id": "path-prefix-no-match",
+      "kind": "authorize",
+      "permission": "read",
+      "resource": "/workspace/database/file.txt",
+      "coarse": true,
+      "allow": [
+        "/workspace/data"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Directory prefix requires segment boundary"
+    },
+    {
+      "id": "path-whitespace-exact",
+      "kind": "authorize",
+      "permission": "read",
+      "resource": "/workspace/data ",
+      "coarse": true,
+      "allow": [
+        "/workspace/data"
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "Do not trim real filename whitespace"
+    },
+    {
+      "id": "serialized-empty-policy",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=",
+        "--ores-permission-explicit=true"
+      ],
+      "expected": "accept",
+      "reason": "Explicitly empty capabilities and empty scopes roundtrip"
+    },
+    {
+      "id": "serialized-duplicate-capabilities",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=NETWORK",
+        "--ores-capabilities=NETWORK",
+        "--ores-permission-explicit=true"
+      ],
+      "expected": "reject",
+      "reason": "Duplicate coarse host header"
+    },
+    {
+      "id": "serialized-missing-capability-header",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-permission-explicit=true"
+      ],
+      "expected": "reject",
+      "reason": "No capability header with a partially serialized host policy"
+    },
+    {
+      "id": "serialized-missing-marker",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=NETWORK",
+        "--ores-permission-net-allow=*"
+      ],
+      "expected": "reject",
+      "reason": "Scoped authority lacks explicit-policy marker"
+    },
+    {
+      "id": "serialized-duplicate-marker",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=NETWORK",
+        "--ores-permission-explicit=true",
+        "--ores-permission-explicit=true"
+      ],
+      "expected": "reject",
+      "reason": "Duplicate serialized explicit marker"
+    },
+    {
+      "id": "serialized-no-escalation",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=",
+        "--ores-permission-explicit=true",
+        "--ores-permission-net-allow=*"
+      ],
+      "expected": "reject",
+      "reason": "Cannot add network capability absent in coarse host envelope"
+    },
+    {
+      "id": "serialized-malformed-net",
+      "kind": "deserialize",
+      "argv": [
+        "--ores-capabilities=NETWORK",
+        "--ores-permission-explicit=true",
+        "--ores-permission-net-allow=127.1:443"
+      ],
+      "expected": "reject",
+      "reason": "Malformed network grant fails"
+    },
+    {
+      "id": "env-padded-grant-literal",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY ",
+      "coarse": true,
+      "allow": [
+        "API_KEY "
+      ],
+      "deny": [],
+      "expected": "allow",
+      "reason": "A padded environment grant authorizes only its literal token"
+    },
+    {
+      "id": "env-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "API_KEY "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded environment grant must not authorize the trimmed key"
+    },
+    {
+      "id": "env-padded-deny-literal",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY ",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "API_KEY "
+      ],
+      "expected": "deny",
+      "reason": "A padded environment denial blocks its literal token"
+    },
+    {
+      "id": "env-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "env",
+      "resource": "API_KEY",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "API_KEY "
+      ],
+      "expected": "allow",
+      "reason": "A padded denial must not accidentally block a different key"
+    },
+    {
+      "id": "run-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": true,
+      "allow": [
+        "git "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded command grant does not authorize the unpadded command"
+    },
+    {
+      "id": "run-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "run",
+      "resource": "git",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "git "
+      ],
+      "expected": "allow",
+      "reason": "A padded command denial does not match the unpadded command"
+    },
+    {
+      "id": "sys-padded-grant-not-trimmed",
+      "kind": "authorize",
+      "permission": "sys",
+      "resource": "os",
+      "coarse": true,
+      "allow": [
+        "os "
+      ],
+      "deny": [],
+      "expected": "deny",
+      "reason": "A padded system-information grant does not expand to an unpadded token"
+    },
+    {
+      "id": "sys-padded-deny-not-trimmed",
+      "kind": "authorize",
+      "permission": "sys",
+      "resource": "os",
+      "coarse": true,
+      "allow": [
+        "*"
+      ],
+      "deny": [
+        "os "
+      ],
+      "expected": "allow",
+      "reason": "A padded system denial does not block a different token"
+    }
+  ]
+}

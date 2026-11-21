@@ -27,6 +27,18 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  profile::check_abi(&module)?;
  // Serialize the module we already compiled, avoiding a second translation
  // and code generation pass through Engine::precompile_module.
+ // FULL_GUEST_AOT_TODO (platform-conformance #321): module.serialize()
+ // produces a Wasmtime precompiled artifact for an already-supplied Wasm
+ // module, not proof that arbitrary .atto source was statically lowered.
+ // This artifact is host/architecture/engine-version specific; browser
+ // WebAssembly + Web Workers cannot load Wasmtime serialized .cwasm.
+ // Close source callbacks, imports, actor message ABI and ownership/drop
+ // graph before treating a bundle as a complete guest AOT release.
+ // ZERO_TRACING_GC_TODO: Reject Wasm-GC/reference-managed guest imports
+ // in the sealed lane and verify private linear-memory actor arenas with
+ // checked 32-bit offsets, generations, bounds and deterministic reclamation
+ // across cancellation, tenant-worker termination, restart and hot load.
+ // Existing Wasmtime precompile and ordinary runtime paths remain intact.
  let aot=module.serialize()?;
  if aot.len()>MAX_AOT{return Err("native artifact too large".into());}
  // Stage and sync full native code before it becomes visible at the
