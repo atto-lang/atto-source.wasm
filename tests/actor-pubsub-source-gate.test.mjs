@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
+import {createHash} from "node:crypto";
 import {rejectUnsupportedActorPubSubSource, rejectUnsupportedActorPipeSource} from "../scripts/compile-ores.mjs";
 
 const fixtures = [
@@ -93,4 +94,17 @@ test("pipe keyword preflight preserves inert text and functional |> syntax", () 
       source
     );
   }
+});
+
+test("exact cross-backend alias-only share! Atto source never reaches Wasm artifact",async()=>{
+  const data=await readFile(new URL(
+    "../contracts/atto-ensemble-v1/canonical-unlowered-try-publish.atto",
+    import.meta.url));
+  const oid=createHash("sha1")
+    .update("blob "+data.length+String.fromCharCode(0))
+    .update(data).digest("hex");
+  assert.equal(oid,"c562ad380bb283da9ffa26160653c1186ab63462",
+    "must be the exact LLVM/.NET/JS/HDL/conformance .atto Git blob");
+  assert.throws(()=>rejectUnsupportedActorPubSubSource(data),
+    /wasm ActorGroup\/Topic source lowering unsupported/);
 });
