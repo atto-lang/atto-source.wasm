@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {types, TextDecoder as NodeTextDecoder} from 'node:util';
 import {rejectRawSourceControls} from '../src/raw-source-control-policy.mjs';
 const check = source => rejectRawSourceControls(new TextEncoder().encode(source));
 
@@ -46,4 +47,57 @@ test('enforces physical byte budget and fatal UTF-8 decoding', () => {
   Object.defineProperty(oversized, 'byteLength', {value: 1});
   assert.throws(() => rejectRawSourceControls(oversized), /1 MiB/);
   assert.throws(() => rejectRawSourceControls(new Uint8Array([0xc3,0x28])), /encoded|valid|UTF/i);
+});
+
+
+test('mutating util.types after import cannot authorize shared source backing', () => {
+  if (typeof SharedArrayBuffer === 'undefined') return;
+  const prior = types.isSharedArrayBuffer;
+  types.isSharedArrayBuffer = () => false;
+  try {
+    assert.throws(() => rejectRawSourceControls(new Uint8Array(new SharedArrayBuffer(8))), /shared/);
+  } finally { types.isSharedArrayBuffer = prior; }
+});
+
+test('mutating global TextDecoder cannot mask raw Unicode overrides', () => {
+  const previous = globalThis.TextDecoder;
+  globalThis.TextDecoder = class {decode() {return 'safe';}};
+  try {
+    assert.throws(() => check('/* \u202e */'), /WASM_SOURCE_CONTROL_REJECTED/);
+  } finally { globalThis.TextDecoder = previous; }
+});
+
+test('mutating native decoder method after import cannot mask control marks', () => {
+  const original = NodeTextDecoder.prototype.decode;
+  NodeTextDecoder.prototype.decode = () => 'safe';
+  try {
+    assert.throws(() => check('/* \u2068 */'), /WASM_SOURCE_CONTROL_REJECTED/);
+  } finally { NodeTextDecoder.prototype.decode = original; }
+});
+
+test('mutating RegExp.test and String iteration cannot mask controls', () => {
+  const priorTest = RegExp.prototype.test;
+  const priorIterator = String.prototype[Symbol.iterator];
+  RegExp.prototype.test = () => false;
+  String.prototype[Symbol.iterator] = function*() { yield 'safe'; };
+  try {
+    assert.throws(() => check('/* \u202d */'), /WASM_SOURCE_CONTROL_REJECTED/);
+  } finally {
+    RegExp.prototype.test = priorTest;
+    String.prototype[Symbol.iterator] = priorIterator;
+  }
+});
+
+test('mutating code-point and byte-length helpers cannot move offsets or mask controls', () => {
+  const priorCode = String.prototype.codePointAt;
+  const priorByteLength = Buffer.byteLength;
+  String.prototype.codePointAt = () => 0x61;
+  Buffer.byteLength = () => 1;
+  try {
+    assert.throws(() => check('// café \u2066'), error =>
+      error.message.includes('U+2066') && error.message.includes('at byte 9'));
+  } finally {
+    String.prototype.codePointAt = priorCode;
+    Buffer.byteLength = priorByteLength;
+  }
 });
