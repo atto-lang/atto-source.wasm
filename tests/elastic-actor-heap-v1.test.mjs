@@ -1,6 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ElasticActorHeapPoolV1, ElasticHeapPageLedgerV1} from '../src/elastic-actor-heap-v1.mjs';
+import {ElasticActorHeapPoolV1, ElasticHeapPageLedgerV1, encode_actor_ref32_offset_v1, decode_actor_ref32_word_v1} from '../src/elastic-actor-heap-v1.mjs';
+
+test('Ref32 offset8+1 high unsigned words and overflow fail closed',()=>{
+  assert.equal(decode_actor_ref32_word_v1(0),null);
+  for(const word of [1,2,0x7fffffff,0x80000000,0xfffffffe,0xffffffff]){
+    const offset=decode_actor_ref32_word_v1(word);
+    assert.equal(encode_actor_ref32_offset_v1(offset),word);
+  }
+  assert.equal(decode_actor_ref32_word_v1(0xffffffff),34359738352);
+  for(const invalid of [-1,7,34359738360,Infinity,NaN,1.5,"8",null,undefined])
+    assert.throws(()=>encode_actor_ref32_offset_v1(invalid),RangeError);
+  for(const invalid of [-1,0x100000000,1.5,Infinity,NaN,"1",1n,null])
+    assert.throws(()=>decode_actor_ref32_word_v1(invalid),RangeError);
+});
 
 function pool(maxPages, budgetPages = maxPages) {
   return new ElasticActorHeapPoolV1({maxPages, processLedger: new ElasticHeapPageLedgerV1(budgetPages), tenantLedger: new ElasticHeapPageLedgerV1(maxPages * 16)});
