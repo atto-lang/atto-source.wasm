@@ -40,3 +40,13 @@ still needs to inspect run attempt, nonzero job steps, binary provenance and
 the failure-mode controls before certifying parity. Do not dispatch this
 private-source workflow on unreviewed PR code or claim success from a
 source-only workflow.
+
+## Core-only compiler admission (shared Wasm bridge)
+
+The bridge's actual native invocation uses the exported, tested
+`wasmCoreCompilerArgs(...)` recipe, including
+`--library-profile=core` and `--target=wasm32`. Neither a full Std
+profile nor an allocator provider is silently selected. This does **not**
+replace the native compiler's own transitive effect/dependency admission.
+The test in `tests/bridge.test.mjs` verifies the precise command arguments;
+real guest parity must still execute on the exact approved LLVM binary.

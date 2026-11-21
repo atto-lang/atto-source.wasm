@@ -18,6 +18,20 @@ const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
 
+// A Wasm browser/Worker guest has no ambient hosted Std or allocator provider.
+// Target selection alone is NOT a capability-profile proof: require explicit
+// Core admission in every bridge publication mode. Keep this single immutable
+// argv recipe shared by the real compiler invocation and regression tests.
+export function wasmCoreCompilerArgs(stagedSource) {
+ if(typeof stagedSource!=="string"||!isAbsolute(stagedSource) ||
+    stagedSource.indexOf("\0")!==-1) throw new TypeError("absolute staged .atto/.ores source path required");
+ if(![".atto",".ores"].includes(extname(stagedSource).toLowerCase()))
+    throw new TypeError("staged guest source requires .atto or .ores extension");
+ return ["--library-profile=core","--tree-shake","--tree-shake-root=main",
+         "--target=wasm32",stagedSource];
+}
+
+
 function tupleV2Tokens(sourceBytes){
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
  const tokens=[];
@@ -344,6 +358,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
    throw Error("output or artifact metadata path overlaps a compiler/source input");
  }
  if(!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(exportName))throw Error("unsupported export name");
+ // The compiler invocation is hard-pinned to --tree-shake-root=main and
+ // the canonical Core guest ABI requires an i64 main entry. Accepting
+ // arbitrary named exports would claim verified rooting for a different
+ // symbol even though no such compilation contract was executed.
+ if(exportName!=="main")throw Error("Core wasm32 bridge supports only the verified main export");
  // Preflight before readFile() to avoid allocating attacker-sized compiler
  // binaries or source buffers, then check the lengths again after reading.
  const [sourceStat,compilerStat]=await Promise.all([stat(sourcePath),stat(compilerPath)]);
@@ -407,7 +426,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,wasmCoreCompilerArgs(stagedSource));
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -422,7 +441,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
  assertWasm32IrTarget(ir);
- if(!new RegExp("define\\s+i64\\s+@"+exportName+"\\s*\\(\\s*\\)").test(ir))throw Error("compiler did not emit the expected i64 @"+exportName+"() export");
+ // A substring search can be fooled by '; define i64 @main()' inside a
+ // comment or quoted metadata. Require exactly one real line-leading
+ // definition before Clang can consume the IR or publish an artifact.
+ const entryPattern=new RegExp("^\\s*define\\s+i64\\s+@"+exportName+
+   "\\s*\\(\\s*\\)", "gm");
+ const definitions=[...ir.matchAll(entryPattern)];
+ if(definitions.length!==1)
+  throw Error("compiler did not emit the expected i64 @"+exportName+"() export exactly once");
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.

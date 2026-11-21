@@ -4,8 +4,159 @@ import {mkdtemp,writeFile,chmod,readFile,rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {createHash} from "node:crypto";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,wasmCoreCompilerArgs} from "../scripts/compile-ores.mjs";
+import {readAtomicRelease} from "../scripts/atomic-release.mjs";
 const hash=b=>createHash("sha256").update(b).digest("hex");
+test("Core-only compiler refuses alternate entry roots before executing any tool",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-export-roots-"));
+ try {
+  const compiler=join(dir,"compiler.sh");
+  const sentinel=join(dir,"invoked");
+  const source=join(dir,"main.atto");
+  const output=join(dir,"other.wasm");
+  await writeFile(compiler,"#!/bin/sh\ntouch "+JSON.stringify(sentinel)+"\nexit 0\n",{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main(): int { return 42; }\n");
+  const compilerSha256=hash(await readFile(compiler));
+  for(const exportName of ["other","Main","_start",null,42]) {
+   await assert.rejects(()=>compileOresToWasm({
+      compiler,source,output,compilerSha256,exportName
+    }),/verified main export|unsupported export name/,
+    "unapproved export root="+String(exportName));
+   await assert.rejects(readFile(sentinel),{code:"ENOENT"});
+   await assert.rejects(readFile(output),{code:"ENOENT"});
+  }
+ } finally { await rm(dir,{recursive:true,force:true}); }
+});
+
+test("Wasm bridge explicitly requires Core-only compiler admission",()=>{
+ const args=wasmCoreCompilerArgs("/tmp/atto-numeric.atto");
+ assert.deepEqual(args,["--library-profile=core","--tree-shake","--tree-shake-root=main",
+                        "--target=wasm32","/tmp/atto-numeric.atto"]);
+ assert.equal(args.filter(x=>x.startsWith("--library-profile=")).length,1);
+ assert.equal(args.filter(x=>x.startsWith("--target=")).length,1);
+ assert.ok(!args.some(x=>x==="--allocator-provider=bounded-arena"));
+ for(const bad of ["numeric.atto","/tmp/source.txt","/tmp/source.atto\0evil",null,"", "/tmp/guest.json", "/tmp/no-extension"])
+  assert.throws(()=>wasmCoreCompilerArgs(bad),/(absolute staged|requires)/);
+});
+
+test("Wasm compiler argv is checked by the actually executed pinned tool",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-exact-argv-"));
+ try{
+  const compiler=join(dir,"core-argv-compiler.sh");
+  const source=join(dir,"core-guest.atto");
+  const output=join(dir,"core-guest.wasm");
+  // This script is deliberately a stub and MUST NOT be reported as
+  // compiler-backed AttoLang evidence. It verifies actual bridge invocation.
+  const lines=[
+   "#!/bin/sh",
+   "set -eu",
+   "test \"$#\" -eq 5",
+   "test \"$1\" = '--library-profile=core'",
+   "test \"$2\" = '--tree-shake'",
+   "test \"$3\" = '--tree-shake-root=main'",
+   "test \"$4\" = '--target=wasm32'",
+   "case \"$5\" in *.atto) ;; *) exit 88 ;; esac",
+   "printf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'",
+  ].join("\n")+"\n";
+  await writeFile(compiler,lines,{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main(): int { return 42; }\n");
+  const digest=hash(await readFile(compiler));
+  const result=await compileOresToWasm({compiler,source,output,compilerSha256:digest});
+  const binary=await readFile(output);
+  assert.equal(result.compilerSha256,digest);
+  assert.equal(result.importCount,0);
+  assert.equal((new WebAssembly.Instance(new WebAssembly.Module(binary))).exports.main(),42n);
+  assert.equal(JSON.parse(await readFile(output+".provenance.json","utf8")).wasmSha256,hash(binary));
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test("LLVM IR prepublication rejects forged target/main before creating any Wasm artifact",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-invalid-ir-"));
+ try{
+  const source=join(dir,"candidate.atto");
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const invalid=[
+   ["host-target",'target triple = "x86_64-unknown-linux-gnu"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["comment-only",'; target triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["duplicate-triple",'target triple = "wasm32-unknown-unknown"\ntarget triple = "wasm32-unknown-unknown"\ndefine i64 @main() { ret i64 42 }\n',/wasm32 target-marked IR/],
+   ["missing-main",'target triple = "wasm32-unknown-unknown"\ndefine i64 @not_main() { ret i64 42 }\n',/expected i64 @main/]
+  ];
+  for(const [label,ir,diagnostic] of invalid){
+   const compiler=join(dir,label+".sh"),output=join(dir,label+".wasm");
+   const shell="#!/bin/sh\ncat <<'ATTO_INVALID_IR'\n"+ir+"ATTO_INVALID_IR\n";
+   await writeFile(compiler,shell,{mode:0o700});
+   await chmod(compiler,0o700);
+   const pin=hash(await readFile(compiler));
+   await assert.rejects(()=>compileOresToWasm({
+     compiler,source,output,compilerSha256:pin
+   }),diagnostic,label);
+   await assert.rejects(readFile(output),{code:"ENOENT"},label+" generated Wasm");
+   await assert.rejects(readFile(output+".provenance.json"),{code:"ENOENT"},label+" published provenance");
+   await assert.rejects(readFile(output+".artifact.json"),{code:"ENOENT"},label+" published manifest");
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test("valid single entry publishes and executes in legacy and atomic modes (stub compiler)",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-valid-entry-"));
+ try{
+  const compiler=join(dir,"verified-entry.sh");
+  const source=join(dir,"guest.atto");
+  const shell="#!/bin/sh\nprintf 'target triple = \"wasm32-unknown-unknown\"\\ndefine i64 @main() { ret i64 42 }\\n'\n";
+  await writeFile(compiler,shell,{mode:0o700});
+  await chmod(compiler,0o700);
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const compilerSha256=hash(await readFile(compiler));
+  for (const publication of ["legacy","atomic"]) {
+   const output=join(dir,publication+".wasm");
+   const result=await compileOresToWasm({
+      compiler,source,output,publication,compilerSha256
+   });
+   const wasm=publication==="atomic"
+      ?(await readAtomicRelease(output)).wasm
+      :await readFile(output);
+   assert.equal(WebAssembly.validate(wasm),true);
+   assert.equal(new WebAssembly.Instance(new WebAssembly.Module(wasm)).exports.main(),42n);
+   assert.equal(result.importCount,0);
+   assert.equal(result.wasmSha256,hash(wasm));
+   assert.equal(result.compilerSha256,compilerSha256);
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
+test("Wasm bridge refuses commented, duplicated or metadata-only entrypoints",async()=>{
+ const dir=await mkdtemp(join(tmpdir(),"atto-wasm-entry-forgery-"));
+ try{
+  const source=join(dir,"guest.atto");
+  await writeFile(source,"pub fnc main():int{return 42;}\n");
+  const invalid=[
+   ["commented",'; define i64 @main() { ret i64 42 }\n'],
+   ["metadata",'; source_filename = \"define i64 @main()\"\n'],
+   ["duplicate", 'define i64 @main() { ret i64 42 }\ndefine i64 @main() { ret i64 42 }\n'],
+   ["quoted", 'define i64 @\"main\"() { ret i64 42 }\n']
+  ];
+  for (const [label,fragment] of invalid) {
+   const compiler=join(dir,label+".sh");
+   const ir='target triple = "wasm32-unknown-unknown"\n'+fragment;
+   await writeFile(compiler,"#!/bin/sh\ncat <<'ATTO_IR'\n"+ir+"ATTO_IR\n",{mode:0o700});
+   await chmod(compiler,0o700);
+   const digest=hash(await readFile(compiler));
+   for(const publication of ["legacy","atomic"]) {
+    const output=join(dir,label+"-"+publication+".wasm");
+    await assert.rejects(()=>compileOresToWasm({
+      compiler,source,output,compilerSha256:digest,publication
+    }),/expected i64 @main\(\) export exactly once/,label+"/"+publication);
+    for(const suffix of ["",".provenance.json",".artifact.json",".current.json"]) {
+      await assert.rejects(readFile(output+suffix),{code:"ENOENT"},
+        "forged IR published "+label+publication+suffix);
+    }
+   }
+  }
+ }finally{await rm(dir,{recursive:true,force:true})}
+});
+
 test("real Clang wasm32 bridge accepts verified IR and records hashes (stub compiler only)",async()=>{
  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-bridge-test-"));
  try{
