@@ -324,32 +324,60 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
 }
 
 /** Actor pipeline transport is not lowered by the scalar Wasm bridge.
- * This is a source admission gate, NOT successful guest actor execution.
- * The tokenized check ignores quoted strings, comments, normal identifiers
- * named pipe, and functional |> composition.
+ * This is a fail-closed source admission gate, NOT guest actor execution.
+ * Token positions preserve contextual bang adjacency; quoted text, comments,
+ * ordinary identifiers and functional |> remain untouched.
  */
 export function rejectUnsupportedActorPipeSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
+ // The shared tokenizer's offsets are UTF-16 indices, not physical byte
+ // offsets. Convert lazily on a failure so compiler diagnostics remain exact.
+ const sourceText=new TextDecoder('utf-8',{fatal:true}).decode(sourceBytes);
+ const byteOffset=index=>new TextEncoder().encode(sourceText.slice(0,index)).length;
  const reservedBefore=new Set([
   "fnc","routine","method","define","pub","static","val",
-  "let","const","final","return","spawn","pipe","as","case"
+  "let","const","final","return","spawn","pipe","rpipe",
+  "stop","await","as","case"
  ]);
  const forbiddenNext=new Set(["then","fi","end","else","as","case","over"]);
  for(let i=0;i<tokens.length;i++) {
   const current=tokens[i];
-  if(!current.id||current.text!=="pipe")continue;
+  if(!current.id)continue;
+  if(!["pipe","rpipe","stop"].includes(current.text))continue;
   const prev=tokens[i-1],next=tokens[i+1];
-  const classCall=prev?.text==="." && tokens[i-2]?.id &&
-      tokens[i-2].text==="ActorUtils";
-  const classColonCall=prev?.text===":" &&
+  // The ! belongs to the contextual operator only when contiguous. A
+  // separate logical ! or an identifier suffix must never be rewritten.
+  const bang=next?.text==="!" &&
+      next.offset===current.offset+current.text.length;
+  const rhs=tokens[i+(bang?2:1)];
+
+  // No actor lifecycle STOP is executable in the scalar Wasm profile.
+  // A globally rewritten 'stop!' would be unsafe; this only recognizes the
+  // exact contiguous operator in a token stream that skips literals/trivia.
+  if(current.text==="stop") {
+    if(bang)throw Error("wasm graceful actor stop! source lowering unsupported at byte "+byteOffset(current.offset));
+    continue;
+  }
+
+  // A contiguous bang spelling reserves the entire source operator, even
+  // when its endpoints are missing or malformed. The actual compiler must
+  // reject such source, but no scalar artifact should reach that invocation.
+  if (bang)
+    throw Error("wasm actor "+current.text+"! source lowering unsupported at byte "+byteOffset(current.offset));
+
+  const classCall=current.text==="pipe" && prev?.text==="." &&
+      tokens[i-2]?.id && tokens[i-2].text==="ActorUtils";
+  const classColonCall=current.text==="pipe" && prev?.text===":" &&
       tokens[i-2]?.text===":" &&
       tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
   const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
       [")","]","}"].includes(prev.text));
-  const rightStart=next && ((next.id&&!forbiddenNext.has(next.text)) ||
-      ["(","["].includes(next.text));
+  const rightStart=rhs && ((rhs.id&&!forbiddenNext.has(rhs.text)) ||
+      ["(","["].includes(rhs.text));
+  // Reject named-actor and stream/channel edges in both lexical directions.
+  // Never emit a scalar Wasm guest for unknown continuous transport.
   if(classCall||classColonCall||(leftEnd&&rightStart))
-    throw Error("wasm actor pipe source lowering unsupported at byte "+current.offset);
+    throw Error("wasm actor "+current.text+(bang?"!":"")+" source lowering unsupported at byte "+byteOffset(current.offset));
  }
 }
 /** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
