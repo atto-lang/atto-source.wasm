@@ -46,7 +46,7 @@ test("unlowered Topic.try_publish on aliases fails before native compiler or Was
   ]) {
     assert.throws(
       () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
-      /wasm ActorGroup\\/Topic source lowering unsupported/,
+      /wasm ActorGroup\/Topic source lowering unsupported/,
       source
     );
   }
@@ -56,7 +56,7 @@ test("pub-sub admission does not mistake inert strings or ordinary identifiers f
   for (const source of [
     "fnc try_publish(event:int):int{return event;}",
     "fnc main():int{return try_publish(42);}",
-    "fnc main():int{return 42;} // topic.try_publish(share! event)?\\n",
+    "fnc main():int{return 42;} // topic.try_publish(share! event)?\n",
     "fnc main():int{return 42;} /* topic.try_publish(rt share event) */",
     'fnc main():int{const s="topic.try_publish(share! event)?"; return 42;}',
     "fnc main():int{const n=topic.try_publisher;return 42;}"
@@ -68,10 +68,10 @@ test("pub-sub admission does not mistake inert strings or ordinary identifiers f
   }
   assert.throws(
     () => rejectUnsupportedActorPubSubSource(Buffer.from(
-      "// ignored topic.try_publish(share! event)?\\u0085" +
+      "// ignored topic.try_publish(share! event)?\u0085" +
       "val receipt=alias.try_publish(share! event)?;"
     )),
-    /wasm ActorGroup\\/Topic source lowering unsupported/
+    /wasm ActorGroup\/Topic source lowering unsupported/
   );
 });
 
