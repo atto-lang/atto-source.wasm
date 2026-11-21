@@ -102,6 +102,23 @@ def main():
         apply(altered)
         samples.append((name, altered))
 
+    mutation("guest routing source-lowering claim",
+             lambda d: d.update(scope="source actor lowering available"))
+    mutation("deleted nontransactional fan-out warning",
+             lambda d: d["notes"].remove("fan-out is nontransactional"))
+    mutation("deleted post-retirement denial",
+             lambda d: d["rejected"].remove("post-retirement-route"))
+    mutation("extra top-level authority field",
+             lambda d: d.update(authority="untrusted"))
+    mutation("extra per-stage authority field",
+             lambda d: d["graph"]["stages"][0].update(authority="guest"))
+    mutation("extra edge capability field",
+             lambda d: d["graph"]["connections"][0].update(capability="send"))
+    mutation("extra key-vector field",
+             lambda d: d["operations"]["by_key"][0].update(authorized=True))
+    mutation("forged disconnected target error",
+             lambda d: d["operations"]["invalid_target"].update(error="allowed"))
+
     mutation("missing NUL golden vector", lambda d: d["operations"]["by_key"].pop())
     mutation("forged key destination", lambda d: d["operations"]["by_key"][0].update(target="worker-b"))
     mutation("forged FNV hash", lambda d: d["operations"]["by_key"][1].update(fnv1a64_hex="0"*16))

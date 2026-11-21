@@ -7,9 +7,11 @@ It never copies source, triggers CI, or mutates GitHub state.
 import argparse
 from datetime import datetime
 import json
+import math
 import os
 import re
 import sys
+import unicodedata
 import urllib.error
 import urllib.request
 
@@ -19,6 +21,9 @@ REPOS = {
     "net": ("ores-truffle-oreslang/oreslang-source.net", 1419704375),
     "wasm": ("ores-truffle-oreslang/oreslang-source.wasm", 1419858954),
     "forge": ("ores-truffle-oreslang/oreslang-source.forge", 1419703674),
+    "rx_pull": ("ores-truffle-oreslang/rx-ores", 1407870560),
+    "rx_callbacks": ("ores-truffle-oreslang/rx-ores-callbacks", 1407871059),
+    "rx_channels": ("ores-truffle-oreslang/rx-oreslang-channels", 1407757001),
 }
 SHA = re.compile(r"^[0-9a-f]{40}$")
 MAX_PAGES = 10
@@ -28,11 +33,22 @@ HOUSEKEEPING_STEPS = frozenset({
 })
 
 
+def _evidence_label(value, limit=250):
+    # Untrusted REST display labels must be one visible line, without bidi
+    # controls or zero-width formatting. Those can visually impersonate an
+    # approved runner, CI job, or native guest test step in log/report UIs.
+    return (isinstance(value, str) and bool(value.strip())
+            and len(value) <= limit
+            and not any(unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                        for ch in value))
+
+
 def executable_step_name(name):
     # Runner-generated lifecycle steps cannot substitute for a required
     # build, test, or native guest-execution step.
-    return (isinstance(name, str) and name not in HOUSEKEEPING_STEPS
-            and not name.startswith(("Post ", "Pre ")))
+    return (_evidence_label(name)
+            and name.strip().casefold() not in {s.casefold() for s in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post)\s", name.strip().casefold()) is None)
 
 
 class Denied(ValueError):
@@ -84,6 +100,62 @@ def _timestamp(value, label):
         raise Denied(label + " has an invalid execution timestamp") from exc
 
 
+MAX_API_JSON_BYTES = 4 * 1024 * 1024
+
+
+def _strict_api_json(raw):
+    # GitHub evidence must not depend on Python's permissive last-key-wins
+    # parser, JavaScript-only nonfinite numbers, or lossy giant numeric tokens.
+    if not isinstance(raw, bytes) or len(raw) > MAX_API_JSON_BYTES:
+        raise Denied("GitHub API JSON response is missing or oversized")
+
+    def unique_keys(pairs):
+        result = {}
+        for name, value in pairs:
+            if name in result:
+                raise Denied("GitHub API JSON has duplicate object keys")
+            result[name] = value
+        return result
+
+    def no_constant(value):
+        raise Denied("GitHub API JSON contains a nonstandard number")
+
+    def strict_int(value):
+        if len(value) > 64:
+            raise Denied("GitHub API JSON integer is oversized")
+        return int(value)
+
+    def strict_float(value):
+        if len(value) > 128:
+            raise Denied("GitHub API JSON floating-point token is oversized")
+        number = float(value)
+        if not math.isfinite(number):
+            raise Denied("GitHub API JSON contains a nonfinite number")
+        return number
+
+    try:
+        data = json.loads(raw, object_pairs_hook=unique_keys,
+                          parse_constant=no_constant, parse_int=strict_int,
+                          parse_float=strict_float)
+    except Denied:
+        # Denied derives from ValueError; retain the precise security failure
+        # instead of disguising duplicate/nonfinite metadata as generic JSON.
+        raise
+    except (UnicodeError, ValueError, OverflowError, RecursionError) as exc:
+        raise Denied("malformed GitHub API JSON response") from exc
+    return _object(data, "GitHub API response")
+
+
+class _DenyRedirects(urllib.request.HTTPRedirectHandler):
+    """Never forward GitHub API credentials to another redirect target.
+
+    urllib's default redirect handler forwards Request Authorization headers,
+    including to another host. API evidence must come from api.github.com.
+    """
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise Denied("authenticated GitHub API redirect denied")
+
+
 def _api_get(path):
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not token:
@@ -98,18 +170,13 @@ def _api_get(path):
                  "User-Agent": "oreslang-exact-ci-evidence-v1"},
         method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.build_opener(_DenyRedirects).open(req, timeout=20) as resp:
             if resp.status != 200:
                 raise Denied("GitHub API did not return HTTP 200")
             raw = resp.read(4 * 1024 * 1024 + 1)
     except (OSError, urllib.error.HTTPError, urllib.error.URLError) as exc:
         raise Denied("authenticated GitHub API query failed") from exc
-    if len(raw) > 4 * 1024 * 1024:
-        raise Denied("GitHub response too large")
-    try:
-        return _object(json.loads(raw), "GitHub API response")
-    except (ValueError, UnicodeError) as exc:
-        raise Denied("malformed GitHub JSON response") from exc
+    return _strict_api_json(raw)
 
 
 def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
@@ -141,7 +208,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         raise Denied("required CI job and step names must be sequences")
     if not required_jobs or not required_steps:
         raise Denied("explicit job and executable step names are required")
-    if any(not isinstance(x, str) or not x.strip() or len(x) > 180
+    if any(not _evidence_label(x, limit=180)
            for x in [*required_jobs, *required_steps]):
         raise Denied("invalid required job or step name")
     if len(set(required_jobs)) != len(required_jobs) or len(set(required_steps)) != len(required_steps):
@@ -241,16 +308,15 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         # blank runner_name, for failed-before-start infrastructure jobs.
         if (type(job.get("runner_id")) is not int
                 or job["runner_id"] <= 0
-                or not isinstance(job.get("runner_name"), str)
-                or not job["runner_name"].strip()):
+                or not _evidence_label(job.get("runner_name"))):
             raise Denied("workflow job lacks a real allocated runner")
         job_start = _timestamp(job.get("started_at"), "job start")
         job_end = _timestamp(job.get("completed_at"), "job completion")
         if job_end < job_start:
             raise Denied("workflow job completion precedes its start")
         name = job.get("name")
-        if not isinstance(name, str) or not name:
-            raise Denied("missing workflow job name")
+        if not _evidence_label(name):
+            raise Denied("missing or unsafe workflow job name")
         if name in job_names:
             raise Denied("ambiguous repeated workflow job name")
         job_names.add(name)
@@ -261,6 +327,7 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
         ran_useful_step = False
         seen_step_names = set()
         last_number = 0
+        previous_step_end = job_start
         for item_step in steps:
             step = _object(item_step, "workflow step")
             if step.get("status") != "completed" or step.get("conclusion") != "success":
@@ -273,9 +340,12 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
             step_end = _timestamp(step.get("completed_at"), "step completion")
             if not (job_start <= step_start <= step_end <= job_end):
                 raise Denied("workflow step timing falls outside completed job")
+            if step_start < previous_step_end:
+                raise Denied("workflow step timestamps overlap or contradict execution order")
+            previous_step_end = step_end
             step_name = step.get("name")
-            if not isinstance(step_name, str) or not step_name:
-                raise Denied("workflow step has no name")
+            if not _evidence_label(step_name):
+                raise Denied("workflow step has no safe single-line name")
             if step_name in seen_step_names:
                 raise Denied("ambiguous duplicate workflow step name in job")
             seen_step_names.add(step_name)
@@ -297,18 +367,34 @@ def verify(fetch, backend, commit, tree, run_id, required_jobs, required_steps,
     # Detect a re-run or changed conclusion during multi-page evidence collection.
     # Never combine a successful run snapshot with jobs from another attempt.
     final_run = _object(fetch(prefix + "/actions/runs/" + str(run_id)), "final workflow run")
+    final_run_repo = _object(final_run.get("repository"), "final run repository")
+    final_head_repo = _object(final_run.get("head_repository"), "final head repository")
     if (type(final_run.get("id")) is not int or final_run["id"] != run_id
             or type(final_run.get("run_attempt")) is not int
             or final_run["run_attempt"] != attempt
             or final_run.get("head_sha") != commit
             or final_run.get("event") != expected_event
+            or type(final_run.get("workflow_id")) is not int
             or final_run.get("workflow_id") != workflow_id
             or final_run.get("status") != "completed"
             or final_run.get("conclusion") != "success"
             or final_run.get("path") != expected_run_path
-            or _object(final_run.get("repository"), "final run repository").get("id") != repo_id
-            or _object(final_run.get("head_repository"), "final head repository").get("id") != repo_id):
+            or type(final_run_repo.get("id")) is not int
+            or final_run_repo["id"] != repo_id
+            or type(final_head_repo.get("id")) is not int
+            or final_head_repo["id"] != repo_id):
         raise Denied("workflow run changed during evidence collection")
+    # Recheck source repository identity/visibility after collecting all jobs:
+    # a rename, replacement, or public visibility transition must not pass
+    # using only its earlier preflight metadata.
+    final_meta = _object(fetch(prefix), "final repository")
+    if (type(final_meta.get("id")) is not int
+            or final_meta.get("id") != repo_id
+            or final_meta.get("full_name") != repo
+            or final_meta.get("private") is not True
+            or final_meta.get("archived") is not False
+            or final_meta.get("disabled") is not False):
+        raise Denied("source repository changed identity or privacy during evidence collection")
     return {"backend": backend, "repository": repo, "repository_id": repo_id,
             "run_id": run_id, "run_attempt": attempt, "workflow_path": workflow_path,
             "workflow_run_path": expected_run_path,
