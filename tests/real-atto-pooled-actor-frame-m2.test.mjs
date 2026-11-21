@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {mkdtemp,writeFile,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {compileSourceActorToWasm} from '../scripts/compile-source-actor.mjs';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
@@ -69,4 +72,33 @@ test('canonical .atto nullable Node actor graph is rejected before Wasm32 guest 
     }),
     /E_ATTO_SOURCE_REJECTED:/,
     'unverified typed Ref32 class graph must never generate a pooled Wasm artifact');
+});
+
+test('negative guest gate cannot mistake compiler crash, no diagnostic or partial IR for rejection',
+  {skip: process.platform==='win32' ? 'POSIX test compiler launch' : false},async()=>{
+  // These shell scripts deliberately are NOT Atto compilers; they only prove
+  // the error-classification guard cannot turn toolchain failure into a
+  // positive fail-closed guest receipt.
+  const dir=await mkdtemp(join(tmpdir(),'atto-negative-compiler-'));
+  try {
+    const source=fileURLToPath(new URL('./fixtures/hybrid-memory-v1-node-graph.atto',import.meta.url));
+    const candidate=join(dir,'compiler-exact');
+    const cases=[
+      {script:'#!/bin/sh\necho "unsupported nominal class" >&2\nexit 3\n',code:'E_ATTO_SOURCE_REJECTED'},
+      {script:'#!/bin/sh\nexit 3\n',code:'E_ATTO_COMPILER_DIAGNOSTIC_MISSING'},
+      {script:'#!/bin/sh\necho "define i32 @main()"\necho "unsupported" >&2\nexit 3\n',
+       code:'E_ATTO_COMPILER_EMITTED_IR_ON_REJECT'},
+      {script:'#!/definitely/missing/interpreter\nexit 3\n',code:'E_ATTO_COMPILER_INFRASTRUCTURE'}
+    ];
+    for(const c of cases){
+      const bytes=Buffer.from(c.script);
+      await writeFile(candidate,bytes,{mode:0o700});
+      const expectedCompilerSha256=createHash('sha256').update(bytes).digest('hex');
+      await assert.rejects(
+        compileSourceActorToWasm({compiler:candidate,source,
+          expectedCompilerSha256,requireActorFrameV1:true}),
+        error=>error instanceof Error && error.message.startsWith(c.code+':'),
+        'compiler error classification must be exact: '+c.code);
+    }
+  } finally {await rm(dir,{recursive:true,force:true});}
 });
