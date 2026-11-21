@@ -60,19 +60,19 @@ test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", a
 test("inverted real-compiler gate requires native declaration rejection", async () => {
   const {assertInvertedFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
-  for (const stderr of [
-    "oreslang-llvmc: INVERTED_BACKEND_UNSUPPORTED: native inverted class requires lowering at byte 7",
-    "oreslang-llvmc: expected 'module', 'class' or 'actor' at byte 7",
-    "oreslang-llvmc: expected 'class', 'actor', or built-in MaxActorThreads enum at byte 7"
-  ]) {
-    assert.equal(assertInvertedFrontendRejection({
-      status:1,signal:null,error:undefined,stdout:"",stderr
-    }), true);
-  }
-  assert.throws(() => assertInvertedFrontendRejection({
+  assert.equal(assertInvertedFrontendRejection({
     status:1,signal:null,error:undefined,stdout:"",
-    stderr:"oreslang-llvmc: unrelated arithmetic failure"
-  }), /inverted-class source did not fail/);
+    stderr:"oreslang-llvmc: INVERTED_BACKEND_UNSUPPORTED: native inverted class requires verified SoA layout at byte 7"
+  }), true);
+  for (const stderr of [
+    "oreslang-llvmc: expected 'module', 'class' or 'actor' at byte 7",
+    "oreslang-llvmc: expected 'class', 'actor', or built-in MaxActorThreads enum at byte 7",
+    "oreslang-llvmc: unrelated arithmetic failure"
+  ]) {
+    assert.throws(() => assertInvertedFrontendRejection({
+      status:1,signal:null,error:undefined,stdout:"",stderr
+    }), /inverted-class source did not fail/);
+  }
 });
 
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {
