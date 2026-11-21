@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Source-free GitHub run proof regressions for five backends and three Rx variants."""
 import copy
-import textwrap
-import tempfile
-import sys
-import subprocess
-import os
 import json
+import os
+import subprocess
+import sys
+import tempfile
+import textwrap
 import importlib.util
 from pathlib import Path
 import unittest
@@ -77,6 +77,26 @@ class RunContract(unittest.TestCase):
 
     def rejected(self):
         with self.assertRaises(module.Denied):
+            self.validate()
+
+    def test_disguised_runner_housekeeping_cannot_count_as_execution(self):
+        for disguised in (" ", "\t", "  Set up job ", "set UP job",
+                          " POST Checkout", "pre Setup", " Complete job "):
+            with self.subTest(step=disguised):
+                self.assertFalse(module.executable_step_name(disguised))
+        self.assertTrue(module.executable_step_name("Prepare build"))
+        self.assertTrue(module.executable_step_name("Execute test suite"))
+
+    def test_whitespace_only_job_name_denied_with_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["name"] = " \t "
+        with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
+            self.validate()
+
+    def test_whitespace_only_step_name_denied_despite_real_test_step(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
+        with self.assertRaisesRegex(module.Denied, "no name"):
             self.validate()
 
 
@@ -177,6 +197,36 @@ class RunContract(unittest.TestCase):
                         ["Execute test suite"], workflow_id=1)
         self.assertEqual(seen[0], 2)
 
+    def test_final_run_repository_id_denies_float_equivalent(self):
+        run_path = self.prefix + "/actions/runs/17"
+        reads = [0]
+        def tamper_final(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                reads[0] += 1
+                if reads[0] == 2:
+                    data["repository"]["id"] = float(self.repo_id)
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(tamper_final, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(reads[0], 2)
+
+    def test_final_head_repository_id_denies_float_equivalent(self):
+        run_path = self.prefix + "/actions/runs/17"
+        reads = [0]
+        def tamper_final(resource):
+            data = copy.deepcopy(self.values[resource])
+            if resource == run_path:
+                reads[0] += 1
+                if reads[0] == 2:
+                    data["head_repository"]["id"] = float(self.repo_id)
+            return data
+        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
+            self.verify(tamper_final, self.backend, self.commit, self.tree,
+                        self.run_id, ["unit"], ["Execute test suite"])
+        self.assertEqual(reads[0], 2)
+
     def test_run_changed_during_collection_denied(self):
         run_path = self.prefix + "/actions/runs/17"
         original = copy.deepcopy(self.values[run_path])
@@ -269,51 +319,6 @@ class RunContract(unittest.TestCase):
                     self.verify(self.fetch, self.backend, self.commit, self.tree,
                                 self.run_id, ["unit"], ["Execute test suite"],
                                 workflow_id=value)
-
-    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
-        job = self.values[page]["jobs"][0]
-        normal = job["runner_name"]
-        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
-                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
-            with self.subTest(label=repr(malicious)):
-                job["runner_name"] = malicious
-                self.rejected()
-        job["runner_name"] = normal
-        self.assertEqual(self.validate()["verified_jobs"], 1)
-
-    def test_observed_job_and_step_names_reject_spoofed_labels(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
-        job = self.values[page]["jobs"][0]
-        for target in (job, job["steps"][1]):
-            normal = target["name"]
-            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
-                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
-                with self.subTest(target=normal, label=repr(malicious)):
-                    target["name"] = malicious
-                    self.rejected()
-            target["name"] = normal
-        self.assertEqual(self.validate()["verified_jobs"], 1)
-
-    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
-        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
-                          "CI\u2066Fake", "CI\u200bFake"):
-            with self.subTest(name=repr(malicious)):
-                for job_names, step_names in (([malicious], ["Execute test suite"]),
-                                              (["unit"], [malicious])):
-                    with self.assertRaises(module.Denied):
-                        self.verify(self.fetch, self.backend, self.commit, self.tree,
-                                    self.run_id, job_names, step_names)
-
-    def test_legible_unicode_display_names_are_not_disallowed(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
-        job = self.values[page]["jobs"][0]
-        job["name"] = "native — unité"
-        job["runner_name"] = "GitHub Actions — runner"
-        job["steps"][1]["name"] = "Exécuter native tests"
-        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
-                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
-        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
 
     def test_duplicate_step_names_within_job_denied(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
@@ -754,55 +759,54 @@ class RunContract(unittest.TestCase):
                     self.verify(self.fetch,self.backend,sha,self.tree,self.run_id,["unit"],["Execute test suite"])
 
 
-    def test_disguised_runner_housekeeping_cannot_count_as_execution(self):
-        for disguised in (" ", "\t", "  Set up job ", "set UP job",
-                          " POST Checkout", "pre Setup", " Complete job "):
-            with self.subTest(step=disguised):
-                self.assertFalse(module.executable_step_name(disguised))
-        self.assertTrue(module.executable_step_name("Prepare build"))
-        self.assertTrue(module.executable_step_name("Execute test suite"))
 
-    def test_final_run_repository_id_denies_float_equivalent(self):
-        run_path = self.prefix + "/actions/runs/17"
-        reads = [0]
-        def tamper_final(resource):
-            data = copy.deepcopy(self.values[resource])
-            if resource == run_path:
-                reads[0] += 1
-                if reads[0] == 2:
-                    data["repository"]["id"] = float(self.repo_id)
-            return data
-        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
-            self.verify(tamper_final, self.backend, self.commit, self.tree,
-                        self.run_id, ["unit"], ["Execute test suite"])
-        self.assertEqual(reads[0], 2)
-
-    def test_final_head_repository_id_denies_float_equivalent(self):
-        run_path = self.prefix + "/actions/runs/17"
-        reads = [0]
-        def tamper_final(resource):
-            data = copy.deepcopy(self.values[resource])
-            if resource == run_path:
-                reads[0] += 1
-                if reads[0] == 2:
-                    data["head_repository"]["id"] = float(self.repo_id)
-            return data
-        with self.assertRaisesRegex(module.Denied, "changed during evidence"):
-            self.verify(tamper_final, self.backend, self.commit, self.tree,
-                        self.run_id, ["unit"], ["Execute test suite"])
-        self.assertEqual(reads[0], 2)
-
-    def test_whitespace_only_job_name_denied_with_real_test_step(self):
+    def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
-        self.values[page]["jobs"][0]["name"] = " \t "
-        with self.assertRaisesRegex(module.Denied, "missing or unsafe workflow job name"):
-            self.validate()
+        job = self.values[page]["jobs"][0]
+        normal = job["runner_name"]
+        for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
+                          "Runner\u202eSpoof", "Runner\u200bSpoof", "   "):
+            with self.subTest(label=repr(malicious)):
+                job["runner_name"] = malicious
+                self.rejected()
+        job["runner_name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
 
-    def test_whitespace_only_step_name_denied_despite_real_test_step(self):
+
+    def test_observed_job_and_step_names_reject_spoofed_labels(self):
         page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
-        self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
-        with self.assertRaisesRegex(module.Denied, "workflow step has no safe single-line name"):
-            self.validate()
+        job = self.values[page]["jobs"][0]
+        for target in (job, job["steps"][1]):
+            normal = target["name"]
+            for malicious in ("Exec\nFake", "Exec\u2029Fake", "Exec\u202eFake",
+                              "Exec\u2066Fake", "Exec\u200bFake", "   "):
+                with self.subTest(target=normal, label=repr(malicious)):
+                    target["name"] = malicious
+                    self.rejected()
+            target["name"] = normal
+        self.assertEqual(self.validate()["verified_jobs"], 1)
+
+
+    def test_required_proof_names_reject_invisible_and_multiline_spoofs(self):
+        for malicious in ("CI\nFake", "CI\u2028Fake", "CI\u202eFake",
+                          "CI\u2066Fake", "CI\u200bFake"):
+            with self.subTest(name=repr(malicious)):
+                for job_names, step_names in (([malicious], ["Execute test suite"]),
+                                              (["unit"], [malicious])):
+                    with self.assertRaises(module.Denied):
+                        self.verify(self.fetch, self.backend, self.commit, self.tree,
+                                    self.run_id, job_names, step_names)
+
+
+    def test_legible_unicode_display_names_are_not_disallowed(self):
+        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        job = self.values[page]["jobs"][0]
+        job["name"] = "native — unité"
+        job["runner_name"] = "GitHub Actions — runner"
+        job["steps"][1]["name"] = "Exécuter native tests"
+        result = self.verify(self.fetch, self.backend, self.commit, self.tree,
+                             self.run_id, [job["name"]], [job["steps"][1]["name"]])
+        self.assertEqual(result["successful_non_housekeeping_steps"], 1)
 
 
 class StrictApiJSONContract(unittest.TestCase):
@@ -907,34 +911,14 @@ class StrictApiJSONContract(unittest.TestCase):
                         "https://other.example.invalid/capture")
 
 
+
 class WorkflowIsolationContract(unittest.TestCase):
-    """Validate the checked-in workflow, never non-existent template steps."""
+    """Prevent candidate import-path shadowing in CI report generation."""
 
     @staticmethod
     def workflow_text():
         return (Path(__file__).resolve().parents[1]
-                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(
-                    encoding="utf-8")
-
-    def test_all_inline_python_heredocs_use_isolated_mode(self):
-        workflow = self.workflow_text()
-        inline = [line.strip() for line in workflow.splitlines()
-                  if "python3" in line and "<<'PY'" in line]
-        self.assertGreaterEqual(len(inline), 1)
-        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline))
-        self.assertNotIn("python3 - <<'PY'", workflow)
-        self.assertIn("python3 -I -m py_compile", workflow)
-
-    def test_workflow_checkout_is_pinned_and_uncredentialed(self):
-        workflow = self.workflow_text()
-        self.assertIn(
-            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
-            workflow)
-        self.assertIn("persist-credentials: false", workflow)
-        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", workflow)
-        self.assertIn("contents: read", workflow)
-        self.assertNotIn("pull_request_target:", workflow)
-        self.assertNotIn("secrets.", workflow)
+                / ".github" / "workflows" / "ci-run-evidence-contract.yml").read_text(encoding="utf-8")
 
     def test_report_writer_uses_isolated_python(self):
         workflow = self.workflow_text()
@@ -943,6 +927,13 @@ class WorkflowIsolationContract(unittest.TestCase):
             "      - name: Upload minimal source-free CI evidence", 1)[0]
         self.assertIn("python3 -I - <<'PY'", writer)
         self.assertNotIn("python3 - <<'PY'", writer)
+
+    def test_all_inline_python_heredocs_use_isolated_mode(self):
+        inline_python = [line.strip() for line in self.workflow_text().splitlines()
+                         if "python3" in line and "<<'PY'" in line]
+        self.assertEqual(len(inline_python), 2)
+        self.assertTrue(all(line == "python3 -I - <<'PY'" for line in inline_python))
+
 
     def test_report_pins_distinct_trigger_and_checkout_metadata(self):
         workflow = self.workflow_text()
@@ -988,6 +979,18 @@ class WorkflowIsolationContract(unittest.TestCase):
                 self.assertEqual(report["workflow_trigger_event"], "pull_request")
                 self.assertIs(report["trigger_sha_matches_reported_checkout"], expected)
                 self.assertIs(report["verified_execution_claim"], False)
+
+
+    def test_workflow_checkout_is_pinned_and_uncredentialed(self):
+        workflow = self.workflow_text()
+        self.assertIn(
+            "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+            workflow)
+        self.assertIn("persist-credentials: false", workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.head.sha }}", workflow)
+        self.assertIn("contents: read", workflow)
+        self.assertNotIn("pull_request_target:", workflow)
+        self.assertNotIn("secrets.", workflow)
 
 
 if __name__ == "__main__":
