@@ -105,18 +105,21 @@ guest in **a separate Node subprocess**, never in the synchronous CI control
 thread. A valid guest may loop forever or print endlessly; JavaScript timers
 cannot interrupt WebAssembly inside the same thread. The subprocess has a
 **5-second** execution deadline, a bounded V8 heap, a **64 KiB child output**
-buffer, an exact Wasm i64 return requirement, at most **4 KiB accumulated
+buffer, an exact Wasm i64 return requirement, **zero exported panic_code**
+(terminal failure must not masquerade as ordinary catch/recover), at most **4 KiB accumulated
 guest stdout**, and the same allowlisted Atto print imports and memory bounds.
 The generated Wasm binary is passed through subprocess stdin, not written to
 a public artifact or logged. No user-defined `NODE_OPTIONS` is inherited.
 
 The source-free synthetic test
 `tests/exception-bang-isolated-guest.test.mjs` exercises a known i64
-synthetic guest, rejected i32 ABI, forbidden `env` import, an actual infinite
-Wasm loop terminated by a child timeout, a 4 KiB+ print flood, malformed and
-oversized Wasm, and a non-promoting receipt. These seven tests passed
-**7/7 in local Node 22** using files matched byte-for-byte to GitHub's
-original Git blob SHA-1; this is **host security testing only**.
+synthetic guest, **a forged i64 success with panic_code=1 that must fail**,
+rejected i32 ABI, forbidden `env` import, an actual infinite Wasm loop terminated
+by a child timeout, a 4 KiB+ print flood, malformed and oversized Wasm,
+and a non-promoting receipt. These eight tests passed **8/8 in local Node 22**
+using exact source files matched byte-for-byte to committed Git blob SHA-1
+(`44db7d31c86d4d7744c96aab95b70d87e4dc2392` and
+`d0225e31dcf1519f458ff35f8d5d3f298f29c0bd`); this is **host security testing only**.
 The source repository still has zero-step Actions admission failures,
 and no approved Rust compiler artifact or compiled Atto guest has been run.
 
