@@ -8,6 +8,27 @@ const PAGE = 65536;
 const MAX_PAGES = 1024; // Explicit v1 ceiling: 64 MiB, not a ref32 width limit.
 const MAX_HANDLES = 4096;
 const MAX_ACTORS = 4096; // Bounded host actor and recycled-memory metadata.
+
+const REF32_MAX_WORD = 0xffffffff;
+const REF32_MAX_ALIGNED_START = (REF32_MAX_WORD - 1) * 8;
+
+/* Explicit unsigned offset8+1 ABI, not an actor capability or a raw pointer.
+ * Avoid bitwise arithmetic: JavaScript bitwise operators coerce to signed i32
+ * and would corrupt valid high-bit words near the Ref32 upper boundary. */
+export function encode_actor_ref32_offset_v1(byteOffset) {
+  if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
+      byteOffset > REF32_MAX_ALIGNED_START || byteOffset % 8 !== 0) {
+    throw new RangeError('invalid aligned actor-local Ref32 offset');
+  }
+  return byteOffset / 8 + 1;
+}
+export function decode_actor_ref32_word_v1(word) {
+  if (!Number.isSafeInteger(word) || word < 0 || word > REF32_MAX_WORD) {
+    throw new RangeError('invalid unsigned actor Ref32 word');
+  }
+  return word === 0 ? null : (word - 1) * 8;
+}
+
 const trustedIsUint8Array = types.isUint8Array;
 const TrustedMemory = WebAssembly.Memory;
 const trustedGrow = WebAssembly.Memory.prototype.grow;
@@ -230,7 +251,7 @@ class ElasticActorHeapV1 {
   }
   word(turn, handle) {
     const {offset} = this.#slot(turn, handle);
-    return offset / 8 + 1; // guest-ref32 model, NOT an authorization token.
+    return encode_actor_ref32_offset_v1(offset); // NOT an authorization token.
   }
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
