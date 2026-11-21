@@ -1,4 +1,5 @@
 import {parentPort} from 'node:worker_threads';
+import {ActorFrameLedger} from './actor-frame-ledger.mjs';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 
@@ -8,6 +9,44 @@ const actors = new Map();
 const ABI = ['oreslang_wasm_actor_init', 'oreslang_wasm_actor_on_message',
   'oreslang_wasm_actor_teardown', 'memory'];
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
+
+// The guest native Wasm stack is still engine-owned. This host-side logical
+// frame record is independent per actor and never grants a guest memory view.
+const encodeScalarFrame = (input, output = null) => {
+  const bytes = new Uint8Array(16);
+  for (const [offset, value] of [[0, input], [8, output]]) {
+    if (value === null) continue;
+    let unsigned = BigInt.asUintN(64, value);
+    for (let i = 0; i < 8; i++) {
+      bytes[offset + i] = Number(unsigned & 255n);
+      unsigned >>= 8n;
+    }
+  }
+  return bytes;
+};
+
+// Runtime-owned synchronous guest call lease. No suspension is introduced
+// until the compiler and scheduler can preserve actual .atto guest frames.
+function invokeWithManagedFrame(actor, input, invoke) {
+  const ledger = actor.frames;
+  const turn = ledger.beginTurn();
+  let execution = null, finished = false;
+  try {
+    execution = ledger.startExecution(turn);
+    const frame = ledger.pushFrame(turn, execution, 16);
+    ledger.writeFrame(turn, execution, frame, encodeScalarFrame(input));
+    const result = invoke();
+    ledger.writeFrame(turn, execution, frame,
+      encodeScalarFrame(input, typeof result === 'bigint' ? result : null));
+    ledger.popFrame(turn, execution, frame);
+    ledger.finishExecution(turn, execution);
+    finished = true;
+    return result;
+  } finally {
+    if (execution !== null && !finished) ledger.cancelExecution(turn, execution);
+    ledger.endTurn(turn);
+  }
+}
 
 parentPort.on('message', request => {
   const {kind, id, incarnation, ticket} = request;
@@ -38,8 +77,14 @@ parentPort.on('message', request => {
           e.oreslang_wasm_actor_teardown.length !== 0 ||
           !(e.memory instanceof WebAssembly.Memory))
         throw Error('invalid actor function arity or memory');
-      actors.set(id, {incarnation, exports: e});
-      if (e.oreslang_wasm_actor_init() !== undefined) throw Error('init must be void');
+      // Each pooled actor has a separate guest-exported heap (e.memory) and a
+      // separate host-managed logical frame backing, both scoped to incarnation.
+      const actor = {incarnation, exports: e,
+        frames: new ActorFrameLedger({actorId: id, incarnation})};
+      actors.set(id, actor);
+      if (invokeWithManagedFrame(actor, 0n,
+        () => e.oreslang_wasm_actor_init()) !== undefined)
+        throw Error('init must be void');
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket, result: null});
       return;
     }
@@ -48,7 +93,8 @@ parentPort.on('message', request => {
     if (kind === 'send') {
       if (typeof request.value !== 'bigint' || request.value < I64_MIN || request.value > I64_MAX)
         throw Error('invalid signed-i64 actor message');
-      const result = actor.exports.oreslang_wasm_actor_on_message(request.value);
+      const result = invokeWithManagedFrame(actor, request.value,
+        () => actor.exports.oreslang_wasm_actor_on_message(request.value));
       if (typeof result !== 'bigint' || result < I64_MIN || result > I64_MAX)
         throw Error('actor result must be i64');
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket, result});
@@ -58,8 +104,12 @@ parentPort.on('message', request => {
       // Revoke the binding before guest teardown; failure is terminal for
       // this entire carrier, never a retry on partly retired state.
       actors.delete(id);
-      if (actor.exports.oreslang_wasm_actor_teardown() !== undefined)
+      if (invokeWithManagedFrame(actor, 0n,
+        () => actor.exports.oreslang_wasm_actor_teardown()) !== undefined)
         throw Error('teardown must be void');
+      // STOP has no live logical execution or async guest capability in this
+      // fixed import-free ABI. Scrub frame storage before final heap scrub.
+      actor.frames.retire();
       new Uint8Array(actor.exports.memory.buffer).fill(0);
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket, result: null});
       return;
