@@ -44,3 +44,18 @@ fn block() -> String {
         assert!(s.contains(required), "safety policy missing: {required}");
     }
 }
+#[test] fn workflow_runs_on_exact_head_without_checkout_tokens() {
+    let flow = fs::read_to_string(".github/workflows/atto-pr-policy-parity.yml")
+        .expect("governance workflow must exist");
+    for required in [
+        "pull_request:", "push:", "workflow_dispatch:",
+        "EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}",
+        "ref: ${{ github.event.pull_request.head.sha || github.sha }}",
+        "persist-credentials: false",
+        "test \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\"",
+        "rustc --edition=2021 -D warnings --test",
+    ] {
+        assert!(flow.contains(required), "exact-head CI requirement missing: {required}");
+    }
+    assert!(!flow.contains("paths:"), "required policy check cannot be path-skipped");
+}
