@@ -101,3 +101,28 @@ test('mutating code-point and byte-length helpers cannot move offsets or mask co
     Buffer.byteLength = priorByteLength;
   }
 });
+
+
+test('monkeypatched native byte-view getter call cannot spoof backing or length', () => {
+  const proto = Object.getPrototypeOf(Uint8Array.prototype);
+  const bufferGetter = Object.getOwnPropertyDescriptor(proto, 'buffer').get;
+  const lengthGetter = Object.getOwnPropertyDescriptor(proto, 'byteLength').get;
+  const oldBufferCall = Object.getOwnPropertyDescriptor(bufferGetter, 'call');
+  const oldLengthCall = Object.getOwnPropertyDescriptor(lengthGetter, 'call');
+  Object.defineProperty(bufferGetter, 'call', {
+    configurable: true, value: () => new ArrayBuffer(8)
+  });
+  Object.defineProperty(lengthGetter, 'call', {
+    configurable: true, value: () => 1
+  });
+  try {
+    if (typeof SharedArrayBuffer !== 'undefined')
+      assert.throws(() => rejectRawSourceControls(new Uint8Array(new SharedArrayBuffer(8))), /shared/);
+    assert.throws(() => rejectRawSourceControls(new Uint8Array(1_048_577)), /1 MiB/);
+  } finally {
+    if (oldBufferCall) Object.defineProperty(bufferGetter, 'call', oldBufferCall);
+    else delete bufferGetter.call;
+    if (oldLengthCall) Object.defineProperty(lengthGetter, 'call', oldLengthCall);
+    else delete lengthGetter.call;
+  }
+});
