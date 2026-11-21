@@ -29,9 +29,20 @@ function invoke(exe, args, input) {
     input, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
     windowsHide: true, env: {PATH: process.env.PATH || ''}
   });
-  if (proc.error || proc.status !== 0 || proc.signal)
-    throw Error('actor compilation command failed: ' +
-      String(proc.error?.message || proc.stderr || `exit ${proc.status}`).slice(0, 2048));
+  // Distinguish a genuine source diagnostic from a missing/failed compiler,
+  // timeout, crash, or an unsafe compiler that emitted partial LLVM IR.
+  // Only the former can satisfy a fail-closed negative guest source test.
+  if (proc.error || proc.signal || !Number.isInteger(proc.status))
+    throw Error('E_ATTO_COMPILER_INFRASTRUCTURE: ' +
+      String(proc.error?.message || proc.signal || 'missing exit status').slice(0, 2048));
+  if (proc.status !== 0) {
+    if (proc.stdout?.trim())
+      throw Error('E_ATTO_COMPILER_EMITTED_IR_ON_REJECT: ' +
+        String(proc.stderr || 'nonzero exit with LLVM IR').slice(0, 2048));
+    if (!proc.stderr?.trim())
+      throw Error('E_ATTO_COMPILER_DIAGNOSTIC_MISSING: nonzero exit without a diagnostic');
+    throw Error('E_ATTO_SOURCE_REJECTED: ' + proc.stderr.slice(0, 2048));
+  }
   if (!proc.stdout || Buffer.byteLength(proc.stdout, 'utf8') > MAX_IR)
     throw Error('actor compiler did not emit bounded LLVM IR');
   return proc.stdout;
