@@ -38,6 +38,25 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
+      - name: Browser-portable actor arena admission (Node host-only; NOT Wasm guest)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This runs the actual actor-arena ESM and its adversarial tests,
+          # including a Node-free data: ESM import and cross-realm byte brands.
+          # It does NOT establish browser/Web Worker or compiled guest parity.
+          test "$(git hash-object src/actor-arena.mjs)" = 0a7f7ec30410d396997c3651706fce142ec9cfb4
+          test "$(git hash-object tests/actor-arena-option-slice-v1.test.mjs)" = 52c6982f16e5208ad9c86805c1ef4c3b4fd01b43
+          node --check src/actor-arena.mjs
+          node --check tests/actor-arena-option-slice-v1.test.mjs
+          node --test --test-reporter=tap tests/actor-arena-option-slice-v1.test.mjs | tee "$RUNNER_TEMP/wasm-actor-arena.tap"
+          # Fail closed on a smaller inventory, skipped tests, or a silently
+          # omitted browser-compatibility/brand-security regression.
+          for expected in '# tests 9' '# pass 9' '# fail 0' '# cancelled 0' '# skipped 0' '# todo 0'; do
+            grep -Fx -- "$expected" "$RUNNER_TEMP/wasm-actor-arena.tap"
+          done
+          echo "WASM_ACTOR_ARENA_HOST_ONLY|head=$(git rev-parse HEAD)|tests_executed=9|guest=NOT_EXECUTED"
+
       - name: Verify Rust-only numeric backend capability claims (data-only)
         run: |
           cargo test --manifest-path tools/serde-contract-gate/Cargo.toml --bin numeric-admission
