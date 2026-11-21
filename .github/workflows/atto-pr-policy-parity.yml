@@ -1,0 +1,32 @@
+name: Atto Ready-cycle Governance Parity
+on:
+  pull_request:
+    paths:
+      - AGENTS.md
+      - .github/tests/atto-pr-policy-contract.rs
+      - .github/workflows/atto-pr-policy-parity.yml
+  push:
+    branches: [main]
+    paths:
+      - AGENTS.md
+      - .github/tests/atto-pr-policy-contract.rs
+      - .github/workflows/atto-pr-policy-parity.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run Rust governance-contract negative guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc --version
+          rustc --edition=2021 -D warnings --test .github/tests/atto-pr-policy-contract.rs -o "$RUNNER_TEMP/atto-pr-policy-contract"
+          "$RUNNER_TEMP/atto-pr-policy-contract"
