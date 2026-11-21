@@ -10,6 +10,6 @@ default=[]
 insecure-dev-caller-pin=[]
 
 [dependencies]
-wasmtime={version="=49.0.3",default-features=false,features=["std","runtime"]}
+wasmtime={version="=49.0.5",default-features=false,features=["std","runtime"]}
 sha2="=0.10.9"
 libc="=0.2.186"
