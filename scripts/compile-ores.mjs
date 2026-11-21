@@ -366,7 +366,14 @@ export function rejectUnsupportedActorPubSubSource(sourceBytes){
   const typedTopicCall=
     current?.text==="." && tokens[i+1]?.id &&
     tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
-  if(actorGroupCall || typedHandle || typedTopicCall)
+  // A local/imported Topic<T> may reach .try_publish without spelling
+  // actor.group or Topic<T> in this compilation unit. Deny the canonical
+  // member call before invoking LLVM or staging a wasm guest artifact.
+  // A standalone function named try_publish is not reserved by this gate.
+  const tryPublishMemberCall=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="try_publish" && tokens[i+2]?.text==="(";
+  if(actorGroupCall || typedHandle || typedTopicCall || tryPublishMemberCall)
    throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
  }
 }

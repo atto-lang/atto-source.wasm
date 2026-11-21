@@ -34,6 +34,35 @@ test("pub-sub spellings in comments and strings are not capability evidence", ()
   )));
 });
 
+test("canonical share! try_publish is denied before Wasm bridge execution", () => {
+  // These source forms may omit actor.group and Topic<T> in the unit because
+  // the topic handle came from an import or an enclosing actor-bound method.
+  for (const source of [
+    "val receipt = topic.try_publish(share! event)?;",
+    "val receipt = topic.try_publish(share!event);",
+    "val receipt = topic.try_publish(rt share event);",
+    "val receipt = existing_topic.try_publish(share! event)?;"
+  ]) {
+    assert.throws(
+      () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
+      /wasm ActorGroup\\/Topic source lowering unsupported/,
+      source
+    );
+  }
+});
+
+test("inert try_publish text and unrelated free function name are not Topic evidence", () => {
+  for (const source of [
+    "fnc try_publish(event:int):int{return event;}",
+    'fnc main():int{return 42;} // topic.try_publish(share! event)?',
+    'fnc main():int{return 42;} /* topic.try_publish(rt share event) */',
+    'fnc main():int{return 42;} "topic.try_publish(share! event)?"'
+  ]) {
+    assert.doesNotThrow(
+      () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),source);
+  }
+});
+
 test("actor pipe and ActorUtils static construction fail before Wasm/LLVM bridge", () => {
   for (const source of [
     "return spawn Source() pipe spawn Transform() pipe spawn Sink();",
