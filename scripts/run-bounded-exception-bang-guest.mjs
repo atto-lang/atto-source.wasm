@@ -27,6 +27,8 @@ export function runBoundedGuest(bytes){
     'missing compiled guest main');
   assert.ok(exports.some(x=>x.name==='memory'&&x.kind==='memory'),
     'missing exported guest memory');
+  assert.ok(exports.some(x=>x.name==='panic_code'&&x.kind==='global'),
+    'missing guest panic_code ABI global');
   assert.ok(exports.every(x=>['main','memory','panic_code'].includes(x.name)),
     'unexpected compiled guest export');
   let stdout='',instance;
@@ -54,7 +56,13 @@ export function runBoundedGuest(bytes){
   instance=new WebAssembly.Instance(module,{atto:host});
   const result=instance.exports.main();
   assert.equal(typeof result,'bigint','compiled guest must return wasm i64');
-  return {scope:'ISOLATED_COMPILED_GUEST',value:String(result),stdout};
+  const panic=instance.exports.panic_code?.value;
+  assert.ok((typeof panic==='bigint'||Number.isInteger(panic)) &&
+    BigInt(panic)>=0n,'invalid guest panic_code global');
+  assert.equal(BigInt(panic),0n,
+    'compiled guest entered terminal panic rather than ordinary throw/raise');
+  return {scope:'ISOLATED_COMPILED_GUEST',
+    value:String(result),stdout,panic_code:String(panic)};
 }
 
 if(process.argv[1]===fileURLToPath(import.meta.url)){
