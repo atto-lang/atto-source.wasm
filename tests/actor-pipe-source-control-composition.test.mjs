@@ -151,3 +151,18 @@ test('Array.includes tampering cannot admit bare actor pipes and must preserve f
   assert.match(failure?.message ?? '', /wasm actor rpipe source lowering unsupported/);
   assert.doesNotThrow(()=>admitHostOnly('val x = input |> transform;'));
 });
+
+
+test('mutating RegExp.exec cannot admit either direction of actor pipe', () => {
+  const prior = RegExp.prototype.exec;
+  const seen = [];
+  RegExp.prototype.exec = () => null;
+  try {
+    for(const source of ['val g = p pipe c;', 'val g = c rpipe p;',
+      'val g = p pipe! c;', 'val g = c rpipe! p;']) {
+      try {admitHostOnly(source);} catch (error) {seen.push(error.message);}
+    }
+  } finally {RegExp.prototype.exec = prior;}
+  assert.equal(seen.length,4);
+  for(const message of seen) assert.match(message,/wasm actor (?:r?pipe)!? source lowering unsupported/);
+});
