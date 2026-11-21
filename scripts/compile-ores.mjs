@@ -366,7 +366,15 @@ export function rejectUnsupportedActorPubSubSource(sourceBytes){
   const typedTopicCall=
     current?.text==="." && tokens[i+1]?.id &&
     tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
-  if(actorGroupCall || typedHandle || typedTopicCall)
+  // Match the .NET fail-closed contract until the compiler owns checked
+  // receiver typing, share! ownership transfer and typed PublishReceipt ABI.
+  // An imported or locally bound topic alias need not spell Topic<T> or
+  // actor.group in this source, so generic/topic-specific checks are not enough.
+  // Only member access is gated; ordinary fnc try_publish remains untouched.
+  const unloweredTopicPublish=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="try_publish";
+  if(actorGroupCall || typedHandle || typedTopicCall || unloweredTopicPublish)
    throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
  }
 }

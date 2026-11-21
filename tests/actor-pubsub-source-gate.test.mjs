@@ -34,6 +34,47 @@ test("pub-sub spellings in comments and strings are not capability evidence", ()
   )));
 });
 
+test("unlowered Topic.try_publish on aliases fails before native compiler or Wasm staging", () => {
+  // A local/parameter/imported receiver need not contain Topic<T> or
+  // actor.group in the same file; there is no verified receipt ABI yet.
+  for (const source of [
+    "val receipt = topic.try_publish(share! event)?;",
+    "val receipt = runtime_topic.try_publish(rt share event);",
+    "val receipt = topic /* nested /* c */ c */ . try_publish(share! event)?;",
+    "val receipt = topic?.try_publish(share! event)?;",
+    "val call = topic.try_publish;"
+  ]) {
+    assert.throws(
+      () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
+      /wasm ActorGroup\\/Topic source lowering unsupported/,
+      source
+    );
+  }
+});
+
+test("pub-sub admission does not mistake inert strings or ordinary identifiers for publication", () => {
+  for (const source of [
+    "fnc try_publish(event:int):int{return event;}",
+    "fnc main():int{return try_publish(42);}",
+    "fnc main():int{return 42;} // topic.try_publish(share! event)?\\n",
+    "fnc main():int{return 42;} /* topic.try_publish(rt share event) */",
+    'fnc main():int{const s="topic.try_publish(share! event)?"; return 42;}',
+    "fnc main():int{const n=topic.try_publisher;return 42;}"
+  ]) {
+    assert.doesNotThrow(
+      () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
+      source
+    );
+  }
+  assert.throws(
+    () => rejectUnsupportedActorPubSubSource(Buffer.from(
+      "// ignored topic.try_publish(share! event)?\\u0085" +
+      "val receipt=alias.try_publish(share! event)?;"
+    )),
+    /wasm ActorGroup\\/Topic source lowering unsupported/
+  );
+});
+
 test("actor pipe and ActorUtils static construction fail before Wasm/LLVM bridge", () => {
   for (const source of [
     "return spawn Source() pipe spawn Transform() pipe spawn Sink();",
