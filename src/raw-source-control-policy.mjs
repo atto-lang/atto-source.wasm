@@ -23,6 +23,10 @@ const trustedCodePointAt = String.prototype.codePointAt;
 const trustedNumberToString = Number.prototype.toString;
 const trustedToUpperCase = String.prototype.toUpperCase;
 const trustedPadStart = String.prototype.padStart;
+// Keep failure identity and diagnostics intact even if host plugins patch globals.
+const trustedError = Error;
+const trustedTypeError = TypeError;
+const trustedRangeError = RangeError;
 const trustedApply = Reflect.apply;
 const decoder = new NodeTextDecoder('utf-8', {fatal: true, ignoreBOM: true});
 const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
@@ -41,14 +45,14 @@ function forbiddenCodePoint(cp) {
 export function rejectRawSourceControls(sourceBytes) {
   if (sourceBytes == null || trustedIsProxy(sourceBytes) ||
       !trustedIsUint8Array(sourceBytes))
-    throw new TypeError('WASM source control preflight requires genuine Uint8Array bytes');
+    throw new trustedTypeError('WASM source control preflight requires genuine Uint8Array bytes');
   // Read actual typed-array slots, not spoofable subclass properties.
   const length = trustedApply(actualByteLength, sourceBytes, []);
   const backing = trustedApply(actualBuffer, sourceBytes, []);
   if (trustedIsSharedArrayBuffer(backing))
-    throw new TypeError('WASM source control preflight refuses shared backing');
+    throw new trustedTypeError('WASM source control preflight refuses shared backing');
   if (length > MAX_SOURCE_BYTES)
-    throw new RangeError('WASM source control preflight exceeds 1 MiB');
+    throw new trustedRangeError('WASM source control preflight exceeds 1 MiB');
   const text = trustedApply(trustedDecode, decoder, [sourceBytes]);
   let byteOffset = 0;
   for (let i = 0; i < text.length;) {
@@ -57,7 +61,7 @@ export function rejectRawSourceControls(sourceBytes) {
       const hex = trustedApply(trustedPadStart,
         trustedApply(trustedToUpperCase,
           trustedApply(trustedNumberToString, cp, [16]), []), [4, '0']);
-      throw new Error('WASM_SOURCE_CONTROL_REJECTED U+' +
+      throw new trustedError('WASM_SOURCE_CONTROL_REJECTED U+' +
         hex + ' at byte ' + byteOffset);
     }
     // Fatal UTF-8 decoder guarantees well-formed Unicode scalar values.
