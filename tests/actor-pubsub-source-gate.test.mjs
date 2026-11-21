@@ -41,7 +41,9 @@ test("canonical share! try_publish is denied before Wasm bridge execution", () =
     "val receipt = topic.try_publish(share! event)?;",
     "val receipt = topic.try_publish(share!event);",
     "val receipt = topic.try_publish(rt share event);",
-    "val receipt = existing_topic.try_publish(share! event)?;"
+    "val receipt = existing_topic.try_publish(share! event)?;",
+    "val callable = topic.try_publish;",
+    "val rejected = topic.try_publish<String>(share! event);"
   ]) {
     assert.throws(
       () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
