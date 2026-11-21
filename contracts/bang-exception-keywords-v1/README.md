@@ -35,3 +35,35 @@ Wasm host/worker integration must not synthesize guest exceptional control. Admi
 - Verify positive parse, negative type/effect diagnostics, `Result` capture identity, panic escalation and supervisor CONTROL routing **only** on backends that genuinely implement these semantics.
 - Separate lexer/parser tests, static source checks, host simulations, and actual AOT/Wasm guest execution. A missing or zero-step execution is **NOT_EXECUTED**, not a pass.
 - Before promotion or merge, reconcile overlapping in-flight feature work (notably `atto-source.rs` #327/#331, `atto-source.llvm` #75, `atto-source.net` #117, `atto-source.wasm` #51, `atto-source.java` #67), and obtain exact-head CI and required independent approvals.
+
+## Cross-compiler reconciliation (2026-11-20)
+
+This contract is **not** a Wasm source compiler feature. Verify these
+separate implementation surfaces rather than inferring parity from a spelling
+in a README:
+
+| Surface | Relevant current PR | Required evidence |
+| --- | --- | --- |
+| Rust source/wasm32 | [atto-source.rs #449](https://github.com/atto-lang/atto-source.rs/pull/449), [#331](https://github.com/atto-lang/atto-source.rs/pull/331) | bang lexer adjacency, typed Error and Result, actual compiled guest |
+| Wasm scalar integration | [atto-source.wasm #51](https://github.com/atto-lang/atto-source.wasm/pull/51) | independently pinned Rust compiler plus compiled Wasm Result guest |
+| .NET | [atto-source.net #117](https://github.com/atto-lang/atto-source.net/pull/117) | real CIL/NativeAOT Result guest rather than IR-only simulation |
+| JS source | [atto-source.js #97](https://github.com/atto-lang/atto-source.js/pull/97) | unsupported effects rejected before ESM publication |
+| Forge | [atto-source.forge #183](https://github.com/atto-lang/atto-source.forge/pull/183) | unsupported Result/trap sources rejected before native object emission |
+
+The scalar LLVM-backed bridge must not claim support for `trap!` simply
+because the host verifies a separate Rust-produced Wasm binary. Keep a
+positive parser/guest test separate from a negative unsupported-source gate.
+
+### Required lexical regression vectors
+
+- Admit an identifier `trapped`, strings `"throw!"` and `"panic!"`,
+  and comments containing these spellings as inert text.
+- Distinguish contiguous `trap! value` from `trap !value` and likewise
+  for `throw!`, `raise!` and `panic!`. Never rewrite all `!` punctuation.
+- Preserve `!=`, `!eq`, `borrow! mut`, `pipe!`, `rpipe!` and
+  `stop!` as separate operators with their own semantic contracts.
+- Reject bare non-`Error` thrown values, and ensure panic is not
+  intercepted by `trap!`; a nonactor top-level panic needs an explicit
+  runtime policy, not a fabricated supervisor.
+- Require exact-head, nonzero-step source-compiler plus guest tests before
+  recording any parity success. Documentation changes alone are not evidence.
