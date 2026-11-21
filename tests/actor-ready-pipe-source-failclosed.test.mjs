@@ -49,3 +49,13 @@ test('existing ActorUtils pipe factory remains fail closed; unrelated instance c
     assert.throws(() => check(source),/wasm actor pipe source lowering unsupported/);
   assert.doesNotThrow(()=>check('object.pipe(1); object.rpipe(2);'));
 });
+
+test('malformed contextual bang source never invokes the scalar bridge compiler', () => {
+  for(const source of [
+    'pipe!;', 'rpipe!;', 'producer pipe!;', 'consumer rpipe!;',
+    'pipe! consumer;', 'rpipe! producer;', 'worker.pipe!();',
+    'a rpipe! /* missing endpoint */ ;'
+  ]) {
+    assert.throws(()=>check(source),/wasm actor (?:r?pipe)! source lowering unsupported/,source);
+  }
+});
