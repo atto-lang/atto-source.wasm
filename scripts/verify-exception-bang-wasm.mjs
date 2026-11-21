@@ -6,6 +6,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const guestRunner=fileURLToPath(new URL('./run-bounded-exception-bang-guest.mjs',import.meta.url));
 
 const [compilerPath, expectedSha] = process.argv.slice(2);
 if(process.argv.length!==4 || !/^[a-f0-9]{64}$/.test(expectedSha??'')){
@@ -63,34 +66,32 @@ function compile(source){
 }
 
 function runGuest(bytes){
-  const guestModule=new WebAssembly.Module(bytes);
-  const allowed=new Set(['print_i64','print_bool','print_str','print_newline','print_f64']);
-  for(const imp of WebAssembly.Module.imports(guestModule)){
-    assert.equal(imp.module,'atto','unexpected guest import module');
-    assert.ok(imp.kind==='function'&&allowed.has(imp.name),
-      'unexpected guest host function');
-  }
-  const exports=WebAssembly.Module.exports(guestModule);
-  assert.ok(exports.some(x=>x.name==='main'&&x.kind==='function'),
-    'missing guest entrypoint');
-  assert.ok(exports.every(x=>['main','memory','panic_code'].includes(x.name)),
-    'unexpected guest export');
-  let stdout='',instance;
-  const host={
-    print_i64:v=>{stdout+=String(v);},
-    print_bool:v=>{stdout+=v?'true':'false';},
-    print_f64:v=>{stdout+=String(v);},
-    print_newline:()=>{stdout+='\n';},
-    print_str:(ptr,len)=>{
-      const buffer=instance?.exports.memory?.buffer;
-      assert.ok(buffer&&Number.isSafeInteger(ptr)&&Number.isSafeInteger(len)&&
-        ptr>=0&&len>=0&&ptr+len<=buffer.byteLength,'invalid guest string pointer');
-      stdout+=decoder.decode(new Uint8Array(buffer,ptr,len));
-    }
-  };
-  instance=new WebAssembly.Instance(guestModule,{atto:host});
-  const value=instance.exports.main();
-  return {value,stdout};
+  // The compiler artifact has a SHA-bound provenance, but its generated
+  // guest may still contain an infinite loop, stdout flood or huge memory
+  // allocation. Run it in a bounded *child process*; JS timers cannot
+  // interrupt synchronous WebAssembly execution in this main process.
+  assert.ok(bytes instanceof Uint8Array && bytes.length>=8 &&
+    bytes.length<=1024*1024,'compiled guest outside bounded profile');
+  const child=spawnSync(process.execPath,
+    ['--max-old-space-size=128',guestRunner],{
+      input:Buffer.from(bytes),encoding:'utf8',
+      timeout:5000,maxBuffer:64*1024,windowsHide:true,
+      env:{PATH:process.env.PATH??'',NODE_OPTIONS:''}
+    });
+  assert.equal(child.error,undefined,
+    'compiled guest child error/timeout: '+String(child.error));
+  assert.equal(child.signal,null,'compiled guest was killed: '+child.stderr);
+  assert.equal(child.status,0,
+    'compiled guest rejected or exited abnormally: '+child.stderr);
+  assert.ok(child.stdout.length>0 && child.stdout.length<=8192,
+    'compiled guest receipt missing/oversized');
+  const receipt=JSON.parse(child.stdout);
+  assert.equal(receipt.scope,'ISOLATED_COMPILED_GUEST','forged guest scope');
+  assert.match(receipt.value,/^-?[0-9]+$/,'non-integer guest result');
+  assert.ok(typeof receipt.stdout==='string'&&
+    Buffer.byteLength(receipt.stdout,'utf8')<=4096,
+    'guest stdout exceeded bounded profile');
+  return {value:BigInt(receipt.value),stdout:receipt.stdout};
 }
 
 const positive=[
