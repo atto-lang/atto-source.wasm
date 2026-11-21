@@ -223,3 +223,19 @@ test('long modifier prefix cannot bypass unsupported scalar actor/enum gates',()
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     'define '+Array(32).fill('pub').join(' ')+' enum UserColors as red end')));
 });
+
+test("Wasm source scalar bridge refuses unverified critical-state borrow CFG without an actor header", () => {
+  for (const source of [
+    "fnc main():int{ this.handle_state(critical-write |s| -> { s.x = 1; }); return 0; }",
+    "fnc main():int{ critical-read |s| -> { s.x; }; return 0; }",
+    "fnc main():int{ return self.state.counter; }",
+    "fnc main():int{ return handle_state(42); }"
+  ]) {
+    assert.throws(() => rejectUnsupportedActorThreadSource(bytes(source)),
+      /WASM source actor-state guard unsupported: no typed CFG\/NLL loan proof/, source);
+  }
+  for (const source of [
+    "fnc main():int{ /* critical-write handle_state */ return 42; }",
+    "fnc main():int{ const msg = \"this.handle_state(critical-read)\"; return 42; }"
+  ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
+});
