@@ -18,7 +18,7 @@ The effective policy on `atto-lang/atto-source.wasm` `main` currently has:
 - GitHub `main` branch metadata: `protected: false`.
 - The `main` branch remains authoritative, not this PR's proposed allowlist.
 
-**The proposed destination line in this DRAFT PR is inert. Do not mirror any private source.** Do not use same-person administrative approval as independent security review.
+**This PR does not add any destination to the approval allowlist.** The proposed destination is recorded in this document only. The live and branch-local `.github/private-ci-approved-repositories.txt` and `.github/private-ci-approved-source-snapshots.txt` both remain deny-all; `.github/private-ci-independent-reviewer.json` stays disabled. The repository's policy explicitly rejects active destination entries while the reviewer is disabled. Do not mirror any private source or use same-person administrative approval as independent security review.
 
 ## Mandatory independent admission sequence
 1. Establish mandatory protected-`main` CODEOWNERS and CI, with no bypass; independently verify enforcement through GitHub settings/ruleset reads.
