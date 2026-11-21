@@ -25,7 +25,7 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // Snapshot tokenization intrinsics before same-realm plugins can monkeypatch
 // host globals. This admission scanner is not a guest-language parser.
 const tokenApply = Reflect.apply;
-const tokenRegExpTest = RegExp.prototype.test;
+const tokenRegExpExec = RegExp.prototype.exec;
 const tokenStringSlice = String.prototype.slice;
 const tokenStringIndexOf = String.prototype.indexOf;
 const tokenArrayIncludes = Array.prototype.includes;
@@ -34,7 +34,9 @@ const tokenDecoder = new NodeTextDecoder('utf-8', {fatal:true});
 const tokenDecode = NodeTextDecoder.prototype.decode;
 const tokenEncoder = new NodeTextEncoder();
 const tokenEncode = NodeTextEncoder.prototype.encode;
-const tokenRegex = (re,c) => tokenApply(tokenRegExpTest,re,[c]);
+// Invoke the native exec directly: RegExp.prototype.test delegates to a
+// mutable .exec property and can fail open after module initialization.
+const tokenRegex = (re,c) => tokenApply(tokenRegExpExec,re,[c]) !== null;
 const tokenSlice = (s,a,b) => tokenApply(tokenStringSlice,s,[a,b]);
 const tokenIndexOf = (s,c) => tokenApply(tokenStringIndexOf,s,[c]);
 const tokenIncludes = (arr,c) => tokenApply(tokenArrayIncludes,arr,[c]);
