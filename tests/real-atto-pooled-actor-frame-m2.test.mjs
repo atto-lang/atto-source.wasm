@@ -67,6 +67,6 @@ test('canonical .atto nullable Node actor graph is rejected before Wasm32 guest 
     compileSourceActorToWasm({
       compiler,source,expectedCompilerSha256:pinned,requireActorFrameV1:true
     }),
-    /actor compilation command failed:/,
+    /E_ATTO_SOURCE_REJECTED:/,
     'unverified typed Ref32 class graph must never generate a pooled Wasm artifact');
 });
