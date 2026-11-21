@@ -4,6 +4,7 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
+import {types} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -13,21 +14,117 @@ import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
+import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// The scalar Wasm bridge accepts ONE standalone source file, not a graph.
+// Validate the pinned source snapshot before invoking even a "real" compiler:
+// a compiler silently ignoring an import must not publish a valid-looking
+// scalar Wasm with incomplete source provenance. This is an admission scanner,
+// not a substitute for parsing or linking modules.
+export function assertScalarSourceHasNoImports(bytes){
+ const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ // A NUL byte is invalid source, even if a downstream scalar compiler
+ // chooses to truncate or ignore it before resolving the source graph.
+ if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
+ let i=0;
+ while(i<source.length){
+  const ch=source[i],next=source[i+1];
+  if(ch==="/"&&next==="/"){
+   // A CR-only line ending is still a new source line. Otherwise an import
+   // after \\r could be hidden from this pre-publication admission check.
+   i+=2;
+   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   continue;
+  }
+  if(ch==="/"&&next==="*"){
+   // The Java and LLVM source lexers admit nested comments. Keep this
+   // preflight aligned instead of treating the first inner */ as the end.
+   i+=2;let depth=1;
+   while(i<source.length&&depth>0){
+    if(source[i]==="/"&&source[i+1]==="*"){
+     if(++depth>128)throw Error("Oreslang block comment nesting limit exceeded");
+     i+=2;continue;
+    }
+    if(source[i]==="*"&&source[i+1]==="/"){depth--;i+=2;continue;}
+    i++;
+   }
+   if(depth!==0)throw Error("unterminated Oreslang block comment");
+   continue;
+  }
+  if(ch==='"'||ch==="'"||ch==="`"){
+   const quote=ch;i++;let closed=false;
+   while(i<source.length){
+    if(source[i]==="\\"){i+=2;continue}
+    if(source[i]===quote){i++;closed=true;break}
+    i++;
+   }
+   if(!closed)throw Error("unterminated Oreslang string or character literal");
+   continue;
+  }
+  if(/[A-Za-z_]/.test(ch)){
+   const begin=i++;
+   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
+   if(source.slice(begin,i)==="import")
+    throw Error("source imports require verified complete Wasm module graph");
+   continue;
+  }
+  i++;
+ }
+}
+
+
+
+const intrinsicGetter = (prototype, name) => Function.prototype.call.bind(
+ Object.getOwnPropertyDescriptor(prototype, name).get);
+const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+const sourceTypedLength = intrinsicGetter(typedArrayProto, "byteLength");
+const sourceTypedBuffer = intrinsicGetter(typedArrayProto, "buffer");
+const sourceDataViewLength = intrinsicGetter(DataView.prototype, "byteLength");
+const sourceDataViewBuffer = intrinsicGetter(DataView.prototype, "buffer");
+const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLength");
+
+// Source admission must enforce the physical byte budget, never a spoofable
+// .byteLength property from a Uint8Array/DataView subclass or a Proxy.
+// Shared backing is rejected: another worker could change source during scanning.
+function physicalSourceByteLength(input) {
+ if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+  throw new TypeError("WASM source preflight requires nonshared byte input");
+ if(types.isTypedArray(input)) {
+  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceTypedLength(input);
+ }
+ if(types.isDataView(input)) {
+  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceDataViewLength(input);
+ }
+ if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ throw new TypeError("WASM source preflight requires byte input");
+}
 
 function tupleV2Tokens(sourceBytes){
  // Exported source-admission gates can be called before the CLI's bounded file
  // snapshot. Enforce the same byte budget before decode or token allocation.
- if(!sourceBytes || !Number.isSafeInteger(sourceBytes.byteLength))
+ const physicalLength=physicalSourceByteLength(sourceBytes);
+ if(!Number.isSafeInteger(physicalLength))
   throw new TypeError("WASM source preflight requires byte input");
- if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
+ if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
+ // can erase a comment or quoted literal, and prior to compiler invocation or
+ // staging. The byte budget above bounds this conversion and its allocation.
+ const nul=text.indexOf("\0");
+ if(nul!==-1) {
+  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
+ }
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
  const pushToken=token=>{
@@ -389,7 +486,7 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,experimentalInvertedI64=false}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation,experimentalInvertedI64=false}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -399,9 +496,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   throw Error("source file must use canonical .atto or legacy .ores extension");
  if(typeof experimentalInvertedI64!=="boolean")
   throw new TypeError("experimentalInvertedI64 must be a boolean");
- // The opt-in is a narrow compiler-backed two-i64 local SoA experiment.
- // The native LLVM frontend owns all parse, type, borrow and MIR checks;
- // this JavaScript bridge must never emulate or accept layouts on its own.
+ // Never allow the inverted guest subset to bypass another v1 contract.
+ if(experimentalInvertedI64 && checkedOverflowOperation!==undefined)
+  throw Error("experimental inverted i64 cannot combine with checked-overflow witness");
  if(experimentalInvertedI64 && (sourceExtension!==".atto" ||
     exportName!=="main" || !/^[a-f0-9]{64}$/.test(compilerSha256||"")))
   throw Error("experimental inverted i64 Wasm requires .atto source, exact main and pinned compiler SHA-256");
@@ -420,6 +517,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
+ if(checkedOverflowOperation!==undefined && !["sadd","ssub","smul"].includes(checkedOverflowOperation))
+  throw Error("invalid checked overflow witness operation");
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases",published+".publication.lock"]){
   if(protectedInputs.has(destination))
    throw Error("output or artifact metadata path overlaps a compiler/source input");
@@ -455,6 +554,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
+ assertScalarSourceHasNoImports(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
@@ -470,22 +571,18 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
- // The normal Wasm bridge stays fail-closed. The opt-in delegates the
- // restricted inverted program *entirely* to the pinned native LLVM compiler,
- // which must reject classes, unsupported schemas, escaped owners and IR
- // output on rejection. It does not enable an actor or general heap ABI.
+ // Default scalar Wasm remains fail-closed for every inverted layout.
+ // A deliberate, pinned LLVM/MIR experiment can bypass ONLY this gate;
+ // every other source admission and artifact check remains mandatory.
  if(experimentalInvertedI64){
-  // The opt-in may bypass generic tree-shaking ONLY for an actual inverted
-  // declaration or collection candidate. This tokenizer is a conservative
-  // capability gate, never a substitute for the native typed parser.
-  let invertedCandidate=false;
-  try { rejectUnsupportedInvertedLayoutSource(sourceBytes); }
+  let candidate=false;
+  try{rejectUnsupportedInvertedLayoutSource(sourceBytes);}
   catch(error){
    if(!/^wasm inverted (?:struct|class|collection) requires /.test(error?.message||""))
     throw error;
-   invertedCandidate=true;
+   candidate=true;
   }
-  if(!invertedCandidate)
+  if(!candidate)
    throw Error("experimental inverted i64 requires explicit inverted source");
  }else rejectUnsupportedInvertedLayoutSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
@@ -511,22 +608,19 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- // Verified inverted source currently has a sole local main and a
- // separate compiler-owned HIR/MIR closed-world gate. Passing the ordinary
- // tree-shaker flags would falsely reject this slice before MIR lowering.
- // Never bypass tree-shaking for a general guest: this exception is limited
- // to explicit opt-in and the native compiler still rejects extra functions.
+ // Compiler-owned typed local i64 pair MIR is the sole experimental bypass
+ // for tree-shake; the default bridge always retains its original flags.
  const compilerArgs=experimentalInvertedI64
   ? ["--target=wasm32",stagedSource]
   : ["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource];
  const ir=run(stagedCompiler,compilerArgs,{cwd:scratch});
- // When tree shaking is disabled, prove that the native compiler actually
- // took its checked, single-main inverted HIR/MIR emitter. A scalar program
- // with a dead unsupported declaration must NOT silently gain this path.
+ // Fail closed if the native compiler did not select exactly the approved
+ // local two-i64 MIR lowering. These checks are admission evidence, NOT
+ // independent verification of the compiler or general SoA ownership.
  if(experimentalInvertedI64 &&
-   (!ir.startsWith("; typed MIR, experimental local i64 pair LLVM IR; no external row handles\n") ||
-    !ir.includes("store volatile i1 false, ptr %alive") ||
-    !ir.includes("define i64 @main()")))
+    (!ir.startsWith("; typed MIR, experimental local i64 pair LLVM IR; no external row handles\n") ||
+     !ir.includes("store volatile i1 false, ptr %alive") ||
+     !ir.includes("define i64 @main()")))
   throw Error("native LLVM compiler did not emit verified inverted i64 MIR guest");
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
@@ -538,6 +632,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
+ // Validate signed-i64 overflow witness against the exact native compiler IR before publication.
+ if(checkedOverflowOperation!==undefined) assertCheckedOverflowIr(ir,checkedOverflowOperation);
  // Require a genuine LLVM triple declaration, not a comment or string.
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
@@ -569,7 +665,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
-  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
+  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:experimentalInvertedI64?"typed-local-inverted-i64-v0":"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
