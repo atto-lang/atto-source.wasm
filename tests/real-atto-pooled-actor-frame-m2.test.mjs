@@ -58,7 +58,7 @@ test('canonical .atto nullable Node actor graph is rejected before Wasm32 guest 
   assert.match(pinned || '',/^[a-f0-9]{64}$/);
   const source=fileURLToPath(new URL('./fixtures/hybrid-memory-v1-node-graph.atto',import.meta.url));
   const bytes=readFileSync(source);
-  const blob=createHash('sha1').update('blob '+bytes.length+'\\0').update(bytes).digest('hex');
+  const blob=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
   assert.equal(blob,'d472cccb3da24ee8f9fed44f99c1c7742d3240de',
     'Node actor graph must match canonical conformance source blob');
   // A reject is only valid when it comes from an actually invoked and pinned
