@@ -19,17 +19,12 @@ fn block() -> String {
     }
     assert!(!s.contains("fresh post-boundary reviews from all four"));
 }
-#[test] fn persistent_single_owner_review_at_every_ready_age() {
+#[test] fn ready_cycle_review_lanes() {
     let s = block();
-    for required in ["No Ready-age review windows", "No mandatory AI provider reviews",
-                     "mandatory competing/overlapping-PR audit",
-                     "before **every** merge", "latest genuine Draft→Ready event"] {
-        assert!(s.contains(required), "one-owner policy missing: {required}");
-    }
-    for forbidden in ["Ready age 0–72h", "Ready age 72–240h", "Ready age ≥240h",
-                      "OpenAI", "Anthropic", "resets AI freshness",
-                      "fresh post-boundary reviews from all four"] {
-        assert!(!s.contains(forbidden), "obsolete approval quorum present: {forbidden}");
+    for required in ["Ready age 0–72h", "Ready age 72–240h", "Ready age ≥240h",
+                     "OpenAI", "Anthropic", "mandatory competing/overlapping-PR audit",
+                     "latest genuine Draft→Ready event", "resets AI freshness"] {
+        assert!(s.contains(required), "ready-cycle policy missing: {required}");
     }
 }
 #[test] fn holds_and_real_ci() {
