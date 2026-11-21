@@ -18,6 +18,7 @@ import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
+import {rejectRawSourceControls} from "../src/raw-source-control-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
@@ -546,6 +547,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Reject deceptive raw source controls (including in comments/strings)
+ // before LLVM invocation, filename publication or any source normalization.
+ rejectRawSourceControls(sourceBytes);
  // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
  assertScalarSourceHasNoImports(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
