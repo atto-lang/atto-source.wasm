@@ -126,3 +126,25 @@ test('monkeypatched native byte-view getter call cannot spoof backing or length'
     else delete lengthGetter.call;
   }
 });
+
+
+test('rejection diagnostics remain canonical under mutated numeric and string formatters', () => {
+  const priorNumber = Number.prototype.toString;
+  const priorUpper = String.prototype.toUpperCase;
+  const priorPad = String.prototype.padStart;
+  let diagnostic;
+  Number.prototype.toString = () => 'forged\nCI_PASS';
+  String.prototype.toUpperCase = () => 'FAKE';
+  String.prototype.padStart = () => 'FALSE';
+  try {
+    check('// café \u202e');
+  } catch (error) {
+    diagnostic = error.message;
+  } finally {
+    Number.prototype.toString = priorNumber;
+    String.prototype.toUpperCase = priorUpper;
+    String.prototype.padStart = priorPad;
+  }
+  assert.equal(diagnostic, 'WASM_SOURCE_CONTROL_REJECTED U+202E at byte 9');
+  assert.ok(!diagnostic.includes('CI_PASS'));
+});
