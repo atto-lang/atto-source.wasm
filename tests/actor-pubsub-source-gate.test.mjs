@@ -44,7 +44,9 @@ test("canonical share! try_publish is denied before Wasm bridge execution", () =
     "val receipt = topic.try_publish(rt share event);",
     "val receipt = existing_topic.try_publish(share! event)?;",
     "val callable = topic.try_publish;",
-    "val rejected = topic.try_publish<String>(share! event);"
+    "val rejected = topic.try_publish<String>(share! event);",
+    "val receipt = topic /* nested /* c */ c */ . try_publish(share! event)?;",
+    "val receipt = topic?.try_publish(share! event)?;"
   ]) {
     assert.throws(
       () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
@@ -59,11 +61,20 @@ test("inert try_publish text and unrelated free function name are not Topic evid
     "fnc try_publish(event:int):int{return event;}",
     'fnc main():int{return 42;} // topic.try_publish(share! event)?',
     'fnc main():int{return 42;} /* topic.try_publish(rt share event) */',
-    'fnc main():int{return 42;} "topic.try_publish(share! event)?"'
+    'fnc main():int{return 42;} "topic.try_publish(share! event)?"',
+    "fnc main():int{return try_publish(42);}",
+    "fnc main():int{const n=topic.try_publisher;return 42;}"
   ]) {
     assert.doesNotThrow(
       () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),source);
   }
+});
+
+test("NEL comment boundary cannot hide aliased Topic.try_publish",()=>{
+  assert.throws(()=>rejectUnsupportedActorPubSubSource(Buffer.from(
+    "// inert topic.try_publish(share! event)?\u0085"+
+    "val receipt=alias.try_publish(share! event)?;")),
+    /wasm ActorGroup\/Topic source lowering unsupported/);
 });
 
 test("actor pipe and ActorUtils static construction fail before Wasm/LLVM bridge", () => {
