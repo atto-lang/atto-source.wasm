@@ -43,8 +43,12 @@ function checkedLabel(value, label) {
 // The caller must validate the supplied tenant and ports against its
 // capability registry; this model refuses all direct cross-tenant edges.
 export function planDirectedPipe(stages, direction) {
-  if (direction !== 'pipe' && direction !== 'rpipe')
-    throw new TypeError('pipe direction must be pipe or rpipe');
+  // Contextual bang spellings are semantic aliases, never a new transport ABI.
+  // The host plan still cannot compile guest source or authorize a pipe.
+  const canonicalDirection = direction === 'pipe!' ? 'pipe' :
+    direction === 'rpipe!' ? 'rpipe' : direction;
+  if (canonicalDirection !== 'pipe' && canonicalDirection !== 'rpipe')
+    throw new TypeError('pipe direction must be pipe, pipe!, rpipe or rpipe!');
   if (!Array.isArray(stages)) throw new TypeError('pipe stage list must be an array');
   const length = Object.getOwnPropertyDescriptor(stages, 'length')?.value;
   if (!Number.isSafeInteger(length) || length < 2 || length > MAX_STAGES)
@@ -72,7 +76,7 @@ export function planDirectedPipe(stages, direction) {
   }
   // Preserve source-written construction order independently from DATA flow.
   const flowIndices = Object.freeze(Array.from({length}, (_, i) =>
-    direction === 'pipe' ? i : length - 1 - i));
+    canonicalDirection === 'pipe' ? i : length - 1 - i));
   const order = flowIndices.map(i => written[i]);
   const edges = [];
   for (let i = 0; i + 1 < order.length; ++i) {
@@ -84,7 +88,7 @@ export function planDirectedPipe(stages, direction) {
   // Existing host topology policy checks port roles, cycles, graph quotas,
   // duplicate routes, immutable snapshots and correct typed DATA edges.
   const selector = new ActorPipelinePolicy(order, edges);
-  const plan = Object.freeze({direction, tenant,
+  const plan = Object.freeze({direction: canonicalDirection, tenant,
     writtenStages: Object.freeze(written), flowIndices,
     stages: Object.freeze(order), edges: Object.freeze(edges), selector});
   ownedPlans.add(plan);
