@@ -127,16 +127,15 @@ for(const item of positive){
     value:String(result.value),stdout:result.stdout});
 }
 const negative=[
-  ['trap! 7','E_TRAP_BANG_RESULT_UNVERIFIED'],
-  ['throw! 7','E_TYPE'],
-  ['raise! "untyped"','E_TYPE']
+  ['pub fnc main(): int { return trap! 7; }','E_TRAP_BANG_RESULT_UNVERIFIED'],
+  ['pub fnc main(): int { throw! 7; }','E_TYPE'],
+  ['pub fnc main(): int { raise! "untyped"; }','E_TYPE']
 ];
-for(const [expr,code] of negative){
-  const sample='pub fnc main(): int { return '+expr+'; }';
+for(const [sample,code] of negative){
   const rejected=compile(sample);
-  assert.equal(rejected.ok,false,'unverified guest effect compiled: '+expr);
+  assert.equal(rejected.ok,false,'unverified guest effect compiled: '+sample);
   assert.ok(rejected.diagnostic.includes(code),
-    'wrong compiler diagnostic for '+expr+': '+rejected.diagnostic);
+    'wrong compiler diagnostic for '+sample+': '+rejected.diagnostic);
 }
 console.log(JSON.stringify({
   status:'PASS',scope:'approved-rust-compiled-browser-wasm-artifact',
