@@ -25,6 +25,12 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // Snapshot tokenization intrinsics before same-realm plugins can monkeypatch
 // host globals. This admission scanner is not a guest-language parser.
 const tokenApply = Reflect.apply;
+// Pin brand checks before untrusted host plugins can monkeypatch util.types.
+const tokenIsProxy = types.isProxy;
+const tokenIsSharedArrayBuffer = types.isSharedArrayBuffer;
+const tokenIsTypedArray = types.isTypedArray;
+const tokenIsDataView = types.isDataView;
+const tokenIsArrayBuffer = types.isArrayBuffer;
 const tokenRegExpExec = RegExp.prototype.exec;
 const tokenStringSlice = String.prototype.slice;
 const tokenStringIndexOf = String.prototype.indexOf;
@@ -49,6 +55,11 @@ const tokenUtf8Text = bytes => tokenApply(tokenDecode,tokenDecoder,[bytes]);
 // scalar Wasm with incomplete source provenance. This is an admission scanner,
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
+ // Public source-admission entry points must enforce the same physical
+ // nonshared 1 MiB input bound, even when called outside compileOresToWasm.
+ const physicalLength=physicalSourceByteLength(bytes);
+ if(physicalLength>MAX_SOURCE_BYTES)
+  throw new RangeError("WASM source preflight byte budget exceeded");
  const source=tokenUtf8Text(bytes);
  // A NUL byte is invalid source, even if a downstream scalar compiler
  // chooses to truncate or ignore it before resolving the source graph.
@@ -114,19 +125,19 @@ const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLeng
 // .byteLength property from a Uint8Array/DataView subclass or a Proxy.
 // Shared backing is rejected: another worker could change source during scanning.
 function physicalSourceByteLength(input) {
- if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+ if(input == null || tokenIsProxy(input) || tokenIsSharedArrayBuffer(input))
   throw new TypeError("WASM source preflight requires nonshared byte input");
- if(types.isTypedArray(input)) {
-  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+ if(tokenIsTypedArray(input)) {
+  if(tokenIsSharedArrayBuffer(sourceTypedBuffer(input)))
    throw new TypeError("WASM source preflight forbids shared backing");
   return sourceTypedLength(input);
  }
- if(types.isDataView(input)) {
-  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+ if(tokenIsDataView(input)) {
+  if(tokenIsSharedArrayBuffer(sourceDataViewBuffer(input)))
    throw new TypeError("WASM source preflight forbids shared backing");
   return sourceDataViewLength(input);
  }
- if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ if(tokenIsArrayBuffer(input)) return sourceArrayBufferLength(input);
  throw new TypeError("WASM source preflight requires byte input");
 }
 
