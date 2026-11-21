@@ -2,6 +2,7 @@
 // No ActorRef, mailbox, supervisor CONTROL capability, or guest execution
 // is created here. A trusted compiler must supply independently verified
 // endpoint roles and an authenticated TenantVM identity before admission.
+import {types} from 'node:util';
 import {ActorPipelinePolicy} from './actor-pipeline-policy.mjs';
 
 const MAX_STAGES = 16;
@@ -11,6 +12,8 @@ const encoder = new TextEncoder();
 const ownedPlans = new WeakSet();
 
 function ownValue(obj, key) {
+  // Reject Proxy descriptors before any property-descriptor trap can execute.
+  if (types.isProxy(obj)) throw new TypeError('pipe stage proxy descriptor denied');
   if (!obj || typeof obj !== 'object')
     throw new TypeError('pipe stage must be an own-data descriptor');
   const desc = Object.getOwnPropertyDescriptor(obj, key);
@@ -49,6 +52,7 @@ export function planDirectedPipe(stages, direction) {
     direction === 'rpipe!' ? 'rpipe' : direction;
   if (canonicalDirection !== 'pipe' && canonicalDirection !== 'rpipe')
     throw new TypeError('pipe direction must be pipe, pipe!, rpipe or rpipe!');
+  if (types.isProxy(stages)) throw new TypeError('pipe stage list proxy denied');
   if (!Array.isArray(stages)) throw new TypeError('pipe stage list must be an array');
   const length = Object.getOwnPropertyDescriptor(stages, 'length')?.value;
   if (!Number.isSafeInteger(length) || length < 2 || length > MAX_STAGES)
@@ -99,6 +103,7 @@ export function planDirectedPipe(stages, direction) {
 // needs authenticated generations, exclusive leases, atomic rollback and
 // checked Result<PipeHandle, PipeSetupError>. This grants no transport rights.
 export function checkUnicastDirectedPipes(plans) {
+  if (types.isProxy(plans)) throw new TypeError('E_PIPE_PLAN_PROXY');
   if (!Array.isArray(plans)) throw new TypeError('E_PIPE_PLANS');
   const length = Object.getOwnPropertyDescriptor(plans, 'length')?.value;
   if (!Number.isSafeInteger(length) || length > 64)
