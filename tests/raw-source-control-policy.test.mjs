@@ -148,3 +148,46 @@ test('rejection diagnostics remain canonical under mutated numeric and string fo
   assert.equal(diagnostic, 'WASM_SOURCE_CONTROL_REJECTED U+202E at byte 9');
   assert.ok(!diagnostic.includes('CI_PASS'));
 });
+
+
+test('rejection and invalid-input errors cannot be forged by replacing global constructors', () => {
+  const savedError = globalThis.Error;
+  const savedTypeError = globalThis.TypeError;
+  const savedRangeError = globalThis.RangeError;
+  const caught = [];
+  globalThis.Error = class FakeError {constructor() {this.message = 'CI PASS';}};
+  globalThis.TypeError = class FakeTypeError {constructor() {this.message = 'CI PASS';}};
+  globalThis.RangeError = class FakeRangeError {constructor() {this.message = 'CI PASS';}};
+  try {
+    for (const source of [
+      new TextEncoder().encode('x\u202e'),
+      new Uint8Array(new SharedArrayBuffer(2)),
+      new Uint8Array(1_048_577),
+    ]) {
+      try { rejectRawSourceControls(source); } catch (error) { caught.push(error); }
+    }
+  } finally {
+    globalThis.Error = savedError;
+    globalThis.TypeError = savedTypeError;
+    globalThis.RangeError = savedRangeError;
+  }
+  assert.equal(caught.length, 3);
+  assert.ok(caught[0] instanceof Error);
+  assert.ok(caught[1] instanceof TypeError);
+  assert.ok(caught[2] instanceof RangeError);
+  assert.match(caught[0].message, /WASM_SOURCE_CONTROL_REJECTED U\+202E at byte 1/);
+  assert.match(caught[1].message, /shared/);
+  assert.match(caught[2].message, /1 MiB/);
+});
+
+test('fails on malformed Unicode UTF-8, including overlong, surrogate and truncation', () => {
+  for(const raw of [
+    [0xc0,0xaf], [0xed,0xa0,0x80], [0xf4,0x90,0x80,0x80],
+    [0xe2,0x82], [0xf0,0x9f,0x92], [0xff]
+  ]) assert.throws(() => rejectRawSourceControls(Uint8Array.from(raw)), /encoded|valid|UTF/i);
+});
+
+test('enforces exact 1 MiB physical source-byte boundary', () => {
+  assert.doesNotThrow(() => rejectRawSourceControls(new Uint8Array(1_048_576)));
+  assert.throws(() => rejectRawSourceControls(new Uint8Array(1_048_577)), /1 MiB/);
+});
