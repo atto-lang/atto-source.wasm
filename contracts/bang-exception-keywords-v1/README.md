@@ -67,3 +67,42 @@ positive parser/guest test separate from a negative unsupported-source gate.
   runtime policy, not a fabricated supervisor.
 - Require exact-head, nonzero-step source-compiler plus guest tests before
   recording any parity success. Documentation changes alone are not evidence.
+
+## Delegated compiler executable gate (candidate, not executed)
+
+This repository is a Wasm host; `atto-lang/atto-source.rs` supplies the actual
+Atto-to-Wasm compiler. It is **not** a second independent source compiler.
+The Rust candidate [#449](https://github.com/atto-lang/atto-source.rs/pull/449)
+now has typechecked positive `throw! Error(...)` and `raise! Error(...)`
+guest fixtures, a distinct canonical `trap!` Result rejection, and exact
+guest stdout/return oracles.
+
+`scripts/verify-exception-bang-wasm.mjs` provides a **real WebAssembly
+compiler-artifact and generated-guest verification gate**. After an authorized
+party independently reviews a private Rust compiler Wasm build, run with the
+approved binary and its SHA-256 (without any network request, token, or
+publication):
+
+```sh
+node scripts/verify-exception-bang-wasm.mjs \
+  /approved/private/atto_compiler.wasm \
+  <independently-approved-sha256>
+```
+
+The gate requires zero compiler-host imports and the known compiler ABI v2,
+checks compiler byte identity and memory bounds, compiles and **executes two
+real guest Wasm programs** with their expected numeric results and exact
+throw/catch/finally and raise/recover traces, and checks three negative
+source programs for phase-correct `E_TYPE` /
+`E_TRAP_BANG_RESULT_UNVERIFIED` rejection **with zero output artifact**.
+Unapproved binaries, wrong ABIs, unverified guest exports, unexpected guest
+imports, malformed error memory and forged success fail closed.
+
+The source-free tests in
+`tests/exception-bang-wasm-gate.test.mjs` reject absent credentials/artifacts,
+bad digests and fake compiler ABIs. They are included in `npm test`. A host
+unit test pass does **not** certify emitted Atto guest execution; the positive
+cases require a real independently reviewed compiler artifact from `.rs`.
+This draft has **no such approved artifact or executed guest receipt** so far.
+Do not transfer private compiler bytes to a new organization without
+destination-specific authorization.
