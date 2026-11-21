@@ -166,3 +166,25 @@ test('mutating RegExp.exec cannot admit either direction of actor pipe', () => {
   assert.equal(seen.length,4);
   for(const message of seen) assert.match(message,/wasm actor (?:r?pipe)!? source lowering unsupported/);
 });
+
+
+test('Array.prototype.push monkeypatch cannot drop unsupported actor tokens', () => {
+  const saved=Array.prototype.push;
+  let admitted=0;
+  const attempts=[
+    'val g = producer pipe! consumer;',
+    'val g = consumer rpipe! producer;',
+    'val g = producer pipe consumer;',
+    'val g = consumer rpipe producer;',
+    'stop! worker;'
+  ];
+  Array.prototype.push=()=>0;
+  try {
+    for (const source of attempts) {
+      try { admitHostOnly(source); admitted++; } catch (error) {
+        assert.match(error.message,/source lowering unsupported/);
+      }
+    }
+  } finally { Array.prototype.push=saved; }
+  assert.equal(admitted,0,'no source may silently pass through empty token list');
+});
