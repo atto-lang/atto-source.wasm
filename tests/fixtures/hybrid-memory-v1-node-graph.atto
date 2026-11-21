@@ -1,0 +1,15 @@
+// AttoLang .NET ref32 object-graph conformance target, not an executable
+// fixture until the nominal-class and actor compiler lowerings are implemented.
+// Deliberately uses .atto source rather than a C# host model.
+define class Node as
+    int value
+    Node? next
+end
+
+define actor HeapGraphProbe as
+    receive(int message) {
+        let first = new Node(42, none)
+        let second = new Node(99, first)
+        assert(second.next?.value == 42)
+    }
+end
