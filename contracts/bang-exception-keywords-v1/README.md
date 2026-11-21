@@ -98,6 +98,28 @@ source programs for phase-correct `E_TYPE` /
 Unapproved binaries, wrong ABIs, unverified guest exports, unexpected guest
 imports, malformed error memory and forged success fail closed.
 
+### Bounded compiled-guest host isolation
+
+The approved-compiler gate now runs each successful compiler-generated
+guest in **a separate Node subprocess**, never in the synchronous CI control
+thread. A valid guest may loop forever or print endlessly; JavaScript timers
+cannot interrupt WebAssembly inside the same thread. The subprocess has a
+**5-second** execution deadline, a bounded V8 heap, a **64 KiB child output**
+buffer, an exact Wasm i64 return requirement, at most **4 KiB accumulated
+guest stdout**, and the same allowlisted Atto print imports and memory bounds.
+The generated Wasm binary is passed through subprocess stdin, not written to
+a public artifact or logged. No user-defined `NODE_OPTIONS` is inherited.
+
+The source-free synthetic test
+`tests/exception-bang-isolated-guest.test.mjs` exercises a known i64
+synthetic guest, rejected i32 ABI, forbidden `env` import, an actual infinite
+Wasm loop terminated by a child timeout, a 4 KiB+ print flood, malformed and
+oversized Wasm, and a non-promoting receipt. These seven tests passed
+**7/7 in local Node 22** using files matched byte-for-byte to GitHub's
+original Git blob SHA-1; this is **host security testing only**.
+The source repository still has zero-step Actions admission failures,
+and no approved Rust compiler artifact or compiled Atto guest has been run.
+
 The source-free tests in
 `tests/exception-bang-wasm-gate.test.mjs` reject absent credentials/artifacts,
 bad digests and fake compiler ABIs. They are included in `npm test`. A host
