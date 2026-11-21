@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {types} from 'node:util';
 import {planDirectedPipe,checkUnicastDirectedPipes} from '../src/directed-pipe-plan.mjs';
 import {ActorPipelinePolicy} from '../src/actor-pipeline-policy.mjs';
 
@@ -136,4 +137,18 @@ test('rejects revoked proxies with no access to user traps',()=>{
  const plans=Proxy.revocable([],{});
  plans.revoke();
  assert.throws(()=>checkUnicastDirectedPipes(plans.proxy),/E_PIPE_PLAN_PROXY/);
+});
+
+
+test('captured Proxy predicate cannot be bypassed by later util.types monkeypatch',()=>{
+ let traps = 0;
+ const proxy = new Proxy(producer,{getOwnPropertyDescriptor(target,key){
+   traps++; return Reflect.getOwnPropertyDescriptor(target,key);
+ }});
+ const previous = types.isProxy;
+ types.isProxy = () => false;
+ try {
+   assert.throws(()=>planDirectedPipe([proxy,consumer],'pipe!'),/proxy/i);
+   assert.equal(traps,0);
+ } finally { types.isProxy = previous; }
 });
