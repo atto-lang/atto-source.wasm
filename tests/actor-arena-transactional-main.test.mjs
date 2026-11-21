@@ -3,30 +3,30 @@ import assert from 'node:assert/strict';
 import {ActorArena} from '../src/actor-arena.mjs';
 
 const PAGE=65536;
-function faultSecondBufferRead(action) {
+// The current host captures WebAssembly.Memory.prototype.buffer before guest
+// interaction. The older precommit getter-fault tests must now prove the getter
+// cannot run, while still testing quota reuse and zeroed allocations.
+function withPoisonedBufferGetter(action) {
   const base=Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype,'buffer');
   assert.equal(base.configurable,true,'host memory descriptor must be restorable');
-  let reads=0;
+  let intercepted=0;
   Object.defineProperty(WebAssembly.Memory.prototype,'buffer',{
     ...base,
-    get(){
-      if(++reads===2)throw Error('injected precommit buffer access fault');
-      return base.get.call(this);
-    }
+    get(){intercepted++;throw Error('poisoned host memory getter');}
   });
   try {
-    assert.throws(action,/injected precommit buffer access fault/);
-    assert.equal(reads,2,'fault must occur after plan/token preparation');
+    const result=action();
+    assert.equal(intercepted,0,'arena must use its captured native memory getter');
+    return result;
   } finally {
     Object.defineProperty(WebAssembly.Memory.prototype,'buffer',base);
   }
 }
 
-test('failed persistent arena preparation cannot strand high-water quota',()=>{
+test('poisoned getter cannot strand persistent high-water quota',()=>{
   const arena=new ActorArena({actorId:110,incarnation:1,kind:'private'});
   const turn=arena.beginTurn();
-  faultSecondBufferRead(()=>arena.allocPersistent(turn,PAGE));
-  const token=arena.allocPersistent(turn,PAGE);
+  const token=withPoisonedBufferGetter(()=>arena.allocPersistent(turn,PAGE));
   assert.equal(arena.read(turn,token).length,PAGE);
   assert.throws(()=>arena.allocPersistent(turn,1),/quota exhausted/);
   arena.dropPersistent(turn,token);
@@ -34,15 +34,14 @@ test('failed persistent arena preparation cannot strand high-water quota',()=>{
   arena.retire();
 });
 
-test('failed free-segment preparation retains the entire reusable segment',()=>{
+test('poisoned getter cannot corrupt reusable free-segment admission',()=>{
   const arena=new ActorArena({actorId:111,incarnation:1,kind:'untrusted'});
   const turn=arena.beginTurn();
   const previous=arena.allocPersistent(turn,128);
   const remainder=arena.allocPersistent(turn,PAGE-128);
   arena.write(turn,previous,new Uint8Array(128).fill(71));
   arena.dropPersistent(turn,previous);
-  faultSecondBufferRead(()=>arena.allocPersistent(turn,128));
-  const reused=arena.allocPersistent(turn,128);
+  const reused=withPoisonedBufferGetter(()=>arena.allocPersistent(turn,128));
   assert.deepEqual([...arena.read(turn,reused)],Array(128).fill(0));
   assert.throws(()=>arena.read(turn,previous),/stale/);
   arena.dropPersistent(turn,reused);
@@ -51,11 +50,10 @@ test('failed free-segment preparation retains the entire reusable segment',()=>{
   arena.retire();
 });
 
-test('failed scratch preparation does not consume disposable turn capacity',()=>{
+test('poisoned getter cannot consume disposable scratch capacity',()=>{
   const arena=new ActorArena({actorId:112,incarnation:1});
   const turn=arena.beginTurn();
-  faultSecondBufferRead(()=>arena.allocScratch(turn,PAGE));
-  const token=arena.allocScratch(turn,PAGE);
+  const token=withPoisonedBufferGetter(()=>arena.allocScratch(turn,PAGE));
   assert.equal(arena.read(turn,token).length,PAGE);
   assert.throws(()=>arena.allocScratch(turn,1),/quota exhausted/);
   arena.endTurn(turn);
@@ -132,7 +130,7 @@ test('owned read cannot expose live arena memory through patched Uint8Array.slic
     calls++;
     return this.subarray(start,end);
   },()=>arena.read(turn,handle));
-  assert.equal(calls,0,'arena read must use captured native slice');
+  assert.equal(calls,0,'arena read must bypass patched slice and species constructors');
   copy[0]=99;
   assert.deepEqual([...arena.read(turn,handle)],[1,2,3,4]);
   arena.dropPersistent(turn,handle);

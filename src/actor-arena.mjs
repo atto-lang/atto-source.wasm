@@ -7,18 +7,21 @@ const PAGE = 65536;
 const MAX_HANDLES = 4096;
 const kinds = new Set(["shared", "private", "untrusted"]);
 const nativeFreeze = Object.freeze;
-const nativeHasKind = Set.prototype.has;
-const nativeSafeInteger = Number.isSafeInteger;
+const nativeIsSafeInteger = Number.isSafeInteger;
+const nativeSetHas = Set.prototype.has;
+// Guest code may replace the global constructor between actor turns. Only
+// privately held native maps may carry handles and slot authority.
+const NativeWeakMap = WeakMap;
 const nativeFindIndex = Array.prototype.findIndex;
-const nativeSplice = Array.prototype.splice;
-const nativeWeakSet = WeakMap.prototype.set;
-const nativeWeakGet = WeakMap.prototype.get;
-const nativeWeakDelete = WeakMap.prototype.delete;
-const nativeMap = Array.prototype.map;
 const nativePush = Array.prototype.push;
 const nativeSort = Array.prototype.sort;
+const nativeWeakGet = WeakMap.prototype.get;
+const nativeWeakDelete = WeakMap.prototype.delete;
+const nativeWeakSet = WeakMap.prototype.set;
 const nativeFill = Uint8Array.prototype.fill;
-const nativeSlice = Uint8Array.prototype.slice;
+const NativeUint8Array = Uint8Array;
+const NativeMemory = WebAssembly.Memory;
+const nativeMemoryBuffer = Object.getOwnPropertyDescriptor(NativeMemory.prototype, "buffer").get;
 const nativeSet = Uint8Array.prototype.set;
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
@@ -29,8 +32,8 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new NativeWeakMap();
+  #scratch = new NativeWeakMap();
   #persistentTop = 0;
   #scratchTop = 0;
   #persistentCount = 0;
@@ -39,14 +42,14 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!nativeSafeInteger(actorId) || actorId <= 0 ||
-        !nativeSafeInteger(incarnation) || incarnation <= 0 ||
-        !nativeHasKind.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
+    if (!nativeIsSafeInteger(actorId) || actorId <= 0 ||
+        !nativeIsSafeInteger(incarnation) || incarnation <= 0 ||
+        !nativeSetHas.call(kinds, kind)) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new NativeMemory({initial: 2, maximum: 2});
   }
 
   get actorId() { return this.#actor; }
@@ -55,7 +58,9 @@ export class ActorArena {
 
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return new Uint8Array(this.#memory.buffer);
+    // A mutable WebAssembly.Memory.prototype.buffer getter could redirect
+    // private zeroing/writes to an attacker-held decoy ArrayBuffer.
+    return new NativeUint8Array(nativeMemoryBuffer.call(this.#memory));
   }
 
   #requireTurn(token) {
@@ -78,13 +83,13 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0, PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#turn = null;
   }
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!nativeSafeInteger(length) || length <= 0 || length > PAGE)
+    if (!nativeIsSafeInteger(length) || length <= 0 || length > PAGE)
       throw new RangeError("invalid arena allocation length");
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES)
       throw new RangeError("actor arena handle quota exhausted");
@@ -123,8 +128,14 @@ export class ActorArena {
         const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0)
-          nativeSplice.call(this.#freePersistent, freeIndex, 1);
+        if (segment.length === 0) {
+          // Array.prototype.splice consults mutable constructor[Symbol.species],
+          // even when the splice method is captured. Compact the private,
+          // dense free list without calling guest-controlled constructors.
+          for (let i = freeIndex + 1; i < this.#freePersistent.length; ++i)
+            this.#freePersistent[i - 1] = this.#freePersistent[i];
+          --this.#freePersistent.length;
+        }
       } else {
         this.#persistentTop += length;
       }
@@ -140,24 +151,27 @@ export class ActorArena {
     this.#requireTurn(turn);
     const entry = nativeWeakGet.call(this.#handles, handle);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    // Stage all free-list work before revoking the handle. A failed array
-    // operation must not lose the allocation or leave a live handle aliased
-    // with a future allocation. Clone segments before coalescing.
-    const staged = nativeMap.call(this.#freePersistent, segment => ({...segment}));
-    nativePush.call(staged, {...entry});
-    nativeSort.call(staged, (a, b) => a.offset - b.offset);
+
+    // PLAN the complete free list before revoking the handle or credit.
+    // A poisoned host Array prototype must not strand an unreachable segment.
+    const planned = [];
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
+      nativePush.call(planned, {offset: segment.offset, length: segment.length});
+    }
+    nativePush.call(planned, {offset: entry.offset, length: entry.length});
+    nativeSort.call(planned, (a, b) => a.offset - b.offset);
     const coalesced = [];
-    // Never invoke mutable Array.prototype[Symbol.iterator] for ownership.
-    // Host-realm guest code could conceal a freed span or inject overlapping
-    // segments into for...of, corrupting persistent arena allocation rights.
-    for (let i = 0; i < staged.length; ++i) {
-      const segment = staged[i];
+    for (let i = 0; i < planned.length; ++i) {
+      const segment = planned[i];
       const prior = coalesced[coalesced.length - 1];
-      if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
+      if (prior && prior.offset + prior.length === segment.offset)
+        prior.length += segment.length;
       else nativePush.call(coalesced, segment);
     }
-    // Zero while ownership is still valid; then commit only infallible
-    // internal-slot operations, using captured intrinsics for revocation.
+
+    // PREPARE zeroing, then COMMIT the revocation and quota together.
+    // Native WeakMap deletion on a valid private map/key cannot call guest code.
     nativeFill.call(this.#bytes(), 0, entry.offset, entry.offset + entry.length);
     nativeWeakDelete.call(this.#handles, handle);
     --this.#persistentCount;
@@ -174,7 +188,13 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return nativeSlice.call(this.#bytes(), offset, offset + length); // owned copy
+    // TypedArray.prototype.slice consults mutable constructor[Symbol.species],
+    // even when the slice method itself was captured. Construct the owned
+    // result and exact source view with the captured native constructor.
+    const bytes = this.#bytes();
+    const copy = new NativeUint8Array(length);
+    nativeSet.call(copy, new NativeUint8Array(nativeBuffer.call(bytes), offset, length));
+    return copy; // owned copy
   }
 
   write(turn, handle, data) {
@@ -197,8 +217,8 @@ export class ActorArena {
     nativeFill.call(this.#bytes(), 0);
     this.#closed = true;
     this.#memory = null; // physical release is JS runtime-dependent
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new NativeWeakMap();
+    this.#scratch = new NativeWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
     this.#freePersistent = [];
   }
