@@ -1,0 +1,48 @@
+name: Actor arena quiescence v1 source-free parity
+on:
+  pull_request:
+    paths:
+      - 'contracts/v1/ACTOR_ARENA_QUIESCENCE_V1.md'
+      - 'contracts/v1/actor_arena_quiescence_v1.json'
+      - 'scripts/verify_actor_arena_quiescence_v1.py'
+      - '.github/workflows/actor-arena-quiescence-v1.yml'
+  push:
+    paths:
+      - 'contracts/v1/ACTOR_ARENA_QUIESCENCE_V1.md'
+      - 'contracts/v1/actor_arena_quiescence_v1.json'
+      - 'scripts/verify_actor_arena_quiescence_v1.py'
+      - '.github/workflows/actor-arena-quiescence-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-free-quiescence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact head and immutable quiescence blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          test "$(git hash-object contracts/v1/ACTOR_ARENA_QUIESCENCE_V1.md)" = "1853bb1f86fffa38c10fd1fd2702b6c833aafcef"
+          test "$(git hash-object contracts/v1/actor_arena_quiescence_v1.json)" = "ebace76bf8d78d2dc8246ead61ffca6e1223f79f"
+          test "$(git hash-object scripts/verify_actor_arena_quiescence_v1.py)" = "9c7f8bd9a8ae888e335efb5edd62f44da0620dd1"
+      - name: Execute fail-closed quiescence verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -m py_compile scripts/verify_actor_arena_quiescence_v1.py
+          for round in 1 2 3; do
+            python3 -I scripts/verify_actor_arena_quiescence_v1.py --self-test
+            echo "ACTOR_ARENA_QUIESCENCE_V1_ROUND_${round}_PASS"
+          done
