@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {readFileSync} from 'node:fs';
 import {compileSourceActorToWasm} from '../scripts/compile-source-actor.mjs';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
@@ -49,4 +51,22 @@ test(name, {skip}, async () => {
     console.log('EXECUTED_ATTO_POOLED_FRAME_M2',
       JSON.stringify(built.provenance));
   } finally {await pool.close();}
+});
+
+test('canonical .atto nullable Node actor graph is rejected before Wasm32 guest emission', {skip}, async()=>{
+  assert.ok(compiler,'real pinned compiler required for negative guest admission');
+  assert.match(pinned || '',/^[a-f0-9]{64}$/);
+  const source=fileURLToPath(new URL('./fixtures/hybrid-memory-v1-node-graph.atto',import.meta.url));
+  const bytes=readFileSync(source);
+  const blob=createHash('sha1').update('blob '+bytes.length+'\\0').update(bytes).digest('hex');
+  assert.equal(blob,'d472cccb3da24ee8f9fed44f99c1c7742d3240de',
+    'Node actor graph must match canonical conformance source blob');
+  // A reject is only valid when it comes from an actually invoked and pinned
+  // LLVM compiler, not a missing compiler binary or a linker failure.
+  await assert.rejects(
+    compileSourceActorToWasm({
+      compiler,source,expectedCompilerSha256:pinned,requireActorFrameV1:true
+    }),
+    /actor compilation command failed:/,
+    'unverified typed Ref32 class graph must never generate a pooled Wasm artifact');
 });
