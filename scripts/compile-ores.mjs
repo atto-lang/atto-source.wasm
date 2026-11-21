@@ -47,10 +47,10 @@ const tokenUtf8Text = bytes => tokenApply(tokenDecode,tokenDecoder,[bytes]);
 // scalar Wasm with incomplete source provenance. This is an admission scanner,
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
- const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ const source=tokenUtf8Text(bytes);
  // A NUL byte is invalid source, even if a downstream scalar compiler
  // chooses to truncate or ignore it before resolving the source graph.
- if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
+ if(tokenIndexOf(source,"\0")!==-1)throw Error("NUL byte in Oreslang source");
  let i=0;
  while(i<source.length){
   const ch=source[i],next=source[i+1];
@@ -58,7 +58,7 @@ export function assertScalarSourceHasNoImports(bytes){
    // A CR-only line ending is still a new source line. Otherwise an import
    // after \\r could be hidden from this pre-publication admission check.
    i+=2;
-   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   while(i<source.length&&!tokenIncludes(["\r","\n","\u0085","\u2028","\u2029"],source[i]))i++;
    continue;
   }
   if(ch==="/"&&next==="*"){
@@ -86,10 +86,10 @@ export function assertScalarSourceHasNoImports(bytes){
    if(!closed)throw Error("unterminated Oreslang string or character literal");
    continue;
   }
-  if(/[A-Za-z_]/.test(ch)){
+  if(tokenRegex(/[A-Za-z_]/,ch)){
    const begin=i++;
-   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
-   if(source.slice(begin,i)==="import")
+   while(i<source.length&&tokenRegex(/[A-Za-z0-9_]/,source[i]))i++;
+   if(tokenSlice(source,begin,i)==="import")
     throw Error("source imports require verified complete Wasm module graph");
    continue;
   }
