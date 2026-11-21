@@ -40,7 +40,8 @@ const borrowTaskCases = Object.freeze({
 });
 assert.equal(Object.keys(borrowTaskCases).length, 6);
 for (const source of Object.values(borrowTaskCases))
-  assert.match(source, /task[\s\S]*\{[\s\S]*rt borrow/, 'must exercise a captured borrow inside Task');
+  assert.match(source, /task[\s\S]*\{[\s\S]*rt (?:mut )?borrow/,
+    'must exercise a captured borrow inside Task');
 
 const cases = {...legacyCases, ...sharedCases, ...taskV2Cases, ...borrowTaskCases};
 test('real source value boundaries reject before publishing a Wasm artifact', {
@@ -106,7 +107,8 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
               /native execution task lowering unsupported/.test(error.message)), name);
       }
       assert.deepEqual(await readFile(output), good, name + ': replaced valid module');
-      assert.deepEqual(await readFile(output + '.provenance.json'), provenance, name + ': replaced provenance');
+      assert.deepEqual(await readFile(output + '.provenance.json'), provenance,
+        name + ': replaced provenance');
       assert.deepEqual((await readdir(dir)).sort(), originalEntries, name + ': published rejected artifact');
     }
   } finally {

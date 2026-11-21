@@ -100,9 +100,43 @@ test("AOT CI covers merged main, architecture changes, and the exact Rust toolch
   assert.match(workflow,/node-version: '22'/);
   assert.match(workflow,/node --test tests\/aot-architecture\.test\.mjs tests\/real-aot-gate\.test\.mjs/);
   assert.match(workflow,/name: Run full WebAssembly scalar and shared-contract suite\n        run: npm test/);
+  assert.match(workflow,/name: Require real Oreslang source actor execution[\s\S]*npm run test:real-pooled-actors/);
+  assert.match(workflow,/name: Mutation-test pinned LLVM compiler receipt consumer[\s\S]*node --test tests\/llvm-compiler-handoff\.test\.mjs/);
+  assert.match(workflow,/name: Require approved LLVM build handoff before expensive AOT work[\s\S]*node scripts\/verify-llvm-compiler-handoff\.mjs/);
+  assert.ok(workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work') <
+    workflow.indexOf('name: Build trusted AOT precompiler'),
+    'compiler handoff must fail closed before costly Rust builds');
+  assert.ok(workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work') <
+    workflow.indexOf('name: Require real Oreslang source actor execution'),
+    'real source execution cannot bypass compiler handoff');
+  const mandatory = source('scripts/verify-real-source-pooled-actor.mjs');
+  assert.match(mandatory,/verifyLlvmCompilerHandoff\(/);
+  assert.match(mandatory,/ORESLANG_LLVM_COMPILER_RECEIPT/);
+  assert.match(workflow,/name: Prove LLVM build source pin and transfer policy fail closed[\s\S]*node --test tests\/pinned-llvm-build-policy\.test\.mjs/);
+  assert.match(workflow,/name: Build pinned LLVM compiler from preapproved local source[\s\S]*bash scripts\/build-pinned-llvm-compiler\.sh/);
+  assert.match(workflow,/name: Preflight reviewed LLVM source commit and root tree[\s\S]*bash scripts\/build-pinned-llvm-compiler\.sh --preflight/);
+  assert.match(workflow,/name: Install LLVM compiler build toolchain after source admission[\s\S]*llvm-dev python3/);
+  assert.ok(workflow.indexOf('name: Preflight reviewed LLVM source commit and root tree') <
+    workflow.indexOf('name: Install LLVM compiler build toolchain after source admission'),
+    'source identity must be admitted before package installation');
+  assert.ok(workflow.indexOf('name: Install LLVM compiler build toolchain after source admission') <
+    workflow.indexOf('name: Build pinned LLVM compiler from preapproved local source'),
+    'compiler development packages must be installed before source build');
+  assert.ok(workflow.indexOf('name: Prove LLVM build source pin and transfer policy fail closed') <
+    workflow.indexOf('name: Build pinned LLVM compiler from preapproved local source'),
+    'builder policy tests must precede construction');
+  assert.ok(workflow.indexOf('name: Build pinned LLVM compiler from preapproved local source') <
+    workflow.indexOf('name: Require approved LLVM build handoff before expensive AOT work'),
+    'local source build must produce receipt before handoff check');
   assert.ok(workflow.indexOf('name: Install LLVM wasm32 linker') <
     workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite'),
     'full Wasm scalar suite requires installed LLVM linker');
+  assert.ok(workflow.indexOf('name: Run full WebAssembly scalar and shared-contract suite') <
+    workflow.indexOf('name: Require real Oreslang source actor execution'),
+    'real source actor gate must run after the ordinary suite');
+  assert.ok(workflow.indexOf('name: Require real Oreslang source actor execution') <
+    workflow.indexOf('name: Run strict AOT scalar smoke and tamper rejection'),
+    'AOT smoke must not mask a missing real-source compiler gate');
   assert.match(workflow,/cargo test --locked --manifest-path aot-host\/precompile\/Cargo\.toml/);
   assert.match(workflow,/cargo check --locked --manifest-path aot-host\/run\/Cargo\.toml/);
   assert.match(workflow,/cargo tree --locked --manifest-path aot-host\/run\/Cargo\.toml/);
