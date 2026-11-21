@@ -354,6 +354,12 @@ export function rejectUnsupportedActorPipeSource(sourceBytes) {
     continue;
   }
 
+  // A contiguous bang spelling reserves the entire source operator, even
+  // when its endpoints are missing or malformed. The actual compiler must
+  // reject such source, but no scalar artifact should reach that invocation.
+  if (bang)
+    throw Error("wasm actor "+current.text+"! source lowering unsupported at byte "+current.offset);
+
   const classCall=current.text==="pipe" && prev?.text==="." &&
       tokens[i-2]?.id && tokens[i-2].text==="ActorUtils";
   const classColonCall=current.text==="pipe" && prev?.text===":" &&
