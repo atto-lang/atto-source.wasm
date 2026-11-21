@@ -99,3 +99,13 @@ fnc main(): int { return 42; }
   assert.equal(sha256(readFileSync(compiler)),compilerSha256,"compiler unchanged");
  }finally{rmSync(tmp,{recursive:true,force:true});}
 });
+
+test("must not mix experimental inverted MIR with checked-overflow witness", async () => {
+ // The scalar checked-overflow contract has separate verified IR rules.
+ // An experimental path that omits ordinary tree-shaking must not bypass it.
+ await assert.rejects(compileOresToWasm({
+  compiler:"/nonexistent/llvmc",source:"/nonexistent/main.atto",
+  output:"/nonexistent/result.wasm",experimentalInvertedI64:true,
+  checkedOverflowOperation:"sadd",compilerSha256:"0".repeat(64)
+ }),/experimental inverted i64 cannot combine with checked-overflow witness/);
+});
