@@ -1,0 +1,26 @@
+// Positive guest contract for atto.std/reflect. Compile this fixture as a
+// full guest AOT target; source checks alone are not AOT execution evidence.
+import module reflect from "atto.std/reflect";
+
+define module reflect_aot_smoke as
+  pub fnc run(): bool {
+    let mut reflect.TypeInfo person = reflect.type_info(101, "Person", 4);
+    if !person.add_field(reflect.field_info("id", 1)); do return false; fi
+    if !person.add_field(reflect.field_info("name", 2)); do return false; fi
+    if person.add_field(reflect.field_info("id", 1)); do return false; fi
+    if person.field_index("missing") != -1; do return false; fi
+    if !person.seal(); do return false; fi
+    if person.add_field(reflect.field_info("secret", 1)); do return false; fi
+    if person.field_count() != 2; do return false; fi
+    let mut reflect.Catalog registry = reflect.catalog();
+    if !registry.add_type(person); do return false; fi
+    if registry.find_type("Person") != 0; do return false; fi
+    if registry.type_field_name_at(0, 1) != "name"; do return false; fi
+    if registry.type_field_type_id_at(0, 0) != 1; do return false; fi
+    if registry.type_name_at(-1) != ""; do return false; fi
+    if registry.type_id_at(9) != 0; do return false; fi
+    if !registry.seal(); do return false; fi
+    if registry.add_type(reflect.type_info(103, "Other", 1)); do return false; fi
+    return true;
+  }
+end
