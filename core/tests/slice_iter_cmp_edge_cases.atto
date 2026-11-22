@@ -1,0 +1,57 @@
+// Proposed executable edge-case conformance; not CI-admitted until
+// the atto.core module import mapping and exact-head guest run are verified.
+import module slice from "atto.core/slice";
+import module iter from "atto.core/iter";
+import module cmp from "atto.core/cmp";
+
+pub fnc main(): int {
+  let mut Array<int> values = new Array<int>();
+  values.add(0);
+  values.add(-2);
+  values.add(0);
+  values.add(7);
+
+  // Empty windows are legal only at offsets within the parent.
+  if !slice.valid_range(0, 0, 0); do return 1; fi
+  if !slice.valid_range(4, 0, 4); do return 2; fi
+  if slice.valid_range(5, 0, 4); do return 3; fi
+  if slice.valid_range(3, 2, 4); do return 4; fi
+  if slice.valid_range(-1, 0, 4); do return 5; fi
+  if slice.valid_range(9223372036854775807, 1, 4); do return 6; fi
+  if !slice.can_split_at(4, 4); do return 7; fi
+  if slice.can_split_at(4, 5); do return 8; fi
+  if !slice.last_int(values, 4, 0).is_none(); do return 9; fi
+  if slice.find_int(values, 0, 4, 0).unwrap_or(-1) != 0; do return 10; fi
+  if slice.count_int(values, 0, 4, 0).unwrap_or(-1) != 2; do return 11; fi
+  if !slice.count_int(values, 3, 2, 0).is_none(); do return 12; fi
+  if !slice.equal_int(values, 0, 2, values, 0, 2); do return 13; fi
+  if slice.equal_int(values, 0, 2, values, 2, 2); do return 14; fi
+  if !slice.starts_with_int(values, 0, 4, values, 0, 0); do return 15; fi
+  if !slice.ends_with_int(values, 0, 4, values, 3, 1); do return 16; fi
+  if slice.ends_with_int(values, 0, 4, values, 0, 2); do return 17; fi
+  if slice.subslice_offset(1, 3, 4, 1, 2).unwrap_or(-1) != 2; do return 18; fi
+  if !slice.subslice_offset(1, 3, 4, 2, 2).is_none(); do return 19; fi
+
+  // Independent cursor arithmetic must not overflow or skip the end.
+  if iter.next_index(1, 2, 0, 4).unwrap_or(-1) != 1; do return 20; fi
+  if iter.next_back_index(1, 2, 0, 4).unwrap_or(-1) != 2; do return 21; fi
+  if !iter.next_index(1, 2, 2, 4).is_none(); do return 22; fi
+  if iter.advance_cursor(3, 2, 1).unwrap_or(-1) != 3; do return 23; fi
+  if !iter.advance_cursor(3, 2, 2).is_none(); do return 24; fi
+  if iter.nth_int(values, 1, 2, 1).unwrap_or(-99) != 0; do return 25; fi
+  if !iter.nth_int(values, 1, 2, 2).is_none(); do return 26; fi
+
+  // Signed extremes: comparing by subtraction would overflow.
+  if cmp.compare_int(-9223372036854775807, 9223372036854775807) != -1; do return 27; fi
+  if cmp.compare_int(9223372036854775807, -9223372036854775807) != 1; do return 28; fi
+  if cmp.compare_int(0, 0) != 0; do return 29; fi
+  if cmp.compare_bool(false, true) != -1; do return 30; fi
+  if cmp.compare_bool(true, false) != 1; do return 31; fi
+  if !cmp.clamp_int(3, 5, 1).is_none(); do return 32; fi
+  if cmp.clamp_int(3, 5, 8).unwrap_or(-1) != 5; do return 33; fi
+  if cmp.lex_compare_int(values, 0, 1, values, 0, 2).unwrap_or(9) != -1; do return 34; fi
+  if !cmp.lex_compare_int(values, 0, 5, values, 0, 2).is_none(); do return 35; fi
+  if cmp.is_sorted_int(values, 0, 4, false); do return 36; fi
+  if !cmp.is_sorted_int(values, 4, 0, false); do return 37; fi
+  return 0;
+}
