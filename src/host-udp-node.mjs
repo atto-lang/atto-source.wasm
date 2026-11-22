@@ -65,8 +65,9 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
     async send_to(bytes,peerPort){
       requireLocal('udp.send_to');
       if(!Number.isInteger(peerPort)||peerPort<1||peerPort>65535)throw new RangeError('peer port');
-      const detached=snapshotGuestBytes(bytes,65507);
+      // Permission must be checked before copying or inspecting guest packet storage.
       authorize('127.0.0.1:'+peerPort,'udp.send_to');
+      const detached=snapshotGuestBytes(bytes,65507);
       const snapshot=Buffer.from(detached);
       return new Promise((resolve,reject)=>{
         let settled=false;
