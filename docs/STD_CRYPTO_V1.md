@@ -68,6 +68,35 @@ envelope fixture nor the existing `crypto_policy_v1.atto` has been
 executed by a full Atto stdlib source linker yet**. Host-only crypto
 tests do not satisfy that missing guest conformance proof.
 
+## Namespace-first Atto standard library layout
+
+The source declaration in this repository is **`use namespace crypto;`**,
+not `define module crypto` and not a dotted namespace declaration.
+The Atto parser currently accepts a flat namespace header; public library
+identity and import paths are resolved separately:
+
+```atto
+// stdlib/std/crypto.atto or stdlib/std/crypto_envelope.atto
+use namespace crypto;
+
+// in a consumer source file
+import * as crypto from "std.crypto";
+```
+
+Two separately maintained `.atto` files can contribute distinct pure
+functions to the `crypto` source namespace; namespace metadata alone does
+**not** prove a multi-file linker correctly merges them. The Java compiler
+currently treats the exact `std.crypto` import as an intrinsic namespace
+for its supported crypto host methods, not yet as a verified source export
+graph for `crypto.atto` and `crypto_envelope.atto`. LLVM, .NET and Wasm
+still require their own namespace import-resolution and guest source tests.
+
+For the **strict Atto source profile**, comparisons in these files and
+fixtures use `eq` / `neq`; legacy `==` / `!=` must not be reintroduced.
+Every compiler can own different `.atto` implementation files while
+maintaining the agreed public AEAD envelope and error contract. No shared
+canonical source dependency is required.
+
 ## Public API to implement
 
 - `hash.sha256(bytes) -> Bytes` and `mac.hmac_sha256(secret, bytes) -> Bytes`.
