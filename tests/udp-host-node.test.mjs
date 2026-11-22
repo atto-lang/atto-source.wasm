@@ -92,3 +92,16 @@ test("UDP input revocation denies receive and does not publish unauthorized byte
   assert.deepEqual(Array.from((await recv).bytes),[3]);
  }finally{await sender.close();await receiver.close()}
 });
+
+test("UDP denied destination precedes access to hostile guest packet data", async () => {
+ const socket=await openNodeUdpLoopback({authorize:(target,op)=>{
+  if(op==="udp.send_to")throw new Error("destination denied");
+  authorize(target,op);
+ }});
+ try {
+  const hostile=new Proxy(new Uint8Array([1]),{
+   get(){throw new Error("guest packet was inspected before permission")}
+  });
+  await assert.rejects(socket.send_to(hostile,12345),/destination denied/);
+ }finally{await socket.close();}
+});
