@@ -5,6 +5,6 @@ define module borrow_fixture as
     for (const item of input) {
       output.add(item);
     }
-    return output;
+    return rt take output;
   }
 end

@@ -58,7 +58,7 @@ define module collections as
       if !found; do output.add(item); fi
     }
     // Returning an owned Array inside Result requires a compiler-checked move.
-    return Ok(output);
+    return Ok(rt take output);
   }
 
   pub fnc merge_sorted_int(
@@ -103,6 +103,6 @@ define module collections as
       output.add(right.get(j));
       j = j + 1;
     done
-    return Ok(output);
+    return Ok(rt take output);
   }
 end
