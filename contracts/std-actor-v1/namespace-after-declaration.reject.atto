@@ -1,0 +1,4 @@
+// expect-error: E_SYNTAX
+// Import/namespace headers cannot be moved past declarations.
+pub fnc main(): int { return 42; }
+use namespace forged.actor;

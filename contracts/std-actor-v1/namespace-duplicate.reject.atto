@@ -1,0 +1,5 @@
+// expect-error: E_DUPLICATE
+// A namespace-bearing source must never replace or stack identities.
+use namespace std.actor.consumer;
+use namespace forged.actor;
+pub fnc main(): int { return 42; }
