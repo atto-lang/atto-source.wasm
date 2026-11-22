@@ -1,0 +1,16 @@
+// Canonical DOP v1: swap-delete preserves dense rows; reuse freed capacity.
+// This checks DENSE INDEX semantics, NOT stable row-handle generations.
+// LLVM narrowed prototype requires two i64 fields, local owner, literal ops.
+define inverted struct Row as
+    let value: int;
+    token: int;
+end
+
+fnc main(): int {
+    let rows = InvertedArray<Row>.with_capacity(3);
+    rows.push(7, 70);
+    rows.push(19, 190);
+    rows.erase_swap(0);
+    rows.push(42, 420);
+    return rows.get(1, value);
+}

@@ -486,7 +486,7 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation,experimentalInvertedI64=false}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -494,6 +494,14 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const sourceExtension=extname(source).toLowerCase();
  if(sourceExtension!==".atto"&&sourceExtension!==".ores")
   throw Error("source file must use canonical .atto or legacy .ores extension");
+ if(typeof experimentalInvertedI64!=="boolean")
+  throw new TypeError("experimentalInvertedI64 must be a boolean");
+ // Never allow the inverted guest subset to bypass another v1 contract.
+ if(experimentalInvertedI64 && checkedOverflowOperation!==undefined)
+  throw Error("experimental inverted i64 cannot combine with checked-overflow witness");
+ if(experimentalInvertedI64 && (sourceExtension!==".atto" ||
+    exportName!=="main" || !/^[a-f0-9]{64}$/.test(compilerSha256||"")))
+  throw Error("experimental inverted i64 Wasm requires .atto source, exact main and pinned compiler SHA-256");
  // Resolve directory symlinks ONCE and use that physical pathname for
  // publication, not the caller's possibly aliased directory spelling.
  // A lexical resolve() comparison alone can overwrite compiler/source
@@ -563,7 +571,20 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedStateContainerVirtualActorSource(sourceBytes);
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
- rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ // Default scalar Wasm remains fail-closed for every inverted layout.
+ // A deliberate, pinned LLVM/MIR experiment can bypass ONLY this gate;
+ // every other source admission and artifact check remains mandatory.
+ if(experimentalInvertedI64){
+  let candidate=false;
+  try{rejectUnsupportedInvertedLayoutSource(sourceBytes);}
+  catch(error){
+   if(!/^wasm inverted (?:struct|class|collection) requires /.test(error?.message||""))
+    throw error;
+   candidate=true;
+  }
+  if(!candidate)
+   throw Error("experimental inverted i64 requires explicit inverted source");
+ }else rejectUnsupportedInvertedLayoutSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
@@ -587,7 +608,20 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource],{cwd:scratch});
+ // Compiler-owned typed local i64 pair MIR is the sole experimental bypass
+ // for tree-shake; the default bridge always retains its original flags.
+ const compilerArgs=experimentalInvertedI64
+  ? ["--target=wasm32",stagedSource]
+  : ["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource];
+ const ir=run(stagedCompiler,compilerArgs,{cwd:scratch});
+ // Fail closed if the native compiler did not select exactly the approved
+ // local two-i64 MIR lowering. These checks are admission evidence, NOT
+ // independent verification of the compiler or general SoA ownership.
+ if(experimentalInvertedI64 &&
+    (!ir.startsWith("; typed MIR, experimental local i64 pair LLVM IR; no external row handles\n") ||
+     !ir.includes("store volatile i1 false, ptr %alive") ||
+     !ir.includes("define i64 @main()")))
+  throw Error("native LLVM compiler did not emit verified inverted i64 MIR guest");
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -631,7 +665,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(memory.memoryCount!==1||!memory.hasMemoryMaximum||memory.memoryMaximum!==2)
   throw Error("linked Wasm memory must declare exactly one bounded 2-page memory");
  const record={
-  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:"llvm-direct-calls-v1",
+  schemaVersion:1,kind:"llvm-ores-to-wasm32-core-experimental",treeShaking:experimentalInvertedI64?"typed-local-inverted-i64-v0":"llvm-direct-calls-v1",
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
@@ -676,17 +710,22 @@ if(calledFromCli){
  try{
   const usedOptions=new Set();
   const options=Object.fromEntries(process.argv.slice(2).map(x=>{
-   const m=/^--(compiler|source|output|export|clang|compiler-sha256|environment|publication)=(.*)$/.exec(x);
+   const m=/^--(compiler|source|output|export|clang|compiler-sha256|environment|publication|experimental-inverted-i64)=(.*)$/.exec(x);
    if(!m)throw Error("unexpected CLI option: "+x);
    if(usedOptions.has(m[1]))throw Error("duplicate CLI option: "+m[1]);
    usedOptions.add(m[1]);
    return[m[1],m[2]];
   }));
+  if(options["experimental-inverted-i64"]!==undefined &&
+     !["true","false"].includes(options["experimental-inverted-i64"]))
+   throw Error("experimental-inverted-i64 must be true or false");
   const record=await compileOresToWasm({
    compiler:options.compiler,source:options.source,
    output:options.output||resolve(projectRoot,"build/guest.wasm"),
    exportName:options.export||"main",clang:options.clang||process.env.CLANG||"clang",
-   compilerSha256:options["compiler-sha256"],environment:options.environment,publication:options.publication||"legacy"
+   compilerSha256:options["compiler-sha256"],environment:options.environment,publication:options.publication||"legacy",
+   experimentalInvertedI64:options["experimental-inverted-i64"]===undefined?false:
+     options["experimental-inverted-i64"]==="true"
   });
   console.log(JSON.stringify(record,null,2));
  }catch(error){console.error(error.stack||error.message);process.exitCode=1}

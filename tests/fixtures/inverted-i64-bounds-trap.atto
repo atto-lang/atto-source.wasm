@@ -1,0 +1,14 @@
+// Canonical DOP v1: a dense index formerly valid must trap after erase.
+// A dense index is NOT a generational RowHandle; no handle authority claimed.
+define inverted struct Row as
+    let value: int;
+    token: int;
+end
+
+fnc main(): int {
+    let rows = InvertedArray<Row>.with_capacity(3);
+    rows.push(7, 70);
+    rows.push(19, 190);
+    rows.erase_swap(0);
+    return rows.get(1, value);
+}

@@ -11,6 +11,16 @@ const deny = (source, diagnostic) => assert.throws(
   "source must fail before native compiler invocation"
 );
 
+test("default inverted source policy remains mandatory independently of the experimental compiler opt-in", () => {
+  // A caller may only bypass this source-level preflight through the narrow
+  // compiler-pinned build API. The exported admission function itself always
+  // rejects explicit SoA syntax and undeclared inverted collection attempts.
+  deny("define inverted struct Row as let value:int; token:int; end",
+    "wasm inverted struct requires typed one-level SoA");
+  deny("fnc main():int{let rows=InvertedArray<Row>.with_capacity(2);return 1;}",
+    "wasm inverted collection requires checked owner/row/column ABI");
+});
+
 test("explicit inverted structs reject with a compiler-bridge capability diagnostic", () => {
   for(const text of [
     "define inverted struct Position as float x; end",
