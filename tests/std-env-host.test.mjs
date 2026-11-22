@@ -121,3 +121,19 @@ test('denied key neither contributes to aggregate budget nor triggers its getter
   assert.throws(() => host.has('BUDGET_DENIED'), /ENV_PERMISSION_DENIED/);
   assert.equal(deniedReads, 0);
 });
+
+test('coarse-denied environment never probes hostile proxy prototype metadata', () => {
+  let probes = 0;
+  const poisoned = new Proxy(Object.create(null), {
+    getPrototypeOf() { probes++; throw Error('UNAUTHORIZED_GET_PROTOTYPE'); },
+    ownKeys() { probes++; throw Error('UNAUTHORIZED_KEYS'); }
+  });
+  const host = create_scoped_env_host({
+    values: poisoned, allow: ['*'], environmentCapability: false
+  });
+  assert.throws(() => host.has('ATTO_SECRET'), /ENV_PERMISSION_DENIED/);
+  assert.equal(probes, 0);
+  assert.throws(() => create_scoped_env_host({
+    values: poisoned, allow: ['*'], environmentCapability: true
+  }), /ENV_INVALID_SNAPSHOT/);
+});
