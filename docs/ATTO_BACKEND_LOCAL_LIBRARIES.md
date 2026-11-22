@@ -30,3 +30,12 @@ availability. An accepted policy decision never authorizes memory or I/O.
 Do not turn these `.atto` implementations into Java/C#/C++/JS runtime bodies.
 Backends may expose minimal, sealed low-level primitives, and future language
 libraries should use those primitives from native Atto code.
+
+## Native core memory/atomic policy addition
+
+`stdlib/core/mem.atto`, `stdlib/core/ptr.atto`, and
+`stdlib/core/atomic.atto` are independently maintained freestanding
+arithmetic and ordering source candidates. See `docs/CORE_MEM_PTR_ATOMIC.md`
+and `tests/core-memory-policy-source.test.mjs` (63 source-only cases).
+This does not add raw pointers, atomic storage, lifetime authorization,
+compiler-linked imports, or AOT guest execution; those are NOT_EXECUTED.
