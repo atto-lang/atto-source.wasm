@@ -2,7 +2,7 @@
 
 # atto-source.wasm
 
-WebAssembly backend and worker-based runtime for AttoLang in browsers and server environments.
+WebAssembly backend and worker-based runtime for AttoLang in browsers and server environments. The dotnet runtime will also use wasm to achieve TenantVM isolation.
 
 ## Scope
 
