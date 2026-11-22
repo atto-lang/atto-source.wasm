@@ -3,7 +3,7 @@
 // pointer with a worker or escape a borrow across await/select.
 define module cell as
   pub fnc can_borrow_read(int readers, bool writer_active): bool {
-    return readers >= 0 && readers <= 65535 && !writer_active;
+    return readers >= 0 && readers < 65535 && !writer_active;
   }
   pub fnc can_borrow_write(int readers, bool writer_active): bool {
     return readers == 0 && !writer_active;
