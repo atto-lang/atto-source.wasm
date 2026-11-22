@@ -69,8 +69,10 @@ and **is on a separate branch** from this host adapter; neither makes
 Verification: 31 in-process V8 host smoke scenarios ran successfully in the
 editing environment using ASCII-only text shims, exercising file/dir/handle/
 stream, root, quotas, denial, stale token, and path constraints. New exact-head
-Node 22 tests are authored in `tests/hosted-fs-api-v1.test.mjs`, included by
+Node 22 tests (nine groups) are authored in `tests/hosted-fs-api-v1.test.mjs`, included by
 `npm test`, but are **NOT_EXECUTED** on this head until a real Node job runs.
 The earlier 11 historical Node host tests must be re-run against the new code;
 compiled Atto guest checks remain **NOT_EXECUTED** on every backend.
 
+
+**Error mapping:** Host-only `FsError` is a subtype of `HostIoError` with stable `FsErrorKind` mapping for `E_FS_*` statuses. Generic host/actor permission or cancellation statuses still require typed *operation-aware* mapping in the unimplemented Atto guest boundary; they are not yet Atto `FsError` objects. The nine authored Node test functions passed in isolated V8 with an ASCII encoding/assert shim, which is **not** Node or CI execution.
