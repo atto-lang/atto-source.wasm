@@ -51,3 +51,19 @@ test("fail closed if crypto capability denied", async () => {
   key.close();
   assert.throws(() => new WebCryptoAeadHostV1(), /authority/);
 });
+
+test("rejects shared-memory input at the crypto actor boundary", async () => {
+  const host = new WebCryptoAeadHostV1(() => true);
+  const key = await host.generateKey(1);
+  const shared = new Uint8Array(new SharedArrayBuffer(12));
+  await assert.rejects(() => key.seal(shared, Uint8Array.of(1)), /shared AAD/);
+  await assert.rejects(() => key.seal(Uint8Array.of(1), shared), /shared plaintext/);
+  const sealed = await key.seal(Uint8Array.of(1), Uint8Array.of(2));
+  assert.deepEqual(await key.open(shared, Uint8Array.of(1), sealed.ciphertextAndTag),
+    { ok: false, error: "authentication failed" });
+  assert.deepEqual(await key.open(sealed.nonce, shared, sealed.ciphertextAndTag),
+    { ok: false, error: "authentication failed" });
+  assert.deepEqual(await key.open(sealed.nonce, Uint8Array.of(1), shared),
+    { ok: false, error: "authentication failed" });
+  key.close();
+});
