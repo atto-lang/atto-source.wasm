@@ -34,3 +34,43 @@ The file is also picked up by the existing npm test wildcard. The test runs a lo
 - Compiled guest tests across the 11 atto-source backends, including a true HTTP → FS roundtrip, exact-head receipts, failure cases and independent CI verification.
 
 **Release gate:** Do not wire this host object to untrusted Atto/Wasm until the typed capability grant, memory-boundary validation and guest compiler's asynchronous continuation lifecycle are independently verified. All backend guest parity remains NOT_EXECUTED.
+
+## Extended host-only filesystem API (2026-11-22)
+
+`runtime/hosted-io-v1.mjs` now implements real **memory-only tenant VFS** behavior for:
+
+- file bytes: `read_file`, `write_file`, `append_file`, `copy_file`, `rename`, `remove_file`
+- directories: `create_dir`, `create_dir_all`, `read_dir`, `remove_dir`, `remove_dir_all`
+- metadata: `metadata`, `exists`, `is_file`, `is_dir`, `file_size`
+- affine handles: `open` options, per-handle `read`, `write`, `flush`, `close`
+- bounded stream handles: `read_stream` with `read_chunk`/EOF and `write_stream` with `write_chunk`, `flush`, `close`
+- pure path helpers: `FsPath`, `FsPathBuf`, `path_join`, `path_parent`, `path_file_name`, `path_extension`, `path_normalize`
+
+Capabilities are host-issued opaque actor-incarnation tokens with independent
+`read`, `write`, `directories`, `remove`, and `recursive` booleans.
+Root listing is read-only via `"."` or `"./"`; root deletion/rename is
+forbidden. Nested creation is preflighted against directory quota; file
+mutation uses defensive byte copies and size accounting. Directory listings
+are sorted by Unicode scalar value. Handle quota, stale/closed handle rejection,
+actor-restart fences and read/write permission checks are enforced by the
+adapter. `flush` only completes memory-buffer operations, never promises
+host-disk durability. No symlinks, devices, arbitrary mounts or external
+process filesystem access exist in this VFS.
+
+All exported JS host types/methods are **host-only adapter equivalents**.
+They are not compiler-linked Atto `Path`, `File`, `FileStream`,
+`OpenOptions`, `FsError`, `Result` or `susp` lowering. The API target
+lives at [atto-spec #117](https://github.com/atto-lang/atto-spec/pull/117).
+The independently owned `.atto` policy candidate lives in
+[Wasm source PR #270](https://github.com/atto-lang/atto-source.wasm/pull/270)
+and **is on a separate branch** from this host adapter; neither makes
+`import * as fs from "std.fs";` executable yet.
+
+Verification: 31 in-process V8 host smoke scenarios ran successfully in the
+editing environment using ASCII-only text shims, exercising file/dir/handle/
+stream, root, quotas, denial, stale token, and path constraints. New exact-head
+Node 22 tests are authored in `tests/hosted-fs-api-v1.test.mjs`, included by
+`npm test`, but are **NOT_EXECUTED** on this head until a real Node job runs.
+The earlier 11 historical Node host tests must be re-run against the new code;
+compiled Atto guest checks remain **NOT_EXECUTED** on every backend.
+
