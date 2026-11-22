@@ -1,26 +1,55 @@
-// Positive guest contract for atto.std/reflect. Compile this fixture as a
-// full guest AOT target; source checks alone are not AOT execution evidence.
+// Atto guest full-AOT reflection metadata smoke: expected exit code 42.
+// This fixture is test INPUT only. Do not claim AOT execution without an
+// exact-head compiled guest artifact and zero-interpreter/JIT evidence.
 import module reflect from "atto.std/reflect";
 
-define module reflect_aot_smoke as
-  pub fnc run(): bool {
-    let mut reflect.TypeInfo person = reflect.type_info(101, "Person", 4);
-    if !person.add_field(reflect.field_info("id", 1)); do return false; fi
-    if !person.add_field(reflect.field_info("name", 2)); do return false; fi
-    if person.add_field(reflect.field_info("id", 1)); do return false; fi
-    if person.field_index("missing") != -1; do return false; fi
-    if !person.seal(); do return false; fi
-    if person.add_field(reflect.field_info("secret", 1)); do return false; fi
-    if person.field_count() != 2; do return false; fi
-    let mut reflect.Catalog registry = reflect.catalog();
-    if !registry.add_type(person); do return false; fi
-    if registry.find_type("Person") != 0; do return false; fi
-    if registry.type_field_name_at(0, 1) != "name"; do return false; fi
-    if registry.type_field_type_id_at(0, 0) != 1; do return false; fi
-    if registry.type_name_at(-1) != ""; do return false; fi
-    if registry.type_id_at(9) != 0; do return false; fi
-    if !registry.seal(); do return false; fi
-    if registry.add_type(reflect.type_info(103, "Other", 1)); do return false; fi
-    return true;
-  }
-end
+pub fnc main(): int {
+  if !reflect.valid_kind(1) || !reflect.valid_kind(8) ||
+     reflect.valid_kind(0) || reflect.valid_kind(9); do
+    return 1;
+  fi
+
+  let mut person = reflect.type_info(101, "Person", 4);
+  if !person.add_field(reflect.field_info("id", 1)); do return 2; fi
+  if !person.add_field(reflect.field_info("name", 2)); do return 3; fi
+  if person.add_field(reflect.field_info("id", 1)); do return 4; fi
+  if person.field_index("id") != 0; do return 5; fi
+  if person.field_index("missing") != -1; do return 6; fi
+  if person.field_name_at(-1) != ""; do return 7; fi
+  if person.field_type_id_at(9) != 0; do return 8; fi
+  if !person.seal(); do return 9; fi
+  if person.seal(); do return 10; fi
+  if person.add_field(reflect.field_info("secret", 1)); do return 11; fi
+  if person.field_count() != 2; do return 12; fi
+
+  let mut registry = reflect.catalog();
+  if registry.add_type(reflect.type_info(103, "Unsealed", 1)); do return 13; fi
+  if !registry.add_type(person); do return 14; fi
+  if registry.type_count() != 1; do return 15; fi
+  if registry.find_type("Person") != 0; do return 16; fi
+  if registry.find_type("Missing") != -1; do return 17; fi
+  if registry.find_type_id(101) != 0; do return 18; fi
+  if registry.find_type_id(-1) != -1; do return 19; fi
+  if registry.type_field_name_at(0, 1) != "name"; do return 20; fi
+  if registry.type_field_type_id_at(0, 0) != 1; do return 21; fi
+  if registry.type_name_at(-1) != ""; do return 22; fi
+  if registry.type_id_at(9) != 0; do return 23; fi
+  if registry.type_kind_at(0) != 4; do return 24; fi
+  if registry.type_field_count_at(0) != 2; do return 25; fi
+
+  let mut duplicate_id = reflect.type_info(101, "Another", 4);
+  duplicate_id.seal();
+  if registry.add_type(duplicate_id); do return 26; fi
+
+  let mut duplicate_name = reflect.type_info(102, "Person", 4);
+  duplicate_name.seal();
+  if registry.add_type(duplicate_name); do return 27; fi
+
+  if !registry.seal(); do return 28; fi
+  if registry.seal(); do return 29; fi
+
+  let mut after_seal = reflect.type_info(103, "Other", 1);
+  after_seal.seal();
+  if registry.add_type(after_seal); do return 30; fi
+  return 42;
+}
