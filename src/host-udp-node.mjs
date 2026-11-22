@@ -83,16 +83,48 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
         })}catch(error){entry.reject(error)}
       });
     },
-    // A source-facing streaming adapter may consume this host async iterator.
-    // UDP senders cannot be backpressured: overflow is observable in stats().
+    // One iterator owns at most one receive watch. Explicit return() cancels
+    // pending recv_from immediately; native async generators cannot do this
+    // while awaiting I/O, and can otherwise strand an actor-owned socket.
     recv_stream(capacity,{signal}={}){
       if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
       const receiver=this;
-      return {
-        async *[Symbol.asyncIterator](){
-          while(true) yield await receiver.recv_from(capacity,{signal});
-        }
+      const aborter=new AbortController();
+      let done=false, reading=false;
+      const onAbort=()=>aborter.abort(signal.reason??new Error('UDP stream cancelled'));
+      if(signal){
+        if(signal.aborted)onAbort();
+        else signal.addEventListener('abort',onAbort,{once:true});
+      }
+      const finish=()=>{
+        if(done)return;
+        done=true;
+        signal?.removeEventListener('abort',onAbort);
+        if(!aborter.signal.aborted)aborter.abort(new Error('UDP stream iterator closed'));
       };
+      return Object.freeze({
+        [Symbol.asyncIterator](){return this;},
+        async next(){
+          if(done)return {done:true,value:undefined};
+          if(reading)throw new Error('concurrent UDP stream.next is forbidden');
+          reading=true;
+          try{
+            const value=await receiver.recv_from(capacity,{signal:aborter.signal});
+            return done ? {done:true,value:undefined} : {done:false,value};
+          }catch(error){
+            if(done)return {done:true,value:undefined};
+            throw error;
+          }finally{reading=false;}
+        },
+        async return(){
+          finish();
+          return {done:true,value:undefined};
+        },
+        async throw(error){
+          finish();
+          throw error;
+        }
+      });
     },
     recv_from(capacity,{signal}={}){
       requireLocal('udp.recv_from');
