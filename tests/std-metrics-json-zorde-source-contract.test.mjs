@@ -187,7 +187,7 @@ test("three identical Atto guest fixtures have pinned nonempty 127-line goldens"
     const source = read(vector.path);
     const bytes = Buffer.from(source, "utf8");
     const blob = createHash("sha1")
-      .update(Buffer.from("blob " + bytes.length + "\\0"))
+      .update(Buffer.from("blob " + bytes.length + "\0"))
       .update(bytes).digest("hex");
     assert.equal(blob, vector.git_blob_sha, "guest fixture blob changed: " + name);
     assert.equal((source.match(/stdio\.println\(/g)||[]).length,expected);
