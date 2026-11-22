@@ -44,6 +44,8 @@ function matches(name, pattern) {
 function valid_utf16(value) {
   for (let i = 0; i < value.length; i++) {
     const unit = value.charCodeAt(i);
+    // OS environment values cannot contain embedded NUL bytes.
+    if (unit === 0) return false;
     if (unit >= 0xd800 && unit <= 0xdbff) {
       if (i + 1 >= value.length) return false;
       const next = value.charCodeAt(++i);
