@@ -240,7 +240,8 @@ function verifyCoreBorrowCandidate(fixture) {
   const move=fixture.indexOf("val transferred = take! buffer;");
   assert.ok(reader>=0 && writer>reader && move>writer,
     "read, exclusive write and final transfer must be ordered");
-  assert.equal(fixture.split("borrow! buffer;").length-1,1);
+  assert.equal(fixture.split("borrow! buffer;").length-1,2,
+    "two simultaneous shared loans must be admitted");
   assert.equal(fixture.split("borrow! mut buffer;").length-1,1);
   assert.equal(fixture.split("take! buffer;").length-1,1);
   const readBody=fixture.slice(reader,writer);
@@ -264,7 +265,7 @@ function verifyCoreBorrowCandidate(fixture) {
 test("candidate core-owned loan lifecycle source is complete (NOT compiler proof)", () => {
   verifyCoreBorrowCandidate(coreBorrowCandidate);
 });
-test("source-only borrow lifecycle gate rejects seven unsafe mutations", () => {
+test("source-only borrow lifecycle gate rejects eight unsafe mutations", () => {
   const variants=[
     coreBorrowCandidate.replace("val reader = borrow! buffer;",
       "val reader = borrow! buffer; take! buffer;"),
@@ -272,6 +273,8 @@ test("source-only borrow lifecycle gate rejects seven unsafe mutations", () => {
       "val reader = borrow! buffer; reader.consumed = 1;"),
     coreBorrowCandidate.replace("val reader = borrow! buffer;",
       "val reader = borrow! buffer; share! buffer;"),
+    coreBorrowCandidate.replace("val second_reader = borrow! buffer;",
+      "val second_reader = borrow! buffer; val writer = borrow! mut buffer;"),
     coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
       "val writer = borrow! mut buffer; val stolen = buffer.capacity;"),
     coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
