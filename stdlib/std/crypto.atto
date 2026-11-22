@@ -1,0 +1,112 @@
+// std.crypto source-level admission policy (v1).
+// Cryptographic operations MUST be provided by vetted, capability-gated
+// backend implementations. These pure functions DO NOT encrypt, hash, derive,
+// generate entropy, authenticate, or check for nonce reuse.
+// Algorithm ids: 1 = AES-256-GCM, 2 = IETF ChaCha20-Poly1305.
+// Both use 32-byte keys, 12-byte unique nonces and full 16-byte tags.
+// All lengths are BYTES (not Unicode code points or UTF-16 units).
+
+pub fnc aead_algorithm_supported(int algorithm): bool {
+  if algorithm == 1 then return true; fi
+  return algorithm == 2;
+}
+
+pub fnc aead_key_bytes(int algorithm): int {
+  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  return 32;
+}
+
+pub fnc aead_nonce_bytes(int algorithm): int {
+  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  return 12;
+}
+
+pub fnc aead_tag_bytes(int algorithm): int {
+  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  return 16;
+}
+
+pub fnc aead_parameters_valid(int algorithm, int key_bytes, int nonce_bytes, int tag_bytes): bool {
+  if aead_algorithm_supported(algorithm) == false then return false; fi
+  if key_bytes != aead_key_bytes(algorithm) then return false; fi
+  if nonce_bytes != aead_nonce_bytes(algorithm) then return false; fi
+  return tag_bytes == aead_tag_bytes(algorithm);
+}
+
+// 16 MiB maximum plaintext/ciphertext, 64 KiB maximum additional data.
+// Subtraction avoids overflow from plaintext_bytes + 16 or a capacity sum.
+// Host MUST separately enforce nonce uniqueness per key, availability of
+// authenticated encryption, all grants, and memory/allocation budgets.
+pub fnc aead_seal_size_admissible(int plaintext_bytes, int aad_bytes, int output_capacity_bytes): bool {
+  if plaintext_bytes < 0 then return false; fi
+  if plaintext_bytes > 16777216 then return false; fi
+  if aad_bytes < 0 then return false; fi
+  if aad_bytes > 65536 then return false; fi
+  if output_capacity_bytes < 16 then return false; fi
+  if output_capacity_bytes > 16777232 then return false; fi
+  return plaintext_bytes <= output_capacity_bytes - 16;
+}
+
+// Open MUST authenticate the entire ciphertext+tag before releasing
+// any plaintext. Authentication failures MUST return a single uniform error.
+// Never permit partial plaintext to escape on failure.
+pub fnc aead_open_size_admissible(int sealed_bytes, int aad_bytes, int output_capacity_bytes): bool {
+  if sealed_bytes < 16 then return false; fi
+  if sealed_bytes > 16777232 then return false; fi
+  if aad_bytes < 0 then return false; fi
+  if aad_bytes > 65536 then return false; fi
+  if output_capacity_bytes < 0 then return false; fi
+  if output_capacity_bytes > 16777216 then return false; fi
+  return sealed_bytes - 16 <= output_capacity_bytes;
+}
+
+pub fnc sha256_input_admissible(int input_bytes): bool {
+  if input_bytes < 0 then return false; fi
+  return input_bytes <= 16777216;
+}
+
+pub fnc hmac_sha256_input_admissible(int key_bytes, int message_bytes): bool {
+  if key_bytes < 0 then return false; fi
+  if key_bytes > 1048576 then return false; fi
+  return sha256_input_admissible(message_bytes);
+}
+
+// RFC 5869: HKDF-SHA-256 expand output MUST NOT exceed 255 * 32 bytes.
+// HKDF is for high-entropy input key material, NOT raw user passwords.
+pub fnc hkdf_sha256_admissible(int ikm_bytes, int salt_bytes, int info_bytes, int output_bytes): bool {
+  if ikm_bytes < 1 then return false; fi
+  if ikm_bytes > 1048576 then return false; fi
+  if salt_bytes < 0 then return false; fi
+  if salt_bytes > 65536 then return false; fi
+  if info_bytes < 0 then return false; fi
+  if info_bytes > 65536 then return false; fi
+  if output_bytes < 1 then return false; fi
+  return output_bytes <= 8160;
+}
+
+// Bounded legacy/protocol interop (for example SCRAM), NOT password-storage
+// defaults. Host must budget CPU work; modern password storage needs a
+// separately reviewed memory-hard password KDF such as Argon2id.
+pub fnc pbkdf2_hmac_sha256_admissible(int password_bytes, int salt_bytes, int iterations, int output_bytes): bool {
+  if password_bytes < 0 then return false; fi
+  if password_bytes > 1048576 then return false; fi
+  if salt_bytes < 0 then return false; fi
+  if salt_bytes > 65536 then return false; fi
+  if iterations < 1 then return false; fi
+  if iterations > 100000 then return false; fi
+  if output_bytes < 1 then return false; fi
+  return output_bytes <= 1024;
+}
+
+// Guest code may request entropy, never seed or select the entropy source.
+pub fnc secure_random_request_admissible(int count_bytes): bool {
+  if count_bytes < 1 then return false; fi
+  return count_bytes <= 4096;
+}
+
+// Predicate only. A constant-time equality implementation is a HOST
+// responsibility; byte lengths and comparison timing remain security-sensitive.
+pub fnc secure_compare_input_admissible(int left_bytes, int right_bytes): bool {
+  if sha256_input_admissible(left_bytes) == false then return false; fi
+  return sha256_input_admissible(right_bytes);
+}
