@@ -1,0 +1,37 @@
+// 32 checks for real Atto pure fs API admission logic (no host I/O).
+// Every failed guard exits non-42.
+pub fnc main(): int {
+  if fs_mode_has_access(false, false, false) then return 1; fi
+  if fs_mode_has_access(true, false, false) == false then return 2; fi
+  if fs_mode_has_access(false, true, false) == false then return 3; fi
+  if fs_mode_has_access(false, false, true) == false then return 4; fi
+  if fs_open_options_valid(false, false, false, false, false, false) then return 5; fi
+  if fs_open_options_valid(true, false, false, false, false, false) == false then return 6; fi
+  if fs_open_options_valid(false, false, true, false, false, false) == false then return 7; fi
+  if fs_open_options_valid(false, false, false, true, false, false) then return 8; fi
+  if fs_open_options_valid(true, false, false, true, false, false) then return 9; fi
+  if fs_open_options_valid(false, true, false, true, false, false) == false then return 10; fi
+  if fs_open_options_valid(false, true, false, false, false, true) == false then return 11; fi
+  if fs_open_options_valid(false, false, true, false, false, true) then return 12; fi
+  if fs_open_options_valid(false, true, true, false, false, true) then return 13; fi
+  if fs_open_options_valid(false, true, false, false, true, true) then return 14; fi
+  if fs_open_options_valid(false, false, true, false, true, false) == false then return 15; fi
+  if fs_handle_lifetime_valid(1, 1, 1, 1, false) == false then return 16; fi
+  if fs_handle_lifetime_valid(1, 2, 1, 1, false) then return 17; fi
+  if fs_handle_lifetime_valid(1, 1, 2, 1, false) then return 18; fi
+  if fs_handle_lifetime_valid(1, 1, 1, 1, true) then return 19; fi
+  if fs_handle_lifetime_valid(0, 0, 1, 1, false) then return 20; fi
+  if fs_read_range_valid(0, 5, 5) == false then return 21; fi
+  if fs_read_range_valid(4, 2, 5) then return 22; fi
+  if fs_read_range_valid(-1, 1, 5) then return 23; fi
+  if fs_read_range_valid(9223372036854775807, 1, 9223372036854775807) then return 24; fi
+  if fs_copy_fits_budget(4, 0, 1, 4, 5) == false then return 25; fi
+  if fs_copy_fits_budget(5, 0, 1, 4, 9) then return 26; fi
+  if fs_copy_fits_budget(4, 2, 1, 9, 9) then return 27; fi
+  if fs_dir_quota_valid(4, 2, 6) == false then return 28; fi
+  if fs_dir_quota_valid(5, 2, 6) then return 29; fi
+  if fs_recursive_remove_admissible(true, true, true, 3, 3) == false then return 30; fi
+  if fs_recursive_remove_admissible(true, true, false, 3, 3) then return 31; fi
+  if fs_recursive_remove_admissible(true, false, true, 3, 3) then return 32; fi
+  return 42;
+}
