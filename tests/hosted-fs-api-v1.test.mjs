@@ -165,3 +165,25 @@ test('filesystem errors expose stable FsErrorKind without leaking host paths',as
     error instanceof FsError && error.kind===FsErrorKind.invalid_path);
   fs.close();
 });
+
+
+test('host VFS rejects control, bidi, oversize paths before state mutation', async()=>{
+  const fs=make(),actor=fs.open_actor(1,1,adminGrants);
+  for(const path of ['a\nb','a\u0085b','a\u202eb','a\u2066b','x'.repeat(257)]) {
+    assert.throws(()=>new FsPath(path),rejects('E_FS_PATH'));
+    await assert.rejects(fs.write_file(actor,path,encode('a')),rejects('E_FS_PATH'));
+  }
+  assert.equal(fs.file_count,0);
+  fs.close();
+});
+
+test('renamed files invalidate old handles and preserve bytes', async()=>{
+  const fs=make(),actor=fs.open_actor(1,1,adminGrants);
+  await fs.write_file(actor,'a',encode('payload'));
+  const reader=await fs.open(actor,'a',{read:true});
+  await fs.rename(actor,'a','b');
+  await assert.rejects(reader.read(1),rejects('E_FS_CLOSED'));
+  assert.equal(decode(await fs.read_file(actor,'b')),'payload');
+  assert.equal(fs.handle_count,0);
+  fs.close();
+});
