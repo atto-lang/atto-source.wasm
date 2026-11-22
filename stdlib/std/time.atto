@@ -42,23 +42,28 @@ define module time as
     return Ok(new Duration(amount));
   }
   pub fnc microseconds(int amount): Result<Duration, String> {
-    if amount < 0 || amount > 9223372036854775; do return Err("DurationOverflow"); fi
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036854775; do return Err("DurationOverflow"); fi
     return Ok(new Duration(amount * 1000));
   }
   pub fnc milliseconds(int amount): Result<Duration, String> {
-    if amount < 0 || amount > 9223372036854; do return Err("DurationOverflow"); fi
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036854; do return Err("DurationOverflow"); fi
     return Ok(new Duration(amount * 1000000));
   }
   pub fnc seconds(int amount): Result<Duration, String> {
-    if amount < 0 || amount > 9223372036; do return Err("DurationOverflow"); fi
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036; do return Err("DurationOverflow"); fi
     return Ok(new Duration(amount * 1000000000));
   }
   pub fnc minutes(int amount): Result<Duration, String> {
-    if amount < 0 || amount > 153722867; do return Err("DurationOverflow"); fi
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 153722867; do return Err("DurationOverflow"); fi
     return Ok(new Duration(amount * 60000000000));
   }
   pub fnc hours(int amount): Result<Duration, String> {
-    if amount < 0 || amount > 2562047; do return Err("DurationOverflow"); fi
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 2562047; do return Err("DurationOverflow"); fi
     return Ok(new Duration(amount * 3600000000000));
   }
 
