@@ -256,16 +256,20 @@ test('stream permits only one outstanding I/O including flush and close',async()
   await fs.write_file(actor,'in',encode('abcd'));
   const reader=await fs.read_stream(actor,'in',2);
   const first=reader.read_chunk();
-  await assert.rejects(reader.read_chunk(),rejects('E_FS_BUSY'));
-  await assert.rejects(reader.close(),rejects('E_FS_BUSY'));
+  // Queue the overlapping operations before allowing the first awaited
+  // completion to retire its busy guard (avoid timing-dependent assertions).
+  const overlapRead=assert.rejects(reader.read_chunk(),rejects('E_FS_BUSY'));
+  const overlapClose=assert.rejects(reader.close(),rejects('E_FS_BUSY'));
+  await Promise.all([overlapRead,overlapClose]);
   assert.equal(decode(await first),'ab');
   assert.equal(decode(await reader.read_chunk()),'cd');
   assert.equal(await reader.read_chunk(),null);
   await reader.close();
   const writer=await fs.write_stream(actor,'out');
   const write=writer.write_chunk(encode('xy'));
-  await assert.rejects(writer.flush(),rejects('E_FS_BUSY'));
-  await assert.rejects(writer.close(),rejects('E_FS_BUSY'));
+  const overlapFlush=assert.rejects(writer.flush(),rejects('E_FS_BUSY'));
+  const overlapWriterClose=assert.rejects(writer.close(),rejects('E_FS_BUSY'));
+  await Promise.all([overlapFlush,overlapWriterClose]);
   await write;
   await writer.flush();await writer.close();
   assert.equal(decode(await fs.read_file(actor,'out')),'xy');
