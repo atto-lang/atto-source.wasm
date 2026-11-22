@@ -242,9 +242,17 @@ export class TenantHostedIoV1 {
   get handle_count() { return this.#handles.size; }
   get byte_count() { return this.#fileBytes; }
 
-  open_actor(actorId, generation, {read = false, write = false, network = false,
-    directories = false, remove = false, recursive = false} = {}) {
+  open_actor(actorId, generation, grants = {}) {
     if (this.#closed) fail('E_IO_CLOSED');
+    if (!grants || typeof grants!=='object' || Array.isArray(grants))
+      fail('E_IO_CONFIG');
+    const allowedGrants = new Set([
+      'read','write','network','directories','remove','recursive'
+    ]);
+    if (Object.keys(grants).some(key=>!allowedGrants.has(key)))
+      fail('E_IO_CONFIG');
+    const {read = false, write = false, network = false,
+      directories = false, remove = false, recursive = false} = grants;
     if (!boundedInteger(actorId, 1, Number.MAX_SAFE_INTEGER) ||
         !boundedInteger(generation, 1, Number.MAX_SAFE_INTEGER) ||
         [read, write, network, directories, remove, recursive].some(v => typeof v !== 'boolean')) fail('E_IO_CONFIG');
