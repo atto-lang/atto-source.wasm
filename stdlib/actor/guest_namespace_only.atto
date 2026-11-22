@@ -1,0 +1,7 @@
+// Positive compiler and Wasm guest target: namespace is file identity only.
+// No import is needed or implicitly conferred by use namespace.
+// expect-exit: 42
+use namespace std.actor.local_only;
+
+pub fnc add_two(int x): int { return x + 2; }
+pub fnc main(): int { return add_two(40); }
