@@ -78,6 +78,17 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
         })}catch(error){entry.reject(error)}
       });
     },
+    // A source-facing streaming adapter may consume this host async iterator.
+    // UDP senders cannot be backpressured: overflow is observable in stats().
+    recv_stream(capacity,{signal}={}){
+      if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
+      const receiver=this;
+      return {
+        async *[Symbol.asyncIterator](){
+          while(true) yield await receiver.recv_from(capacity,{signal});
+        }
+      };
+    },
     recv_from(capacity,{signal}={}){
       requireLocal('udp.recv_from');
       if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
