@@ -31,8 +31,12 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
   };
   const drop=()=>{if(dropped<2147483647)dropped++};
   const handoff=(record, capacity)=>{
-    if(record.bytes.length>capacity) throw new RangeError('UDP datagram truncated; discarded');
-    return Object.freeze({bytes:Uint8Array.from(record.bytes),source:Object.freeze({host:'127.0.0.1',port:record.port})});
+    // A buffer retained in the host queue must not outlive the owned copy.
+    // Always scrub it, including on truncation or failed publication.
+    try {
+      if(record.bytes.length>capacity) throw new RangeError('UDP datagram truncated; discarded');
+      return Object.freeze({bytes:Uint8Array.from(record.bytes),source:Object.freeze({host:'127.0.0.1',port:record.port})});
+    } finally { record.bytes.fill(0); }
   };
   socket.on('message',(data,peer)=>{
     if(closed)return;
@@ -60,7 +64,7 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
     return closePromise;
   };
   return Object.freeze({
-    local_port:()=>localPort,
+    local_port:()=>{requireLocal('udp.local_port');return localPort;},
     stats:()=>Object.freeze({queued_packets:queue.length,queued_bytes:queuedBytes,dropped_packets:dropped}),
     async send_to(bytes,peerPort){
       requireLocal('udp.send_to');
@@ -95,7 +99,19 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
       if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
       if(waiter)throw new Error('concurrent UDP recv not permitted');
       if(signal?.aborted)return Promise.reject(signal.reason??new Error('aborted'));
-      if(queue.length){const record=queue.shift();queuedBytes-=record.bytes.length;return Promise.resolve(handoff(record,capacity))}
+      if(queue.length){
+        const record=queue.shift();queuedBytes-=record.bytes.length;
+        // A packet admitted while a grant was active must be reauthorized at
+        // consumption. Revoking the source port must not leak queued bytes.
+        try {
+          authorize('127.0.0.1:'+record.port,'udp.recv_from');
+          return Promise.resolve(handoff(record,capacity));
+        } catch(error) {
+          record.bytes.fill(0);
+          drop();
+          return Promise.reject(error);
+        }
+      }
       return new Promise((resolve,reject)=>{
         const w={resolve,reject,capacity,cleanup:()=>signal?.removeEventListener('abort',onAbort)};
         const onAbort=()=>{if(waiter===w)waiter=null;w.cleanup();reject(signal.reason??new Error('aborted'))};
