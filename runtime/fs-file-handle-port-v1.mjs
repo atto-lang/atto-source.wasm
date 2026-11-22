@@ -25,6 +25,8 @@ export class ActorFileHandlePortV1 {
   #handles = new Map();
   #issued = new Set(); // Only successfully issued IDs can become CLOSED.
   #pendingOpens = new Set(); // Await late opens on structured close_all.
+  #inflight = new Set(); // Read/write/close operations tracked for shutdown.
+  #closingPromise = null;
   #nextId = 1;
   #pending = 0;
   #maxOpen;
@@ -55,9 +57,34 @@ export class ActorFileHandlePortV1 {
     this.#requireOpen();
     if (!boundedInt(id,1,this.#maxIssued) || !this.#issued.has(id))
       fsFail('E_FS_HANDLE');
-    const file=this.#handles.get(id);
-    if (!file) fsFail('E_FS_CLOSED');
-    return file;
+    const entry=this.#handles.get(id);
+    if (!entry) fsFail('E_FS_CLOSED');
+    return entry;
+  }
+
+  // Serializes every operation on a File, unlike accidentally allowing
+  // overlapping operations on a bearer-like JS File method closure.
+  #using(id, fn) {
+    const entry=this.#lookup(id);
+    if (entry.busy) fsFail('E_FS_BUSY');
+    entry.busy=true;
+    const operation=(async()=>{
+      try {
+        const result=await fn(entry.file);
+        // If the actor port was closed while awaiting host I/O, never
+        // publish a late success as an authorized guest completion.
+        this.#requireOpen();
+        return result;
+      } finally {
+        entry.busy=false;
+      }
+    })();
+    this.#inflight.add(operation);
+    void operation.then(
+      ()=>this.#inflight.delete(operation),
+      ()=>this.#inflight.delete(operation)
+    );
+    return operation;
   }
 
   async open(path, options) {
@@ -76,7 +103,7 @@ export class ActorFileHandlePortV1 {
           fsFail('E_FS_CLOSED');
         }
         this.#issued.add(id);
-        this.#handles.set(id,file);
+        this.#handles.set(id,{file,busy:false});
         return id;
       } finally {
         this.#pending--;
@@ -91,44 +118,62 @@ export class ActorFileHandlePortV1 {
     return operation;
   }
 
-  async read(id,maxBytes) { return this.#lookup(id).read(maxBytes); }
-  async write(id,bytes) { return this.#lookup(id).write(bytes); }
-  async seek(id,offset) { return this.#lookup(id).seek(offset); }
-  async flush(id) { return this.#lookup(id).flush(); }
+  async read(id,maxBytes) {
+    return this.#using(id,file=>file.read(maxBytes));
+  }
+  async write(id,bytes) {
+    return this.#using(id,file=>file.write(bytes));
+  }
+  async seek(id,offset) {
+    return this.#using(id,file=>file.seek(offset));
+  }
+  async flush(id) {
+    return this.#using(id,file=>file.flush());
+  }
 
-  // These helpers accept only a host-owned File obtained from #lookup.
-  // They do not return File closures or actor tokens into guest memory.
+  // File values never cross this trusted host port boundary.
   async read_text(id) {
-    return this.#vfs.read_text(this.#actorTicket,this.#lookup(id));
+    return this.#using(id,file=>this.#vfs.read_text(this.#actorTicket,file));
   }
   async write_text(id,text) {
-    return this.#vfs.write_text(this.#actorTicket,this.#lookup(id),text);
+    return this.#using(id,file=>this.#vfs.write_text(this.#actorTicket,file,text));
   }
   async read_file(id) {
-    return this.#vfs.read_file(this.#actorTicket,this.#lookup(id));
+    return this.#using(id,file=>this.#vfs.read_file(this.#actorTicket,file));
   }
   async write_file(id,bytes) {
-    return this.#vfs.write_file(this.#actorTicket,this.#lookup(id),bytes);
+    return this.#using(id,file=>this.#vfs.write_file(this.#actorTicket,file,bytes));
   }
 
   async close(id) {
-    const file=this.#lookup(id);
-    // Retire the guest-visible handle BEFORE invoking the host close,
-    // including when the actor was revoked and close throws.
+    const entry=this.#lookup(id);
+    if (entry.busy) fsFail('E_FS_BUSY');
+    entry.busy=true;
     this.#handles.delete(id);
-    await file.close();
+    const operation=entry.file.close();
+    this.#inflight.add(operation);
+    try { await operation; }
+    finally {
+      entry.busy=false;
+      this.#inflight.delete(operation);
+    }
   }
 
   async close_all() {
-    if (this.#closed) return;
+    if (this.#closingPromise) return this.#closingPromise;
     this.#closed = true;
-    const retired=[...this.#handles.values()];
-    this.#handles.clear();
-    // Pending opens will see #closed after their await and retire
-    // themselves; never leak a late-created host File.
-    await Promise.allSettled([
-      ...retired.map(file=>file.close()),
-      ...this.#pendingOpens
-    ]);
+    // Do not close underlying file objects until outstanding operations
+    // settle; those operations will reject late success as E_FS_CLOSED.
+    this.#closingPromise=(async()=>{
+      await Promise.allSettled([...this.#inflight]);
+      const retired=[...this.#handles.values()].map(entry=>entry.file);
+      this.#handles.clear();
+      // Pending opens notice #closed and retire their own File objects.
+      await Promise.allSettled([
+        ...retired.map(file=>file.close()),
+        ...this.#pendingOpens
+      ]);
+    })();
+    return this.#closingPromise;
   }
 }
