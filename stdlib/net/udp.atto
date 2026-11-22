@@ -80,3 +80,47 @@ pub fnc udp_hop_limit_admissible(int value): bool {
   if value < 0 then return false; fi
   return value <= 255;
 }
+
+
+// Before admitting one datagram to a local receive stream, check both packet
+// count and byte count. A zero-length datagram still consumes one packet slot.
+// No integer additions occur before their bounds are proved.
+pub fnc udp_stream_can_enqueue(
+    int queued_packets, int queued_bytes, int packet_bytes,
+    int max_packets, int max_bytes, int family): bool {
+  if max_packets <= 0 then return false; fi
+  if max_packets > 65536 then return false; fi
+  if max_bytes <= 0 then return false; fi
+  if queued_packets < 0 then return false; fi
+  if queued_packets >= max_packets then return false; fi
+  if queued_bytes < 0 then return false; fi
+  if packet_bytes < 0 then return false; fi
+  if udp_send_payload_admissible(packet_bytes, max_bytes, max_bytes, family) == false then return false; fi
+  return udp_queue_can_enqueue(queued_bytes, packet_bytes, max_bytes);
+}
+
+// Retire exactly one owned packet after it was consumed. Reject duplicate
+// releases and impossible byte counts without decrementing counters.
+pub fnc udp_stream_can_release(int queued_packets, int queued_bytes, int packet_bytes): bool {
+  if queued_packets <= 0 then return false; fi
+  if queued_bytes < 0 then return false; fi
+  if packet_bytes < 0 then return false; fi
+  return packet_bytes <= queued_bytes;
+}
+
+// Receive/drop accounting saturates instead of overflowing the integer range.
+pub fnc udp_dropped_next(int dropped): int {
+  if dropped < 0 then return -1; fi
+  if dropped >= 2147483647 then return 2147483647; fi
+  return dropped + 1;
+}
+
+// Complete pure preflight; any success here is a bounded-input decision only.
+// A trusted host MUST independently enforce NET capability and endpoint scope.
+pub fnc udp_send_to_admissible(
+    int family, int peer_port, int packet_bytes,
+    int app_limit, int path_payload_limit): bool {
+  if udp_address_family_valid(family) == false then return false; fi
+  if udp_peer_port_admissible(peer_port) == false then return false; fi
+  return udp_send_payload_admissible(packet_bytes, app_limit, path_payload_limit, family);
+}
