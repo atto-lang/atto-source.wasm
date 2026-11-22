@@ -128,6 +128,7 @@ export class ActorTaskLedger {
     this.#tasks.delete(token);
   }
 
+  get stopped() {return this.#stopped;}
   get outstanding() {return this.#tasks.size;}
   isQuiescent() {return this.#tasks.size === 0;}
   stage(token) {return this.#get(token).stage;}
