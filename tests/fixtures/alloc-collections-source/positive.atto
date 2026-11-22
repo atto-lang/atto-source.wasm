@@ -6,7 +6,7 @@ import module alloc_vec from "atto.alloc/vec";
 import module alloc_string from "atto.alloc/string";
 
 pub fnc main() -> int {
-  let mut owned = alloc_box.boxed<int>(42);
+  let mut owned = alloc_box.boxed_copy<int>(42);
   if !owned.is_full(); do return 1; fi
   let previous = owned.take_value();
   if previous.unwrap_or(0) != 42 || !owned.is_empty(); do return 2; fi
