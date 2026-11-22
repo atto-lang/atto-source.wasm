@@ -54,3 +54,24 @@ First requirement for claiming parity: run positive and negative actual
 `.atto` guest fixtures, verify expected 127-observation Java baseline
 and portable vectors under this backend's target profile, and publish
 independently verifiable source/compiler SHAs plus nonzero runner steps.
+
+## Candidate compiled guest harness (independent evidence still required)
+
+The three backend-local guest programs are pinned at
+`tests/fixtures/std-metrics-json-zorde/{metrics,json,zorde}.atto` and
+`expected-stdout.json` records 127 exact stdout lines **and each file's
+Git blob SHA**. A runner adapter that genuinely compiles and executes
+one .atto file per invocation can be passed explicitly:
+
+```sh
+node scripts/verify-std-metrics-json-zorde-guest.mjs \
+  /absolute/path/to/trusted-atto-guest-runner \
+  <independently-verified-binary-sha256>
+```
+
+This script fails on a changed fixture, wrong runner SHA, timeout, nonzero
+exit or stdout mismatch, and reports **candidate** output matching only.
+It cannot independently attest that a custom adapter actually invoked
+the canonical compiler; a trusted GitHub job verifier must cross-check
+compiler identity, exact source/tree, non-setup step receipts and artifacts
+before parity may be reported as `PASS`.
