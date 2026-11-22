@@ -28,7 +28,11 @@ define module collections as
 
   pub fnc lower_bound_int(borrow Array<int> values, int needle): Result<int, String> {
     // Fail closed rather than returning an arbitrary index for unsorted input.
-    if !is_sorted_int(values); do return Err("lower bound requires sorted input"); fi
+    for (let int check = 1; check < values.size; check = check + 1) {
+      if values.get(check - 1) > values.get(check); do
+        return Err("lower bound requires sorted input");
+      fi
+    }
     let int low = 0;
     let int high = values.size;
     while low < high; do
@@ -67,9 +71,16 @@ define module collections as
     if left.size > max_items || right.size > max_items - left.size; do
       return Err("merge exceeds item budget");
     fi
-    if !is_sorted_int(left) || !is_sorted_int(right); do
-      return Err("merge requires sorted inputs");
-    fi
+    for (let int check = 1; check < left.size; check = check + 1) {
+      if left.get(check - 1) > left.get(check); do
+        return Err("merge requires sorted inputs");
+      fi
+    }
+    for (let int check = 1; check < right.size; check = check + 1) {
+      if right.get(check - 1) > right.get(check); do
+        return Err("merge requires sorted inputs");
+      fi
+    }
     let mut Array<int> output = new Array<int>();
     let int left_size = left.size;
     let int right_size = right.size;

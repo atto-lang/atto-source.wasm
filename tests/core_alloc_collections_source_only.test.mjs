@@ -27,6 +27,8 @@ test("collection loans are read-only and outputs newly allocated",()=>{
   assert.match(code,/borrow Array<int> left,\s*borrow Array<int> right/);
   assert.doesNotMatch(code,/borrow mut Array<int>/);
   assert.doesNotMatch(code,/\b(?:values|left|right)\.(?:set|add|remove|clear|push|pop)\(/);
+  assert.doesNotMatch(code,/is_sorted_int\s*\(\s*(?:values|left|right)\s*\)/,
+    "do not create implicit nested reborrows of collection inputs");
   assert.doesNotMatch(code,/\brt\s+(?:share|deref)\b/);
   assert.match(code,/new Array<int>\(\)/);
   const bound=code.indexOf("values.size > 4096"), alloc=code.indexOf("new Array<int>()");

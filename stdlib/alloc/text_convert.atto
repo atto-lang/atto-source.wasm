@@ -2,7 +2,7 @@
 // String.codepoints() creates a bounded owned scalar snapshot, so this MUST
 // NOT live in allocator-independent core. No borrowed pointer or slice escapes.
 define module text_convert as
-  pub fnc try_bool_from_string(String value): Result<bool, String> {
+  pub fnc try_bool_from_string(borrow String value): Result<bool, String> {
     if value == "true"; do return Ok(true); fi
     if value == "false"; do return Ok(false); fi
     return Err("expected lowercase true or false");
@@ -10,7 +10,7 @@ define module text_convert as
 
   // Locale-independent ASCII decimal. Negative accumulation accepts i64::MIN
   // and checks each step before multiplication. Explicit snapshot lifetime.
-  pub fnc try_int_from_string(String value): Result<int, String> {
+  pub fnc try_int_from_string(borrow String value): Result<int, String> {
     val points = value.codepoints();
     val int count = points.size;
     if count == 0 || count > 20; do
