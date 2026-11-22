@@ -6,6 +6,7 @@ const KEY = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const RULE = /^(?:\*|[A-Za-z_][A-Za-z0-9_]{0,127}\*?)$/;
 const MAX_ENTRIES = 512;
 const MAX_VALUE_BYTES = 16384;
+const MAX_AGGREGATE_BYTES = 1048576;
 const utf8 = new TextEncoder();
 const issued_hosts = new WeakSet();
 
@@ -90,16 +91,24 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
   if (keys.length > MAX_ENTRIES)
     throw new EnvHostError('ENV_INVALID_SNAPSHOT');
   const snapshot = new Map();
+  let aggregateBytes = 0;
   for (const key of keys) {
     if (typeof key !== 'string') throw new EnvHostError('ENV_INVALID_SNAPSHOT');
     if (!KEY.test(key) || !environmentCapability || !granted(key, allowed, denied)) continue;
     const field = Object.getOwnPropertyDescriptor(values, key);
     if (!field || !Object.hasOwn(field, 'value') ||
         typeof field.value !== 'string' ||
-        field.value.length > MAX_VALUE_BYTES || !valid_utf16(field.value) ||
-        utf8.encode(field.value).length > MAX_VALUE_BYTES) {
+        field.value.length > MAX_VALUE_BYTES || !valid_utf16(field.value)) {
       throw new EnvHostError('ENV_INVALID_SNAPSHOT');
     }
+    const encodedBytes = utf8.encode(field.value).length;
+    if (encodedBytes > MAX_VALUE_BYTES ||
+        encodedBytes > MAX_AGGREGATE_BYTES - aggregateBytes) {
+      throw new EnvHostError('ENV_INVALID_SNAPSHOT');
+    }
+    // Count only values admitted after coarse/scope/deny checks.
+    // A denied secret must not be inspected or counted.
+    aggregateBytes += encodedBytes;
     snapshot.set(key, field.value);
   }
   let revoked = false;
