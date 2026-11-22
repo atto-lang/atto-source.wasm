@@ -1,5 +1,6 @@
 // Scalar admission checks only. NOT an Atto compiler borrow checker or guest test.
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -47,4 +48,30 @@ test('13 loan-state reference vectors are fail-closed; no guest PASS claimed',()
     for(const [key,got] of Object.entries(observed))
       assert.equal(got,x[key],JSON.stringify({x,key}));
   }
+});
+
+test('borrow compiler fixtures are exact blobs with real rejection expectations',()=>{
+  const manifest=JSON.parse(read('tests/fixtures/core-borrow-v1/manifest.json'));
+  assert.equal(manifest.schema,'atto.core.borrow-checker-guest-candidate-v1');
+  assert.equal(manifest.status,'SOURCE_ONLY_NO_COMPILER_EXECUTION');
+  assert.equal(manifest.cases.length,6);
+  let positive=0,negative=0;
+  for(const fixture of manifest.cases) {
+    assert.match(fixture.path,/^tests\/fixtures\/core-borrow-v1\/(pass|fail)\/[a-z-]+\.atto$/);
+    const source=read(fixture.path),bytes=Buffer.from(source,'utf8');
+    const observed=createHash('sha1')
+      .update(Buffer.from('blob '+bytes.length+'\0')).update(bytes).digest('hex');
+    assert.equal(observed,fixture.git_blob_sha,'core borrow fixture drift: '+fixture.path);
+    assert.equal(fixture.status,'NOT_EXECUTED');
+    assert.equal(fixture.requires_compiler_borrow_provenance,true);
+    if(fixture.expected==='EXECUTE_GUEST_EXIT_42') {
+      assert.equal(fixture.expected_exit,42);positive++;
+    } else {
+      assert.equal(fixture.expected,'REJECT_BEFORE_CODEGEN');
+      assert.match(fixture.expected_error,/^E_[A-Z_]+$/);
+      assert.equal(fixture.expected_exit,null);negative++;
+    }
+  }
+  assert.equal(positive,2);assert.equal(negative,4);
+  assert.ok(manifest.forbidden_proof.includes('unknown keyword diagnostic instead of E_BORROW'));
 });
