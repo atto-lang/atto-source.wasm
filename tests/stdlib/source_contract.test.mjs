@@ -21,6 +21,7 @@ function verify(source, fixture) {
     "unexpected public Atto API count");
   for (const name of names) {
     assert.ok(source[name].includes("pub fnc "), name + " has no public Atto functions");
+    assert.doesNotMatch(source[name], /%/, name + " contains removed Atto remainder operator");
     // Every helper call in a module must resolve to a function in the same module.
     for (const match of source[name].matchAll(new RegExp("\\b(" + name + "_[a-z0-9_]+)\\s*\\(", "g"))) {
       assert.ok(declared[name].has(match[1]), "unbound internal helper: " + match[1]);
@@ -144,4 +145,34 @@ test("boundary source audit rejects five deliberate incomplete or corrupted vari
   assert.throws(() => verifyBoundary({...sources,
     quic: sources.quic.replace("pub fnc quic_stream_id_valid", "fnc quic_stream_id_valid")
   }, boundary));
+});
+
+
+test("source audit rejects a removed Atto remainder operator on any backend", () => {
+  const original = "n - (n / 2) * 2";
+  assert.ok(sources.compute.includes(original), "must mutate the actual owned Atto expression");
+  const corrupted = {...sources, compute: sources.compute.replace(original, "n % 2")};
+  assert.notEqual(corrupted.compute, sources.compute, "negative mutation must alter source");
+  assert.throws(() => verify(corrupted, guest),
+    "removed % cannot enter the .atto library through a static-only proof");
+});
+
+test("bounded nonnegative i64 quotient/subtract identity matches remainder arithmetic", () => {
+  const max = (1n << 63n) - 1n;
+  const divisors = [1n, 2n, 4n, 8n, 16n, 255n, 256n, 65535n,
+    (1n << 62n), max];
+  const values = [0n, 1n, 2n, 3n, 7n, 8n, 63n, 64n, 125n, 126n,
+    255n, 256n, 15293n, 16384n, (1n << 62n)-1n, (1n << 62n), max-1n, max];
+  let state = 0x123456789abcdefn;
+  for (let i = 0; i < 2048; i++) {
+    state = (state * 6364136223846793005n + 1442695040888963407n) & max;
+    values.push(state);
+  }
+  for (const value of values) for (const divisor of divisors) {
+    const product = (value / divisor) * divisor;
+    assert.ok(product >= 0n && product <= value && product <= max,
+      "intermediate product must fit signed i64 and never exceed input");
+    assert.equal(value - product, value % divisor,
+      "backend-owned quotient/subtract expression changed remainder semantics");
+  }
 });
