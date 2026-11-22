@@ -1,6 +1,6 @@
 // Positive guest fixture: must link the actual core/types.atto, then exit 0.
 // Import support is a separate gate: parser-only acceptance is not a guest pass.
-import types from "../../../core/types.atto";
+import * as types from "../../../core/types.atto";
 
 fnc no_value() -> void { return; }
 

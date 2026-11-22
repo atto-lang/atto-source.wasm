@@ -1,0 +1,39 @@
+name: core/types independent source-level behavior oracle
+on:
+  pull_request:
+    paths:
+      - 'core/types.atto'
+      - 'tests/core-types-source.test.mjs'
+      - 'tests/fixtures/core-types-v1/**'
+      - '.github/workflows/core-types-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Check exact PR head and Git tree
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+      - name: Run freestanding Atto source oracle and mutation controls
+        run: |
+          set -euo pipefail
+          node --test tests/core-types-source.test.mjs
+          echo 'CORE_TYPES_SOURCE_ONLY=PASS'
+          echo 'CORE_TYPES_COMPILED_GUEST=NOT_EXECUTED_BY_THIS_JOB'
+      - name: Preserve evidence boundary
+        if: always()
+        run: echo 'This workflow runs a strict source-model oracle only; it neither compiles Atto nor proves NativeAOT/Wasm/JIT guest execution.' >> "$GITHUB_STEP_SUMMARY"
