@@ -326,3 +326,71 @@ test('unknown actor capabilities and malformed grant options reject without toke
   assert.equal(typeof admitted,'object');
   fs.close();
 });
+
+
+test('File instance can be passed directly to read_text and write_text without a stream',async()=>{
+  const fs=make(),token=fs.open_actor(1,1,adminGrants);
+  // An opaque File instance is obtained with open, not created from a path string.
+  const file=await fs.open(token,'note',{read:true,write:true,create:true,truncate:true});
+  await fs.write_text(token,file,'hello');
+  assert.equal(await file.seek(0),0);
+  assert.equal(await fs.read_text(token,file),'hello');
+  assert.equal(await fs.read_text(token,file),''); // Already at EOF.
+  assert.equal(await file.seek(2),2);
+  assert.equal(await fs.read_text(token,file),'llo');
+  await file.flush();
+  assert.equal(fs.handle_count,1); // Helpers borrow, never implicitly close.
+  await file.close();
+  await assert.rejects(fs.read_text(token,file),rejects('E_FS_CLOSED'));
+  assert.equal(await fs.read_text(token,'note'),'hello');
+  fs.close();
+});
+
+test('File instance byte helpers honor cursor and preserve path overloads',async()=>{
+  const fs=make(),token=fs.open_actor(1,1,adminGrants);
+  await fs.write_file(token,'bytes',encode('abc'));
+  const file=await fs.open(token,'bytes',{read:true,write:true});
+  assert.equal(decode(await fs.read_file(token,file)),'abc');
+  assert.equal((await fs.read_file(token,file)).length,0); // EOF cursor
+  await file.seek(1);
+  await fs.write_file(token,file,encode('XY'));
+  assert.equal(decode(await fs.read_file(token,'bytes')),'aXY');
+  await file.seek(1);
+  assert.equal(decode(await fs.read_file(token,file)),'XY');
+  await file.close();
+  fs.close();
+});
+
+test('File handle overloads reject forged, cross-actor, cross-tenant and closed handles',async()=>{
+  const a=make(),b=make();
+  const owner=a.open_actor(1,1,adminGrants);
+  const other=a.open_actor(2,1,adminGrants);
+  const foreign=b.open_actor(1,1,adminGrants);
+  const file=await a.open(owner,'secret',{read:true,write:true,create:true});
+  await a.write_text(owner,file,'data');
+  await assert.rejects(a.read_text(owner,{}),rejects('E_FS_HANDLE'));
+  await assert.rejects(a.read_file(other,file),rejects('E_FS_HANDLE'));
+  await assert.rejects(a.write_text(other,file,'x'),rejects('E_FS_HANDLE'));
+  await assert.rejects(b.read_text(foreign,file),rejects('E_FS_HANDLE'));
+  const readOnly=await a.open(owner,'secret',{read:true});
+  await assert.rejects(a.write_text(owner,readOnly,'x'),rejects('E_IO_PERMISSION'));
+  await readOnly.close();
+  await file.close();
+  await assert.rejects(a.read_file(owner,file),rejects('E_FS_CLOSED'));
+  a.close();b.close();
+});
+
+test('File text write quota denial preserves bytes and current cursor',async()=>{
+  const fs=make({maxFileBytes:5,maxTotalBytes:5});
+  const token=fs.open_actor(1,1,adminGrants);
+  const file=await fs.open(token,'q',{read:true,write:true,create:true});
+  await fs.write_text(token,file,'abc');
+  await assert.rejects(fs.write_text(token,file,'123456'),rejects('E_FS_LIMIT'));
+  await file.seek(0);
+  assert.equal(await fs.read_text(token,file),'abc');
+  await file.seek(3);
+  await assert.rejects(fs.write_file(token,file,encode('xyz')),rejects('E_FS_LIMIT'));
+  await file.seek(0);
+  assert.equal(await fs.read_text(token,file),'abc');
+  await file.close();fs.close();
+});
