@@ -7,7 +7,8 @@ and deterministic cleanup all execute on the current compiler head.
 ## API and safety contracts
 
 - `alloc_box.OwnedBox<T>`: single-slot unique heap object, `boxed`,
-  `empty`, `replace`, `take_value`, `is_full`, `is_empty`.
+  `boxed_copy`/`replace_copy` for verified Copy values, `empty`, `replace`,
+  `take_value`, `is_full`, `is_empty`.
   There is **no alias-copy constructor**. This deliberately does not declare
   compiler-reserved intrinsic `Box<T>`; mapping to `Box<T>` requires verified
   unique-ownership and drop lowering.
