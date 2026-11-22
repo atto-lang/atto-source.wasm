@@ -1,10 +1,10 @@
 // Expected AttoLang guest assertions after standard-source module linking.
 // The named std.crypto envelope helpers must be linked as pure Atto functions.
 pub routine main(): void {
-  if crypto_envelope_size_admissible(28, 0) == false then
+  if crypto_envelope_size_admissible(28, 0) eq false then
     rt fail("empty authenticated envelope rejected");
   fi
-  if crypto_envelope_size_admissible(16777244, 65536) == false then
+  if crypto_envelope_size_admissible(16777244, 65536) eq false then
     rt fail("maximum authenticated envelope rejected");
   fi
   if crypto_envelope_size_admissible(27, 0) then
@@ -13,19 +13,19 @@ pub routine main(): void {
   if crypto_envelope_size_admissible(28, 65537) then
     rt fail("overlong additional data accepted");
   fi
-  if crypto_envelope_ciphertext_bytes(28) != 0 then
+  if crypto_envelope_ciphertext_bytes(28) neq 0 then
     rt fail("empty ciphertext size wrong");
   fi
-  if crypto_envelope_ciphertext_bytes(29) != 1 then
+  if crypto_envelope_ciphertext_bytes(29) neq 1 then
     rt fail("one-byte ciphertext size wrong");
   fi
-  if crypto_envelope_ciphertext_bytes(27) != -1 then
+  if crypto_envelope_ciphertext_bytes(27) neq -1 then
     rt fail("truncated tag must fail closed");
   fi
-  if crypto_envelope_tag_offset(28) != 12 then
+  if crypto_envelope_tag_offset(28) neq 12 then
     rt fail("full tag offset wrong");
   fi
-  if crypto_envelope_tag_offset(27) != -1 then
+  if crypto_envelope_tag_offset(27) neq -1 then
     rt fail("truncated envelope offset accepted");
   fi
   return;
