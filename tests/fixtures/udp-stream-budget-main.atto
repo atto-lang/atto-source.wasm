@@ -1,0 +1,20 @@
+// Source-level stateful UDP stream budget checks.
+// Must be compiled/linked as an actual Atto guest fixture; not host emulation.
+pub fnc main(): int {
+  let mut queue = UdpStream.budget(2, 4);
+  if queue.try_admit(0) == false then return 1; fi
+  if queue.try_admit(4) == false then return 2; fi
+  if queue.try_admit(0) then return 3; fi
+  if queue.dropped_packets() != 1 then return 4; fi
+  if queue.queued_packets() != 2 then return 5; fi
+  if queue.queued_bytes() != 4 then return 6; fi
+  if queue.release(5) then return 7; fi
+  if queue.release(4) == false then return 8; fi
+  if queue.queued_bytes() != 0 then return 9; fi
+  if queue.queued_packets() != 1 then return 10; fi
+  if queue.release(0) == false then return 11; fi
+  if queue.release(0) then return 12; fi
+  if queue.try_admit(-1) then return 13; fi
+  if queue.try_admit(65528) then return 14; fi
+  return 42;
+}
