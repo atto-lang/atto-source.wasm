@@ -1,0 +1,66 @@
+{
+  "schema": "atto.incremental-compilation-rollout.v1",
+  "repository": "atto-lang/atto-source.wasm",
+  "status": "DESIGN_ONLY",
+  "implementation_complete": false,
+  "executed_compiler_guest_evidence": false,
+  "primary_design": "docs/INCREMENTAL_COMPILATION_V1.md",
+  "canonical_design": "https://github.com/atto-lang/atto-common-source/pull/133",
+  "parity_tracker": "https://github.com/atto-lang/atto-compilers-parity-testing/issues/53",
+  "repository_role": "target-backend-runtime",
+  "source_compiler_owner": false,
+  "upstream_compilers": [
+    "atto-source.rs",
+    "atto-source.llvm"
+  ],
+  "target_codegen_domain": "wasm-module-lowering-and-admission",
+  "planned": {
+    "explicit_namespace": "package-instance-qualified namespace may span verified files within a package",
+    "without_namespace": "one distinct package-qualified file unit per physical source file; never implicit global namespace",
+    "source_granularity": "file (with optional finer function/codegen caching)",
+    "incremental_public_abi_dependency": "recheck complete bound import/dependency closure including negative lookups",
+    "implementation_only_change": "owning unit codegen plus inlining/specialization consumers and necessary link outputs",
+    "metadata_identity": [
+      "package-instance-id",
+      "normalized-source-unit-id",
+      "source-digest",
+      "interface-digest",
+      "import-binding-digest",
+      "semantic-profile",
+      "target-and-toolchain-profile"
+    ],
+    "build_status_fields": [
+      "RECHECK",
+      "CODEGEN",
+      "RELINK",
+      "REUSED",
+      "UNSUPPORTED",
+      "NOT_EXECUTED"
+    ],
+    "fail_closed_on": [
+      "unresolved-import",
+      "changed-namespace-membership",
+      "unverified-ABI",
+      "invalid-ownership-proof",
+      "unsafe-cache-entry",
+      "incompatible-toolchain-profile"
+    ]
+  },
+  "required_acceptance_cases": [
+    "cold-clean-vs-incremental",
+    "noop-reuse",
+    "single-unnamespaced-file-edit-sibling-unaffected",
+    "single-file-in-namespaced-group-edit",
+    "public-abi-importer-recheck",
+    "effect-ownership-actor-contract-update",
+    "inlined-body-dependency",
+    "source-file-deletion",
+    "namespace-header-add-remove",
+    "package-version-rebind",
+    "negative-name-lookup",
+    "scc-interface-cycle",
+    "cache-corruption-fails-closed",
+    "target-profile-change",
+    "real-compiled-guest-execution-and-diagnostics"
+  ]
+}
