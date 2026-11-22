@@ -29,9 +29,10 @@ These are **value types and state machines**, not a scheduler or true timer
 driver. In particular, merely polling a Timer cannot suspend a task.
 
 1. Implement the native platform `Clock` backend and unforgeable clock domain;
-   expose separate monotonic and wall-clock reads. Java already provides
-   `process.monotonic_ns()`; this module wraps it as `monotonic_now()`,
-   with a process-local domain marker. Do not serialize its Instants.
+   expose separate monotonic and wall-clock reads. In the Java backend only, `process.monotonic_ns()` is available
+   through this module's `monotonic_now()` function with a process-local
+   domain marker. Do not serialize those Instants. Other backends still
+   need an equivalent trusted clock adapter.
 2. Implement `await sleep(Duration)` and `await sleep_until(Deadline)`
    with a timer queue that holds a pinned task/actor continuation; do not
    park an actor carrier. Always recheck the monotonic deadline on wake.
