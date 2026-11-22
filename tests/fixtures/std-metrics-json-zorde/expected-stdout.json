@@ -41,7 +41,8 @@
         "true",
         "-1",
         "2"
-      ]
+      ],
+      "git_blob_sha": "360296191eb7ef368aef7dca555e6a9d9cbf9448"
     },
     "json": {
       "path": "tests/fixtures/std-metrics-json-zorde/json.atto",
@@ -82,7 +83,8 @@
         "true",
         "true",
         "true"
-      ]
+      ],
+      "git_blob_sha": "cc6eb203b756ba3dbe4abb0adc76566bf3b9600d"
     },
     "zorde": {
       "path": "tests/fixtures/std-metrics-json-zorde/zorde.atto",
@@ -142,7 +144,8 @@
         "true",
         "true",
         "true"
-      ]
+      ],
+      "git_blob_sha": "d3a38b7fe93495c006ab45674dd985fc1aea061b"
     }
   }
 }
