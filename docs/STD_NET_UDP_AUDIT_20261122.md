@@ -30,3 +30,16 @@ The operator authorized token-free private exact-tree mirroring into an alternat
 - Verify .NET native host test and native AOT on a real .NET toolchain, Java JDK 25 + Truffle, native LLVM AOT, and Wasm guest runtime separately.
 - Re-test the **whole exact PR head/tree**, not only verified individual Git blobs, on a carrier with real runner jobs and nonzero steps.
 - Keep PRs Draft and do not promote from a source-only, host-only or zero-step result.
+
+
+## Follow-on milestone: guest adapter, streaming retirement and runner probe
+
+**Java/GraalVM — provisional guest integration (NOT EXECUTED):** backend-owned `stdlib/net/udp_loopback.atto` now contains a minimal `Udp.bind_loopback(port)` module wrapper over the privileged `network.bind_udp(host, port)` NIO primitive. `AsyncNioUdp.java` now implements bounded `send_to`, `recv_from` and close futures with one NIO readiness operation per socket. The TypeChecker and evaluator recognize `UdpSocket` and `UdpPacket`. `tests/fixtures/udp-java-guest-loopback.atto` and `AttoAsyncUdpGuestTest.java` are committed positive/negative actual guest test candidates. None have been compiler-executed yet. Multi-file namespace import, JDK 25/GraalVM, Native Image, compiler-proven affine ownership and physical cancellation retirement remain unverified. This is a **restricted network-facade guest adapter**, not full `std.net.udp` import parity.
+
+**JS + Wasm Node host — physically executed:** explicit cancelable `recv_stream()` iterator replaces the prior async generator, whose `return()` could be blocked indefinitely behind `recv_from()`. Tests cover iterator retirement, external cancellation, concurrent `next()` rejection and subsequent fresh receive. Verified exact local Git blobs: JS host `10cfa42bb0d693cea4aa470ebb7bf5f6b85edcba`, Wasm Node host `4968de3e818669d3a2c1530812e7b1e7162ac43b`, both test files `b731c76403d45062e1d9ac6eb115272146b73d33`. **10/10 physical Node 22 tests passed per host**. Twenty repeated suites per host also all passed (**400 individual test executions**). This is NOT compiled Atto guest, WebAssembly guest or browser raw UDP.
+
+**LLVM Linux host — physically executed again:** unchanged host files were reverified by Git blob SHA and compiled/executed locally under strict GCC, strict Clang and GCC AddressSanitizer+UndefinedBehaviorSanitizer with leak detection. All passed the physical UDP loopback test, including the concurrent busy-destroy case; no full compiler or AOT guest receipt.
+
+**Alternate private Actions carrier admission:** the user authorized token-free private exact-tree mirroring **after proving the carrier runs jobs**. New *source-free only* `benefactor-cc/atto-ci` canary `ci/atto-udp-sourcefree-capacity-20261122` at SHA `6579f3e113c5c9404150fc088ab987a5b139394e` executed workflow `45050095837`, which failed with **zero steps**. Repo's own run `45050095576` also had zero steps. This does not prove the precise billing/permission cause; no carrier with admitted execution was established. **No private Atto source/tree was exported**.
+
+**Before Ready:** execute actual Java guest positive/negative fixtures under the compiler and JDK25/GraalVM, resolve namespace imports, audit affine socket ownership and cancellation retirement, verify .NET native/AOT and LLVM guest, and get nonzero-step exact-head Actions results.
