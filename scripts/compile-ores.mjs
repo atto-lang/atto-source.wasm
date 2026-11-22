@@ -312,6 +312,18 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
    throw Error("wasm heap/container ownership ABI unsupported: "+
       token.text+" at byte "+token.offset);
   }
+  // Alias syntax must never escape this precompiler ownership admission.
+  // The scalar Wasm backend has no compiled typed-loan/ownership-bang ABI.
+  // Distinguish !eq (inequality) from a postfix ownership bang.
+  const bang=["borrow","take","copy","share"].includes(token.text) &&
+    tokens[i+1]?.text==="!" &&
+    !(tokens[i+2]?.id&&tokens[i+2].text==="eq");
+  const mutBang=token.text==="mut" && tokens[i+1]?.id &&
+    tokens[i+1].text==="borrow" && tokens[i+2]?.text==="!";
+  if(bang||mutBang){
+   throw Error("wasm heap loan/transfer lowering unsupported at byte "+
+      token.offset);
+  }
   if(token.text!=="rt")continue;
   const a=tokens[i+1],b=tokens[i+2];
   if(a?.id&&["borrow","take"].includes(a.text) ||
