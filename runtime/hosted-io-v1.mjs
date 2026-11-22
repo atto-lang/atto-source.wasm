@@ -20,6 +20,51 @@ function checkedPath(path) {
   return parts.join('/');
 }
 
+
+function pathParent(p) {
+  const slash = p.lastIndexOf('/');
+  return slash < 0 ? '' : p.slice(0, slash);
+}
+function scalarCompare(a,b) {
+  const left = Array.from(a, c => c.codePointAt(0));
+  const right = Array.from(b, c => c.codePointAt(0));
+  for (let i=0;i<Math.min(left.length,right.length);i++) {
+    if (left[i] !== right[i]) return left[i]-right[i];
+  }
+  return left.length-right.length;
+}
+// Pure lexical paths; no filesystem resolution, symlink access or authority.
+export class FsPath {
+  constructor(value) { this.value=checkedPath(value); Object.freeze(this); }
+  toString() { return this.value; }
+  join(child) { return new FsPath(this.value+'/'+String(child)); }
+  parent() { const parent=pathParent(this.value); return parent ? new FsPath(parent) : null; }
+  file_name() { return this.value.slice(this.value.lastIndexOf('/')+1); }
+  extension() {
+    const name=this.file_name(), at=name.lastIndexOf('.');
+    return at <= 0 ? null : name.slice(at+1);
+  }
+  normalize() { return this; }
+}
+export class FsPathBuf {
+  #value;
+  constructor(value) { this.#value=checkedPath(value); }
+  to_path() { return new FsPath(this.#value); }
+  push(value) { this.#value=checkedPath(this.#value+'/'+String(value)); }
+  pop() {
+    const old=this.#value, parent=pathParent(old);
+    if (!parent) return null;
+    this.#value=parent;
+    return old.slice(old.lastIndexOf('/')+1);
+  }
+  toString() { return this.#value; }
+}
+export function path_join(base,child) { return new FsPath(String(base)).join(child); }
+export function path_parent(value) { return new FsPath(String(value)).parent(); }
+export function path_file_name(value) { return new FsPath(String(value)).file_name(); }
+export function path_extension(value) { return new FsPath(String(value)).extension(); }
+export function path_normalize(value) { return new FsPath(String(value)); }
+
 function allowedUrl(input, origins, loopbackOnly) {
   if (typeof input !== 'string' || !input || textEncoder.encode(input).length > 2048 ||
       /[\u0000-\u0020\\]/u.test(input)) fail('E_NET_URL');
@@ -40,6 +85,8 @@ export class TenantHostedIoV1 {
   #tenantId;
   #actors = new Map();
   #files = new Map();
+  #dirs = new Set(['']); // Empty path is the non-removable tenant root.
+  #handles = new Map(); // Opaque handle -> actor generation and cursor.
   #live = new Set();
   #fileBytes = 0;
   #closed = false;
@@ -49,6 +96,8 @@ export class TenantHostedIoV1 {
   #maxFileBytes;
   #maxTotalBytes;
   #maxFiles;
+  #maxDirs;
+  #maxHandles;
   #maxInflight;
   #maxActors;
   #timeoutMs;
@@ -56,6 +105,7 @@ export class TenantHostedIoV1 {
   constructor({tenantId, allowedOrigins = [], fetchImpl = globalThis.fetch,
     maxBodyBytes = 1024 * 1024, maxFileBytes = 1024 * 1024,
     maxTotalBytes = 4 * 1024 * 1024, maxFiles = 32,
+    maxDirs = 128, maxHandles = 64,
     maxInflight = 8, maxActors = 128, timeoutMs = 30000} = {}) {
     if (typeof tenantId !== 'string' || !tenantId || tenantId.length > 128 ||
         !Array.isArray(allowedOrigins) || allowedOrigins.length > 32 ||
@@ -64,6 +114,8 @@ export class TenantHostedIoV1 {
         !boundedInteger(maxFileBytes, 1, 16 * 1024 * 1024) ||
         !boundedInteger(maxTotalBytes, 1, 64 * 1024 * 1024) ||
         !boundedInteger(maxFiles, 1, 1024) ||
+        !boundedInteger(maxDirs, 1, 4096) ||
+        !boundedInteger(maxHandles, 1, 1024) ||
         !boundedInteger(maxInflight, 1, 64) ||
         !boundedInteger(maxActors, 1, 4096) ||
         !boundedInteger(timeoutMs, 1, 120000)) fail('E_IO_CONFIG');
@@ -72,6 +124,8 @@ export class TenantHostedIoV1 {
     this.#maxFileBytes = maxFileBytes;
     this.#maxTotalBytes = maxTotalBytes;
     this.#maxFiles = maxFiles;
+    this.#maxDirs = maxDirs;
+    this.#maxHandles = maxHandles;
     this.#maxInflight = maxInflight;
     this.#maxActors = maxActors;
     this.#timeoutMs = timeoutMs;
@@ -91,19 +145,23 @@ export class TenantHostedIoV1 {
 
   get tenant_id() { return this.#tenantId; }
   get file_count() { return this.#files.size; }
+  get dir_count() { return this.#dirs.size-1; }
+  get handle_count() { return this.#handles.size; }
   get byte_count() { return this.#fileBytes; }
 
-  open_actor(actorId, generation, {read = false, write = false, network = false} = {}) {
+  open_actor(actorId, generation, {read = false, write = false, network = false,
+    directories = false, remove = false, recursive = false} = {}) {
     if (this.#closed) fail('E_IO_CLOSED');
     if (!boundedInteger(actorId, 1, Number.MAX_SAFE_INTEGER) ||
         !boundedInteger(generation, 1, Number.MAX_SAFE_INTEGER) ||
-        [read, write, network].some(v => typeof v !== 'boolean')) fail('E_IO_CONFIG');
+        [read, write, network, directories, remove, recursive].some(v => typeof v !== 'boolean')) fail('E_IO_CONFIG');
     const previous = this.#actors.get(actorId);
     if (previous && generation <= previous.generation) fail('E_IO_STALE');
     if (!previous && this.#actors.size >= this.#maxActors) fail('E_IO_BUSY');
     if (previous) this.#revoke(previous);
     const token = Object.freeze({});
-    this.#actors.set(actorId, {generation, token, read, write, network, active: true});
+    this.#actors.set(actorId, {generation, token, read, write, network,
+      directories, remove, recursive, active: true});
     return token;
   }
 
@@ -111,7 +169,7 @@ export class TenantHostedIoV1 {
     if (this.#closed) fail('E_IO_CLOSED');
     for (const actor of this.#actors.values()) {
       if (actor.active && actor.token === token) {
-        if (!actor[permission]) fail('E_IO_PERMISSION');
+        if (permission && !actor[permission]) fail('E_IO_PERMISSION');
         return actor;
       }
     }
@@ -119,6 +177,9 @@ export class TenantHostedIoV1 {
   }
   #revoke(actor) {
     actor.active = false;
+    for (const [handle, entry] of this.#handles) {
+      if (entry.actor === actor) { entry.closed=true; this.#handles.delete(handle); }
+    }
     for (const job of this.#live) {
       if (job.actor === actor) {
         job.reject(new HostIoError('E_IO_CANCELLED'));
@@ -137,6 +198,8 @@ export class TenantHostedIoV1 {
     for (const actor of this.#actors.values()) this.#revoke(actor);
     this.#actors.clear();
     this.#files.clear();
+    this.#dirs.clear();
+    this.#handles.clear();
     this.#fileBytes = 0;
   }
 
@@ -150,16 +213,282 @@ export class TenantHostedIoV1 {
     if (!previous && this.#files.size >= this.#maxFiles) fail('E_FS_LIMIT');
     const nextTotal = this.#fileBytes - (previous?.byteLength ?? 0) + bytes.byteLength;
     if (nextTotal > this.#maxTotalBytes) fail('E_FS_LIMIT');
-    // In-memory VFS commit is synchronous and atomic with respect to other JS turns.
-    // No OS file or ambient directory is involved.
-    this.#files.set(p, new Uint8Array(bytes));
-    this.#fileBytes = nextTotal;
+    // In-memory VFS commit is synchronous and atomic with respect to JS turns.
+    this.#storeFile(p, bytes);
   }
   async read_text(token, path) {
     this.#actor(token, 'read');
-    const bytes = this.#files.get(checkedPath(path));
-    if (!bytes) fail('E_FS_NOT_FOUND');
+    const bytes = this.#file(checkedPath(path));
     try { return textDecoder.decode(bytes); } catch { fail('E_INVALID_UTF8'); }
+  }
+
+
+  // File and directory operations below implement a real tenant-private VFS,
+  // not a native guest import or a host-disk filesystem. No symlinks/devices.
+  #file(p) {
+    if (this.#dirs.has(p)) fail('E_FS_NOT_FILE');
+    const data=this.#files.get(p);
+    if (!data) fail('E_FS_NOT_FOUND');
+    return data;
+  }
+  #storeFile(p, input) {
+    if (this.#dirs.has(p)) fail('E_FS_NOT_FILE');
+    if (!this.#dirs.has(pathParent(p))) fail('E_FS_NOT_FOUND');
+    if (!(input instanceof Uint8Array)) fail('E_FS_BYTES');
+    const bytes=new Uint8Array(input); // Never retain caller-owned memory.
+    if (bytes.byteLength > this.#maxFileBytes) fail('E_FS_LIMIT');
+    const prior=this.#files.get(p);
+    if (!prior && this.#files.size >= this.#maxFiles) fail('E_FS_LIMIT');
+    const total=this.#fileBytes-(prior?.byteLength ?? 0)+bytes.byteLength;
+    if (!Number.isSafeInteger(total) || total>this.#maxTotalBytes) fail('E_FS_LIMIT');
+    this.#files.set(p,bytes);
+    this.#fileBytes=total;
+  }
+  #invalidateHandles(prefix) {
+    for (const [handle,entry] of this.#handles) {
+      if (entry.path===prefix || entry.path.startsWith(prefix+'/')) {
+        entry.closed=true; this.#handles.delete(handle);
+      }
+    }
+  }
+  async read_file(token,path) {
+    this.#actor(token,'read');
+    return new Uint8Array(this.#file(checkedPath(String(path))));
+  }
+  async write_file(token,path,bytes) {
+    this.#actor(token,'write');
+    this.#storeFile(checkedPath(String(path)),bytes);
+  }
+  async append_file(token,path,bytes) {
+    this.#actor(token,'write');
+    const p=checkedPath(String(path));
+    if (!(bytes instanceof Uint8Array)) fail('E_FS_BYTES');
+    if (this.#dirs.has(p)) fail('E_FS_NOT_FILE');
+    const old=this.#files.get(p) ?? new Uint8Array();
+    if (bytes.byteLength > this.#maxFileBytes-old.length) fail('E_FS_LIMIT');
+    const data=new Uint8Array(old.length+bytes.byteLength);
+    data.set(old); data.set(bytes,old.length);
+    this.#storeFile(p,data);
+  }
+  async copy_file(token,source,destination) {
+    this.#actor(token,'read'); this.#actor(token,'write');
+    const from=checkedPath(String(source)), to=checkedPath(String(destination));
+    const bytes=this.#file(from);
+    if (this.#files.has(to) || this.#dirs.has(to)) fail('E_FS_EXISTS');
+    this.#storeFile(to,bytes);
+  }
+  async rename(token,source,destination) {
+    this.#actor(token,'write'); this.#actor(token,'remove');
+    const from=checkedPath(String(source)), to=checkedPath(String(destination));
+    if (from===to || to.startsWith(from+'/')) fail('E_FS_PATH');
+    if (this.#files.has(to) || this.#dirs.has(to)) fail('E_FS_EXISTS');
+    if (!this.#dirs.has(pathParent(to))) fail('E_FS_NOT_FOUND');
+    if (this.#files.has(from)) {
+      const bytes=this.#files.get(from);
+      this.#files.delete(from); this.#files.set(to,bytes);
+    } else if (this.#dirs.has(from)) {
+      this.#actor(token,'directories');
+      const dirs=[...this.#dirs].filter(p=>p===from || p.startsWith(from+'/'));
+      const files=[...this.#files].filter(([p])=>p.startsWith(from+'/'));
+      // Directory rename is one in-memory transaction with no partial move.
+      for (const p of dirs) this.#dirs.delete(p);
+      for (const p of dirs) this.#dirs.add(to+p.slice(from.length));
+      for (const [p] of files) this.#files.delete(p);
+      for (const [p,bytes] of files) this.#files.set(to+p.slice(from.length),bytes);
+    } else fail('E_FS_NOT_FOUND');
+    this.#invalidateHandles(from);
+  }
+  async remove_file(token,path) {
+    this.#actor(token,'write'); this.#actor(token,'remove');
+    const p=checkedPath(String(path)), bytes=this.#file(p);
+    this.#files.delete(p); this.#fileBytes-=bytes.byteLength;
+    this.#invalidateHandles(p);
+  }
+  async create_dir(token,path) {
+    this.#actor(token,'write'); this.#actor(token,'directories');
+    const p=checkedPath(String(path));
+    if (this.#files.has(p) || this.#dirs.has(p)) fail('E_FS_EXISTS');
+    if (!this.#dirs.has(pathParent(p))) fail('E_FS_NOT_FOUND');
+    if (this.#dirs.size-1 >= this.#maxDirs) fail('E_FS_LIMIT');
+    this.#dirs.add(p);
+  }
+  async create_dir_all(token,path) {
+    this.#actor(token,'write'); this.#actor(token,'directories');
+    const p=checkedPath(String(path));
+    const parts=p.split('/'), pending=[];let built='';
+    for (const part of parts) {
+      built=built ? built+'/'+part : part;
+      if (this.#files.has(built)) fail('E_FS_NOT_DIR');
+      if (!this.#dirs.has(built)) pending.push(built);
+    }
+    if (pending.length > this.#maxDirs-(this.#dirs.size-1)) fail('E_FS_LIMIT');
+    for (const dir of pending) this.#dirs.add(dir);
+  }
+  async read_dir(token,path) {
+    this.#actor(token,'read');
+    const p=checkedPath(String(path));
+    if (!this.#dirs.has(p)) {
+      if (this.#files.has(p)) fail('E_FS_NOT_DIR');
+      fail('E_FS_NOT_FOUND');
+    }
+    const entries=[];
+    for (const dir of this.#dirs) {
+      if (pathParent(dir)===p) entries.push(Object.freeze({
+        name:dir.slice(p.length+1),path:dir,kind:'directory'}));
+    }
+    for (const filename of this.#files.keys()) {
+      if (pathParent(filename)===p) entries.push(Object.freeze({
+        name:filename.slice(p.length+1),path:filename,kind:'file'}));
+    }
+    entries.sort((a,b)=>scalarCompare(a.name,b.name));
+    return Object.freeze(entries);
+  }
+  async remove_dir(token,path) {
+    this.#actor(token,'write'); this.#actor(token,'directories');
+    this.#actor(token,'remove');
+    const p=checkedPath(String(path));
+    if (!this.#dirs.has(p)) {
+      if (this.#files.has(p)) fail('E_FS_NOT_DIR');
+      fail('E_FS_NOT_FOUND');
+    }
+    if ([...this.#dirs].some(x=>x.startsWith(p+'/')) ||
+        [...this.#files.keys()].some(x=>x.startsWith(p+'/'))) fail('E_FS_NOT_EMPTY');
+    this.#dirs.delete(p); this.#invalidateHandles(p);
+  }
+  async remove_dir_all(token,path) {
+    this.#actor(token,'write'); this.#actor(token,'directories');
+    this.#actor(token,'remove'); this.#actor(token,'recursive');
+    const p=checkedPath(String(path));
+    if (!this.#dirs.has(p)) {
+      if (this.#files.has(p)) fail('E_FS_NOT_DIR');
+      fail('E_FS_NOT_FOUND');
+    }
+    for (const [name,bytes] of this.#files) {
+      if (name.startsWith(p+'/')) {
+        this.#files.delete(name); this.#fileBytes-=bytes.length;
+      }
+    }
+    for (const dir of [...this.#dirs]) {
+      if (dir===p || dir.startsWith(p+'/')) this.#dirs.delete(dir);
+    }
+    this.#invalidateHandles(p);
+  }
+  async metadata(token,path) {
+    this.#actor(token,'read');
+    const p=checkedPath(String(path));
+    if (this.#dirs.has(p)) return Object.freeze({is_file:false,is_dir:true,size:0});
+    const bytes=this.#file(p);
+    return Object.freeze({is_file:true,is_dir:false,size:bytes.length});
+  }
+  async exists(token,path) {
+    this.#actor(token,'read');
+    const p=checkedPath(String(path));
+    return this.#dirs.has(p) || this.#files.has(p);
+  }
+  async is_file(token,path) {
+    this.#actor(token,'read');
+    return this.#files.has(checkedPath(String(path)));
+  }
+  async is_dir(token,path) {
+    this.#actor(token,'read');
+    return this.#dirs.has(checkedPath(String(path)));
+  }
+  async file_size(token,path) {
+    this.#actor(token,'read');
+    return this.#file(checkedPath(String(path))).byteLength;
+  }
+  #entry(token,handle,permission) {
+    const actor=this.#actor(token,permission);
+    const entry=this.#handles.get(handle);
+    if (!entry || entry.closed) fail('E_FS_CLOSED');
+    if (entry.actor!==actor) fail('E_FS_HANDLE');
+    if (permission==='read' && !entry.read) fail('E_IO_PERMISSION');
+    if (permission==='write' && !entry.write) fail('E_IO_PERMISSION');
+    return entry;
+  }
+  #readHandle(token,handle,maxBytes) {
+    const entry=this.#entry(token,handle,'read');
+    if (!boundedInteger(maxBytes,0,65536)) fail('E_FS_LIMIT');
+    const bytes=this.#file(entry.path);
+    if (entry.offset>bytes.length) fail('E_FS_OFFSET');
+    const end=Math.min(bytes.length,entry.offset+maxBytes);
+    const part=new Uint8Array(bytes.subarray(entry.offset,end));
+    entry.offset=end;
+    return part;
+  }
+  #writeHandle(token,handle,data) {
+    const entry=this.#entry(token,handle,'write');
+    if (!(data instanceof Uint8Array)) fail('E_FS_BYTES');
+    const bytes=new Uint8Array(data);
+    if (bytes.length===0) return 0;
+    if (bytes.length>65536) fail('E_FS_LIMIT');
+    const old=this.#file(entry.path), at=entry.append ? old.length : entry.offset;
+    if (at>old.length || bytes.length>this.#maxFileBytes-at) fail('E_FS_LIMIT');
+    const next=new Uint8Array(Math.max(old.length,at+bytes.length));
+    next.set(old); next.set(bytes,at);
+    this.#storeFile(entry.path,next);
+    entry.offset=at+bytes.length;
+    return bytes.length;
+  }
+  #closeHandle(token,handle) {
+    this.#actor(token,null);
+    const entry=this.#handles.get(handle);
+    if (!entry) return; // same owner may close again: idempotent.
+    if (entry.actor!==this.#actor(token,null)) fail('E_FS_HANDLE');
+    entry.closed=true; this.#handles.delete(handle);
+  }
+  async open(token,path,options={}) {
+    const actor=this.#actor(token,null), p=checkedPath(String(path));
+    if (!options || typeof options!=='object' || Array.isArray(options)) fail('E_FS_OPTIONS');
+    const {read=false,write=false,append=false,create=false,create_new=false,
+      truncate=false}=options;
+    if ([read,write,append,create,create_new,truncate].some(x=>typeof x!=='boolean') ||
+        (!read && !write && !append) ||
+        (truncate && (!write || append)) ||
+        ((create || create_new) && !(write || append)) ||
+        (create_new && truncate)) fail('E_FS_OPTIONS');
+    if (read) this.#actor(token,'read');
+    if (write || append) this.#actor(token,'write');
+    if (this.#handles.size>=this.#maxHandles) fail('E_FS_LIMIT');
+    if (this.#dirs.has(p)) fail('E_FS_NOT_FILE');
+    const old=this.#files.get(p);
+    if (old && create_new) fail('E_FS_EXISTS');
+    if (!old && !(create || create_new)) fail('E_FS_NOT_FOUND');
+    if (!old || truncate) this.#storeFile(p,new Uint8Array());
+    const handle=Object.freeze({});
+    this.#handles.set(handle,{actor,path:p,read,write:write||append,append,
+      offset:append?this.#file(p).length:0,closed:false});
+    return Object.freeze({
+      read: async maxBytes=>this.#readHandle(token,handle,maxBytes),
+      write: async bytes=>this.#writeHandle(token,handle,bytes),
+      flush: async ()=>{ this.#entry(token,handle,null); },
+      close: async ()=>this.#closeHandle(token,handle)
+    });
+  }
+  async read_stream(token,path,chunkBytes=65536) {
+    if (!boundedInteger(chunkBytes,1,65536)) fail('E_FS_LIMIT');
+    const file=await this.open(token,path,{read:true});
+    return Object.freeze({
+      read_chunk: async ()=>{
+        const bytes=await file.read(chunkBytes);
+        return bytes.length ? bytes : null;
+      },
+      close: async ()=>file.close()
+    });
+  }
+  async write_stream(token,path,options={write:true,create:true,truncate:true}) {
+    const file=await this.open(token,path,options);
+    return Object.freeze({
+      write_chunk: async bytes=>{
+        if (!(bytes instanceof Uint8Array)) fail('E_FS_BYTES');
+        // VFS writes are currently all-or-error; native adapters must loop
+        // over partial completion with checked progress and backpressure.
+        const written=await file.write(bytes);
+        if (written!==bytes.length) fail('E_FS_IO');
+      },
+      flush: async ()=>file.flush(),
+      close: async ()=>file.close()
+    });
   }
 
   async request_bytes(token, input) {
