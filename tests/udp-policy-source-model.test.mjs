@@ -51,7 +51,7 @@ const values = [-1n, 0n, 1n, 2n, 9n, 10n, 255n, 65507n, 65508n,
 let state = 0x107de3c5;
 function pick(items) {
   state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-  return items[state % items.length];
+  return items[(state >>> 16) % items.length];
 }
 function protocol(family) { return family === 4n ? 65507n : family === 6n ? 65527n : -1n; }
 function payload(bytes, app, path, family) {
