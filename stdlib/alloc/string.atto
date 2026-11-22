@@ -1,8 +1,9 @@
 // Compiler-local source candidate for atto-source.wasm; no shared source dependency.
 // Backend-owned alloc/string: validated, heap-backed UTF-8 bytes.
-// A String/UTF-8 conversion requires the separate, trusted runtime codec;
-// this module never treats character count as byte length or accepts malformed
-// UTF-8. Appends are not OOM-transactional until Array offers fallible reserve.
+// A String/UTF-8 conversion requires the separate, trusted runtime codec.
+// This module never treats character count as byte length or accepts malformed
+// UTF-8. Append stages an independent array before replacing owned bytes.
+// OOM still relies on compiler-proven unwind/drop and is not an Err return.
 define module alloc_string as
   fnc continuation(int byte) -> bool {
     return byte >= 128 && byte <= 191;
@@ -114,7 +115,7 @@ define module alloc_string as
     return !continuation(byte_at(bytes, index));
   }
 
-  pub fnc push_scalar(borrow mut Array<int> bytes, int scalar) -> bool {
+  fnc append_encoded_scalar_unchecked(borrow mut Array<int> bytes, int scalar) -> bool {
     if !valid_scalar(scalar); do
       return false;
     fi
@@ -160,7 +161,36 @@ define module alloc_string as
     return self.bytes.get_copy(index);
   }
 
+  // Commit only after all byte copies and encoded scalar writes complete.
+  // This avoids a partially updated *receiver* if the allocator fails.
   pub mtd (mut self: Utf8String) append_scalar(int scalar) -> bool {
-    return push_scalar(borrow! mut self.bytes, scalar);
+    if !valid_scalar(scalar) || !valid_utf8(self.bytes); do
+      return false;
+    fi
+    let int n = self.bytes.size;
+    let int width = 1;
+    if scalar > 127; do
+      width = 2;
+    fi
+    if scalar > 2047; do
+      width = 3;
+    fi
+    if scalar > 65535; do
+      width = 4;
+    fi
+    if n > 9223372036854775807 - width; do
+      return false;
+    fi
+    let mut Array<int> staged = new Array<int>();
+    let int i = 0;
+    while i < n do
+      staged.add(byte_at(self.bytes, i));
+      i = i + 1;
+    done
+    if !append_encoded_scalar_unchecked(borrow! mut staged, scalar); do
+      return false;
+    fi
+    self.bytes = take! staged;
+    return true;
   }
 end
