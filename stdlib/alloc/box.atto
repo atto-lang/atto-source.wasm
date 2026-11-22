@@ -11,6 +11,14 @@ define module alloc_box as
     let Option<T> slot = None;
   end
 
+  // Explicit Copy-only factory; never aliases an unproven object graph.
+  // Compiler must require T: Copy for this specialization.
+  pub fnc boxed_copy<T>(T value) -> OwnedBox<T> {
+    let mut OwnedBox<T> result = new OwnedBox<T>();
+    result.replace_copy(value);
+    return take! result;
+  }
+
   pub fnc empty<T>() -> OwnedBox<T> {
     return new OwnedBox<T>();
   }
@@ -34,6 +42,13 @@ define module alloc_box as
   pub mtd (mut self: OwnedBox<T>) replace(take! T next) -> Option<T> {
     let Option<T> previous = take! self.slot;
     self.slot = Some(take! next);
+    return take! previous;
+  }
+
+  // Copy-only replacement. Non-Copy T must be rejected at specialization.
+  pub mtd (mut self: OwnedBox<T>) replace_copy(T next) -> Option<T> {
+    let Option<T> previous = take! self.slot;
+    self.slot = Some(copy! next);
     return take! previous;
   }
 
