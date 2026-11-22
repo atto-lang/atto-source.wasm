@@ -50,6 +50,24 @@ This is still **host-only**: actual Wasm guest compiler/AOT tests remain
 NOT_EXECUTED, and there is no Atto `std.crypto` import or
 guest-facing crypto capability wired to this host.
 
+## Portable Atto source envelope helpers
+
+The additional `stdlib/std/crypto_envelope.atto` file is implemented
+in this compiler's own Atto source tree. It defines pure, overflow-safe
+admission and offsets for **nonce[12] | ciphertext[n] | full_tag[16]**;
+minimum valid envelope length 28 bytes and maximum 16 MiB + 28.
+A negative sentinel indicates malformed lengths and MUST be checked
+before indexing. The algorithm and key identity are **not** embedded
+in this v1 envelope and must be authenticated by the higher-level
+protocol; do not treat the payload as self-describing or derive a key
+from unauthenticated metadata.
+
+`tests/fixtures/crypto_envelope_v1.atto` covers min/max, truncated
+tags, AAD budget, ciphertext length and tag offset. **Neither the
+envelope fixture nor the existing `crypto_policy_v1.atto` has been
+executed by a full Atto stdlib source linker yet**. Host-only crypto
+tests do not satisfy that missing guest conformance proof.
+
 ## Public API to implement
 
 - `hash.sha256(bytes) -> Bytes` and `mac.hmac_sha256(secret, bytes) -> Bytes`.
