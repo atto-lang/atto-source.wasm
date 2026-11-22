@@ -1,0 +1,44 @@
+// Backend-owned Atto source: wasm; independent implementation lifecycle.
+// Source guest smoke for std/websocket, std/quic and std/compute.
+// This is not a host-language surrogate; a compiler must resolve the imports
+// and execute main() to count it as an actual Atto guest test.
+import fnc websocket_frame_admit, websocket_next_fragment_state,
+  websocket_mask_octet, websocket_extended_length_valid,
+  websocket_backpressure_admit, websocket_valid_close_code
+  from '../../stdlib/std/websocket';
+import fnc quic_varint_octet, quic_varint_min_width,
+  quic_stream_bidirectional, quic_stream_range_fits,
+  quic_ack_range_valid, quic_zero_rtt_candidate
+  from '../../stdlib/std/quic';
+import fnc compute_exact_buffer_layout, compute_groups_for_axis,
+  compute_workgroup_valid, compute_buffer_range_fits,
+  compute_alignment_valid, compute_upload_admit
+  from '../../stdlib/std/compute';
+
+pub routine main(): int {
+  if !websocket_frame_admit(1, true, true, 5, 5, true, false, false) then return 1; fi
+  if websocket_frame_admit(1, true, false, 5, 5, true, false, false) then return 2; fi
+  if websocket_frame_admit(9, false, true, 1, 5, true, false, false) then return 3; fi
+  if websocket_frame_admit(0, true, true, 1, 5, true, false, false) then return 4; fi
+  if websocket_next_fragment_state(1, false, false) != 1 then return 5; fi
+  if websocket_next_fragment_state(0, true, true) != 0 then return 6; fi
+  if websocket_mask_octet(255, 85) != 170 then return 7; fi
+  if websocket_extended_length_valid(126, 125, true) then return 8; fi
+  if websocket_backpressure_admit(9223372036854775807, 1, 9223372036854775807) then return 9; fi
+  if websocket_valid_close_code(1006) then return 10; fi
+  if quic_varint_min_width(16384) != 4 then return 11; fi
+  if quic_varint_octet(15293, 2, 0) != 123 then return 12; fi
+  if quic_varint_octet(15293, 2, 1) != 189 then return 13; fi
+  if !quic_stream_bidirectional(0) || quic_stream_bidirectional(2) then return 14; fi
+  if quic_stream_range_fits(4611686018427387903, 1, 4611686018427387903) then return 15; fi
+  if quic_ack_range_valid(2, 3) then return 16; fi
+  if quic_zero_rtt_candidate(true, true, true, false) then return 17; fi
+  if !compute_exact_buffer_layout(8, 3, 8, 24) then return 18; fi
+  if compute_exact_buffer_layout(9223372036854775807, 2, 8, 1) then return 19; fi
+  if compute_groups_for_axis(17, 8) != 3 then return 20; fi
+  if compute_workgroup_valid(16, 16, 2, 256) then return 21; fi
+  if compute_buffer_range_fits(9, 2, 10) then return 22; fi
+  if compute_alignment_valid(3) then return 23; fi
+  if compute_upload_admit(0, 1, 1, true, false) then return 24; fi
+  return 0;
+}

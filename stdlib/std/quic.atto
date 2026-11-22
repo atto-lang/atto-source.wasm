@@ -1,0 +1,101 @@
+// Backend-owned Atto source: wasm; independent implementation lifecycle.
+// std/quic: RFC 9000/9001 bounded wire, stream and flow-control helpers.
+// No packet protection, TLS 1.3, UDP transport, congestion controller or
+// connection handle is implicitly provided. All functions are Atto source.
+// QUIC wire integers are unsigned 62-bit values stored in signed i64.
+pub fnc quic_wire_integer_valid(int value): bool {
+  return value >= 0 && value < 4611686018427387904;
+}
+
+pub fnc quic_stream_id_valid(int stream_id): bool {
+  return quic_wire_integer_valid(stream_id);
+}
+
+pub fnc quic_stream_client_initiated(int stream_id): bool {
+  return quic_stream_id_valid(stream_id) && stream_id % 2 == 0;
+}
+
+pub fnc quic_stream_bidirectional(int stream_id): bool {
+  return quic_stream_id_valid(stream_id) && stream_id % 4 < 2;
+}
+
+pub fnc quic_varint_min_width(int value): int {
+  if !quic_wire_integer_valid(value) then return 0; fi
+  if value < 64 then return 1; fi
+  if value < 16384 then return 2; fi
+  if value < 1073741824 then return 4; fi
+  return 8;
+}
+
+pub fnc quic_varint_fits_width(int value, int width): bool {
+  if !quic_wire_integer_valid(value) then return false; fi
+  if width == 1 then return value < 64; fi
+  if width == 2 then return value < 16384; fi
+  if width == 4 then return value < 1073741824; fi
+  return width == 8;
+}
+
+// Encode byte `index` (0-based), using an explicitly requested width.
+// Width may be non-minimal as RFC 9000 permits. Returns -1 for invalid args.
+// At most seven bounded multiply-by-256 steps, always within signed i64.
+pub fnc quic_varint_octet(int value, int width, int index): int {
+  if !quic_varint_fits_width(value, width) then return -1; fi
+  if index < 0 || index >= width then return -1; fi
+  let divisor: int = 1;
+  for (let int i = index + 1; i < width; i = i + 1) {
+    divisor = divisor * 256;
+  }
+  let octet: int = (value / divisor) % 256;
+  if index == 0 then
+    if width == 2 then return octet + 64; fi
+    if width == 4 then return octet + 128; fi
+    if width == 8 then return octet + 192; fi
+  fi
+  return octet;
+}
+
+// No offset + length or used + requested unchecked arithmetic.
+pub fnc quic_stream_range_fits(int offset, int length, int max_stream_data): bool {
+  if !quic_wire_integer_valid(offset) then return false; fi
+  if !quic_wire_integer_valid(length) then return false; fi
+  if !quic_wire_integer_valid(max_stream_data) then return false; fi
+  if offset > max_stream_data then return false; fi
+  return length <= max_stream_data - offset;
+}
+
+pub fnc quic_connection_credit_admit(int already_sent, int requested, int max_data): bool {
+  return quic_stream_range_fits(already_sent, requested, max_data);
+}
+
+pub fnc quic_flow_limit_update_valid(int previous_limit, int next_limit): bool {
+  return quic_wire_integer_valid(previous_limit) &&
+         quic_wire_integer_valid(next_limit) && next_limit >= previous_limit;
+}
+
+// ACK ranges are encoded as largest_ack - first_ack_range.
+pub fnc quic_ack_range_valid(int largest_ack, int first_ack_range): bool {
+  return quic_wire_integer_valid(largest_ack) &&
+         quic_wire_integer_valid(first_ack_range) &&
+         first_ack_range <= largest_ack;
+}
+
+pub fnc quic_ack_delay_exponent_valid(int exponent): bool {
+  return exponent >= 0 && exponent <= 20;
+}
+
+pub fnc quic_max_ack_delay_valid(int milliseconds): bool {
+  return milliseconds >= 0 && milliseconds < 16384;
+}
+
+pub fnc quic_datagram_fits(int size, int available, int max_datagram): bool {
+  if size < 0 || available < 0 || max_datagram < 0 then return false; fi
+  return size <= available && size <= max_datagram;
+}
+
+// Only a preliminary 0-RTT gate. Runtime MUST enforce peer policy, transport
+// parameter consistency and replay controls; no unsafe automatic replay.
+pub fnc quic_zero_rtt_candidate(
+  bool tls13, bool resumed, bool explicitly_opted_in, bool replay_safe
+): bool {
+  return tls13 && resumed && explicitly_opted_in && replay_safe;
+}

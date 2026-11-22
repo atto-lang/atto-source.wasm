@@ -1,0 +1,98 @@
+// Backend-owned Atto source: wasm; independent implementation lifecycle.
+// std/compute: source-native, checked SIMD/GPU descriptors and launch math.
+// This module never grants a device/driver handle or starts a GPU kernel.
+// Device, Buffer, Kernel and Fence are opaque runtime authorities, not source
+// constructors. Backend adapters must prove lifetime, permissions and AOT ABI.
+pub fnc compute_alignment_valid(int alignment): bool {
+  if alignment <= 0 || alignment > 1048576 then return false; fi
+  let n: int = alignment;
+  for (let int i = 0; i < 21; i = i + 1) {
+    if n == 1 then return true; fi
+    if n % 2 != 0 then return false; fi
+    n = n / 2;
+  }
+  return false;
+}
+
+// Exact bytes == element_size * element_count, overflow-safe. Zero-length
+// buffers are legal but cannot themselves prove allocatable GPU memory.
+pub fnc compute_exact_buffer_layout(
+  int element_bytes, int element_count, int alignment, int byte_length
+): bool {
+  if element_bytes <= 0 || element_count < 0 || byte_length < 0 then
+    return false;
+  fi
+  if !compute_alignment_valid(alignment) then return false; fi
+  if element_count == 0 then return byte_length == 0; fi
+  if element_bytes > 9223372036854775807 / element_count then
+    return false;
+  fi
+  return byte_length == element_bytes * element_count;
+}
+
+// Byte range within an owned buffer. No addition of untrusted operands.
+pub fnc compute_buffer_range_fits(int offset, int count, int total): bool {
+  if offset < 0 || count < 0 || total < 0 then return false; fi
+  if offset > total then return false; fi
+  return count <= total - offset;
+}
+
+pub fnc compute_workgroup_valid(
+  int local_x, int local_y, int local_z, int max_invocations
+): bool {
+  if local_x <= 0 || local_y <= 0 || local_z <= 0 then return false; fi
+  if max_invocations <= 0 then return false; fi
+  if local_x > max_invocations then return false; fi
+  let xy: int = local_x;
+  if local_y > max_invocations / xy then return false; fi
+  xy = xy * local_y;
+  if local_z > max_invocations / xy then return false; fi
+  return true;
+}
+
+// Compute ceil(global_size/local_size) without global_size+local_size-1.
+pub fnc compute_groups_for_axis(int global_size, int local_size): int {
+  if global_size <= 0 || local_size <= 0 then return -1; fi
+  let groups: int = global_size / local_size;
+  if global_size % local_size != 0 then groups = groups + 1; fi
+  return groups;
+}
+
+pub fnc compute_dispatch_valid(
+  int global_x, int global_y, int global_z,
+  int local_x, int local_y, int local_z, int max_invocations
+): bool {
+  if global_x <= 0 || global_y <= 0 || global_z <= 0 then return false; fi
+  if local_x > global_x || local_y > global_y || local_z > global_z then
+    return false;
+  fi
+  return compute_workgroup_valid(local_x, local_y, local_z, max_invocations);
+}
+
+pub fnc compute_simd_lanes_supported(int lanes, int maximum): bool {
+  if lanes <= 0 || maximum <= 0 || lanes > maximum then return false; fi
+  return lanes == 1 || lanes == 2 || lanes == 4 || lanes == 8 ||
+         lanes == 16 || lanes == 32 || lanes == 64;
+}
+
+pub fnc compute_capabilities_satisfy(
+  int device_address_bits, int required_address_bits,
+  bool device_fp32, bool require_fp32,
+  bool device_unified_memory, bool require_unified_memory
+): bool {
+  if device_address_bits != 32 && device_address_bits != 64 then
+    return false;
+  fi
+  if required_address_bits != device_address_bits then return false; fi
+  if require_fp32 && !device_fp32 then return false; fi
+  if require_unified_memory && !device_unified_memory then return false; fi
+  return true;
+}
+
+pub fnc compute_upload_admit(
+  int offset, int length, int buffer_length,
+  bool host_to_device_allowed, bool buffer_is_live
+): bool {
+  return buffer_is_live && host_to_device_allowed &&
+         compute_buffer_range_fits(offset, length, buffer_length);
+}
