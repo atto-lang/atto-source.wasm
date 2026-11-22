@@ -172,3 +172,20 @@ test("bootstrap envelope vectors and bounded metric aggregation (reference only)
     accepted: h.accepted, rejected: h.rejected, sum: h.sum, bucket_counts: h.bucket_counts
   });
 });
+
+
+test("three identical Atto guest fixtures have pinned nonempty 127-line goldens", () => {
+  const evidence = JSON.parse(read("tests/fixtures/std-metrics-json-zorde/expected-stdout.json"));
+  assert.equal(evidence.schema, "atto.stdlib.metrics-json-zorde.guest-stdout-v1");
+  assert.equal(evidence.status, "REFERENCE_NOT_EXECUTED_ON_THIS_BACKEND");
+  let outputs = 0;
+  for (const [name, expected] of Object.entries({metrics:36,json:36,zorde:55})) {
+    const vector = evidence.fixtures[name];
+    assert.equal(vector.path,"tests/fixtures/std-metrics-json-zorde/"+name+".atto");
+    assert.equal(vector.stdout_lines.length,expected);
+    const source = read(vector.path);
+    assert.equal((source.match(/stdio\.println\(/g)||[]).length,expected);
+    outputs += expected;
+  }
+  assert.equal(outputs,127);
+});
