@@ -312,3 +312,17 @@ test('active actor quota is released on revoke while generation replay remains f
   await assert.rejects(fs.exists(one,'missing'),rejects('E_IO_STALE'));
   fs.close();
 });
+
+
+test('unknown actor capabilities and malformed grant options reject without token issuance',()=>{
+  const fs=make({maxActors:1,maxActorIds:1});
+  for(const grant of [
+    {read:true,superuser:true}, {read:true,host_disk:true}, null, [], 42,
+    {write:1}, {recursive:'yes'}
+  ]) {
+    assert.throws(()=>fs.open_actor(1,1,grant),rejects('E_IO_CONFIG'));
+  }
+  const admitted=fs.open_actor(1,1,{read:true});
+  assert.equal(typeof admitted,'object');
+  fs.close();
+});
