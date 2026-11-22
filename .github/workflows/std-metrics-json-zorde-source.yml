@@ -7,6 +7,8 @@ on:
       - 'stdlib/std/zorde.atto'
       - 'contracts/std-metrics-json-zorde-source-v1.json'
       - 'tests/std-metrics-json-zorde-source-contract.test.mjs'
+      - 'tests/fixtures/std-metrics-json-zorde/**'
+      - 'docs/STD_METRICS_JSON_ZORDE_BACKEND_PARITY.md'
       - '.github/workflows/std-metrics-json-zorde-source.yml'
   workflow_dispatch:
 permissions:
