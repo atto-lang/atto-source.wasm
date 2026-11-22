@@ -13,7 +13,7 @@ jobs:
   integration:
     # Credentialed build may execute only from the protected default branch.
     # Never dispatch private compiler source into arbitrary PR-controlled code.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected == true
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -33,7 +33,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Bind protected Wasm main checkout
       - name: Verify exact Wasm checkout and reviewed portable scalar source blobs
         shell: bash
         env:

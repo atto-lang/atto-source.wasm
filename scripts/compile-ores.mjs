@@ -4,6 +4,7 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
+import {types} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -13,21 +14,117 @@ import {assertCoreI64Entry} from "./core-i64-abi.mjs";
 import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
+import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// The scalar Wasm bridge accepts ONE standalone source file, not a graph.
+// Validate the pinned source snapshot before invoking even a "real" compiler:
+// a compiler silently ignoring an import must not publish a valid-looking
+// scalar Wasm with incomplete source provenance. This is an admission scanner,
+// not a substitute for parsing or linking modules.
+export function assertScalarSourceHasNoImports(bytes){
+ const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ // A NUL byte is invalid source, even if a downstream scalar compiler
+ // chooses to truncate or ignore it before resolving the source graph.
+ if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
+ let i=0;
+ while(i<source.length){
+  const ch=source[i],next=source[i+1];
+  if(ch==="/"&&next==="/"){
+   // A CR-only line ending is still a new source line. Otherwise an import
+   // after \\r could be hidden from this pre-publication admission check.
+   i+=2;
+   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   continue;
+  }
+  if(ch==="/"&&next==="*"){
+   // The Java and LLVM source lexers admit nested comments. Keep this
+   // preflight aligned instead of treating the first inner */ as the end.
+   i+=2;let depth=1;
+   while(i<source.length&&depth>0){
+    if(source[i]==="/"&&source[i+1]==="*"){
+     if(++depth>128)throw Error("Oreslang block comment nesting limit exceeded");
+     i+=2;continue;
+    }
+    if(source[i]==="*"&&source[i+1]==="/"){depth--;i+=2;continue;}
+    i++;
+   }
+   if(depth!==0)throw Error("unterminated Oreslang block comment");
+   continue;
+  }
+  if(ch==='"'||ch==="'"||ch==="`"){
+   const quote=ch;i++;let closed=false;
+   while(i<source.length){
+    if(source[i]==="\\"){i+=2;continue}
+    if(source[i]===quote){i++;closed=true;break}
+    i++;
+   }
+   if(!closed)throw Error("unterminated Oreslang string or character literal");
+   continue;
+  }
+  if(/[A-Za-z_]/.test(ch)){
+   const begin=i++;
+   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
+   if(source.slice(begin,i)==="import")
+    throw Error("source imports require verified complete Wasm module graph");
+   continue;
+  }
+  i++;
+ }
+}
+
+
+
+const intrinsicGetter = (prototype, name) => Function.prototype.call.bind(
+ Object.getOwnPropertyDescriptor(prototype, name).get);
+const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+const sourceTypedLength = intrinsicGetter(typedArrayProto, "byteLength");
+const sourceTypedBuffer = intrinsicGetter(typedArrayProto, "buffer");
+const sourceDataViewLength = intrinsicGetter(DataView.prototype, "byteLength");
+const sourceDataViewBuffer = intrinsicGetter(DataView.prototype, "buffer");
+const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLength");
+
+// Source admission must enforce the physical byte budget, never a spoofable
+// .byteLength property from a Uint8Array/DataView subclass or a Proxy.
+// Shared backing is rejected: another worker could change source during scanning.
+function physicalSourceByteLength(input) {
+ if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+  throw new TypeError("WASM source preflight requires nonshared byte input");
+ if(types.isTypedArray(input)) {
+  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceTypedLength(input);
+ }
+ if(types.isDataView(input)) {
+  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceDataViewLength(input);
+ }
+ if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ throw new TypeError("WASM source preflight requires byte input");
+}
 
 function tupleV2Tokens(sourceBytes){
  // Exported source-admission gates can be called before the CLI's bounded file
  // snapshot. Enforce the same byte budget before decode or token allocation.
- if(!sourceBytes || !Number.isSafeInteger(sourceBytes.byteLength))
+ const physicalLength=physicalSourceByteLength(sourceBytes);
+ if(!Number.isSafeInteger(physicalLength))
   throw new TypeError("WASM source preflight requires byte input");
- if(sourceBytes.byteLength>MAX_SOURCE_BYTES)
+ if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
+ // can erase a comment or quoted literal, and prior to compiler invocation or
+ // staging. The byte budget above bounds this conversion and its allocation.
+ const nul=text.indexOf("\0");
+ if(nul!==-1) {
+  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
+ }
  const tokens=[];
  const MAX_SOURCE_TOKENS=100_000;
  const pushToken=token=>{
@@ -389,7 +486,7 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -412,6 +509,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
+ if(checkedOverflowOperation!==undefined && !["sadd","ssub","smul"].includes(checkedOverflowOperation))
+  throw Error("invalid checked overflow witness operation");
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases",published+".publication.lock"]){
   if(protectedInputs.has(destination))
    throw Error("output or artifact metadata path overlaps a compiler/source input");
@@ -447,6 +546,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
+ assertScalarSourceHasNoImports(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
@@ -497,6 +598,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
+ // Validate signed-i64 overflow witness against the exact native compiler IR before publication.
+ if(checkedOverflowOperation!==undefined) assertCheckedOverflowIr(ir,checkedOverflowOperation);
  // Require a genuine LLVM triple declaration, not a comment or string.
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
