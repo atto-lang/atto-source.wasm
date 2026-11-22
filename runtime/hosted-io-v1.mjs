@@ -11,6 +11,7 @@ export class HostIoError extends Error {
 export const FsErrorKind = Object.freeze({
   not_found: 'not_found', already_exists: 'already_exists',
   permission_denied: 'permission_denied', invalid_path: 'invalid_path',
+  invalid_handle: 'invalid_handle',
   not_file: 'not_file', not_directory: 'not_directory',
   directory_not_empty: 'directory_not_empty', invalid_option: 'invalid_option',
   invalid_utf8: 'invalid_utf8', closed: 'closed',
@@ -26,6 +27,7 @@ const FS_KINDS = Object.freeze({
   E_FS_NOT_DIR: FsErrorKind.not_directory,
   E_FS_NOT_EMPTY: FsErrorKind.directory_not_empty,
   E_FS_OPTIONS: FsErrorKind.invalid_option,
+  E_FS_HANDLE: FsErrorKind.invalid_handle,
   E_FS_BYTES: FsErrorKind.invalid_option,
   E_FS_OFFSET: FsErrorKind.invalid_option,
   E_FS_CLOSED: FsErrorKind.closed,
