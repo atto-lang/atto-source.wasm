@@ -43,6 +43,20 @@ function fail(code) {
   if (code.startsWith('E_FS_')) throw new FsError(code);
   throw new HostIoError(code);
 }
+// Translate host-only filesystem statuses to a stable public error category.
+// This does not export a guest FsError value or intercept panic/raise.
+export function fs_error_kind(error) {
+  if (!(error instanceof HostIoError)) return FsErrorKind.io_error;
+  if (error instanceof FsError) return error.kind;
+  if (error.code==='E_IO_PERMISSION') return FsErrorKind.permission_denied;
+  if (error.code==='E_IO_STALE' || error.code==='E_IO_CLOSED')
+    return FsErrorKind.closed;
+  if (error.code==='E_IO_CANCELLED') return FsErrorKind.cancelled;
+  if (error.code==='E_IO_BUSY' || error.code==='E_NET_BUSY') return FsErrorKind.busy;
+  if (error.code==='E_INVALID_UTF8') return FsErrorKind.invalid_utf8;
+  return FsErrorKind.io_error;
+}
+
 const boundedInteger = (value, min, max) =>
   Number.isSafeInteger(value) && value >= min && value <= max;
 
