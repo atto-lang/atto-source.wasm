@@ -11,6 +11,9 @@ on:
       - 'scripts/verify-std-metrics-json-zorde-guest.mjs'
       - 'docs/STD_METRICS_JSON_ZORDE_BACKEND_PARITY.md'
       - '.github/workflows/std-metrics-json-zorde-source.yml'
+      - 'contracts/core-borrow-preflight-v1.json'
+      - 'tests/core-borrow-preflight-source.test.mjs'
+      - 'stdlib/core/borrow_admission.atto'
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,6 +39,7 @@ jobs:
           echo "ATTO_WASM_HEAD=$EXPECTED_HEAD"
           echo "ATTO_WASM_TREE=$(git rev-parse 'HEAD^{tree}')"
           node --test tests/std-metrics-json-zorde-source-contract.test.mjs
+          node --test tests/core-borrow-preflight-source.test.mjs
           echo "ATTO_WASM_SOURCE_ONLY=EXECUTED"
           echo "ATTO_WASM_GUEST=NOT_EXECUTED"
       - name: Preserve execution evidence boundary
