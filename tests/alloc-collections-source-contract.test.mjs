@@ -8,6 +8,9 @@ const fixture=(f)=>readFileSync(new URL('./fixtures/alloc-collections-source/'+f
 test('Box requires explicit ownership transfer and forbids raw handle forging',()=>{
  const b=source('box');
  assert.match(b,/boxed<T>\(take! T value\)/);
+ assert.match(b,/boxed_copy<T>\(T value\)/);
+ assert.match(b,/replace_copy\(T next\)/);
+ assert.match(b,/self\.slot = Some\(copy! next\)/);
  assert.match(b,/replace\(take! T next\)/);
  assert.match(b,/let Option<T> previous = take! self\.slot/);
  assert.match(b,/self\.slot = None/);
