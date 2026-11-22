@@ -53,3 +53,17 @@ then executes both Node 22 test files. It fails closed if TAP does not report
 **exactly 11 tests, 11 pass, 0 fail and 0 skipped**. The gate explicitly
 reports HOST/WIRE evidence only, not compiled Atto guest behavior, and
 will not be marked PASS if GitHub Actions cannot admit a runner.
+
+## Coarse-capability metadata hardening (2026-11-22)
+
+`create_scoped_env_host` now skips `Reflect.ownKeys(values)` entirely
+when the trusted isolate has **no coarse ENV capability**. Key-name metadata
+must not be enumerated or observed through a Proxy trap on a denied isolate.
+Added an adversarial Proxy negative test in `tests/std-env-host.test.mjs`.
+The exact-head host/wire workflow now requires **12/12** tests (7 snapshot,
+5 dispatch). **Current isolated V8 in-memory test harness: 12/12 PASS** using
+the exact four GitHub-fetched JS source blobs with a stub implementing UTF-8
+byte length; the two repos' four corresponding Git blobs are identical.
+**Node process CI on the latest head is NOT_EXECUTED**, and this is not
+compiler-parsed Atto or real Wasm worker guest execution. The earlier local
+11/11 Node 22 receipt predates this additional metadata test.
