@@ -170,7 +170,8 @@ function allowedUrl(input, origins, loopbackOnly) {
 
 export class TenantHostedIoV1 {
   #tenantId;
-  #actors = new Map();
+  #actors = new Map(); // Active actor grants only.
+  #actorGenerations = new Map(); // Bounded last generation per actor ID.
   #files = new Map();
   #dirs = new Set(['']); // Empty path is the non-removable tenant root.
   #handles = new Map(); // Opaque handle -> actor generation and cursor.
@@ -187,13 +188,15 @@ export class TenantHostedIoV1 {
   #maxHandles;
   #maxInflight;
   #maxActors;
+  #maxActorIds;
   #timeoutMs;
 
   constructor({tenantId, allowedOrigins = [], fetchImpl = globalThis.fetch,
     maxBodyBytes = 1024 * 1024, maxFileBytes = 1024 * 1024,
     maxTotalBytes = 4 * 1024 * 1024, maxFiles = 32,
     maxDirs = 128, maxHandles = 64,
-    maxInflight = 8, maxActors = 128, timeoutMs = 30000} = {}) {
+    maxInflight = 8, maxActors = 128, maxActorIds = 4096,
+    timeoutMs = 30000} = {}) {
     if (typeof tenantId !== 'string' || !tenantId || tenantId.length > 128 ||
         !Array.isArray(allowedOrigins) || allowedOrigins.length > 32 ||
         typeof fetchImpl !== 'function' ||
@@ -205,6 +208,7 @@ export class TenantHostedIoV1 {
         !boundedInteger(maxHandles, 1, 1024) ||
         !boundedInteger(maxInflight, 1, 64) ||
         !boundedInteger(maxActors, 1, 4096) ||
+        !boundedInteger(maxActorIds, maxActors, 65536) ||
         !boundedInteger(timeoutMs, 1, 120000)) fail('E_IO_CONFIG');
     this.#tenantId = tenantId;
     this.#maxBodyBytes = maxBodyBytes;
@@ -215,6 +219,7 @@ export class TenantHostedIoV1 {
     this.#maxHandles = maxHandles;
     this.#maxInflight = maxInflight;
     this.#maxActors = maxActors;
+    this.#maxActorIds = maxActorIds;
     this.#timeoutMs = timeoutMs;
     this.#fetch = fetchImpl;
     this.#allowedOrigins = new Set();
@@ -244,10 +249,14 @@ export class TenantHostedIoV1 {
         !boundedInteger(generation, 1, Number.MAX_SAFE_INTEGER) ||
         [read, write, network, directories, remove, recursive].some(v => typeof v !== 'boolean')) fail('E_IO_CONFIG');
     const previous = this.#actors.get(actorId);
-    if (previous && generation <= previous.generation) fail('E_IO_STALE');
+    const last = this.#actorGenerations.get(actorId);
+    if (last !== undefined && generation <= last) fail('E_IO_STALE');
+    if (last === undefined && this.#actorGenerations.size >= this.#maxActorIds)
+      fail('E_IO_BUSY');
     if (!previous && this.#actors.size >= this.#maxActors) fail('E_IO_BUSY');
     if (previous) this.#revoke(previous);
     const token = Object.freeze({});
+    this.#actorGenerations.set(actorId, generation);
     this.#actors.set(actorId, {generation, token, read, write, network,
       directories, remove, recursive, active: true});
     return token;
@@ -278,15 +287,15 @@ export class TenantHostedIoV1 {
     const actor = this.#actors.get(actorId);
     if (!actor || actor.generation !== generation || !actor.active) fail('E_IO_STALE');
     this.#revoke(actor);
-    // Keep this inactive incarnation as a bounded generation tombstone.
-    // If removed, a reused actor ID could reissue the same generation and
-    // replay a formerly revoked authority. maxActors bounds lifetime IDs.
+    // The separately bounded generation ledger remains after active removal.
+    this.#actors.delete(actorId);
   }
   close() {
     if (this.#closed) return;
     this.#closed = true;
     for (const actor of this.#actors.values()) this.#revoke(actor);
     this.#actors.clear();
+    this.#actorGenerations.clear();
     this.#files.clear();
     this.#dirs.clear();
     this.#handles.clear();
