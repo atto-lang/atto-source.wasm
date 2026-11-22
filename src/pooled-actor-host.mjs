@@ -5,6 +5,22 @@ import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
 
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
+// Experimental worker host supports fixed workers (1..4), actor-local
+// private memory, and serial per-actor turns; NOT source-level elastic actors.
+const UNSUPPORTED_ELASTIC_OPTIONS = Object.freeze([
+  'maxParallelism', 'max_parallelism', 'minParallelism', 'min_parallelism',
+  'poolSize', 'pool_size', 'pool', 'affinity', 'threadAffinity',
+  'schedule', 'actorSchedule', 'actor_schedule', 'pinnedWorker',
+  'dedicatedWorker'
+]);
+function rejectElasticOptions(options) {
+  if (!options || typeof options !== 'object')
+    throw new TypeError('WASM actor options must be an object');
+  for (const key of UNSUPPORTED_ELASTIC_OPTIONS) {
+    if (Object.prototype.hasOwnProperty.call(options, key))
+      throw new TypeError('WASM elastic actor scheduling unsupported: ' + key);
+  }
+}
 const bounded = (n, min, max, name) => {
   if (!Number.isSafeInteger(n) || n < min || n > max) throw new RangeError('invalid ' + name);
   return n;
@@ -27,8 +43,11 @@ export class PooledWasmActors {
   #timeoutMs;
   #threadPolicy;
 
-  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
-    threadPolicy = null} = {}) {
+  constructor(options = {}) {
+    // Admit only implemented host options BEFORE starting any OS Worker.
+    rejectElasticOptions(options);
+    const {workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
+      threadPolicy = null} = options;
     // Every admitted actor owns private, import-free, non-shared linear memory.
     // A single OS Worker serializes all turns of actors assigned to it;
     // distinct workers may execute disjoint actor memories in parallel.
@@ -218,7 +237,9 @@ export class PooledWasmActors {
     return this.#shutdownPromise;
   }
 
-  async spawn(bytes, {expectedSha256, trusted = false} = {}) {
+  async spawn(bytes, options = {}) {
+    rejectElasticOptions(options);
+    const {expectedSha256, trusted = false} = options;
     if (this.#closed) throw Error('actor pool retired');
     // Do not place untrusted or noncooperating code alongside other actors.
     if (trusted !== true) throw Error('pooled WASM actors require trusted guest admission');
