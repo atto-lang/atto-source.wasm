@@ -15,9 +15,10 @@ pub routine main(): int {
   let buffer = new BoundedBuffer();
   block {
     val reader = borrow! buffer;
+    val second_reader = borrow! buffer;
     if !compute_buffer_range_fits(2, 3, reader.capacity) then return 1; fi
-    if !quic_stream_range_fits(2, 3, reader.capacity) then return 2; fi
-    if !websocket_backpressure_admit(reader.consumed, 3, reader.capacity) then return 3; fi
+    if !quic_stream_range_fits(2, 3, second_reader.capacity) then return 2; fi
+    if !websocket_backpressure_admit(reader.consumed, 3, second_reader.capacity) then return 3; fi
   }
   block {
     val writer = borrow! mut buffer;
