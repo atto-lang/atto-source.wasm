@@ -1,0 +1,8 @@
+// Negative runtime fixture; never claim a pass without an actual key-deny grant.
+// With ATTO_ENV_SECRET_KEY denied, the guest MUST fail before lookup or fallback.
+import module std_env from "std/env";
+pub fnc main(): int {
+  val String value = std_env.get_or("ATTO_ENV_SECRET_KEY", "fallback");
+  if value == "fallback"; do return 7; fi
+  return 8;
+}
