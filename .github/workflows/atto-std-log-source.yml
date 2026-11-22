@@ -4,6 +4,7 @@ on:
     paths:
       - 'stdlib/log.atto'
       - 'tests/log_policy_contract.test.mjs'
+      - 'tests/atto_pure_subset.mjs'
       - 'docs/ATTO_STD_LOG_NAMESPACE.md'
       - '.github/workflows/atto-std-log-source.yml'
   workflow_dispatch:
