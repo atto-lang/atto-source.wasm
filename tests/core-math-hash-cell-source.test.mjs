@@ -12,7 +12,7 @@ const expected = Object.freeze({
   "cell": "b7695151bf4a6521ea52301ef12eec73f8810c0f"
 });
 function gitBlob(bytes) {
-  return createHash("sha1").update(Buffer.from("blob " + bytes.length + "\\0"))
+  return createHash("sha1").update(Buffer.from("blob " + bytes.length + "\0"))
     .update(bytes).digest("hex");
 }
 function step(s, b) {
@@ -30,9 +30,9 @@ test("owned math/hash/cell sources are exact pinned regular .atto UTF-8", async 
     const bytes=await readFile(file);
     assert.equal(gitBlob(bytes), digest, name + ": source drift");
     const source=new TextDecoder("utf-8", {fatal:true}).decode(bytes);
-    assert.ok(!source.includes("\\0") && !source.startsWith("\\uFEFF"));
+    assert.ok(!source.includes("\0") && !source.startsWith("\uFEFF"));
     assert.match(source,new RegExp("define module "+name+" as"));
-    assert.doesNotMatch(source,/java:|dotnet:|import module .*std\\//);
+    assert.doesNotMatch(source,/java:|dotnet:|import module .*std\//);
   }
 });
 test("portable noncryptographic octet-fold vectors", () => {
