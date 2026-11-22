@@ -1,0 +1,54 @@
+// Native Atto std.fs path policy guest candidate; expected exit 42.
+// No host I/O. Functions must be compiled together with fs_path_policy.atto.
+// Unique positive exit codes distinguish every failing case.
+pub fnc main(): int {
+  if fs_path_admissible(".", 10, true) != true then return 101; fi
+  if fs_path_admissible(".", 10, false) != false then return 102; fi
+  if fs_path_admissible("", 10, true) != false then return 103; fi
+  if fs_path_admissible("a", 1, false) != true then return 104; fi
+  if fs_path_admissible("ab", 1, false) != false then return 105; fi
+  if fs_path_admissible("a/b", 3, false) != true then return 106; fi
+  if fs_path_admissible("a//b", 10, false) != false then return 107; fi
+  if fs_path_admissible("/a", 10, false) != false then return 108; fi
+  if fs_path_admissible("a/", 10, false) != false then return 109; fi
+  if fs_path_admissible("a/./b", 10, false) != false then return 110; fi
+  if fs_path_admissible("../b", 10, false) != false then return 111; fi
+  if fs_path_admissible("a/../b", 10, false) != false then return 112; fi
+  if fs_path_admissible("./a", 10, false) != false then return 113; fi
+  if fs_path_admissible(".hidden", 10, false) != true then return 114; fi
+  if fs_path_admissible(".hidden/x", 10, false) != true then return 115; fi
+  if fs_path_admissible("a/..", 10, false) != false then return 116; fi
+  if fs_path_admissible("a/...", 10, false) != false then return 117; fi
+  if fs_path_admissible("foo.", 10, false) != false then return 118; fi
+  if fs_path_admissible("foo ", 10, false) != false then return 119; fi
+  if fs_path_admissible("a /b", 10, false) != false then return 120; fi
+  if fs_path_admissible("dir name", 10, false) != true then return 121; fi
+  if fs_path_admissible("a\\b", 10, false) != false then return 122; fi
+  if fs_path_admissible("C:/a", 10, false) != false then return 123; fi
+  if fs_path_admissible("a:b", 10, false) != false then return 124; fi
+  if fs_path_admissible("name?.txt", 12, false) != false then return 125; fi
+  if fs_path_admissible("a|b", 10, false) != false then return 126; fi
+  if fs_path_admissible("x*y", 10, false) != false then return 127; fi
+  if fs_path_admissible("x<y", 10, false) != false then return 128; fi
+  if fs_path_admissible("x>y", 10, false) != false then return 129; fi
+  if fs_path_admissible("x\\\"y", 10, false) != false then return 130; fi
+  if fs_path_admissible("abc", 0, false) != false then return 131; fi
+  if fs_path_admissible("abc", -1, false) != false then return 132; fi
+  if fs_path_admissible("a-b_c", 10, false) != true then return 133; fi
+  if fs_path_mutation_target_valid(".", 10) != false then return 134; fi
+  if fs_path_mutation_target_valid("a", 10) != true then return 135; fi
+  if fs_path_component_count(".", 10) != 0 then return 136; fi
+  if fs_path_component_count("a", 10) != 1 then return 137; fi
+  if fs_path_component_count("a/b/c", 10) != 3 then return 138; fi
+  if fs_path_component_count("a//b", 10) != -1 then return 139; fi
+  if fs_path_leaf_start("a", 10) != 0 then return 140; fi
+  if fs_path_leaf_start("a/b/c.txt", 10) != 4 then return 141; fi
+  if fs_path_leaf_start(".", 10) != -1 then return 142; fi
+  if fs_path_extension_start("abc", 10) != -1 then return 143; fi
+  if fs_path_extension_start(".gitignore", 10) != -1 then return 144; fi
+  if fs_path_extension_start("a.tar.gz", 10) != 6 then return 145; fi
+  if fs_path_extension_start("a/b/c.txt", 10) != 6 then return 146; fi
+  if fs_path_extension_start(".", 10) != -1 then return 147; fi
+  if fs_path_extension_start("a/b", 10) != -1 then return 148; fi
+  return 42;
+}

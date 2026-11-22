@@ -1,0 +1,93 @@
+// Native Atto std.fs canonical-path policy — compiler-owned implementation.
+// This is lexical admission ONLY. It never opens an OS path or confers authority.
+// The trusted filesystem broker must independently validate UTF-8 BYTES,
+// cap allocation, resolve beneath its granted root without following escapes,
+// reject symlink/mount/device and race attacks, and enforce tenant grants.
+// Rejects noncanonical paths rather than silently erasing '.' or '..'.
+//
+// Path "." denotes the tenant-visible root; it is never a mutation target.
+// A strict portable subset excludes OS-dependent separators and reserved marks.
+pub fnc fs_path_admissible(String path, int max_scalars, bool allow_root): bool {
+  if max_scalars <= 0 then return false; fi
+  // Check before allocating a fresh scalar snapshot where supported.
+  if path.length <= 0 then return false; fi
+  if path.length > max_scalars then return false; fi
+  val points = path.codepoints();
+  val int count = points.size;
+  if count <= 0 then return false; fi
+  if count > max_scalars then return false; fi
+  if count == 1; do
+    if points.get(0) == 46 then return allow_root; fi
+  fi
+  let int segment_length = 0;
+  let int dot_count = 0;
+  let int last_scalar = 0;
+  for (let int i = 0; i < count; i = i + 1) {
+    val int ch = points.get(i);
+    if ch == 47; do
+      if segment_length == 0 then return false; fi
+      if segment_length <= 2 && dot_count == segment_length then return false; fi
+      if last_scalar == 46 || last_scalar == 32 then return false; fi
+      segment_length = 0;
+      dot_count = 0;
+    else
+      // NUL/control/DEL and Windows special characters and backslash.
+      if ch <= 31 || ch == 127 then return false; fi
+      if ch == 92 || ch == 58 || ch == 34 || ch == 42 then return false; fi
+      if ch == 60 || ch == 62 || ch == 63 || ch == 124 then return false; fi
+      // Slash lookalikes: do not depend on Unicode normalization by the host.
+      if ch == 8260 || ch == 8725 || ch == 65295 then return false; fi
+      if ch == 46 then dot_count = dot_count + 1; fi
+      segment_length = segment_length + 1;
+      if segment_length > 255 then return false; fi
+      last_scalar = ch;
+    fi
+  }
+  if segment_length == 0 then return false; fi
+  if segment_length <= 2 && dot_count == segment_length then return false; fi
+  if last_scalar == 46 || last_scalar == 32 then return false; fi
+  return true;
+}
+
+// Canonical root may be listed with READ, but never modified.
+pub fnc fs_path_mutation_target_valid(String path, int max_scalars): bool {
+  return fs_path_admissible(path, max_scalars, false);
+}
+
+// Zero components for root; -1 for an inadmissible path.
+pub fnc fs_path_component_count(String path, int max_scalars): int {
+  if fs_path_admissible(path, max_scalars, true) == false then return -1; fi
+  if path == "." then return 0; fi
+  val points = path.codepoints();
+  let int result = 1;
+  for (let int i = 0; i < points.size; i = i + 1) {
+    if points.get(i) == 47 then result = result + 1; fi
+  }
+  return result;
+}
+
+// Scalar offset of the last path component, not a UTF-8 byte offset.
+// No substring or path authority is returned.
+pub fnc fs_path_leaf_start(String path, int max_scalars): int {
+  if fs_path_admissible(path, max_scalars, false) == false then return -1; fi
+  val points = path.codepoints();
+  let int start = 0;
+  for (let int i = 0; i < points.size; i = i + 1) {
+    if points.get(i) == 47 then start = i + 1; fi
+  }
+  return start;
+}
+
+// Scalar offset AFTER the last extension dot in the final component.
+// ".gitignore" is not treated as an extension; no dot => -1.
+pub fnc fs_path_extension_start(String path, int max_scalars): int {
+  val int leaf = fs_path_leaf_start(path, max_scalars);
+  if leaf < 0 then return -1; fi
+  val points = path.codepoints();
+  let int last_dot = -1;
+  for (let int i = leaf; i < points.size; i = i + 1) {
+    if points.get(i) == 46 then last_dot = i; fi
+  }
+  if last_dot <= leaf then return -1; fi
+  return last_dot + 1;
+}
