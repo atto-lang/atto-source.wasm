@@ -1,66 +1,64 @@
-// Atto core/fmt v1. Deterministic, locale-independent, allocation-bounded
-// presentation helpers. Full Display/Debug traits and format templates are
-// intentionally NOT claimed before trait dispatch and escaping are portable.
+// Atto core/fmt v2: scalar formatter primitives only.
+// No String, Array, heap, I/O or guest-owned pointer manipulation.
+// To construct strings use alloc/text_fmt; to write without allocation,
+// callers can feed ASCII scalars into a separately borrowed output sink.
+// Compiler enforces loan lifetimes; this library cannot mint that authority.
 define module fmt as
-  pub fnc format_bool(bool value): String {
-    if value; do return "true"; fi
-    return "false";
+  pub fnc decimal_digit_count(int value): int {
+    let int remaining = value;
+    if remaining > 0; do remaining = -remaining; fi
+    let int count = 1;
+    while remaining <= -10; do
+      remaining = remaining / 10;
+      count = count + 1;
+    done
+    return count;
   }
 
-  // Signed 64-bit decimal without negating i64::MIN. Powers and all partial
-  // products fit signed i64. This extracts the audited negative-accumulation
-  // algorithm already used in Java telemetry, with a reusable core API.
-  pub fnc format_int(int value): String {
-    if value == 0; do return "0"; fi
-    val digits = arr["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
-    val powers = arr[
-      -1000000000000000000, -100000000000000000,
-      -10000000000000000, -1000000000000000,
-      -100000000000000, -10000000000000, -1000000000000,
-      -100000000000, -10000000000, -1000000000,
-      -100000000, -10000000, -1000000, -100000,
-      -10000, -1000, -100, -10, -1
-    ];
-    let int remaining = value > 0 ? -value : value;
-    let String result = "";
-    for (const power of powers) {
-      let int digit = 0;
-      if remaining <= power; do
-        if remaining <= power * 8; do
-          remaining = remaining - power * 8;
-          digit = digit + 8;
-        fi
-        if remaining <= power * 4; do
-          remaining = remaining - power * 4;
-          digit = digit + 4;
-        fi
-        if remaining <= power * 2; do
-          remaining = remaining - power * 2;
-          digit = digit + 2;
-        fi
-        if remaining <= power; do
-          remaining = remaining - power;
-          digit = digit + 1;
-        fi
-      fi
-      if digit > 0 || result != ""; do
-        result = result + digits.get(digit);
-      fi
-    }
-    if value < 0; do return "-" + result; fi
-    return result;
-  }
-
-  // Exactly two lowercase ASCII hex digits. Invalid input is a typed error,
-  // never silently truncated or wrapped into a byte.
-  pub fnc format_hex_byte(int value): Result<String, String> {
-    if value < 0 || value > 255; do
-      return Err("hex byte out of range");
+  pub fnc decimal_ascii_from_right(int value, int position): Result<int, int> {
+    if position < 0 || position >= decimal_digit_count(value); do
+      return Err(7);
     fi
-    val digits = arr["0", "1", "2", "3", "4", "5", "6", "7",
-                     "8", "9", "a", "b", "c", "d", "e", "f"];
-    val int high = value / 16;
-    val int low = value - high * 16;
-    return Ok(digits.get(high) + digits.get(low));
+    let int remaining = value;
+    if remaining > 0; do remaining = -remaining; fi
+    for (let int index = 0; index < position; index = index + 1) {
+      remaining = remaining / 10;
+    }
+    val int quotient = remaining / 10;
+    // quotient*10 is in range even for i64::MIN. Avoid abs(i64::MIN).
+    val int digit = quotient * 10 - remaining;
+    return Ok(48 + digit);
+  }
+
+  pub fnc decimal_is_negative(int value): bool {
+    return value < 0;
+  }
+
+  pub fnc hex_ascii_nibble(int value): Result<int, int> {
+    if value < 0 || value > 15; do return Err(4); fi
+    if value < 10; do return Ok(48 + value); fi
+    return Ok(87 + value);
+  }
+
+  pub fnc bool_ascii_length(bool value): int {
+    if value; do return 4; fi
+    return 5;
+  }
+
+  pub fnc bool_ascii_at(bool value, int index): Result<int, int> {
+    if index < 0 || index >= bool_ascii_length(value); do
+      return Err(7);
+    fi
+    if value; do
+      if index == 0; do return Ok(116); fi
+      if index == 1; do return Ok(114); fi
+      if index == 2; do return Ok(117); fi
+      return Ok(101);
+    fi
+    if index == 0; do return Ok(102); fi
+    if index == 1; do return Ok(97); fi
+    if index == 2; do return Ok(108); fi
+    if index == 3; do return Ok(115); fi
+    return Ok(101);
   }
 end

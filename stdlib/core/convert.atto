@@ -1,80 +1,50 @@
-// Atto core/convert v1. No heap allocation other than the bounded scalar
-// snapshot used for string parsing; no OS, actor, or host-language conversion.
-// Narrow explicit conversions are used until generic From/Into traits are
-// independently verified by the compiler borrow/type checker.
+// Atto core/convert v2: allocator-free scalar conversions.
+// Integer error codes are an inline value protocol, not heap strings.
+// 1=bool-domain, 2=u8-range, 3=decimal digit, 4=hex digit,
+// 5=invalid decimal accumulator, 6=signed-decimal overflow.
+// These rules require compiler-checked Result ownership/representation.
 define module convert as
   pub fnc bool_to_int(bool value): int {
     if value; do return 1; fi
     return 0;
   }
 
-  pub fnc try_bool_from_int(int value): Result<bool, String> {
+  pub fnc try_bool_from_int(int value): Result<bool, int> {
     if value == 0; do return Ok(false); fi
     if value == 1; do return Ok(true); fi
-    return Err("bool conversion accepts only 0 or 1");
+    return Err(1);
   }
 
-  pub fnc try_u8_from_int(int value): Result<int, String> {
-    if value < 0 || value > 255; do
-      return Err("value out of u8 range");
-    fi
+  pub fnc try_u8_from_int(int value): Result<int, int> {
+    if value < 0 || value > 255; do return Err(2); fi
     return Ok(value);
   }
 
-  pub fnc ascii_decimal_digit(int scalar): Result<int, String> {
-    if scalar < 48 || scalar > 57; do
-      return Err("not an ASCII decimal digit");
-    fi
+  pub fnc ascii_decimal_digit(int scalar): Result<int, int> {
+    if scalar < 48 || scalar > 57; do return Err(3); fi
     return Ok(scalar - 48);
   }
 
-  pub fnc ascii_hex_digit(int scalar): Result<int, String> {
+  pub fnc ascii_hex_digit(int scalar): Result<int, int> {
     if scalar >= 48 && scalar <= 57; do return Ok(scalar - 48); fi
     if scalar >= 65 && scalar <= 70; do return Ok(scalar - 55); fi
     if scalar >= 97 && scalar <= 102; do return Ok(scalar - 87); fi
-    return Err("not an ASCII hex digit");
+    return Err(4);
   }
 
-  pub fnc try_bool_from_string(String value): Result<bool, String> {
-    if value == "true"; do return Ok(true); fi
-    if value == "false"; do return Ok(false); fi
-    return Err("expected lowercase true or false");
-  }
-
-  // Strict ASCII decimal. No whitespace, separators, plus sign or Unicode
-  // decimal lookalikes. Accumulate negatively to permit i64::MIN exactly.
-  // Reject length before reading any individual codepoint.
-  pub fnc try_int_from_string(String value): Result<int, String> {
-    val points = value.codepoints();
-    val int count = points.size;
-    if count == 0 || count > 20; do
-      return Err("invalid signed decimal length");
+  // Negative accumulator avoids negating i64::MIN. Checking BEFORE
+  // multiplication prevents intermediate overflow in any backend.
+  // The caller tracks the sign and validates the input length/lifetime.
+  pub fnc decimal_step_negative(
+      int accumulator, int digit, bool negative
+    ): Result<int, int> {
+    if digit < 0 || digit > 9; do return Err(3); fi
+    if accumulator > 0; do return Err(5); fi
+    if accumulator < -922337203685477580; do return Err(6); fi
+    if accumulator == -922337203685477580; do
+      if negative && digit > 8; do return Err(6); fi
+      if !negative && digit > 7; do return Err(6); fi
     fi
-    let int start = 0;
-    let bool negative = false;
-    if points.get(0) == 45; do
-      negative = true;
-      start = 1;
-    fi
-    if start == count; do return Err("missing decimal digits"); fi
-    if count - start > 19; do return Err("too many decimal digits"); fi
-    let int accumulator = 0;
-    for (let int index = start; index < count; index = index + 1) {
-      val int scalar = points.get(index);
-      if scalar < 48 || scalar > 57; do
-        return Err("invalid ASCII decimal digit");
-      fi
-      val int digit = scalar - 48;
-      if accumulator < -922337203685477580; do
-        return Err("signed decimal overflow");
-      fi
-      if accumulator == -922337203685477580; do
-        if negative && digit > 8; do return Err("signed decimal overflow"); fi
-        if !negative && digit > 7; do return Err("signed decimal overflow"); fi
-      fi
-      accumulator = accumulator * 10 - digit;
-    }
-    if negative; do return Ok(accumulator); fi
-    return Ok(-accumulator);
+    return Ok(accumulator * 10 - digit);
   }
 end
