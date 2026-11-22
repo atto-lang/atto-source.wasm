@@ -1,3 +1,5 @@
+use namespace crypto;
+
 // std.crypto source-level admission policy (v1).
 // Cryptographic operations MUST be provided by vetted, capability-gated
 // backend implementations. These pure functions DO NOT encrypt, hash, derive,
