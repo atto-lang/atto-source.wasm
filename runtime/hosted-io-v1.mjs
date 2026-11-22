@@ -6,7 +6,43 @@ const textDecoder = new TextDecoder('utf-8', {fatal: true});
 export class HostIoError extends Error {
   constructor(code) { super(code); this.name = 'HostIoError'; this.code = code; }
 }
-function fail(code) { throw new HostIoError(code); }
+// Host-side mappings for the public Atto FsErrorKind vocabulary. The compiled
+// Atto Error hierarchy and trap -> Result lowering still require guest ABI.
+export const FsErrorKind = Object.freeze({
+  not_found: 'not_found', already_exists: 'already_exists',
+  permission_denied: 'permission_denied', invalid_path: 'invalid_path',
+  not_file: 'not_file', not_directory: 'not_directory',
+  directory_not_empty: 'directory_not_empty', invalid_option: 'invalid_option',
+  invalid_utf8: 'invalid_utf8', closed: 'closed',
+  cancelled: 'cancelled', resource_limit: 'resource_limit',
+  busy: 'busy', unsupported: 'unsupported', io_error: 'io_error',
+  unknown_outcome: 'unknown_outcome'
+});
+const FS_KINDS = Object.freeze({
+  E_FS_NOT_FOUND: FsErrorKind.not_found,
+  E_FS_EXISTS: FsErrorKind.already_exists,
+  E_FS_PATH: FsErrorKind.invalid_path,
+  E_FS_NOT_FILE: FsErrorKind.not_file,
+  E_FS_NOT_DIR: FsErrorKind.not_directory,
+  E_FS_NOT_EMPTY: FsErrorKind.directory_not_empty,
+  E_FS_OPTIONS: FsErrorKind.invalid_option,
+  E_FS_BYTES: FsErrorKind.invalid_option,
+  E_FS_OFFSET: FsErrorKind.invalid_option,
+  E_FS_CLOSED: FsErrorKind.closed,
+  E_FS_LIMIT: FsErrorKind.resource_limit,
+  E_FS_IO: FsErrorKind.io_error
+});
+export class FsError extends HostIoError {
+  constructor(code) {
+    super(code);
+    this.name = 'FsError';
+    this.kind = FS_KINDS[code] ?? FsErrorKind.io_error;
+  }
+}
+function fail(code) {
+  if (code.startsWith('E_FS_')) throw new FsError(code);
+  throw new HostIoError(code);
+}
 const boundedInteger = (value, min, max) =>
   Number.isSafeInteger(value) && value >= min && value <= max;
 
