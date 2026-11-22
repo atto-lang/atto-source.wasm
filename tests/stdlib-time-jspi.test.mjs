@@ -112,5 +112,7 @@ test('existing sandbox worker still uses import-empty Wasm instantiation',async(
   assert.match(worker,/new WebAssembly\.Instance\(module, \{\}\)/);
   assert.doesNotMatch(worker,/stdlib-time-jspi/);
   assert.match(library,/define module time as/);
+  assert.match(library,/define pub class Duration as/);
+  assert.match(library,/pub fnc manual_clock\(/);
   // Host JSPI is not yet compiler-emitted Atto; do not claim guest parity.
 });
