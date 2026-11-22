@@ -6,12 +6,20 @@ import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 // All numeric endpoints are IPv4 loopback. No DNS, multicast or broadcast.
 export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, maxBytes=262144, maxPendingSends=64, maxPendingBytes=262144}={}) {
   if (typeof authorize !== 'function') throw new TypeError('trusted authorize required');
+  const checkedAuthorize=(endpoint,operation)=>{
+    // A Promise, false result, or malformed policy outcome is not a grant.
+    // Trusted host authorization must be synchronous and fail closed.
+    const decision=authorize(endpoint,operation);
+    if(decision===false)throw new Error('UDP authorization denied');
+    if(decision!==undefined && decision!==true)
+      throw new TypeError('UDP authorization must be synchronous');
+  };
   if (!Number.isInteger(port) || port<0 || port>65535) throw new RangeError('bind port');
   if (!Number.isInteger(maxPackets) || maxPackets<1 || maxPackets>1024 ||
       !Number.isInteger(maxBytes) || maxBytes<1 || maxBytes>4194304 ||
       !Number.isInteger(maxPendingSends) || maxPendingSends<1 || maxPendingSends>1024 ||
       !Number.isInteger(maxPendingBytes) || maxPendingBytes<1 || maxPendingBytes>4194304) throw new RangeError('queue quota');
-  authorize('127.0.0.1:'+port, 'udp.bind');
+  checkedAuthorize('127.0.0.1:'+port, 'udp.bind');
   const socket=createSocket({type:'udp4',reuseAddr:false});
   try {
     await new Promise((resolve,reject)=>{
@@ -30,7 +38,7 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
   const requireLocal=operation=>{
     if(closed) throw new Error('UDP socket closed');
     if(terminalError) throw terminalError;
-    authorize('127.0.0.1:'+port,operation);
+    checkedAuthorize('127.0.0.1:'+port,operation);
     // Host policy callbacks are trusted but may initiate teardown. A late
     // return from one must never reopen a terminal socket operation.
     if(closed) throw new Error('UDP socket closed');
@@ -47,7 +55,7 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
   socket.on('message',(data,peer)=>{
     if(closed)return;
     if(peer.family!=='IPv4'||peer.address!=='127.0.0.1'||!Number.isInteger(peer.port)||peer.port<1){drop();return}
-    try{requireLocal('udp.recv_from');authorize('127.0.0.1:'+peer.port,'udp.recv_from')}catch{drop();return}
+    try{requireLocal('udp.recv_from');checkedAuthorize('127.0.0.1:'+peer.port,'udp.recv_from')}catch{drop();return}
     if(closed){drop();return}
     if(data.length>65507){drop();return}
     const record={bytes:Buffer.from(data),port:peer.port};
@@ -80,7 +88,7 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
       requireLocal('udp.send_to');
       if(!Number.isInteger(peerPort)||peerPort<1||peerPort>65535)throw new RangeError('peer port');
       // Permission must be checked before copying or inspecting guest packet storage.
-      authorize('127.0.0.1:'+peerPort,'udp.send_to');
+      checkedAuthorize('127.0.0.1:'+peerPort,'udp.send_to');
       if(closed) throw new Error('UDP socket closed');
       const detached=snapshotGuestBytes(bytes,65507);
       // The host must never retain an unbounded number of outstanding sends
@@ -154,7 +162,7 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
         // A packet admitted while a grant was active must be reauthorized at
         // consumption. Revoking the source port must not leak queued bytes.
         try {
-          authorize('127.0.0.1:'+record.port,'udp.recv_from');
+          checkedAuthorize('127.0.0.1:'+record.port,'udp.recv_from');
           if(closed) throw new Error('UDP socket closed');
           return Promise.resolve(handoff(record,capacity));
         } catch(error) {
