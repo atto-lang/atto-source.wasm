@@ -175,6 +175,7 @@ export class TenantHostedIoV1 {
   #files = new Map();
   #dirs = new Set(['']); // Empty path is the non-removable tenant root.
   #handles = new Map(); // Opaque handle -> actor generation and cursor.
+  #fileObjects = new WeakMap(); // Host-owned File instances, not guessed paths.
   #live = new Set();
   #fileBytes = 0;
   #closed = false;
@@ -310,25 +311,33 @@ export class TenantHostedIoV1 {
     this.#fileBytes = 0;
   }
 
-  async write_text(token, path, text) {
+  async write_text(token, pathOrFile, text) {
     this.#actor(token, 'write');
-    const p = checkedPath(String(path));
     if (typeof text !== 'string' || !text.isWellFormed()) fail('E_INVALID_UTF8');
-    // UTF-8 encoded size is never smaller than UTF-16 code-unit count.
-    // Reject oversized strings BEFORE encoding allocates a host byte array.
+    // A code unit produces >=1 UTF-8 byte; preflight before allocation.
     if (text.length > this.#maxFileBytes) fail('E_FS_LIMIT');
-    const bytes = textEncoder.encode(text);
+    const bytes=textEncoder.encode(text);
     if (bytes.byteLength > this.#maxFileBytes) fail('E_FS_LIMIT');
-    const previous = this.#files.get(p);
-    if (!previous && this.#files.size >= this.#maxFiles) fail('E_FS_LIMIT');
-    const nextTotal = this.#fileBytes - (previous?.byteLength ?? 0) + bytes.byteLength;
-    if (nextTotal > this.#maxTotalBytes) fail('E_FS_LIMIT');
-    // In-memory VFS commit is synchronous and atomic with respect to JS turns.
-    this.#storeFile(p, bytes);
+    // File overload writes from the CURRENT cursor and never closes the file.
+    if (this.#fileObjects.has(pathOrFile)) {
+      const handle=this.#fileObjectHandle(token,pathOrFile,'write');
+      this.#writeEntireHandle(token,handle,bytes);
+      return;
+    }
+    if (typeof pathOrFile==='object' && !(pathOrFile instanceof FsPath) &&
+        !(pathOrFile instanceof FsPathBuf)) fail('E_FS_HANDLE');
+    this.#storeFile(checkedPath(String(pathOrFile)),bytes);
   }
-  async read_text(token, path) {
+  async read_text(token, pathOrFile) {
     this.#actor(token, 'read');
-    const bytes = this.#file(checkedPath(String(path)));
+    // A File overload reads CURRENT cursor -> EOF and leaves file open.
+    const bytes=this.#fileObjects.has(pathOrFile)
+      ? this.#readRemainingHandle(token,this.#fileObjectHandle(token,pathOrFile,'read'))
+      : (() => {
+          if (typeof pathOrFile==='object' && !(pathOrFile instanceof FsPath) &&
+              !(pathOrFile instanceof FsPathBuf)) fail('E_FS_HANDLE');
+          return this.#file(checkedPath(String(pathOrFile)));
+        })();
     try { return textDecoder.decode(bytes); } catch { fail('E_INVALID_UTF8'); }
   }
 
@@ -361,13 +370,24 @@ export class TenantHostedIoV1 {
       }
     }
   }
-  async read_file(token,path) {
+  async read_file(token,pathOrFile) {
     this.#actor(token,'read');
-    return new Uint8Array(this.#file(checkedPath(String(path))));
+    if (this.#fileObjects.has(pathOrFile)) {
+      return this.#readRemainingHandle(token,this.#fileObjectHandle(token,pathOrFile,'read'));
+    }
+    if (typeof pathOrFile==='object' && !(pathOrFile instanceof FsPath) &&
+        !(pathOrFile instanceof FsPathBuf)) fail('E_FS_HANDLE');
+    return new Uint8Array(this.#file(checkedPath(String(pathOrFile))));
   }
-  async write_file(token,path,bytes) {
+  async write_file(token,pathOrFile,bytes) {
     this.#actor(token,'write');
-    this.#storeFile(checkedPath(String(path)),bytes);
+    if (this.#fileObjects.has(pathOrFile)) {
+      this.#writeEntireHandle(token,this.#fileObjectHandle(token,pathOrFile,'write'),bytes);
+      return;
+    }
+    if (typeof pathOrFile==='object' && !(pathOrFile instanceof FsPath) &&
+        !(pathOrFile instanceof FsPathBuf)) fail('E_FS_HANDLE');
+    this.#storeFile(checkedPath(String(pathOrFile)),bytes);
   }
   async append_file(token,path,bytes) {
     this.#actor(token,'write');
@@ -516,6 +536,46 @@ export class TenantHostedIoV1 {
     if (permission==='write' && !entry.write) fail('E_IO_PERMISSION');
     return entry;
   }
+  #fileObjectHandle(token,value,permission) {
+    const handle=this.#fileObjects.get(value);
+    if (!handle) fail('E_FS_HANDLE');
+    this.#entry(token,handle,permission); // authenticate actor incarnation + mode
+    return handle;
+  }
+  #readRemainingHandle(token,handle) {
+    const entry=this.#entry(token,handle,'read');
+    const bytes=this.#file(entry.path);
+    if (entry.offset>bytes.length) fail('E_FS_OFFSET');
+    const result=new Uint8Array(bytes.subarray(entry.offset));
+    entry.offset=bytes.length; // EOF cursor; same File remains open
+    return result;
+  }
+  #writeEntireHandle(token,handle,input) {
+    const entry=this.#entry(token,handle,'write');
+    if (!(input instanceof Uint8Array)) fail('E_FS_BYTES');
+    if (input.length>this.#maxFileBytes) fail('E_FS_LIMIT');
+    // Preflight the full write for this memory-only backend: avoid a partial
+    // mutation on a known file/tenant quota failure.
+    const current=this.#file(entry.path);
+    const at=entry.append ? current.length : entry.offset;
+    if (at>current.length || input.length>this.#maxFileBytes-at) fail('E_FS_LIMIT');
+    const after=Math.max(current.length,at+input.length);
+    if (after>this.#maxTotalBytes-(this.#fileBytes-current.length)) fail('E_FS_LIMIT');
+    let written=0;
+    while (written<input.length) {
+      const part=input.subarray(written,Math.min(written+65536,input.length));
+      const count=this.#writeHandle(token,handle,part);
+      if (count<=0 || count>part.length) fail('E_FS_IO');
+      written+=count;
+    }
+  }
+  #seekHandle(token,handle,offset) {
+    const entry=this.#entry(token,handle,null);
+    if (!boundedInteger(offset,0,this.#maxFileBytes) ||
+        offset>this.#file(entry.path).length) fail('E_FS_OFFSET');
+    entry.offset=offset;
+    return offset;
+  }
   #readHandle(token,handle,maxBytes) {
     const entry=this.#entry(token,handle,'read');
     if (!boundedInteger(maxBytes,0,65536)) fail('E_FS_LIMIT');
@@ -570,12 +630,15 @@ export class TenantHostedIoV1 {
     const handle=Object.freeze({});
     this.#handles.set(handle,{actor,path:p,read,write:write||append,append,
       offset:append?this.#file(p).length:0,closed:false});
-    return Object.freeze({
+    const file=Object.freeze({
       read: async maxBytes=>this.#readHandle(token,handle,maxBytes),
       write: async bytes=>this.#writeHandle(token,handle,bytes),
+      seek: async offset=>this.#seekHandle(token,handle,offset),
       flush: async ()=>{ this.#entry(token,handle,null); },
       close: async ()=>this.#closeHandle(token,handle)
     });
+    this.#fileObjects.set(file,handle);
+    return file;
   }
   async read_stream(token,path,chunkBytes=65536) {
     if (!boundedInteger(chunkBytes,1,65536)) fail('E_FS_LIMIT');
