@@ -83,3 +83,65 @@ test("duplicate numbered cases and missing imports cannot pass (mutation)", () =
   assert.throws(() => verify(sources, guest.replace(/^import module compute.*\n/m, "")
     .replace(/import fnc compute_exact_buffer_layout,[\s\S]*? from '\.\.\/\.\.\/stdlib\/std\/compute';\n/, "")));
 });
+const boundary = readFileSync(resolve(root, "tests/stdlib/protocol_boundaries.atto"), "utf8");
+
+function verifyBoundary(source, fixture) {
+  const exported = Object.fromEntries(names.map(name => [name,
+    new Set([...source[name].matchAll(/\bpub\s+fnc\s+([a-z][a-z0-9_]*)\s*\(/g)].map(m => m[1]))]));
+  assert.equal(names.reduce((n, name) => n + exported[name].size, 0), 42,
+    "native backend must export exactly 42 public helpers");
+  const groups = [...fixture.matchAll(
+    /import fnc ([\s\S]*?) from '\.\.\/\.\.\/stdlib\/std\/([a-z]+)';/g
+  )];
+  assert.equal(groups.length, names.length, "three explicit Atto file imports required");
+  const imported = {};
+  for (const [, list, name] of groups) {
+    assert.ok(names.includes(name), "unexpected import namespace: " + name);
+    assert.equal(imported[name], undefined, "duplicate module import: " + name);
+    const symbols = list.split(",").map(s => s.trim());
+    assert.equal(new Set(symbols).size, symbols.length, "duplicate imported function");
+    imported[name] = new Set(symbols);
+    assert.equal(imported[name].size, exported[name].size,
+      "all public helpers must appear in each backend's native import");
+    for (const symbol of symbols) {
+      assert.ok(exported[name].has(symbol), "import not exported: " + symbol);
+    }
+  }
+  for (const name of names) assert.ok(imported[name], "missing import: " + name);
+  const called = new Set();
+  for (const m of fixture.matchAll(/(?<![\w.])((?:websocket|quic|compute)_[a-z0-9_]+)\s*\(/g)) {
+    const functionName = m[1], name = names.find(n => functionName.startsWith(n + "_"));
+    assert.ok(exported[name].has(functionName), "unknown guest call: " + functionName);
+    assert.ok(imported[name].has(functionName), "callee not imported: " + functionName);
+    called.add(functionName);
+  }
+  for (const name of names) {
+    for (const symbol of exported[name]) {
+      assert.ok(called.has(symbol), "export not tested in Atto boundary guest: " + symbol);
+    }
+  }
+  assert.equal(called.size, 42, "all 42 helpers must be called in the 109 cases");
+  const cases = [...fixture.matchAll(/\bthen return (\d+); fi/g)].map(m => Number(m[1]));
+  assert.deepEqual(cases, Array.from({length: 109}, (_, i) => i + 1),
+    "109 ordered, independently fail-diagnostic Atto cases required");
+  assert.match(fixture, /\breturn 0;\s*\}\s*$/, "guest must return zero only after all 109 cases");
+  assert.doesNotMatch(fixture, /\bquic_varint_min_width\s*\(/, "obsolete API");
+}
+
+test("109-case Atto boundary guest imports and exercises all 42 functions", () => {
+  verifyBoundary(sources, boundary);
+});
+test("boundary source audit rejects five deliberate incomplete or corrupted variants", () => {
+  assert.throws(() => verifyBoundary(sources,
+    boundary.replace("quic_stream_id_valid(", "quic_missing_stream_id(")));
+  assert.throws(() => verifyBoundary(sources,
+    boundary.replace("from '../../stdlib/std/compute';",
+      "from '../../stdlib/std/missing';")));
+  assert.throws(() => verifyBoundary(sources,
+    boundary.replace("then return 109; fi", "then return 108; fi")));
+  assert.throws(() => verifyBoundary(sources,
+    boundary.replace("quic_stream_id_valid,", "")));
+  assert.throws(() => verifyBoundary({...sources,
+    quic: sources.quic.replace("pub fnc quic_stream_id_valid", "fnc quic_stream_id_valid")
+  }, boundary));
+});
