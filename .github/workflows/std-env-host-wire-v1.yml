@@ -1,0 +1,61 @@
+name: std-env host and wire (HOST ONLY, exact head)
+on:
+  pull_request:
+    paths:
+      - 'src/std-env-host.mjs'
+      - 'src/std-env-guest-dispatch-v1.mjs'
+      - 'tests/std-env-host.test.mjs'
+      - 'tests/std-env-guest-dispatch-v1.test.mjs'
+      - '.github/workflows/std-env-host-wire-v1.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/std-env-host.mjs'
+      - 'src/std-env-guest-dispatch-v1.mjs'
+      - 'tests/std-env-host.test.mjs'
+      - 'tests/std-env-guest-dispatch-v1.test.mjs'
+      - '.github/workflows/std-env-host-wire-v1.yml'
+permissions:
+  contents: read
+jobs:
+  host-and-wire:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact unchanged source
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          printf 'RECEIPT source_sha=%s tree_sha=%s\n' "$EXPECTED_HEAD" "$(git rev-parse HEAD^{tree})"
+          for path in \
+            src/std-env-host.mjs \
+            src/std-env-guest-dispatch-v1.mjs \
+            tests/std-env-host.test.mjs \
+            tests/std-env-guest-dispatch-v1.test.mjs; do
+            printf 'RECEIPT blob_path=%s sha=%s\n' "$path" "$(git hash-object "$path")"
+          done
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Execute both real host/wire test files (not guest parity)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --test --test-reporter=tap \
+            tests/std-env-host.test.mjs \
+            tests/std-env-guest-dispatch-v1.test.mjs \
+            | tee "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# tests 11$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# pass 11$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# fail 0$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# skipped 0$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          echo 'RECEIPT 11_HOST_WIRE_TESTS_EXECUTED=PASS (GUEST_LINKING_NOT_VERIFIED)'
