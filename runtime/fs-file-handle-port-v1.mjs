@@ -71,9 +71,10 @@ export class ActorFileHandlePortV1 {
     const operation=(async()=>{
       try {
         const result=await fn(entry.file);
-        // If the actor port was closed while awaiting host I/O, never
-        // publish a late success as an authorized guest completion.
+        // Do not report success after port close OR actor incarnation
+        // revoke/restart; guest and host time must agree on admission.
         this.#requireOpen();
+        this.#vfs.assert_actor_active(this.#actorTicket);
         return result;
       } finally {
         entry.busy=false;
@@ -98,9 +99,14 @@ export class ActorFileHandlePortV1 {
     const operation=(async()=>{
       try {
         const file=await this.#vfs.open(this.#actorTicket,path,options);
-        if (this.#closed) {
-          try { await file.close(); } catch { /* actor may be revoked */ }
-          fsFail('E_FS_CLOSED');
+        // Actor may have restarted while the asynchronous open completed.
+        // Always retire its host object if current admission failed.
+        try {
+          this.#requireOpen();
+          this.#vfs.assert_actor_active(this.#actorTicket);
+        } catch (error) {
+          try { await file.close(); } catch { /* already revoked */ }
+          throw error;
         }
         this.#issued.add(id);
         this.#handles.set(id,{file,busy:false});
