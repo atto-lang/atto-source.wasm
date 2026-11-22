@@ -8,6 +8,7 @@ on:
       - 'contracts/std-metrics-json-zorde-source-v1.json'
       - 'tests/std-metrics-json-zorde-source-contract.test.mjs'
       - 'tests/fixtures/std-metrics-json-zorde/**'
+      - 'scripts/verify-std-metrics-json-zorde-guest.mjs'
       - 'docs/STD_METRICS_JSON_ZORDE_BACKEND_PARITY.md'
       - '.github/workflows/std-metrics-json-zorde-source.yml'
   workflow_dispatch:
