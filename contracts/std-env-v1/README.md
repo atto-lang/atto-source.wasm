@@ -34,3 +34,13 @@ A trusted host interface must validate key names, check both coarse isolate ENV 
 `create_scoped_env_host` now accepts an independent **authenticated host-supplied** `environmentCapability` flag (default false). A scoped allow rule cannot elevate a missing coarse isolate grant. `revoke()` retires access and clears the retained copy; the owning host must call it on actor/isolate teardown. Neither flag nor the returned host object may become an untrusted guest-controlled options bag. No guest bridge is implied.
 
 **Exact-blob local host-model evidence (Node.js 22.16.0):** `src/std-env-host.mjs` SHA `b3fedb17d2d0ac17c715f6193951a0245096c4d7` and `tests/std-env-host.test.mjs` SHA `5180631e876bf79364d418922f574eb27a09a8e1`; verified with `git hash-object`; `node --test tests/std-env-host.test.mjs`: **6/6 PASS**. This local host-model evidence is *not* compiler-backed guest/NativeAOT parity or source-org CI admission.
+
+## New narrow intrinsic dispatch v1
+
+- `src/std-env-guest-dispatch-v1.mjs` stages the host-owned `env.get` / `env.has` operation boundary. It accepts only a two-field, structured-clone/JSON-like request `{operation: "get"|"has", name: "<ASCII key>"}`; arbitrary access, host policy or values supplied in the request are forbidden.
+- Replies are bounded, deterministic tagged data: `{tag:"some",value:string}`, `{tag:"none"}`, `{tag:"bool",value:bool}`, or sanitized `{tag:"error",code:"ENV_*"}`. The compiler must map replies into native guest `Option<String>` / `bool` and propagate denied/invalid operations as errors. The dispatcher itself **does not mint guest Option/Result objects**.
+- `is_scoped_env_host` uses a private WeakSet brand: only real snapshots created by the trusted host can be used with this dispatcher. Revocation remains host-owned; no `revoke` guest opcode.
+- Only portable ASCII keys are admitted; snapshot values must be well-formed UTF-8 and at most 16384 bytes, with embedded NUL rejected. Existing allow/deny rules plus a separate coarse ENV capability are mandatory.
+- `tests/std-env-guest-dispatch-v1.test.mjs` covers no arbitrary opcodes, forged hosts, invalid key, getter payload, secret-safe denial, empty-vs-absent, revocation.
+
+**Local exact-source evidence:** The two new dispatch files plus the updated `std-env-host.mjs` and host test files have verified Git blob identity. `node --test tests/std-env-host.test.mjs tests/std-env-guest-dispatch-v1.test.mjs`: **11/11 PASS** on Node v22.16.0. This is a *host-wire and admission* result, **not** guest compilation, actor sandbox or browser Wasm guest execution. Upstream runner admission remains unverified.
