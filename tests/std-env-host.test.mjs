@@ -91,3 +91,33 @@ test('malformed policy, invalid names, getters and oversize values fail closed',
   assert.throws(() => make(object), /ENV_INVALID_SNAPSHOT/);
   assert.ok(EnvHostError.prototype instanceof Error);
 });
+
+test('portable aggregate 1 MiB budget allows exact ceiling and rejects overflow', () => {
+  const values = Object.fromEntries(Array.from({length: 64}, (_, i) =>
+    ['BUDGET_' + i, 'x'.repeat(16384)]));
+  const host = create_scoped_env_host({
+    values, allow: ['BUDGET_*'], environmentCapability: true
+  });
+  assert.equal(host.has('BUDGET_63'), true);
+  assert.throws(() => create_scoped_env_host({
+    values: {...values, BUDGET_OVERFLOW: 'x'},
+    allow: ['BUDGET_*'], environmentCapability: true
+  }), /ENV_INVALID_SNAPSHOT/);
+});
+
+test('denied key neither contributes to aggregate budget nor triggers its getter', () => {
+  const values = Object.fromEntries(Array.from({length: 64}, (_, i) =>
+    ['BUDGET_' + i, 'x'.repeat(16384)]));
+  let deniedReads = 0;
+  Object.defineProperty(values, 'BUDGET_DENIED', {
+    enumerable: true,
+    get() { deniedReads++; throw Error('denied secret inspected'); }
+  });
+  const host = create_scoped_env_host({
+    values, allow: ['BUDGET_*'], deny: ['BUDGET_DENIED'],
+    environmentCapability: true
+  });
+  assert.equal(host.has('BUDGET_0'), true);
+  assert.throws(() => host.has('BUDGET_DENIED'), /ENV_PERMISSION_DENIED/);
+  assert.equal(deniedReads, 0);
+});
