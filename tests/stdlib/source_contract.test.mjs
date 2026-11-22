@@ -176,3 +176,46 @@ test("bounded nonnegative i64 quotient/subtract identity matches remainder arith
       "backend-owned quotient/subtract expression changed remainder semantics");
   }
 });
+
+
+function verifyPaddedComputeDispatch(source, fixture, moduleQualified) {
+  const begin = source.indexOf("pub fnc compute_dispatch_valid(");
+  const end = source.indexOf("pub fnc compute_simd_lanes_supported(", begin);
+  assert.ok(begin >= 0 && end > begin, "missing real Atto dispatch implementation");
+  const implementation = source.slice(begin, end);
+  assert.match(implementation, /global_x <= 0 \|\| global_y <= 0 \|\| global_z <= 0/,
+    "zero-sized logical workloads must be rejected");
+  assert.match(implementation, /compute_workgroup_valid\(/,
+    "workgroup/device-invocation bound must be enforced");
+  assert.doesNotMatch(implementation,
+    /\blocal_[xyz]\s*>\s*global_[xyz]\b/,
+    "a partial GPU workgroup is not a malformed dispatch");
+  assert.match(implementation, /MUST be bounds-guarded/,
+    "numerical admission must not claim unchecked GPU memory access");
+  const symbol = moduleQualified ? "compute.compute_dispatch_valid" : "compute_dispatch_valid";
+  for (const args of [
+    "16, 16, 1, 8, 8, 1, 64",
+    "1, 1, 1, 8, 8, 1, 64",
+    "9, 9, 1, 8, 8, 1, 64",
+  ]) assert.ok(fixture.includes(symbol + "(" + args + ")"),
+    "missing native .atto partial-workgroup boundary call " + args);
+  assert.ok(fixture.includes("return 101; fi"), "lost guest failure status 101");
+}
+
+test("compute guest tests admit partial workgroups but preserve kernel bounds contract", () => {
+  verifyPaddedComputeDispatch(sources.compute, boundary,
+    boundary.includes('import module compute from "+stdlib/std/compute.atto";'));
+});
+test("source gate rejects regressed partial-workgroup check and missing boundary vector", () => {
+  const isQualified=boundary.includes('import module compute from "+stdlib/std/compute.atto";');
+  const badSource=sources.compute.replace(
+    "  // Local workgroups may extend past the logical global size.",
+    "  if local_x > global_x || local_y > global_y || local_z > global_z then return false; fi\n  // Local workgroups may extend past the logical global size.");
+  assert.notEqual(badSource,sources.compute);
+  assert.throws(() => verifyPaddedComputeDispatch(badSource,boundary,isQualified));
+  const name=isQualified ? "compute.compute_dispatch_valid" : "compute_dispatch_valid";
+  const badGuest=boundary.replace(name+"(1, 1, 1, 8, 8, 1, 64)",
+    name+"(1, 1, 1, 1, 1, 1, 64)");
+  assert.notEqual(badGuest,boundary);
+  assert.throws(() => verifyPaddedComputeDispatch(sources.compute,badGuest,isQualified));
+});
