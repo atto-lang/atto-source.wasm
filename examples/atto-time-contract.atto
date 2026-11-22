@@ -2,6 +2,7 @@
 // Run and verify TIME-PASS lines; file existence alone is not test evidence.
 import class Duration from '../stdlib/std/time';
 import class Instant from '../stdlib/std/time';
+import class ManualClock from '../stdlib/std/time';
 import class Deadline from '../stdlib/std/time';
 import class Timer from '../stdlib/std/time';
 import class Interval from '../stdlib/std/time';
@@ -43,6 +44,13 @@ pub routine main(): void {
   check(half.checked_mul(3).expect("mul").as_ns() == 1500000000, "multiply");
   check(half.checked_mul(-1).is_err(), "negative-multiplier");
 
+  let mut ManualClock manual = new ManualClock(9, 1000000000);
+  check(manual.now().ticks_ns == 1000000000, "manual-initial");
+  check(manual.advance(milliseconds(500).expect("move")).expect("advance").ticks_ns == 1500000000, "manual-forward");
+  check(manual.advance(nanoseconds(0).expect("zero")).expect("still").ticks_ns == 1500000000, "manual-zero");
+  let mut ManualClock at_limit = new ManualClock(20, 9223372036854775807);
+  check(at_limit.advance(nanoseconds(1).expect("one ns")).is_err(), "manual-overflow");
+  check(at_limit.now().ticks_ns == 9223372036854775807, "manual-overflow-atomic");
   let Instant start = new Instant(9, 1000000000);
   let Instant later = new Instant(9, 1500000000);
   let Instant alien = new Instant(10, 1500000000);
