@@ -29,6 +29,7 @@ const FS_KINDS = Object.freeze({
   E_FS_BYTES: FsErrorKind.invalid_option,
   E_FS_OFFSET: FsErrorKind.invalid_option,
   E_FS_CLOSED: FsErrorKind.closed,
+  E_FS_BUSY: FsErrorKind.busy,
   E_FS_LIMIT: FsErrorKind.resource_limit,
   E_FS_IO: FsErrorKind.io_error
 });
@@ -527,6 +528,8 @@ export class TenantHostedIoV1 {
   async open(token,path,options={}) {
     const actor=this.#actor(token,null), p=checkedPath(String(path));
     if (!options || typeof options!=='object' || Array.isArray(options)) fail('E_FS_OPTIONS');
+    const validKeys=new Set(['read','write','append','create','create_new','truncate']);
+    if (Object.keys(options).some(key=>!validKeys.has(key))) fail('E_FS_OPTIONS');
     const {read=false,write=false,append=false,create=false,create_new=false,
       truncate=false}=options;
     if ([read,write,append,create,create_new,truncate].some(x=>typeof x!=='boolean') ||
@@ -555,26 +558,39 @@ export class TenantHostedIoV1 {
   async read_stream(token,path,chunkBytes=65536) {
     if (!boundedInteger(chunkBytes,1,65536)) fail('E_FS_LIMIT');
     const file=await this.open(token,path,{read:true});
+    let busy=false;
+    const exclusive=async fn=>{
+      if (busy) fail('E_FS_BUSY');
+      busy=true;
+      try { return await fn(); } finally { busy=false; }
+    };
     return Object.freeze({
-      read_chunk: async ()=>{
+      read_chunk: ()=>exclusive(async()=>{
         const bytes=await file.read(chunkBytes);
         return bytes.length ? bytes : null;
-      },
-      close: async ()=>file.close()
+      }),
+      close: ()=>exclusive(()=>file.close())
     });
   }
   async write_stream(token,path,options={write:true,create:true,truncate:true}) {
+    if (!options || (options.write!==true && options.append!==true)) fail('E_FS_OPTIONS');
     const file=await this.open(token,path,options);
+    let busy=false;
+    const exclusive=async fn=>{
+      if (busy) fail('E_FS_BUSY');
+      busy=true;
+      try { return await fn(); } finally { busy=false; }
+    };
     return Object.freeze({
-      write_chunk: async bytes=>{
+      write_chunk: bytes=>exclusive(async()=>{
         if (!(bytes instanceof Uint8Array)) fail('E_FS_BYTES');
-        // VFS writes are currently all-or-error; native adapters must loop
-        // over partial completion with checked progress and backpressure.
+        // VFS writes are all-or-error. Native adapters must loop and check
+        // partial progress under a single per-stream outstanding operation.
         const written=await file.write(bytes);
         if (written!==bytes.length) fail('E_FS_IO');
-      },
-      flush: async ()=>file.flush(),
-      close: async ()=>file.close()
+      }),
+      flush: ()=>exclusive(()=>file.flush()),
+      close: ()=>exclusive(()=>file.close())
     });
   }
 
