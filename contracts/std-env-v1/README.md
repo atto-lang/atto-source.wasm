@@ -20,3 +20,7 @@ A trusted host interface must validate key names, check both coarse isolate ENV 
 - `denied_fallback.atto`: with an explicit denial of `ATTO_ENV_SECRET_KEY`, the guest must fail before returning any value, including `fallback`.
 
 **Evidence: NOT_EXECUTED.** Fixtures are source-level contract targets until exact-head compiler-backed material CI runs. Never represent these files as implemented host access or full parity.
+
+## Host-side preflight adapter (added in this draft)
+
+`src/std-env-host.mjs` provides `create_scoped_env_host`, accepting **trusted** explicitly supplied snapshot values and scoped allow/deny rules; it rejects invalid keys, bounds entry/value sizes, and checks grants before lookup. This is deliberately **not** exported to untrusted guest code and does not call `process.env`. `tests/std-env-host.test.mjs` exercises deny-overrides-allow, absence versus empty, snapshot copy, invalid inputs, and denial-before-reading restricted getters. These are **host-model tests only**, and remain NOT_EXECUTED until a stepful test run occurs. Native guest import resolution, compiler binding, ABI and AOT evidence remain pending.
