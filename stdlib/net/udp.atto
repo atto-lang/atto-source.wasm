@@ -1,0 +1,82 @@
+// std.net.udp — backend-owned AttoLang datagram admission helpers.
+// RFC 768 UDP over IPv4/IPv6, without IPv6 jumbograms.
+// These pure functions do not open sockets, grant NETWORK permission, resolve
+// addresses, perform I/O, or establish the destination's identity.
+// The trusted host owns socket handles, permissions, DNS, quotas and cancellation.
+// Keeping policy in .atto lets each compiler implement the host adapter separately.
+
+pub fnc udp_address_family_valid(int family): bool {
+  if family == 4 then return true; fi
+  return family == 6;
+}
+
+// Binding port zero asks the OS to select an ephemeral local port.
+pub fnc udp_bind_port_admissible(int port): bool {
+  if port < 0 then return false; fi
+  return port <= 65535;
+}
+
+// Reject destination port zero for the public send_to API.
+pub fnc udp_peer_port_admissible(int port): bool {
+  if port <= 0 then return false; fi
+  return port <= 65535;
+}
+
+// Maximum ordinary UDP application bytes (no IPv6 jumbograms).
+// IPv4 = 65535 - 20 byte minimum IPv4 header - 8 UDP.
+// IPv6 = 65535 IPv6 payload length - 8 UDP.
+pub fnc udp_protocol_payload_limit(int family): int {
+  if family == 4 then return 65507; fi
+  if family == 6 then return 65527; fi
+  return -1;
+}
+
+// Zero-length datagrams are valid. Check the OS-specific effective path-MTU
+// payload limit and configured application quota separately before send.
+// A true return is never a substitute for a host permission/handle check.
+pub fnc udp_send_payload_admissible(int payload_bytes, int app_limit, int path_payload_limit, int family): bool {
+  if payload_bytes < 0 then return false; fi
+  if app_limit < 0 then return false; fi
+  if path_payload_limit < 0 then return false; fi
+  let protocol_limit: int = udp_protocol_payload_limit(family);
+  if protocol_limit < 0 then return false; fi
+  if payload_bytes > protocol_limit then return false; fi
+  if payload_bytes > app_limit then return false; fi
+  return payload_bytes <= path_payload_limit;
+}
+
+// A receive buffer must be nonempty and bounded before allocation.
+// The host must expose actual truncation flags (MSG_TRUNC or equivalent),
+// retain the datagram source endpoint, and never merge separate packets.
+pub fnc udp_receive_capacity_admissible(int capacity, int app_buffer_limit): bool {
+  if capacity <= 0 then return false; fi
+  if app_buffer_limit <= 0 then return false; fi
+  if capacity > 65535 then return false; fi
+  return capacity <= app_buffer_limit;
+}
+
+// Treat truncated datagrams as explicit errors; do NOT silently return a
+// shorter successful payload. A received zero-byte datagram is complete.
+pub fnc udp_datagram_complete(int received_bytes, int buffer_capacity, bool truncated): bool {
+  if truncated then return false; fi
+  if received_bytes < 0 then return false; fi
+  if buffer_capacity <= 0 then return false; fi
+  return received_bytes <= buffer_capacity;
+}
+
+// Bounded send queues; subtract only after proving current <= max so that
+// adding adversarial payload_bytes cannot overflow an i64.
+pub fnc udp_queue_can_enqueue(int current_bytes, int payload_bytes, int max_bytes): bool {
+  if current_bytes < 0 then return false; fi
+  if payload_bytes < 0 then return false; fi
+  if max_bytes < 0 then return false; fi
+  if current_bytes > max_bytes then return false; fi
+  return payload_bytes <= max_bytes - current_bytes;
+}
+
+// TTL/hop-limit range only. Setting multicast/broadcast socket options still
+// requires explicit capability and platform support in the host adapter.
+pub fnc udp_hop_limit_admissible(int value): bool {
+  if value < 0 then return false; fi
+  return value <= 255;
+}
