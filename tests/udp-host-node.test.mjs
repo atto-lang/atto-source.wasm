@@ -140,8 +140,10 @@ test('UDP stream return cancels a pending receive and releases its socket watch'
     const pending=stream.next();
     const stopped=await stream.return();
     assert.equal(stopped.done,true);
+    let watchdog;
     const retired=await Promise.race([pending,new Promise((_,reject)=>
-      setTimeout(()=>reject(new Error('UDP stream return did not cancel pending read')),1000))]);
+      {watchdog=setTimeout(()=>reject(new Error('UDP stream return did not cancel pending read')),1000);})])
+      .finally(()=>clearTimeout(watchdog));
     assert.equal(retired.done,true);
     assert.equal((await stream.next()).done,true);
     const fresh=receiver.recv_from(8);
