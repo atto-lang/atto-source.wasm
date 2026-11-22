@@ -1,0 +1,300 @@
+// std/io -- compiler-owned Atto byte I/O primitives (no foreign-language implementation).
+// Import target: std/io (or atto.std/io for disambiguation).
+//
+// This milestone implements memory-backed I/O and a bounded single-owner byte pipe.
+// These methods never wait on the OS: try_* reports WouldBlock explicitly.
+// Hosted read/write MUST be async Future-based adapters and MUST provide
+// cancellation, handle provenance, and scheduler suspension in the runtime.
+// Do not share these mutable objects across actors or use them as an OS handle.
+//
+// Bytes are integers in [0,255]. Bounds and quotas are BYTE counts.
+// Reader EOF is distinct from an open stream with no data (WouldBlock).
+// A nonempty final chunk is not EOF; a subsequent read reports EOF.
+
+define module io as
+  pub define class ReadChunk as
+    pub val Array<int> bytes;
+    pub val bool eof;
+
+    pub constructor(Array<int> bytes, bool eof) {
+      self.bytes = bytes;
+      self.eof = eof;
+    }
+  end
+
+  // An owned, copied snapshot; seeking never mutates the caller's array.
+  pub define class Cursor as
+    let mut Array<int> data = new Array<int>();
+    let mut int offset = 0;
+
+    pub constructor(Array<int> source) {
+      if source.size > 1048576; do
+        rt fail("io.Cursor: source exceeds 1MiB");
+      fi
+      for (let int i = 0; i < source.size; i = i + 1) {
+        let int b = source.get(i);
+        if b < 0 || b > 255; do
+          rt fail("io.Cursor: invalid byte");
+        fi
+        self.data.add(b);
+      }
+    }
+
+    pub position(): int { return self.offset; }
+    pub remaining(): int { return self.data.size - self.offset; }
+    pub eof(): bool { return self.offset == self.data.size; }
+
+    pub seek(mut self)(int next): Result<int, String> {
+      if next < 0 || next > self.data.size; do
+        return Err("InvalidOffset");
+      fi
+      self.offset = next;
+      return Ok(next);
+    }
+
+    pub read(mut self)(int maximum): Result<ReadChunk, String> {
+      if maximum < 1 || maximum > 65536; do
+        return Err("InvalidReadSize");
+      fi
+      let int available = self.data.size - self.offset;
+      if available == 0; do
+        return Ok(new ReadChunk(new Array<int>(), true));
+      fi
+      let int count = maximum;
+      if count > available; do
+        count = available;
+      fi
+      let mut Array<int> out = new Array<int>();
+      for (let int i = 0; i < count; i = i + 1) {
+        out.add(self.data.get(self.offset + i));
+      }
+      self.offset = self.offset + count;
+      return Ok(new ReadChunk(out, false));
+    }
+
+    // Failure is atomic: an undersized source does not advance offset.
+    pub read_exact(mut self)(int count): Result<Array<int>, String> {
+      if count < 0 || count > 65536; do
+        return Err("InvalidReadSize");
+      fi
+      if count > self.data.size - self.offset; do
+        return Err("UnexpectedEof");
+      fi
+      let mut Array<int> out = new Array<int>();
+      for (let int i = 0; i < count; i = i + 1) {
+        out.add(self.data.get(self.offset + i));
+      }
+      self.offset = self.offset + count;
+      return Ok(out);
+    }
+  end
+
+  // Owned, bounded byte sink. write() may accept fewer than requested.
+  pub define class Sink as
+    let mut Array<int> data = new Array<int>();
+    let int limit;
+    let mut bool closed = false;
+
+    pub constructor(int capacity_bytes) {
+      if capacity_bytes < 1 || capacity_bytes > 1048576; do
+        rt fail("io.Sink: capacity must be 1..1048576");
+      fi
+      self.limit = capacity_bytes;
+    }
+
+    pub size(): int { return self.data.size; }
+    pub capacity(): int { return self.limit; }
+    pub remaining(): int { return self.limit - self.data.size; }
+    pub is_closed(): bool { return self.closed; }
+
+    pub write(mut self)(Array<int> bytes): Result<int, String> {
+      if self.closed; do
+        return Err("Closed");
+      fi
+      if bytes.size > 65536; do
+        return Err("InvalidWriteSize");
+      fi
+      // Validate all bytes before committing even a partial write.
+      for (let int i = 0; i < bytes.size; i = i + 1) {
+        let int b = bytes.get(i);
+        if b < 0 || b > 255; do
+          return Err("InvalidByte");
+        fi
+      }
+      if bytes.size == 0; do
+        return Ok(0);
+      fi
+      let int available = self.limit - self.data.size;
+      if available == 0; do
+        return Err("WouldBlock");
+      fi
+      let int count = bytes.size;
+      if count > available; do
+        count = available;
+      fi
+      for (let int i = 0; i < count; i = i + 1) {
+        self.data.add(bytes.get(i));
+      }
+      return Ok(count);
+    }
+
+    // Atomic admission; unlike write(), no partial write occurs on failure.
+    pub write_all(mut self)(Array<int> bytes): Result<int, String> {
+      if self.closed; do
+        return Err("Closed");
+      fi
+      if bytes.size > 65536; do
+        return Err("InvalidWriteSize");
+      fi
+      if bytes.size > self.limit - self.data.size; do
+        return Err("WouldBlock");
+      fi
+      return self.write(bytes);
+    }
+
+    // Snapshot always copies; it cannot alias mutable sink storage.
+    pub snapshot(): Array<int> {
+      let mut Array<int> out = new Array<int>();
+      for (let int i = 0; i < self.data.size; i = i + 1) {
+        out.add(self.data.get(i));
+      }
+      return out;
+    }
+
+    pub close(mut self): bool {
+      if self.closed; do
+        return false;
+      fi
+      self.closed = true;
+      return true;
+    }
+  end
+
+  // One-owner bounded in-memory stream, never a cross-actor shared channel.
+  // Waking a suspended consumer/producer belongs to the scheduler adapter.
+  pub define class BytePipe as
+    let mut Array<int> slots = new Array<int>();
+    let int limit;
+    let mut int head = 0;
+    let mut int used = 0;
+    let mut bool writer_closed = false;
+
+    pub constructor(int capacity_bytes) {
+      if capacity_bytes < 1 || capacity_bytes > 1048576; do
+        rt fail("io.BytePipe: capacity must be 1..1048576");
+      fi
+      self.limit = capacity_bytes;
+    }
+
+    pub capacity(): int { return self.limit; }
+    pub available(): int { return self.used; }
+    pub remaining(): int { return self.limit - self.used; }
+    pub is_writer_closed(): bool { return self.writer_closed; }
+
+    pub try_write(mut self)(Array<int> bytes): Result<int, String> {
+      if self.writer_closed; do
+        return Err("Closed");
+      fi
+      if bytes.size > 65536; do
+        return Err("InvalidWriteSize");
+      fi
+      for (let int i = 0; i < bytes.size; i = i + 1) {
+        let int b = bytes.get(i);
+        if b < 0 || b > 255; do
+          return Err("InvalidByte");
+        fi
+      }
+      if bytes.size == 0; do
+        return Ok(0);
+      fi
+      let int space = self.limit - self.used;
+      if space == 0; do
+        return Err("WouldBlock");
+      fi
+      let int count = bytes.size;
+      if count > space; do
+        count = space;
+      fi
+      for (let int i = 0; i < count; i = i + 1) {
+        let int index = (self.head + self.used + i) % self.limit;
+        if index == self.slots.size; do
+          self.slots.add(bytes.get(i));
+        else
+          self.slots.set(index, bytes.get(i));
+        fi
+      }
+      self.used = self.used + count;
+      return Ok(count);
+    }
+
+    // Atomic admission and no implicit waiting: caller may suspend/retry.
+    pub try_write_all(mut self)(Array<int> bytes): Result<int, String> {
+      if self.writer_closed; do
+        return Err("Closed");
+      fi
+      if bytes.size > 65536; do
+        return Err("InvalidWriteSize");
+      fi
+      if bytes.size > self.limit - self.used; do
+        return Err("WouldBlock");
+      fi
+      return self.try_write(bytes);
+    }
+
+    pub try_read(mut self)(int maximum): Result<ReadChunk, String> {
+      if maximum < 1 || maximum > 65536; do
+        return Err("InvalidReadSize");
+      fi
+      if self.used == 0; do
+        if self.writer_closed; do
+          return Ok(new ReadChunk(new Array<int>(), true));
+        fi
+        return Err("WouldBlock");
+      fi
+      let int count = maximum;
+      if count > self.used; do
+        count = self.used;
+      fi
+      let mut Array<int> out = new Array<int>();
+      for (let int i = 0; i < count; i = i + 1) {
+        out.add(self.slots.get((self.head + i) % self.limit));
+      }
+      self.head = (self.head + count) % self.limit;
+      self.used = self.used - count;
+      return Ok(new ReadChunk(out, false));
+    }
+
+    // Failure is atomic: no bytes consumed when too few are available.
+    pub try_read_exact(mut self)(int count): Result<Array<int>, String> {
+      if count < 0 || count > 65536; do
+        return Err("InvalidReadSize");
+      fi
+      if count > self.used; do
+        if self.writer_closed; do
+          return Err("UnexpectedEof");
+        fi
+        return Err("WouldBlock");
+      fi
+      let mut Array<int> out = new Array<int>();
+      for (let int i = 0; i < count; i = i + 1) {
+        out.add(self.slots.get((self.head + i) % self.limit));
+      }
+      self.head = (self.head + count) % self.limit;
+      self.used = self.used - count;
+      return Ok(out);
+    }
+
+    // Idempotent stream half-close; remaining bytes can still be drained.
+    pub close_writer(mut self): bool {
+      if self.writer_closed; do
+        return false;
+      fi
+      self.writer_closed = true;
+      return true;
+    }
+  end
+
+  pub fnc cursor(Array<int> bytes): Cursor { return new Cursor(bytes); }
+  pub fnc sink(int capacity_bytes): Sink { return new Sink(capacity_bytes); }
+  pub fnc byte_pipe(int capacity_bytes): BytePipe { return new BytePipe(capacity_bytes); }
+end
