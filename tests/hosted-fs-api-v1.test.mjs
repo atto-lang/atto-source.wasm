@@ -1,7 +1,7 @@
 // Host-only FS implementation tests. These do NOT link an Atto guest.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TenantHostedIoV1, HostIoError, FsError, FsErrorKind, FsPath, FsPathBuf,
+import {TenantHostedIoV1, HostIoError, FsError, FsErrorKind, fs_error_kind, FsPath, FsPathBuf,
   path_join, path_parent, path_file_name, path_extension, path_normalize}
   from '../runtime/hosted-io-v1.mjs';
 
@@ -205,5 +205,20 @@ test('tenant root is a first-class lexical Path but not a mutable file',async()=
   assert.equal((await fs.read_dir(actor,root)).length,0);
   await assert.rejects(fs.remove_dir_all(actor,root),rejects('E_FS_PATH'));
   await assert.rejects(fs.write_file(actor,root,encode('bad')),rejects('E_FS_PATH'));
+  fs.close();
+});
+
+test('FsErrorKind translates host I/O permission, stale and invalid UTF-8',async()=>{
+  const fs=make();
+  const reader=fs.open_actor(1,1,{read:true});
+  const writer=fs.open_actor(2,1,{write:true});
+  await assert.rejects(fs.read_file(writer,'secret'),error=>
+    fs_error_kind(error)===FsErrorKind.permission_denied);
+  await assert.rejects(fs.read_file(reader,'secret'),error=>
+    fs_error_kind(error)===FsErrorKind.not_found);
+  fs.revoke_actor(1,1);
+  await assert.rejects(fs.read_file(reader,'secret'),error=>
+    fs_error_kind(error)===FsErrorKind.closed);
+  assert.equal(fs_error_kind(new Error('unexpected')),FsErrorKind.io_error);
   fs.close();
 });
