@@ -9,6 +9,41 @@ A module path of `"std.crypto"` is the intended core import (never
 need implementation and an executed compiler-backed test**. Do not promote
 the fixture or this PR as proof of functioning encryption.
 
+## Wasm / WebCrypto trusted-host prototype
+
+`src/runtime/webcrypto-aead-host-v1.mjs` now provides a
+**host-only**, async-first AES-256-GCM wrapper using
+`globalThis.crypto.subtle` and `getRandomValues`.
+New keys are non-extractable `CryptoKey` values; a fresh random
+4-byte prefix plus a synchronized (single JS event-loop) 64-bit
+counter produces 12-byte nonce reservations, limited to 2^32
+encryptions/key. JS inputs are snapshotted before suspension.
+Only authenticated plaintext is returned. Closing a handle
+revokes further calls, but **the browser/engine controls physical
+secret-key erasure**; JS cannot promise immediate zeroization.
+Trusted host integration must provide real capability/actor checks;
+the constructor authorization callback is not a guest grant.
+
+ChaCha20-Poly1305 is intentionally **unsupported** in this WebCrypto
+prototype; `generateKey(2)` fails closed. Do not claim full
+Java/.NET/LLVM algorithm parity until a vetted provider is available.
+
+```sh
+node --test tests/webcrypto-aead-host-v1.test.mjs
+node --test tests/crypto-aead-known-vector.test.mjs
+```
+
+An isolated **Node 22** smoke test of the exact committed
+`webcrypto-aead-host-v1.mjs` source, blob SHA
+`5f922970a4809c424e3d721316befff2112ffb18`,
+passed 128 unique nonces, authenticated roundtrip, wrong-key and
+tamper rejection, and key closure. A direct WebCrypto test also
+passed the NIST empty-message AES-256-GCM tag
+`530f8afbc74536b9a963b4f1c4cb738b`.
+**Repository test files and actual Wasm guest compiler/AOT tests
+are NOT_EXECUTED**; this is not yet an Atto `std.crypto` import
+or guest-facing crypto capability.
+
 ## Public API to implement
 
 - `hash.sha256(bytes) -> Bytes` and `mac.hmac_sha256(secret, bytes) -> Bytes`.
