@@ -153,6 +153,12 @@ define module io as
       if bytes.size > 65536; do
         return Err("InvalidWriteSize");
       fi
+      for (let int i = 0; i < bytes.size; i = i + 1) {
+        let int b = bytes.get(i);
+        if b < 0 || b > 255; do
+          return Err("InvalidByte");
+        fi
+      }
       if bytes.size > self.limit - self.used; do
         return Err("WouldBlock");
       fi
@@ -242,6 +248,12 @@ define module io as
       if bytes.size > 65536; do
         return Err("InvalidWriteSize");
       fi
+      for (let int i = 0; i < bytes.size; i = i + 1) {
+        let int b = bytes.get(i);
+        if b < 0 || b > 255; do
+          return Err("InvalidByte");
+        fi
+      }
       if bytes.size > self.limit - self.used; do
         return Err("WouldBlock");
       fi
