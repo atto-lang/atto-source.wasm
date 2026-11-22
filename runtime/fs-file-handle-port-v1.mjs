@@ -146,7 +146,11 @@ export class ActorFileHandlePortV1 {
   }
 
   async close(id) {
-    const entry=this.#lookup(id);
+    this.#requireOpen();
+    if (!boundedInt(id,1,this.#maxIssued) || !this.#issued.has(id))
+      fsFail('E_FS_HANDLE');
+    const entry=this.#handles.get(id);
+    if (!entry) return; // Repeated close of issued, retired ID is idempotent.
     if (entry.busy) fsFail('E_FS_BUSY');
     entry.busy=true;
     this.#handles.delete(id);
