@@ -1,5 +1,18 @@
 # AttoLang std.process — Wasm host ABI policy
 
+
+## Public API naming: asynchronous by default
+
+In AttoLang, non-parking asynchronous operations are the **default** and
+their names have no `_async` suffix: `spawn`, `collect_output`, `wait`,
+`terminate`, and `kill`. The call sites may use `await child.wait()`
+and `await child.collect_output()`. An intentionally synchronous/blocking
+variant, if ever exposed, **must** end in `_blocking`. This is a public
+semantic contract, not evidence that this backend implements OS process
+launch or guest execution. Browser WebAssembly and synthesizable HDL remain
+unsupported unless a separately authorized host provider exists.
+
+
 ## Public library path contract (2026-11-22)
 
 Atto's preferred public import is `std/process`; `atto.std/process`
