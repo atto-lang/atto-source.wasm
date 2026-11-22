@@ -3,10 +3,10 @@
 import * as crypto from "std.crypto";
 
 pub routine main(): void {
-  if crypto.aead_parameters_valid(1, 32, 12, 16) == false then
+  if crypto.aead_parameters_valid(1, 32, 12, 16) eq false then
     rt fail("AES-GCM accepted parameters rejected");
   fi
-  if crypto.aead_parameters_valid(2, 32, 12, 16) == false then
+  if crypto.aead_parameters_valid(2, 32, 12, 16) eq false then
     rt fail("ChaCha20-Poly1305 accepted parameters rejected");
   fi
   if crypto.aead_parameters_valid(0, 32, 12, 16) then
@@ -18,10 +18,10 @@ pub routine main(): void {
   if crypto.aead_parameters_valid(1, 32, 12, 12) then
     rt fail("truncated AEAD tag accepted");
   fi
-  if crypto.aead_seal_size_admissible(0, 0, 16) == false then
+  if crypto.aead_seal_size_admissible(0, 0, 16) eq false then
     rt fail("empty plaintext rejected");
   fi
-  if crypto.aead_seal_size_admissible(16777216, 65536, 16777232) == false then
+  if crypto.aead_seal_size_admissible(16777216, 65536, 16777232) eq false then
     rt fail("maximum sealed payload rejected");
   fi
   if crypto.aead_seal_size_admissible(1, 0, 16) then
@@ -33,13 +33,13 @@ pub routine main(): void {
   if crypto.aead_open_size_admissible(15, 0, 0) then
     rt fail("truncated authentication tag accepted");
   fi
-  if crypto.aead_open_size_admissible(16, 0, 0) == false then
+  if crypto.aead_open_size_admissible(16, 0, 0) eq false then
     rt fail("empty authenticated ciphertext rejected");
   fi
   if crypto.aead_open_size_admissible(17, 0, 0) then
     rt fail("insufficient open capacity accepted");
   fi
-  if crypto.hkdf_sha256_admissible(32, 0, 0, 8160) == false then
+  if crypto.hkdf_sha256_admissible(32, 0, 0, 8160) eq false then
     rt fail("maximum HKDF output rejected");
   fi
   if crypto.hkdf_sha256_admissible(32, 0, 0, 8161) then
@@ -51,7 +51,7 @@ pub routine main(): void {
   if crypto.secure_random_request_admissible(0) then
     rt fail("zero random bytes accepted");
   fi
-  if crypto.secure_random_request_admissible(4096) == false then
+  if crypto.secure_random_request_admissible(4096) eq false then
     rt fail("maximum random bytes rejected");
   fi
   return;
