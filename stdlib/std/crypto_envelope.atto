@@ -27,14 +27,14 @@ pub fnc crypto_envelope_ciphertext_offset(): int {
 
 // -1 means malformed; callers MUST check the sentinel before any indexing.
 pub fnc crypto_envelope_ciphertext_bytes(int envelope_bytes): int {
-  if crypto_envelope_size_admissible(envelope_bytes, 0) == false then
+  if crypto_envelope_size_admissible(envelope_bytes, 0) eq false then
     return -1;
   fi
   return envelope_bytes - 28;
 }
 
 pub fnc crypto_envelope_tag_offset(int envelope_bytes): int {
-  if crypto_envelope_size_admissible(envelope_bytes, 0) == false then
+  if crypto_envelope_size_admissible(envelope_bytes, 0) eq false then
     return -1;
   fi
   return envelope_bytes - 16;
