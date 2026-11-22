@@ -9,30 +9,30 @@ use namespace crypto;
 // All lengths are BYTES (not Unicode code points or UTF-16 units).
 
 pub fnc aead_algorithm_supported(int algorithm): bool {
-  if algorithm == 1 then return true; fi
-  return algorithm == 2;
+  if algorithm eq 1 then return true; fi
+  return algorithm eq 2;
 }
 
 pub fnc aead_key_bytes(int algorithm): int {
-  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  if aead_algorithm_supported(algorithm) eq false then return 0; fi
   return 32;
 }
 
 pub fnc aead_nonce_bytes(int algorithm): int {
-  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  if aead_algorithm_supported(algorithm) eq false then return 0; fi
   return 12;
 }
 
 pub fnc aead_tag_bytes(int algorithm): int {
-  if aead_algorithm_supported(algorithm) == false then return 0; fi
+  if aead_algorithm_supported(algorithm) eq false then return 0; fi
   return 16;
 }
 
 pub fnc aead_parameters_valid(int algorithm, int key_bytes, int nonce_bytes, int tag_bytes): bool {
-  if aead_algorithm_supported(algorithm) == false then return false; fi
-  if key_bytes != aead_key_bytes(algorithm) then return false; fi
-  if nonce_bytes != aead_nonce_bytes(algorithm) then return false; fi
-  return tag_bytes == aead_tag_bytes(algorithm);
+  if aead_algorithm_supported(algorithm) eq false then return false; fi
+  if key_bytes neq aead_key_bytes(algorithm) then return false; fi
+  if nonce_bytes neq aead_nonce_bytes(algorithm) then return false; fi
+  return tag_bytes eq aead_tag_bytes(algorithm);
 }
 
 // 16 MiB maximum plaintext/ciphertext, 64 KiB maximum additional data.
@@ -109,6 +109,6 @@ pub fnc secure_random_request_admissible(int count_bytes): bool {
 // Predicate only. A constant-time equality implementation is a HOST
 // responsibility; byte lengths and comparison timing remain security-sensitive.
 pub fnc secure_compare_input_admissible(int left_bytes, int right_bytes): bool {
-  if sha256_input_admissible(left_bytes) == false then return false; fi
+  if sha256_input_admissible(left_bytes) eq false then return false; fi
   return sha256_input_admissible(right_bytes);
 }
