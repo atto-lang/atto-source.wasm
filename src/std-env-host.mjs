@@ -81,13 +81,21 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
     throw new EnvHostError('ENV_INVALID_POLICY');
   const allowed = policy_rules(allow);
   const denied = policy_rules(deny);
-  if (values === null || typeof values !== 'object' ||
-      (Object.getPrototypeOf(values) !== Object.prototype &&
-       Object.getPrototypeOf(values) !== null))
+  if (values === null || typeof values !== 'object')
     throw new EnvHostError('ENV_INVALID_SNAPSHOT');
-  // With no coarse capability, never enumerate even the *names* of host keys.
-  // Scoped allow rules cannot turn metadata observation into authority.
-  const keys = environmentCapability ? Reflect.ownKeys(values) : [];
+  // With no coarse capability, do not even inspect the host input prototype.
+  // A Proxy getPrototypeOf/ownKeys trap is host metadata observation too.
+  let keys = [];
+  if (environmentCapability) {
+    try {
+      const prototype = Object.getPrototypeOf(values);
+      if (prototype !== Object.prototype && prototype !== null)
+        throw new EnvHostError('ENV_INVALID_SNAPSHOT');
+      keys = Reflect.ownKeys(values);
+    } catch {
+      throw new EnvHostError('ENV_INVALID_SNAPSHOT');
+    }
+  }
   if (keys.length > MAX_ENTRIES)
     throw new EnvHostError('ENV_INVALID_SNAPSHOT');
   const snapshot = new Map();
