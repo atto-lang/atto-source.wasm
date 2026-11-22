@@ -1,7 +1,8 @@
-// Source-level stateful UDP stream budget checks.
-// Must be compiled/linked as an actual Atto guest fixture; not host emulation.
+// Stateful .atto queue accounting acceptance vectors. Must be typechecked,
+// linked and executed in each backend before counting as a GUEST pass.
+// A disabled budget must never accept payloads or allocate a queue.
 pub fnc main(): int {
-  let mut queue = UdpStream.budget(2, 4);
+  let queue = UdpStream.budget(2, 4);
   if queue.try_admit(0) == false then return 1; fi
   if queue.try_admit(4) == false then return 2; fi
   if queue.try_admit(0) then return 3; fi
@@ -9,12 +10,32 @@ pub fnc main(): int {
   if queue.queued_packets() != 2 then return 5; fi
   if queue.queued_bytes() != 4 then return 6; fi
   if queue.release(5) then return 7; fi
-  if queue.release(4) == false then return 8; fi
-  if queue.queued_bytes() != 0 then return 9; fi
-  if queue.queued_packets() != 1 then return 10; fi
-  if queue.release(0) == false then return 11; fi
-  if queue.release(0) then return 12; fi
-  if queue.try_admit(-1) then return 13; fi
-  if queue.try_admit(65528) then return 14; fi
+  if queue.release(-1) then return 8; fi
+  if queue.queued_packets() != 2 then return 9; fi
+  if queue.release(4) == false then return 10; fi
+  if queue.queued_bytes() != 0 then return 11; fi
+  if queue.queued_packets() != 1 then return 12; fi
+  if queue.release(0) == false then return 13; fi
+  if queue.release(0) then return 14; fi
+  if queue.try_admit(-1) then return 15; fi
+  if queue.try_admit(65528) then return 16; fi
+  if queue.queued_packets() != 0 then return 17; fi
+  if queue.queued_bytes() != 0 then return 18; fi
+  let disabled_packets = UdpStream.budget(0, 4);
+  if disabled_packets.try_admit(0) then return 19; fi
+  let disabled_bytes = UdpStream.budget(1, 0);
+  if disabled_bytes.try_admit(0) then return 20; fi
+  let oversized_packets = UdpStream.budget(65537, 4);
+  if oversized_packets.try_admit(1) then return 21; fi
+  let oversized_bytes = UdpStream.budget(1, 16777217);
+  if oversized_bytes.try_admit(1) then return 22; fi
+  let small = UdpStream.budget(2, 1);
+  if small.try_admit(1) == false then return 23; fi
+  if small.try_admit(1) then return 24; fi
+  if small.dropped_packets() != 1 then return 25; fi
+  if small.release(1) == false then return 26; fi
+  if small.try_admit(0) == false then return 27; fi
+  if small.queued_packets() != 1 then return 28; fi
+  if small.queued_bytes() != 0 then return 29; fi
   return 42;
 }
