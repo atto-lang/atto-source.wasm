@@ -128,6 +128,11 @@ define module time as
       self.armed = false;
       return true;
     }
+    // Scheduler may inspect this only while armed.
+    pub next_due(): Result<Instant, String> {
+      if !self.armed; do return Err("TimerInactive"); fi
+      return Ok(self.deadline.due);
+    }
     pub is_armed(): bool { return self.armed; }
     pub did_fire(): bool { return self.fired; }
   end
@@ -160,6 +165,11 @@ define module time as
       if !self.active; do return false; fi
       self.active = false;
       return true;
+    }
+    // A cancelled/exhausted interval has no registered next deadline.
+    pub next_due(): Result<Instant, String> {
+      if !self.active; do return Err("IntervalInactive"); fi
+      return Ok(new Instant(self.clock_id, self.next_ns));
     }
     pub is_active(): bool { return self.active; }
   end
