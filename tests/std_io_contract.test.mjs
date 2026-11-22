@@ -86,3 +86,57 @@ test("model: randomized FIFO conservation under partial transfers", () => {
     assert.ok(p.data.length <= 17);
   }
 });
+
+// These are independent behavioral oracles, not execution of the .atto code.
+class ModelCursor {
+  constructor(bytes) {
+    if(bytes.length > 1048576 || bytes.some(b=>!Number.isInteger(b)||b<0||b>255)) throw Error("InvalidSource");
+    this.bytes=[...bytes]; this.pos=0;
+  }
+  seek(n) { if(n<0||n>this.bytes.length)return "InvalidOffset";this.pos=n;return n; }
+  read(n,exact=false) {
+    if(n < (exact?0:1) || n > 65536)return "InvalidReadSize";
+    const available=this.bytes.length-this.pos;
+    if(exact && n>available)return "UnexpectedEof";
+    const out=this.bytes.slice(this.pos,this.pos+n);this.pos+=out.length;
+    return exact ? out : {bytes:out,eof:available===0};
+  }
+}
+class ModelSink {
+  constructor(cap){ if(cap<1||cap>1048576)throw Error("InvalidCapacity");this.cap=cap;this.data=[];this.closed=false; }
+  write(bytes,exact=false){
+    if(this.closed)return "Closed";if(bytes.length>65536)return "InvalidWriteSize";
+    if(exact && bytes.length>this.cap-this.data.length)return "WouldBlock";
+    if(bytes.some(b=>!Number.isInteger(b)||b<0||b>255))return "InvalidByte";
+    if(!bytes.length)return 0;
+    const n=Math.min(bytes.length,this.cap-this.data.length);
+    if(!n)return "WouldBlock";this.data.push(...bytes.slice(0,n));return n;
+  }
+  snapshot(){return [...this.data];}
+}
+test("model: cursor owned snapshot, atomic read_exact, seek, EOF after data",()=>{
+  const input=[1,2,3];const cur=new ModelCursor(input);input[0]=9;
+  assert.equal(cur.read(4,true),"UnexpectedEof");assert.equal(cur.pos,0);
+  assert.deepEqual(cur.read(2),{bytes:[1,2],eof:false});
+  assert.equal(cur.seek(-1),"InvalidOffset");assert.equal(cur.pos,2);
+  assert.deepEqual(cur.read(4),{bytes:[3],eof:false});
+  assert.deepEqual(cur.read(4),{bytes:[],eof:true});
+  assert.equal(cur.seek(1),1);assert.deepEqual(cur.read(2,true),[2,3]);
+  assert.deepEqual(cur.read(0,true),[]);
+});
+test("model: sink preflight validation, atomic write_all, partial writes, snapshot copy",()=>{
+  const sink=new ModelSink(3);
+  assert.equal(sink.write([1,300]),"InvalidByte");assert.deepEqual(sink.data,[]);
+  assert.equal(sink.write([1,2]),2);
+  assert.equal(sink.write([3,4],true),"WouldBlock");assert.deepEqual(sink.data,[1,2]);
+  assert.equal(sink.write([3,4]),1);
+  const snapshot=sink.snapshot();snapshot[0]=7;assert.deepEqual(sink.data,[1,2,3]);
+  assert.equal(sink.write([4]),"WouldBlock");sink.closed=true;
+  assert.equal(sink.write([]),"Closed");
+});
+test("source: bounded storage initialized before any writer operations",()=>{
+  assert.match(source,/for \(let int i = 0; i < capacity_bytes; i = i \+ 1\) \{\s*self\.data\.add\(0\);/);
+  assert.match(source,/for \(let int i = 0; i < capacity_bytes; i = i \+ 1\) \{\s*self\.slots\.add\(0\);/);
+  assert.ok(source.includes("self.data.set(self.used + i, bytes.get(i));"));
+  assert.ok(source.includes("self.slots.set(index, bytes.get(i));"));
+});
