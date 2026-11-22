@@ -55,3 +55,19 @@ test('three namespace fraud probes demand exact compiler-negative codes',()=>{
     'misplaced namespace must appear after a declaration');
   assert.match(byCode[0],/\bactor_mailbox_admissible\(/);
 });
+
+test('core Future receipts reject post-await use, live loans, repeat takes and guest forgery',()=>{
+  const scenarios=[
+    ['contracts/std-actor-v1/future-use-after-await.reject.atto','E_MOVED',/return receipt;/],
+    ['contracts/std-actor-v1/future-loan-across-await.reject.atto','E_BORROW',/borrow! receipt;[\s\S]*return await receipt;/],
+    ['contracts/std-actor-v1/future-take-then-await.reject.atto','E_MOVED',/take! receipt;[\s\S]*return await receipt;/],
+    ['contracts/std-actor-v1/future-forged-constructor.reject.atto','E_RESERVED',/new ActorFuture<int>\(\)/]
+  ];
+  for(const [path,diagnostic,proof] of scenarios) {
+    const source=read(path);
+    assert.match(source,new RegExp('expect-error: '+diagnostic+'\\b'));
+    assert.match(source,/use namespace std\.actor\./);
+    assert.match(source,proof);
+    if(diagnostic!=='E_RESERVED')assert.match(source,/take! ActorFuture<int> receipt/);
+  }
+});
