@@ -21,7 +21,10 @@ test('UDP Node host truncates explicitly, bounds queue, cancels pending recv',as
   await assert.rejects(tooSmall,/truncated/);
   await a.send_to(Uint8Array.from([5]),b.local_port());
   await a.send_to(Uint8Array.from([6]),b.local_port());
-  await new Promise(r=>setTimeout(r,15));
+  // Wait on an observable delivery/drop condition rather than a fixed sleep
+  // that can race with slow or shared CI runners.
+  for(let i=0;i<100 && b.stats().dropped_packets===0;i++)
+    await new Promise(r=>setTimeout(r,2));
   assert.equal(b.stats().queued_packets,1);assert.equal(b.stats().dropped_packets,1);
   assert.deepEqual(Array.from((await b.recv_from(2)).bytes),[5]);
   const abort=new AbortController();const pending=b.recv_from(2,{signal:abort.signal});
