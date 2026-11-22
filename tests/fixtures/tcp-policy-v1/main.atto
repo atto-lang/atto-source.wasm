@@ -1,0 +1,49 @@
+// Native .atto scalar TCP contract. Requires compiler import and guest execution.
+// Exit 42 only when every assertion passed; each failure has a unique exit code.
+import fnc tcp_local_port_valid from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_remote_port_valid from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_io_request_valid from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_next_chunk from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_can_enqueue_write from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_accept_can_admit from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_read_state from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_write_progress_valid from "../../../stdlib/net/tcp_policy.atto";
+import fnc tcp_write_half_close_allowed from "../../../stdlib/net/tcp_policy.atto";
+
+pub fnc main(): int {
+  if !tcp_local_port_valid(0) then return 101; fi
+  if !tcp_local_port_valid(65535) then return 102; fi
+  if tcp_local_port_valid(-1) then return 103; fi
+  if tcp_local_port_valid(65536) then return 104; fi
+  if tcp_remote_port_valid(0) then return 105; fi
+  if !tcp_remote_port_valid(443) then return 106; fi
+  if tcp_io_request_valid(0) then return 107; fi
+  if !tcp_io_request_valid(65536) then return 108; fi
+  if tcp_io_request_valid(65537) then return 109; fi
+  if tcp_next_chunk(90000, 20000, 65536) != 20000 then return 110; fi
+  if tcp_next_chunk(8, 20, 65536) != 8 then return 111; fi
+  if tcp_next_chunk(20, 20, 0) != 0 then return 112; fi
+  if tcp_next_chunk(-1, 10, 10) != 0 then return 113; fi
+  if !tcp_can_enqueue_write(32, 64, 96) then return 114; fi
+  if tcp_can_enqueue_write(33, 64, 96) then return 115; fi
+  if tcp_can_enqueue_write(1, 9223372036854775807, 10) then return 116; fi
+  if tcp_can_enqueue_write(65537, 0, 100000) then return 117; fi
+  if !tcp_accept_can_admit(4, 2, 5, 3) then return 118; fi
+  if tcp_accept_can_admit(5, 2, 5, 3) then return 119; fi
+  if tcp_accept_can_admit(4, 3, 5, 3) then return 120; fi
+  if tcp_accept_can_admit(-1, 0, 5, 3) then return 121; fi
+  if tcp_read_state(0, false, false) != 0 then return 122; fi
+  if tcp_read_state(10, false, false) != 1 then return 123; fi
+  if tcp_read_state(0, true, false) != 2 then return 124; fi
+  if tcp_read_state(0, false, true) != 3 then return 125; fi
+  if tcp_read_state(1, true, false) != -1 then return 126; fi
+  if tcp_read_state(1, false, true) != -1 then return 127; fi
+  if tcp_read_state(0, true, true) != -1 then return 128; fi
+  if !tcp_write_progress_valid(40, 7) then return 129; fi
+  if tcp_write_progress_valid(40, 41) then return 130; fi
+  if tcp_write_progress_valid(-1, 0) then return 131; fi
+  if !tcp_write_half_close_allowed(true, false) then return 132; fi
+  if tcp_write_half_close_allowed(true, true) then return 133; fi
+  if tcp_write_half_close_allowed(false, false) then return 134; fi
+  return 42;
+}
