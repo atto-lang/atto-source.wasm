@@ -1,0 +1,30 @@
+// Candidate guest import smoke; NOT_EXECUTED until a backend compiler runs it.
+// expect-exit: 42
+import fnc actor_mailbox_admissible from "../../stdlib/actor/policy.atto";
+import fnc actor_future_transition_valid from "../../stdlib/actor/policy.atto";
+import fnc actor_lifecycle_transition_valid from "../../stdlib/actor/policy.atto";
+import fnc actor_should_restart from "../../stdlib/actor/policy.atto";
+import fnc actor_restart_first from "../../stdlib/actor/policy.atto";
+import fnc actor_restart_end_exclusive from "../../stdlib/actor/policy.atto";
+import fnc actor_restart_budget_allows from "../../stdlib/actor/policy.atto";
+import fnc actor_next_generation from "../../stdlib/actor/policy.atto";
+import fnc actor_failure_notifies_supervisor from "../../stdlib/actor/policy.atto";
+
+pub fnc main(): int {
+  if actor_mailbox_admissible(true, true, true, true, 7, 8) == false then return 1; fi
+  if actor_mailbox_admissible(true, true, false, true, 0, 8) then return 2; fi
+  if actor_mailbox_admissible(true, true, true, true, 8, 8) then return 3; fi
+  if actor_future_transition_valid(0, 3) == false then return 4; fi
+  if actor_future_transition_valid(3, 1) then return 5; fi
+  if actor_lifecycle_transition_valid(2, 3) == false then return 6; fi
+  if actor_lifecycle_transition_valid(4, 2) then return 7; fi
+  if actor_should_restart(2, true) then return 8; fi
+  if actor_should_restart(2, false) == false then return 9; fi
+  if actor_restart_first(2, 2, 4) != 0 then return 10; fi
+  if actor_restart_end_exclusive(3, 2, 4) != 4 then return 11; fi
+  if actor_restart_budget_allows(3, 2, 4) then return 12; fi
+  if actor_restart_budget_allows(2, 2, 4) == false then return 13; fi
+  if actor_next_generation(2147483647) != -1 then return 14; fi
+  if actor_failure_notifies_supervisor(3, true) == false then return 15; fi
+  return 42;
+}
