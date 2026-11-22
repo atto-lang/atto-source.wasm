@@ -283,6 +283,13 @@ export class TenantHostedIoV1 {
     }
     fail('E_IO_STALE');
   }
+  // Trusted host-only admission proof after an async completion boundary.
+  // Does not grant new rights; prevents stale actor work from publishing
+  // successful results after revoke/restart or tenant teardown.
+  assert_actor_active(token) {
+    this.#actor(token,null);
+    return true;
+  }
   #revoke(actor) {
     actor.active = false;
     for (const [handle, entry] of this.#handles) {
