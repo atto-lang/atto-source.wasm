@@ -1,0 +1,42 @@
+name: Atto wasm metrics/json/zorde staged source ONLY
+on:
+  pull_request:
+    paths:
+      - 'stdlib/std/metrics.atto'
+      - 'stdlib/std/json.atto'
+      - 'stdlib/std/zorde.atto'
+      - 'contracts/std-metrics-json-zorde-source-v1.json'
+      - 'tests/std-metrics-json-zorde-source-contract.test.mjs'
+      - '.github/workflows/std-metrics-json-zorde-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head, clean files and execute source references
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet --exit-code
+          git diff --cached --exit-code
+          test -z "$(git ls-files --others --exclude-standard)"
+          echo "ATTO_WASM_HEAD=$EXPECTED_HEAD"
+          echo "ATTO_WASM_TREE=$(git rev-parse 'HEAD^{tree}')"
+          node --test tests/std-metrics-json-zorde-source-contract.test.mjs
+          echo "ATTO_WASM_SOURCE_ONLY=EXECUTED"
+          echo "ATTO_WASM_GUEST=NOT_EXECUTED"
+      - name: Preserve execution evidence boundary
+        if: always()
+        run: |
+          echo 'This workflow is source-only. It does not link or execute Atto guest code.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'A queued or zero-step run counts as NOT_EXECUTED.' >> "$GITHUB_STEP_SUMMARY"
