@@ -57,3 +57,38 @@ test('UDP Node host stream yields whole packets and rejects unsafe buffers',asyn
   await assert.rejects(b.recv_from(8,{signal:ctr.signal}),/pre-cancelled/);
  }finally{await a.close();await b.close();}
 });
+
+test("UDP close rejects a pending receive, retires its queue, and is idempotent", async () => {
+ const sender=await openNodeUdpLoopback({authorize});
+ const receiver=await openNodeUdpLoopback({authorize,maxPackets:1,maxBytes:8});
+ try {
+  const pending=receiver.recv_from(8);
+  const closing=receiver.close();
+  await assert.rejects(pending,/closed/);
+  await closing;
+  await receiver.close();
+  assert.equal(receiver.stats().queued_packets,0);
+  await assert.rejects(receiver.recv_from(8),/closed/);
+ } finally { await sender.close(); await receiver.close(); }
+});
+
+test("UDP input revocation denies receive and does not publish unauthorized bytes", async () => {
+ let allowed=true;
+ const receiver=await openNodeUdpLoopback({authorize:(target,op)=>{
+  if(!allowed && op==="udp.recv_from")throw new Error("revoked");
+  authorize(target,op);
+ }});
+ const sender=await openNodeUdpLoopback({authorize});
+ try {
+  allowed=false;
+  await sender.send_to(Uint8Array.from([5,4]),receiver.local_port());
+  for(let i=0;i<100&&receiver.stats().dropped_packets===0;i++)
+   await new Promise(r=>setTimeout(r,2));
+  assert.equal(receiver.stats().dropped_packets,1);
+  assert.equal(receiver.stats().queued_packets,0);
+  allowed=true;
+  const recv=receiver.recv_from(8);
+  await sender.send_to(Uint8Array.from([3]),receiver.local_port());
+  assert.deepEqual(Array.from((await recv).bytes),[3]);
+ }finally{await sender.close();await receiver.close()}
+});
