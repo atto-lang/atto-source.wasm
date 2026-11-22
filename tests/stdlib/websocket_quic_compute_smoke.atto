@@ -4,11 +4,14 @@
 // and execute main() to count it as an actual Atto guest test.
 import fnc websocket_frame_admit, websocket_next_fragment_state,
   websocket_mask_octet, websocket_extended_length_valid,
-  websocket_backpressure_admit, websocket_valid_close_code
+  websocket_backpressure_admit, websocket_valid_close_code,
+  websocket_decode_close_code, websocket_header_bytes
   from '../../stdlib/std/websocket';
-import fnc quic_varint_octet, quic_varint_min_width,
+import fnc quic_varint_octet, quic_encoding_min_width,
   quic_stream_bidirectional, quic_stream_range_fits,
-  quic_ack_range_valid, quic_zero_rtt_candidate
+  quic_ack_range_valid, quic_zero_rtt_candidate,
+  quic_decode_varint_1, quic_decode_varint_2,
+  quic_decode_varint_4, quic_decode_varint_8
   from '../../stdlib/std/quic';
 import fnc compute_exact_buffer_layout, compute_groups_for_axis,
   compute_workgroup_valid, compute_buffer_range_fits,
@@ -40,5 +43,18 @@ pub routine main(): int {
   if compute_buffer_range_fits(9, 2, 10) then return 22; fi
   if compute_alignment_valid(3) then return 23; fi
   if compute_upload_admit(0, 1, 1, true, false) then return 24; fi
+  if websocket_decode_close_code(3, 238) != -1 then return 25; fi
+  if websocket_decode_close_code(3, 232) != 1000 then return 26; fi
+  if websocket_header_bytes(126, true) != 8 then return 27; fi
+  if websocket_header_bytes(127, false) != 10 then return 28; fi
+  if quic_decode_varint_1(63) != 63 then return 29; fi
+  if quic_decode_varint_2(123, 189) != 15293 then return 30; fi
+  if quic_decode_varint_2(64, 1) != 1 then return 31; fi
+  if quic_decode_varint_2(63, 189) != -1 then return 32; fi
+  if quic_decode_varint_4(128, 0, 64, 0) != 16384 then return 33; fi
+  if quic_decode_varint_8(255, 255, 255, 255, 255, 255, 255, 255) != 4611686018427387903 then return 34; fi
+  if quic_decode_varint_8(191, 255, 255, 255, 255, 255, 255, 255) != -1 then return 35; fi
+  if quic_varint_octet(4611686018427387903, 8, 0) != 255 then return 36; fi
+  if quic_varint_octet(16384, 2, 0) != -1 then return 37; fi
   return 0;
 }

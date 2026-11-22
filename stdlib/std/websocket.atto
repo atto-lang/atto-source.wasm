@@ -106,3 +106,22 @@ pub fnc websocket_mask_octet(int octet, int mask_octet): int {
   }
   return result;
 }
+
+// The first two bytes of a Close payload encode a network-order status code.
+// A close payload of length zero is handled by the caller as "no status".
+// Returns -1 if either byte is malformed or the code is forbidden on the wire.
+pub fnc websocket_decode_close_code(int high, int low): int {
+  if !websocket_valid_octet(high) || !websocket_valid_octet(low) then
+    return -1;
+  fi
+  let code: int = high * 256 + low;
+  if !websocket_valid_close_code(code) then return -1; fi
+  return code;
+}
+
+pub fnc websocket_header_bytes(int seven_bit_length, bool masked): int {
+  let extension_width: int = websocket_payload_length_width(seven_bit_length);
+  if extension_width < 0 then return -1; fi
+  if masked then return 6 + extension_width; fi
+  return 2 + extension_width;
+}
