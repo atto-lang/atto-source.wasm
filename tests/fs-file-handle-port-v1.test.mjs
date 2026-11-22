@@ -160,6 +160,8 @@ test('port constructor and forged handle IDs fail closed',async()=>{
   for(const id of [0,-1,1,1.5,'1',null,{},Number.MAX_SAFE_INTEGER]) {
     await assert.rejects(port.read_text(id),codeIs('E_FS_HANDLE'));
   }
+  const classified=await port.read_text(1).catch(error=>error);
+  assert.equal(classified.kind,'invalid_handle');
   vfs.close();
 });
 
@@ -243,5 +245,31 @@ test('File.close is idempotent for issued IDs but cannot accept forged IDs',asyn
   assert.equal(vfs.handle_count,0);
   await assert.rejects(port.close(id+1),codeIs('E_FS_HANDLE'));
   await assert.rejects(port.read_text(id),codeIs('E_FS_CLOSED'));
+  await port.close_all();vfs.close();
+});
+
+test('revocation during pending read never returns a stale success',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('f',{read:true,write:true,create:true});
+  await port.write_text(id,'secret');
+  await port.seek(id,0);
+  const pending=port.read_text(id);
+  vfs.revoke_actor(1,1);
+  await assert.rejects(pending,codeIs('E_IO_STALE'));
+  assert.equal(vfs.handle_count,0);
+  await port.close_all();
+  vfs.close();
+});
+
+test('revocation during pending open retires host object and never issues handle',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const pending=port.open('late',{read:true,write:true,create:true});
+  vfs.revoke_actor(1,1);
+  await assert.rejects(pending,codeIs('E_IO_STALE'));
+  assert.equal(port.open_handle_count,0);
+  assert.equal(vfs.handle_count,0);
+  await assert.rejects(port.read_text(1),codeIs('E_FS_HANDLE'));
   await port.close_all();vfs.close();
 });
