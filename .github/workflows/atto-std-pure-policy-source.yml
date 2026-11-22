@@ -1,0 +1,48 @@
+name: Atto backend-owned std pure-policy source verification (NOT guest)
+on:
+  pull_request:
+    paths:
+      - 'stdlib/std/path.atto'
+      - 'stdlib/std/sync.atto'
+      - 'stdlib/std/telemetry.atto'
+      - 'contracts/atto-std-pure-policy-parity-v1.json'
+      - 'tests/atto-std-pure-policy-source.test.mjs'
+      - '.github/workflows/atto-std-pure-policy-source.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-model-not-backend-guest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact head and closed-source purity admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ github.event.pull_request.head.sha || github.sha }}"
+          for file in stdlib/std/path.atto stdlib/std/sync.atto \
+            stdlib/std/telemetry.atto contracts/atto-std-pure-policy-parity-v1.json; do
+            test -f "$file"
+            test ! -L "$file"
+            git hash-object "$file"
+          done
+      - name: Verify 134 source-model vectors and mutation-negative controls
+        run: node --test tests/atto-std-pure-policy-source.test.mjs
+      - name: Source-only checker must reject forged native execution mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ATTO_REQUIRE_NATIVE_GUEST=1 \
+              node --test tests/atto-std-pure-policy-source.test.mjs > /dev/null 2>&1; then
+            echo "ERROR: source checker illegally attested a native guest"
+            exit 1
+          fi
+          echo "ATTO_BACKEND_STD_NATIVE_GUEST=NOT_EXECUTED"
