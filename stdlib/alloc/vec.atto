@@ -1,6 +1,8 @@
 // Compiler-local source candidate for atto-source.wasm; no shared source dependency.
 // Backend-owned alloc/vec module. Array<T> provides the actual heap storage;
 // Vec<T> owns that backing array and never returns an unproven mutable alias.
+// A consuming generic formal is a TARGET; backends without typed ownership
+// contracts must reject, never silently move a borrowed argument.
 // There is deliberately no fake reserve(), zero-copy slice or unsafe pop():
 // those need checked allocator/element-take compiler primitives.
 define module alloc_vec as
@@ -20,8 +22,15 @@ define module alloc_vec as
     return self.values.size == 0;
   }
 
-  pub mtd (mut self: Vec<T>) push(T item) -> void {
+  pub mtd (mut self: Vec<T>) push(take! T item) -> void {
     self.values.add(take! item);
+    return;
+  }
+
+  // Explicit Copy-only path for scalars/verified Copy types.
+  // A non-Copy T must be rejected; this is NOT an implicit shallow clone.
+  pub mtd (mut self: Vec<T>) push_copy(T item) -> void {
+    self.values.add(copy! item);
     return;
   }
 
