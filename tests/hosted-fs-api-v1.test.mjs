@@ -222,3 +222,52 @@ test('FsErrorKind translates host I/O permission, stale and invalid UTF-8',async
   assert.equal(fs_error_kind(new Error('unexpected')),FsErrorKind.io_error);
   fs.close();
 });
+
+
+test('revoked actor IDs cannot replay the same generation or evade actor-ID quota',async()=>{
+  const fs=make({maxActors:1});
+  const first=fs.open_actor(7,4,{read:true,write:true});
+  await fs.write_file(first,'file',encode('secret'));
+  fs.revoke_actor(7,4);
+  assert.throws(()=>fs.open_actor(7,4,{read:true}),rejects('E_IO_STALE'));
+  assert.throws(()=>fs.open_actor(7,3,{read:true}),rejects('E_IO_STALE'));
+  assert.throws(()=>fs.open_actor(8,1,{read:true}),rejects('E_IO_BUSY'));
+  const next=fs.open_actor(7,5,{read:true});
+  assert.equal(decode(await fs.read_file(next,'file')),'secret');
+  await assert.rejects(fs.read_file(first,'file'),rejects('E_IO_STALE'));
+  fs.revoke_actor(7,5);
+  assert.throws(()=>fs.open_actor(7,5,{read:true}),rejects('E_IO_STALE'));
+  fs.close();
+});
+
+test('oversize normalized paths, unknown open options and read-only write streams fail closed',async()=>{
+  assert.throws(()=>new FsPath('a/'.repeat(700)),rejects('E_FS_PATH'));
+  const fs=make(),actor=fs.open_actor(1,1,adminGrants);
+  await assert.rejects(fs.open(actor,'file',{write:true,create:true,unknown:true}),rejects('E_FS_OPTIONS'));
+  assert.equal(await fs.exists(actor,'file'),false);
+  await fs.write_file(actor,'file',encode('abc'));
+  await assert.rejects(fs.write_stream(actor,'file',{read:true}),rejects('E_FS_OPTIONS'));
+  assert.equal(decode(await fs.read_file(actor,'file')),'abc');
+  fs.close();
+});
+
+test('stream permits only one outstanding I/O including flush and close',async()=>{
+  const fs=make(),actor=fs.open_actor(1,1,adminGrants);
+  await fs.write_file(actor,'in',encode('abcd'));
+  const reader=await fs.read_stream(actor,'in',2);
+  const first=reader.read_chunk();
+  await assert.rejects(reader.read_chunk(),rejects('E_FS_BUSY'));
+  await assert.rejects(reader.close(),rejects('E_FS_BUSY'));
+  assert.equal(decode(await first),'ab');
+  assert.equal(decode(await reader.read_chunk()),'cd');
+  assert.equal(await reader.read_chunk(),null);
+  await reader.close();
+  const writer=await fs.write_stream(actor,'out');
+  const write=writer.write_chunk(encode('xy'));
+  await assert.rejects(writer.flush(),rejects('E_FS_BUSY'));
+  await assert.rejects(writer.close(),rejects('E_FS_BUSY'));
+  await write;
+  await writer.flush();await writer.close();
+  assert.equal(decode(await fs.read_file(actor,'out')),'xy');
+  fs.close();
+});
