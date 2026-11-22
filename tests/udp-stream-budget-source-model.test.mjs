@@ -34,8 +34,8 @@ function argumentsOf(parameters) {
 function load(source) {
   const converted=asJavaScript(source).replace(/\n\}\s*$/,'\nreturn {budget};\n})();');
   const env=Object.create(null);
-  runInNewContext(converted,env,{timeout:2000});
-  return env.UdpStream;
+  runInNewContext(converted+'\nthis.exposed_UdpStream = UdpStream;',env,{timeout:2000});
+  return env.exposed_UdpStream;
 }
 
 const MAX=9223372036854775807n;
