@@ -36,3 +36,21 @@ test('UDP Node host checks permissions and close',async()=>{
  finally{allowed=true;await a.close()}
  await assert.rejects(a.send_to(new Uint8Array(0),12345),/closed/);
 });
+
+test('UDP Node host stream yields whole packets and rejects unsafe buffers',async()=>{
+ const a=await openNodeUdpLoopback({authorize}),b=await openNodeUdpLoopback({authorize,maxPackets:2,maxBytes:8});
+ try{
+  const iterator=b.recv_stream(8)[Symbol.asyncIterator]();
+  const first=iterator.next();
+  await a.send_to(Uint8Array.from([8,7]),b.local_port());
+  assert.deepEqual(Array.from((await first).value.bytes),[8,7]);
+  const second=iterator.next();
+  await a.send_to(Uint8Array.from([6]),b.local_port());
+  assert.deepEqual(Array.from((await second).value.bytes),[6]);
+  await assert.rejects(a.send_to(new Uint8Array(new SharedArrayBuffer(1)),b.local_port()));
+  await assert.rejects(a.send_to(new Proxy(new Uint8Array(1),{}),b.local_port()));
+  const ctr=new AbortController();
+  ctr.abort(new Error('pre-cancelled'));
+  await assert.rejects(b.recv_from(8,{signal:ctr.signal}),/pre-cancelled/);
+ }finally{await a.close();await b.close();}
+});
