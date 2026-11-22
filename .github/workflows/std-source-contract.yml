@@ -6,6 +6,8 @@ on:
       - 'stdlib/std/quic.atto'
       - 'stdlib/std/compute.atto'
       - 'tests/stdlib/**'
+      - 'tests/stdlib-wasm-import-admission.test.mjs'
+      - 'scripts/compile-ores.mjs'
       - '.github/workflows/std-source-contract.yml'
   workflow_dispatch:
 permissions:
@@ -29,3 +31,5 @@ jobs:
           git rev-parse 'HEAD^{tree}'
       - name: Verify source exports, imports, and mutation negatives (NOT guest execution)
         run: node --test tests/stdlib/source_contract.test.mjs
+      - name: Reject unverified linked Atto imports before publishing wasm32 code
+        run: node --test tests/stdlib-wasm-import-admission.test.mjs
