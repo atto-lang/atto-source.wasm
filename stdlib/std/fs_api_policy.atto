@@ -51,6 +51,9 @@ pub fnc fs_read_range_valid(int offset, int requested, int size): bool {
 pub fnc fs_copy_fits_budget(int source_bytes, int destination_bytes, int tenant_used, int file_limit, int tenant_limit): bool {
   if source_bytes < 0 then return false; fi
   if destination_bytes < 0 then return false; fi
+  // copy_file uses create-new: nonempty destinations are not overwrite targets.
+  // A zero-byte existing target still requires a separate host existence check.
+  if destination_bytes != 0 then return false; fi
   if tenant_used < 0 then return false; fi
   if file_limit < 0 then return false; fi
   if tenant_limit < 0 then return false; fi
