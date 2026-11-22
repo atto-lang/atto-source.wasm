@@ -255,7 +255,7 @@ function verifyCoreBorrowCandidate(fixture) {
     /websocket_backpressure_admit\(reader\.consumed, 3, reader\.capacity\)/);
   assert.match(writeBody, /writer\.consumed\s*=\s*3;/);
   assert.match(fixture.slice(move), /compute_upload_admit\(2, 3, transferred\.capacity/);
-  assert.doesNotMatch(fixture, /\b(?:share!|weak!|pin!)\b/,
+  assert.doesNotMatch(fixture, /(?:^|[^a-zA-Z0-9_])(?:share!|weak!|pin!)(?=\s)/,
     "a synthetic source fixture may not grant unverified resource capabilities");
   assert.deepEqual([...fixture.matchAll(/\bthen return (\d+); fi/g)]
     .map(m=>Number(m[1])), [1,2,3,4,5,6]);
@@ -264,12 +264,14 @@ function verifyCoreBorrowCandidate(fixture) {
 test("candidate core-owned loan lifecycle source is complete (NOT compiler proof)", () => {
   verifyCoreBorrowCandidate(coreBorrowCandidate);
 });
-test("source-only borrow lifecycle gate rejects six unsafe mutations", () => {
+test("source-only borrow lifecycle gate rejects seven unsafe mutations", () => {
   const variants=[
     coreBorrowCandidate.replace("val reader = borrow! buffer;",
       "val reader = borrow! buffer; take! buffer;"),
     coreBorrowCandidate.replace("val reader = borrow! buffer;",
       "val reader = borrow! buffer; reader.consumed = 1;"),
+    coreBorrowCandidate.replace("val reader = borrow! buffer;",
+      "val reader = borrow! buffer; share! buffer;"),
     coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
       "val writer = borrow! mut buffer; val stolen = buffer.capacity;"),
     coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
