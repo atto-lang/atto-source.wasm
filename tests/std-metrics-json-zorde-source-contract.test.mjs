@@ -64,6 +64,8 @@ test("Metrics counters and histograms explicitly reject unsafe updates", () => {
     "self.rejected < 2147483647", "bounds.size > 64",
     "value <= bounds.get(i - 1)", "bucket_count",
     "CounterSnapshot", "GaugeSnapshot", "HistogramSnapshot", "copied_counts",
+    "detached_bounds.add(upper)", "detached_counts.add(count)",
+    "snapshot bucket totals differ",
   ]) assert.ok(m.includes(invariant), "metrics safeguard missing: " + invariant);
 });
 
