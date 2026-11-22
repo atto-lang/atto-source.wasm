@@ -87,6 +87,33 @@ define module time as
     }
   end
 
+  // Deterministic test clock: never a trusted OS/monotonic clock.
+  // Owns a local virtual clock domain and refuses backward motion.
+  pub define class ManualClock as
+    let int clock_id;
+    let mut int now_ns;
+
+    pub constructor(int clock_id, int initial_ns) {
+      if clock_id <= 0 || initial_ns < 0; do
+        rt fail("time.ManualClock: invalid origin");
+      fi
+      self.clock_id = clock_id;
+      self.now_ns = initial_ns;
+    }
+
+    pub now(): Instant {
+      return new Instant(self.clock_id, self.now_ns);
+    }
+
+    pub advance(mut self)(Duration delta): Result<Instant, String> {
+      if delta.nanos > 9223372036854775807 - self.now_ns; do
+        return Err("ClockRangeExhausted");
+      fi
+      self.now_ns = self.now_ns + delta.nanos;
+      return Ok(new Instant(self.clock_id, self.now_ns));
+    }
+  end
+
   pub define class Deadline as
     pub val Instant due;
     pub constructor(Instant due) { self.due = due; }
