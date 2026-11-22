@@ -1,6 +1,6 @@
 # std.net.udp — datagram module, stage 1
 
-**Status:** native `.atto` policy implementation and guest regression fixture; **socket API not linked or claimed executable**. Keep this repository's implementation independently owned. There is no requirement to import the module source from `atto-common-source` or match another compiler byte-for-byte.
+**Status:** native `.atto` admission and queue-budget sources; a backend-specific host socket candidate exists, but **guest `std.net.udp` binding is still unlinked and unverified**. Keep this repository's implementation independently owned. There is no requirement to import the module source from `atto-common-source` or match another compiler byte-for-byte.
 
 ## Public application API target
 
@@ -43,3 +43,9 @@ One actor owns a mutable `UdpSocket` handle. A datagram's `OwnedBytes` may be mo
 2. Execute genuine `.atto` IPv4/IPv6 loopback send/receive, zero-length payload, back-to-back message framing, truncation and timeout; negative tests for permission, invalid endpoints, close/cancel races, buffer/queue exhaustion.
 3. Verify native AOT and target-specific support independently. For browser Wasm, raw UDP is **unsupported** unless an explicit authorized host bridge exists. Node and WASI capabilities must be tested separately; do not simulate UDP with WebSocket/WebRTC.
 4. Capture exact head/tree/compiler artifact and stepful CI evidence before claiming conformance. Do not mirror private source across organizations without independent authorization.
+
+## Stage-2 Node-only host implementation (2026-11-22)
+
+`src/host-udp-node.mjs` provides a **Node-only trusted-host** UDP adapter backed by `node:dgram` with explicit authorize callback, IPv4 loopback-only bind/send/receive, packet and byte-bounded receive queue, observable drops, async `recv_from` cancellation, and an `recv_stream` async iterator. It snapshots outbound bytes with the existing fail-closed `snapshotGuestBytes` implementation; received datagrams are copied into caller-owned arrays. `tests/udp-host-node.test.mjs` contains real Node loopback cases.
+
+Local Node 22 tests: **4/4 passed** with the exact GitHub blob for the new host code and its test and the existing real `snapshot-guest-bytes.mjs` helper. This is **Node host test execution, not Wasm guest execution**. Browser Wasm has no raw UDP API; browser import must remain denied. No `std.net.udp` guest import mapping has been installed, nor any sanctioned Node/WASI actor capability-token bridge.
