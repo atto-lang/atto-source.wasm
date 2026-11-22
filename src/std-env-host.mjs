@@ -92,9 +92,10 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
     }
     snapshot.set(key, field.value);
   }
+  let revoked = false;
   function require_grant(name) {
     check_name(name);
-    if (!environmentCapability || !granted(name, allowed, denied))
+    if (revoked || !environmentCapability || !granted(name, allowed, denied))
       throw new EnvHostError('ENV_PERMISSION_DENIED');
   }
   return Object.freeze({
@@ -108,6 +109,13 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
     has(name) {
       require_grant(name);
       return snapshot.has(name);
+    },
+    // Trusted host lifecycle hook: retire the snapshot with the isolate.
+    revoke() {
+      if (revoked) return false;
+      revoked = true;
+      snapshot.clear();
+      return true;
     }
   });
 }
