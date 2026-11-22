@@ -1,9 +1,9 @@
 /**
  * Fail-closed static validator for the narrow core-wasm.i64-v1 ABI.
- * Caller must first run inspectWasmBytes (WebAssembly.validate) and reject
- * *all* imports. This reader only supports plain Wasm function types.
+ * Caller must first run WebAssembly.validate and enforce the appropriate
+ * import allowlist. This reader supports function imports and plain types.
  */
-export function assertCoreI64Entry(bytes,entry) {
+export function coreFunctionSignature(bytes,entry) {
   let at=8;
   const u32=end=>{
     let value=0;
@@ -16,8 +16,8 @@ export function assertCoreI64Entry(bytes,entry) {
     }
     throw Error("overlong Wasm ABI integer");
   };
-  const typeSignatures=[],functionTypes=[];
-  let exportedTypeIndex;
+  const typeSignatures=[],functionTypes=[],importedFunctionTypes=[];
+  let exportedFunctionIndex;
   const decoder=new TextDecoder("utf-8",{fatal:true,ignoreBOM:true});
   while(at<bytes.length){
     const id=bytes[at++],length=u32(bytes.length),end=at+length;
@@ -36,6 +36,19 @@ export function assertCoreI64Entry(bytes,entry) {
         typeSignatures.push({params,results});
       }
       if(at!==end)throw Error("malformed Wasm ABI type section");
+    }else if(id===2){
+      const count=u32(end);
+      for(let i=0;i<count;i++){
+        for(let k=0;k<2;k++){
+          const n=u32(end);
+          if(n>end-at)throw Error("malformed Wasm ABI import name");
+          at+=n;
+        }
+        if(at>=end||bytes[at++]!==0)
+          throw Error("unsupported non-function Wasm ABI import");
+        importedFunctionTypes.push(u32(end));
+      }
+      if(at!==end)throw Error("malformed Wasm ABI import section");
     }else if(id===3){
       const count=u32(end);
       if(count>(end-at))throw Error("invalid Wasm ABI function count");
@@ -52,14 +65,18 @@ export function assertCoreI64Entry(bytes,entry) {
         const kind=bytes[at++],index=u32(end);
         if(name===entry){
           if(kind!==0)throw Error("core Wasm entry is not a function");
-          exportedTypeIndex=functionTypes[index];
+          exportedFunctionIndex=index;
         }
       }
       if(at!==end)throw Error("malformed Wasm ABI export section");
     }
     at=end;
   }
-  const signature=typeSignatures[exportedTypeIndex];
+  const allFunctionTypes=importedFunctionTypes.concat(functionTypes);
+  return typeSignatures[allFunctionTypes[exportedFunctionIndex]] ?? null;
+}
+export function assertCoreI64Entry(bytes,entry) {
+  const signature=coreFunctionSignature(bytes,entry);
   if(!signature||signature.params.length!==0||
       signature.results.length!==1||signature.results[0]!==0x7e)
     throw Error("core Wasm entry must have exact () -> i64 signature");

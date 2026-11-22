@@ -1,6 +1,7 @@
 import {Worker} from "node:worker_threads";
 import {createHash} from "node:crypto";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
+import {validateCoreOptions} from "./validate-core-options.mjs";
 
 // Module-local admission quota. A service with multiple Node processes must
 // also enforce an aggregate per-tenant/process-level limit at its broker.
@@ -15,29 +16,21 @@ let activeGuestWorkers = 0;
  * Node workers are not an OS security boundary and not a strict AOT runtime.
  */
 export async function runIsolatedCoreGuest(input, options = {}) {
-  // A caller option getter is executable host code. Do not run it on the
-  // privileged worker-admission path, even for an option later rejected.
-  if(options===null || typeof options!=="object" || Array.isArray(options))
-    throw new TypeError("guest runner options must be plain data");
-  const proto=Object.getPrototypeOf(options);
-  if(proto!==Object.prototype && proto!==null)
-    throw new TypeError("guest runner options must be plain data");
-  const fields=["expectedSha256","entry","maxMemoryPages","maxModuleBytes",
-                "timeoutMs","namespaceBindings"];
-  if(Reflect.ownKeys(options).some(key=>!fields.includes(key)))
-    throw new TypeError("unknown guest runner option");
-  const own=(name,fallback)=>{
-    const d=Object.getOwnPropertyDescriptor(options,name);
-    if(d && (!d.enumerable || !Object.hasOwn(d,"value")))
-      throw new TypeError("guest runner options require own data fields");
-    return d?.value===undefined?fallback:d.value;
-  };
-  const expectedSha256=own("expectedSha256",undefined);
-  const entry=own("entry","main");
-  const maxMemoryPages=own("maxMemoryPages",2);
-  const maxModuleBytes=own("maxModuleBytes",16 * 1024 * 1024);
-  const timeoutMs=own("timeoutMs",2000);
-  const namespaceBindings=own("namespaceBindings",null);
+  // Validate descriptors and proxy identity before any getter or Worker admission.
+  // Preserve the newer namespace lifecycle and physical worker restrictions.
+  const clean = validateCoreOptions(options, [
+    "expectedSha256", "entry", "maxMemoryPages", "maxModuleBytes",
+    "timeoutMs", "namespaceBindings", "threadPolicy"
+  ]);
+  const expectedSha256 = clean.expectedSha256;
+  const entry = clean.entry === undefined ? "main" : clean.entry;
+  const maxMemoryPages = clean.maxMemoryPages === undefined ? 2 : clean.maxMemoryPages;
+  const maxModuleBytes = clean.maxModuleBytes === undefined ? 16 * 1024 * 1024 : clean.maxModuleBytes;
+  const timeoutMs = clean.timeoutMs === undefined ? 2000 : clean.timeoutMs;
+  const namespaceBindings = clean.namespaceBindings === undefined ? null : clean.namespaceBindings;
+  const threadPolicy = clean.threadPolicy === undefined ? null : clean.threadPolicy;
+  if(threadPolicy!==null && threadPolicy!=="single-threaded")
+    throw new TypeError("unsupported guest threading policy");
   if (namespaceBindings !== null) {
     throw new TypeError("WASM namespace linking requires verified package index and reachable initialization");
   }
@@ -53,10 +46,11 @@ export async function runIsolatedCoreGuest(input, options = {}) {
   if (!Number.isSafeInteger(maxMemoryPages) || maxMemoryPages < 1 || maxMemoryPages > 256) {
     throw new TypeError("invalid maximum memory pages");
   }
-  if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
+  if (typeof entry !== "string" || entry.length > 128 || !/^[A-Za-z_][A-Za-z_0-9]*$/.test(entry)) {
     throw new TypeError("invalid guest entry");
   }
-  if (expectedSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedSha256)) {
+  if (expectedSha256 !== undefined &&
+      (typeof expectedSha256 !== "string" || !/^[a-f0-9]{64}$/.test(expectedSha256))) {
     throw new TypeError("invalid pinned SHA-256");
   }
   // Reject shared backing stores and oversize before any worker allocation.
@@ -96,7 +90,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
           // environment from the trusted parent into the Wasm worker.
           execArgv: [],
           env: {},
-          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
+          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes, threadPolicy}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
         timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
@@ -110,6 +104,7 @@ export async function runIsolatedCoreGuest(input, options = {}) {
                      message.admission.bytes !== bytes.length ||
                      message.admission.imports !== 0 ||
                      message.admission.hostCapabilities !== 0 ||
+                     message.admission.threadPolicy !== (threadPolicy || undefined) ||
                      !/^[a-f0-9]{64}$/.test(message.admission.sha256) ||
                      message.admission.sha256 !== submittedSha256 ||
                      (expectedSha256 !== undefined &&
