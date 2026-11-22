@@ -1,4 +1,5 @@
 import {createSocket} from 'node:dgram';
+import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 
 // Trusted Node host adapter ONLY. Not a Wasm/browser guest import; the embedding
 // host MUST provide its real, scoped permission engine as authorize().
@@ -20,11 +21,12 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
     });
   } catch(error) { try { socket.close() }catch{} throw error }
   const queue=[];
-  let queuedBytes=0, dropped=0, waiter=null, closed=false, terminalError=null;
+  let queuedBytes=0, dropped=0, waiter=null, closed=false, terminalError=null, closePromise=null;
   const pendingSends=new Set();
   const localPort=socket.address().port;
   const requireLocal=operation=>{
     if(closed) throw new Error('UDP socket closed');
+    if(terminalError) throw terminalError;
     authorize('127.0.0.1:'+port,operation);
   };
   const drop=()=>{if(dropped<2147483647)dropped++};
@@ -47,14 +49,15 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
     if(waiter){const w=waiter;waiter=null;w.cleanup();w.reject(error)}
   });
   const close=()=>{
-    if(closed)return Promise.resolve();
+    if(closePromise)return closePromise;
     closed=true;
     if(waiter){const w=waiter;waiter=null;w.cleanup();w.reject(new Error('UDP socket closed'))}
     for(const entry of queue)entry.bytes.fill(0);
     queue.length=0;queuedBytes=0;
     for(const s of pendingSends)s.reject(new Error('UDP socket closed'));
     pendingSends.clear();
-    return new Promise(resolve=>socket.close(resolve));
+    closePromise=new Promise(resolve=>socket.close(resolve));
+    return closePromise;
   };
   return Object.freeze({
     local_port:()=>localPort,
@@ -62,9 +65,9 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
     async send_to(bytes,peerPort){
       requireLocal('udp.send_to');
       if(!Number.isInteger(peerPort)||peerPort<1||peerPort>65535)throw new RangeError('peer port');
-      if(!(bytes instanceof Uint8Array)||bytes.length>65507)throw new TypeError('bounded UDP bytes required');
+      const detached=snapshotGuestBytes(bytes,65507);
       authorize('127.0.0.1:'+peerPort,'udp.send_to');
-      const snapshot=Buffer.from(bytes);
+      const snapshot=Buffer.from(detached);
       return new Promise((resolve,reject)=>{
         let settled=false;
         const entry={reject:error=>{if(settled)return;settled=true;pendingSends.delete(entry);reject(error)}};
@@ -79,13 +82,14 @@ export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, max
       requireLocal('udp.recv_from');
       if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
       if(waiter)throw new Error('concurrent UDP recv not permitted');
-      if(queue.length){const record=queue.shift();queuedBytes-=record.bytes.length;return Promise.resolve(handoff(record,capacity))}
       if(signal?.aborted)return Promise.reject(signal.reason??new Error('aborted'));
+      if(queue.length){const record=queue.shift();queuedBytes-=record.bytes.length;return Promise.resolve(handoff(record,capacity))}
       return new Promise((resolve,reject)=>{
         const w={resolve,reject,capacity,cleanup:()=>signal?.removeEventListener('abort',onAbort)};
         const onAbort=()=>{if(waiter===w)waiter=null;w.cleanup();reject(signal.reason??new Error('aborted'))};
         waiter=w;
         signal?.addEventListener('abort',onAbort,{once:true});
+        if(signal?.aborted)onAbort();
       });
     },
     close
