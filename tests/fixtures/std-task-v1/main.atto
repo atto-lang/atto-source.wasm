@@ -1,0 +1,21 @@
+// std/task portable local policy fixture. Expected successful return 42.
+// This is not proof of runtime task spawn, actual cancellation, or AOT.
+import module task_api from "std/task";
+pub fnc main(): int {
+  if task_api.deadline_reached(1, 2); do return 1; fi
+  if !task_api.deadline_reached(2, 2); do return 2; fi
+  if task_api.remaining_slots(1, 2) != 1; do return 3; fi
+  if task_api.remaining_slots(3, 2) != 0; do return 4; fi
+  let group = task_api.group_policy(7, 1);
+  if group.try_admit(6); do return 5; fi
+  if !group.try_admit(7); do return 6; fi
+  if group.try_admit(7); do return 7; fi
+  if group.ready_to_retire(); do return 8; fi
+  if !group.request_cancel(7); do return 9; fi
+  if group.try_admit(7); do return 10; fi
+  if group.ready_to_retire(); do return 11; fi
+  if !group.finish(7); do return 12; fi
+  if group.finish(7); do return 13; fi
+  if !group.ready_to_retire(); do return 14; fi
+  return 42;
+}
