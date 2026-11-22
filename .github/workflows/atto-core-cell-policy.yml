@@ -5,6 +5,8 @@ on:
     paths:
       - 'library/atto.core/cell.atto'
       - 'tests/**core*cell*'
+      - 'tests/heap-container-admission.test.mjs'
+      - 'scripts/compile-ores.mjs'
       - '.github/workflows/atto-core-cell-policy.yml'
   workflow_dispatch:
 permissions:
@@ -39,7 +41,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test tests/core-math-hash-cell-source.test.mjs
+          node --test tests/core-math-hash-cell-source.test.mjs tests/heap-container-admission.test.mjs
       - name: Report non-certifying source-only limit
         if: always()
         shell: bash
