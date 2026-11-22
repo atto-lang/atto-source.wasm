@@ -1,6 +1,9 @@
 # Atto `std/actor` — native `.atto` namespace
 
 **Namespace:** `use namespace std.actor;` (not `define module actor`).
+The optional runtime **profile** name `atto.runtime.actor` is a separate
+capability gate, not an importable alias or an implicit source namespace.
+See `atto-platform-conformance#320` for the eleven-backend parity contract.
 The current file is `stdlib/actor/policy.atto`. This is an owned compiler-local
 implementation; there is no shared source-SHA parity requirement.
 
@@ -22,8 +25,10 @@ The exposed predicates are `actor_mailbox_admissible`,
 - Failure kind 1 throw, 2 raise, 3 panic.
 - Restart spans use [first, end_exclusive). Invalid indexes return -1.
 - Restart intensity charges **each actual child restart** within the trusted window.
-- Cancellation is a request only; do not report `get_done()` or `ActorFuture`
-  completion until authenticated, physically quiescent runtime execution proves it.
+- Cancellation is only a request; an authenticated one-shot `ActorFuture<T>`
+  reply may settle before its producer actor stops. `get_done()` is a separate
+  lifecycle barrier, requiring actual physical turn, task, loan and output
+  retirement. Never equate a reply receipt with actor physical quiescence.
 - Trusted runtime must authenticate actor/parent incarnation, tenant, CONTROL,
   mailbox authority, the output close, task retirement and physical quiescence
   independently; boolean arguments supplied by guests are **not receipts**.
