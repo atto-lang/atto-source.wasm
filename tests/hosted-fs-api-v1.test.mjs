@@ -275,3 +275,24 @@ test('stream permits only one outstanding I/O including flush and close',async()
   assert.equal(decode(await fs.read_file(actor,'out')),'xy');
   fs.close();
 });
+
+
+test('PathLike text I/O and text preflight reject overlimit writes before mutation',async()=>{
+  const fs=make({maxFileBytes:4,maxTotalBytes:8});
+  const actor=fs.open_actor(1,1,adminGrants);
+  await fs.write_text(actor,new FsPath('note'),'ok');
+  assert.equal(await fs.read_text(actor,new FsPath('note')),'ok');
+  await assert.rejects(fs.write_text(actor,new FsPath('note'),'12345'),rejects('E_FS_LIMIT'));
+  assert.equal(await fs.read_text(actor,'note'),'ok');
+  assert.equal(fs.byte_count,2);
+  fs.close();
+});
+
+test('overlong network URL is denied without reaching host transport',async()=>{
+  let calls=0;
+  const fs=make({fetchImpl:()=>{calls++;throw Error('forbidden transport');}});
+  const actor=fs.open_actor(1,1,{network:true});
+  await assert.rejects(fs.request_bytes(actor,'x'.repeat(4096)),rejects('E_NET_URL'));
+  assert.equal(calls,0);
+  fs.close();
+});
