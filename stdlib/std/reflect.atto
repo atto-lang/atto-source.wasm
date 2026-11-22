@@ -1,0 +1,230 @@
+// Atto std/reflect: closed-world, source-owned, full-AOT-safe metadata model.
+//
+// This code never looks up host classes, executes runtime source, uses a JIT,
+// or invokes a member by string. Compiler-emitted descriptors are DATA only.
+// An ordinary constructed descriptor must never grant type/field authority.
+// Full reflection of user types requires backend static descriptor emission,
+// retention, and compile-time visibility/ownership admission.
+define module reflect as
+
+  // Compiler-local descriptor kinds (not a serialization ABI).
+  pub fnc valid_kind(int kind): bool {
+    return kind >= 1 && kind <= 8;
+  }
+
+  pub define class FieldInfo as
+    pub val String name;
+    pub val int type_id;
+
+    pub constructor(String name, int type_id) {
+      if name == "" || type_id <= 0; do
+        rt fail("std/reflect: invalid field descriptor");
+      fi
+      self.name = name;
+      self.type_id = type_id;
+    }
+  end
+
+  // Builder is owner-local until seal(). After sealing, source exposes only
+  // read-only metadata. Compiler emission must exclude private/sealed fields.
+  pub define class TypeInfo as
+    pub val int type_id;
+    pub val String name;
+    pub val int kind;
+    let mut Array<FieldInfo> fields = new Array<FieldInfo>();
+    let mut bool sealed = false;
+
+    pub constructor(int type_id, String name, int kind) {
+      if type_id <= 0 || name == "" || !valid_kind(kind); do
+        rt fail("std/reflect: invalid type descriptor");
+      fi
+      self.type_id = type_id;
+      self.name = name;
+      self.kind = kind;
+    }
+
+    pub add_field(mut self)(FieldInfo field): bool {
+      if self.sealed || self.fields.size >= 128; do
+        return false;
+      fi
+      let mut int i = 0;
+      while i < self.fields.size do
+        if self.fields.get(i).name == field.name; do
+          return false;
+        fi
+        i = i + 1;
+      done
+      self.fields.add(field);
+      return true;
+    }
+
+    pub seal(mut self)(): bool {
+      if self.sealed; do
+        return false;
+      fi
+      self.sealed = true;
+      return true;
+    }
+
+    pub is_sealed(): bool {
+      return self.sealed;
+    }
+
+    pub field_count(): int {
+      return self.fields.size;
+    }
+
+    // Lookup is bounded; -1 means absent. No raw field pointer escapes.
+    pub field_index(String name): int {
+      if name == ""; do
+        return -1;
+      fi
+      let mut int i = 0;
+      while i < self.fields.size do
+        if self.fields.get(i).name == name; do
+          return i;
+        fi
+        i = i + 1;
+      done
+      return -1;
+    }
+
+    pub field_name_at(int index): String {
+      if index < 0 || index >= self.fields.size; do
+        return "";
+      fi
+      return self.fields.get(index).name;
+    }
+
+    // 0 is the absent sentinel. Field type IDs are compiler-local, not casts.
+    pub field_type_id_at(int index): int {
+      if index < 0 || index >= self.fields.size; do
+        return 0;
+      fi
+      return self.fields.get(index).type_id;
+    }
+  end
+
+  // A finite image-local catalog. This is NOT a runtime class registry.
+  // Only a trusted compiler-generated closed-world manifest can claim to
+  // correspond to executable Atto types; arbitrary callers merely own data.
+  pub define class Catalog as
+    let mut Array<TypeInfo> types = new Array<TypeInfo>();
+    let mut bool sealed = false;
+
+    pub add_type(mut self)(TypeInfo info): bool {
+      if self.sealed || !info.is_sealed() || self.types.size >= 256; do
+        return false;
+      fi
+      let mut int i = 0;
+      while i < self.types.size do
+        if self.types.get(i).type_id == info.type_id ||
+           self.types.get(i).name == info.name; do
+          return false;
+        fi
+        i = i + 1;
+      done
+      self.types.add(info);
+      return true;
+    }
+
+    pub seal(mut self)(): bool {
+      if self.sealed; do
+        return false;
+      fi
+      self.sealed = true;
+      return true;
+    }
+
+    pub is_sealed(): bool {
+      return self.sealed;
+    }
+
+    pub type_count(): int {
+      return self.types.size;
+    }
+
+    pub find_type(String name): int {
+      if name == ""; do
+        return -1;
+      fi
+      let mut int i = 0;
+      while i < self.types.size do
+        if self.types.get(i).name == name; do
+          return i;
+        fi
+        i = i + 1;
+      done
+      return -1;
+    }
+
+    pub find_type_id(int type_id): int {
+      if type_id <= 0; do
+        return -1;
+      fi
+      let mut int i = 0;
+      while i < self.types.size do
+        if self.types.get(i).type_id == type_id; do
+          return i;
+        fi
+        i = i + 1;
+      done
+      return -1;
+    }
+
+    pub type_name_at(int index): String {
+      if index < 0 || index >= self.types.size; do
+        return "";
+      fi
+      return self.types.get(index).name;
+    }
+
+    pub type_id_at(int index): int {
+      if index < 0 || index >= self.types.size; do
+        return 0;
+      fi
+      return self.types.get(index).type_id;
+    }
+
+    pub type_kind_at(int index): int {
+      if index < 0 || index >= self.types.size; do
+        return 0;
+      fi
+      return self.types.get(index).kind;
+    }
+
+    pub type_field_count_at(int index): int {
+      if index < 0 || index >= self.types.size; do
+        return 0;
+      fi
+      return self.types.get(index).field_count();
+    }
+
+    pub type_field_name_at(int type_index, int field_index): String {
+      if type_index < 0 || type_index >= self.types.size; do
+        return "";
+      fi
+      return self.types.get(type_index).field_name_at(field_index);
+    }
+
+    pub type_field_type_id_at(int type_index, int field_index): int {
+      if type_index < 0 || type_index >= self.types.size; do
+        return 0;
+      fi
+      return self.types.get(type_index).field_type_id_at(field_index);
+    }
+  end
+
+  pub fnc field_info(String name, int type_id): FieldInfo {
+    return new FieldInfo(name, type_id);
+  }
+
+  pub fnc type_info(int type_id, String name, int kind): TypeInfo {
+    return new TypeInfo(type_id, name, kind);
+  }
+
+  pub fnc catalog(): Catalog {
+    return new Catalog();
+  }
+
+end
