@@ -174,3 +174,62 @@ test('append mode writes at EOF even after seek and does not truncate',async()=>
   assert.equal(await vfs.read_text(token,'append'),'abc');
   await port.close(id);vfs.close();
 });
+
+
+test('port rejects overlapping reads and seeks on one File with E_FS_BUSY',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('race',{read:true,write:true,create:true});
+  await port.write_text(id,'abcd');await port.seek(id,0);
+  const first=port.read_text(id);
+  const overlap=assert.rejects(port.seek(id,0),codeIs('E_FS_BUSY'));
+  const closeWhileBusy=assert.rejects(port.close(id),codeIs('E_FS_BUSY'));
+  await Promise.all([overlap,closeWhileBusy]);
+  assert.equal(await first,'abcd');
+  await port.close(id);vfs.close();
+});
+
+test('structured close_all rejects late success and cleans all handles',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('r',{read:true,write:true,create:true});
+  const inflight=port.write_text(id,'done');
+  const closeOne=port.close_all();
+  const closeTwo=port.close_all();
+  await assert.rejects(inflight,codeIs('E_FS_CLOSED'));
+  await Promise.all([closeOne,closeTwo]);
+  assert.equal(vfs.handle_count,0);
+  assert.equal(port.open_handle_count,0);
+  await assert.rejects(port.read_text(id),codeIs('E_FS_CLOSED'));
+  // A completed host write may have committed before cancellation: no
+  // promise of rollback and no automatic retry on uncertain outcome.
+  assert.equal(await vfs.read_text(ticket,'r'),'done');
+  vfs.close();
+});
+
+test('port denies overlapping write_file/read_file, preserves cursor and data',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('x',{read:true,write:true,create:true});
+  const write=port.write_file(id,enc('123'));
+  await assert.rejects(port.read_file(id),codeIs('E_FS_BUSY'));
+  await write;await port.seek(id,0);
+  const read=port.read_file(id);
+  await assert.rejects(port.write_file(id,enc('abc')),codeIs('E_FS_BUSY'));
+  assert.equal(dec(await read),'123');
+  await port.close(id);vfs.close();
+});
+
+test('port close fences an overlapping flush and prevents handle reuse',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('x',{read:true,write:true,create:true});
+  const flush=port.flush(id);
+  await assert.rejects(port.close(id),codeIs('E_FS_BUSY'));
+  await flush;
+  await port.close(id);
+  await assert.rejects(port.flush(id),codeIs('E_FS_CLOSED'));
+  const again=await port.open('x',{read:true});
+  assert.ok(again>id);
+  await port.close(again);vfs.close();
+});
