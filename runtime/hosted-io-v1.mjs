@@ -79,7 +79,10 @@ function checkedPath(path) {
 // Path value normalization is lexical only: remove redundant separators and
 // '.', but NEVER collapse '..' across the tenant boundary.
 function normalizedPath(value) {
-  if (typeof value!=='string' || value.length<1 || !value.isWellFormed() ||
+  // Reject large untrusted strings before split/filter allocate per-segment
+  // arrays. The final byte limit remains enforced by checkedPath().
+  if (typeof value!=='string' || value.length<1 || value.length>1024 ||
+      !value.isWellFormed() ||
       value.startsWith('/') || value.includes('\\') || value.includes(':') ||
       value.includes('\0')) fail('E_FS_PATH');
   const parts=value.split('/').filter(part=>part!=='' && part!=='.');
@@ -272,7 +275,9 @@ export class TenantHostedIoV1 {
     const actor = this.#actors.get(actorId);
     if (!actor || actor.generation !== generation || !actor.active) fail('E_IO_STALE');
     this.#revoke(actor);
-    this.#actors.delete(actorId);
+    // Keep this inactive incarnation as a bounded generation tombstone.
+    // If removed, a reused actor ID could reissue the same generation and
+    // replay a formerly revoked authority. maxActors bounds lifetime IDs.
   }
   close() {
     if (this.#closed) return;
