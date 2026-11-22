@@ -60,6 +60,7 @@ test("model: invalid byte, exact operation failure and zero-size semantics", () 
   assert.equal(p.write([]), 0);
   assert.equal(p.read(0), "InvalidReadSize");
   assert.equal(p.write([1,2,3],true), "WouldBlock");
+  assert.equal(p.write([1,2,300],true), "InvalidByte");
   assert.deepEqual(p.data, []);
   assert.equal(p.write([1,2]), 2);
   assert.equal(p.read(3,true), "WouldBlock");
@@ -106,8 +107,8 @@ class ModelSink {
   constructor(cap){ if(cap<1||cap>1048576)throw Error("InvalidCapacity");this.cap=cap;this.data=[];this.closed=false; }
   write(bytes,exact=false){
     if(this.closed)return "Closed";if(bytes.length>65536)return "InvalidWriteSize";
-    if(exact && bytes.length>this.cap-this.data.length)return "WouldBlock";
     if(bytes.some(b=>!Number.isInteger(b)||b<0||b>255))return "InvalidByte";
+    if(exact && bytes.length>this.cap-this.data.length)return "WouldBlock";
     if(!bytes.length)return 0;
     const n=Math.min(bytes.length,this.cap-this.data.length);
     if(!n)return "WouldBlock";this.data.push(...bytes.slice(0,n));return n;
@@ -128,7 +129,8 @@ test("model: sink preflight validation, atomic write_all, partial writes, snapsh
   const sink=new ModelSink(3);
   assert.equal(sink.write([1,300]),"InvalidByte");assert.deepEqual(sink.data,[]);
   assert.equal(sink.write([1,2]),2);
-  assert.equal(sink.write([3,4],true),"WouldBlock");assert.deepEqual(sink.data,[1,2]);
+  assert.equal(sink.write([3,4],true),"WouldBlock");
+  assert.equal(sink.write([3,300],true),"InvalidByte");assert.deepEqual(sink.data,[1,2]);
   assert.equal(sink.write([3,4]),1);
   const snapshot=sink.snapshot();snapshot[0]=7;assert.deepEqual(sink.data,[1,2,3]);
   assert.equal(sink.write([4]),"WouldBlock");sink.closed=true;
