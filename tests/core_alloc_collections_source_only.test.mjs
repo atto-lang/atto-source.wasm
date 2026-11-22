@@ -33,7 +33,7 @@ test("collection loans are read-only and outputs newly allocated",()=>{
   assert.match(code,/new Array<int>\(\)/);
   const bound=code.indexOf("values.size > 4096"), alloc=code.indexOf("new Array<int>()");
   assert.ok(bound>=0&&alloc>bound,"CPU budget must precede allocation");
-  assert.match(code,/return Ok\(output\)/);
+  assert.match(code,/return Ok\(rt take output\)/);
 });
 test("borrow fixtures are explicitly unexecuted semantic candidates",()=>{
   const manifest=JSON.parse(source("tests/fixtures/core-alloc-ownership/manifest.json"));
