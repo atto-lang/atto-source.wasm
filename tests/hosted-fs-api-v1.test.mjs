@@ -225,7 +225,7 @@ test('FsErrorKind translates host I/O permission, stale and invalid UTF-8',async
 
 
 test('revoked actor IDs cannot replay the same generation or evade actor-ID quota',async()=>{
-  const fs=make({maxActors:1});
+  const fs=make({maxActors:1,maxActorIds:1});
   const first=fs.open_actor(7,4,{read:true,write:true});
   await fs.write_file(first,'file',encode('secret'));
   fs.revoke_actor(7,4);
@@ -294,5 +294,21 @@ test('overlong network URL is denied without reaching host transport',async()=>{
   const actor=fs.open_actor(1,1,{network:true});
   await assert.rejects(fs.request_bytes(actor,'x'.repeat(4096)),rejects('E_NET_URL'));
   assert.equal(calls,0);
+  fs.close();
+});
+
+
+test('active actor quota is released on revoke while generation replay remains fenced',async()=>{
+  const fs=make({maxActors:1,maxActorIds:2});
+  const one=fs.open_actor(1,1,{read:true});
+  assert.throws(()=>fs.open_actor(2,1,{read:true}),rejects('E_IO_BUSY'));
+  fs.revoke_actor(1,1);
+  const two=fs.open_actor(2,1,{read:true});
+  assert.equal(await fs.exists(two,'missing'),false);
+  assert.throws(()=>fs.open_actor(1,1,{read:true}),rejects('E_IO_STALE'));
+  fs.revoke_actor(2,1);
+  const oneNew=fs.open_actor(1,2,{read:true});
+  assert.equal(await fs.exists(oneNew,'missing'),false);
+  await assert.rejects(fs.exists(one,'missing'),rejects('E_IO_STALE'));
   fs.close();
 });
