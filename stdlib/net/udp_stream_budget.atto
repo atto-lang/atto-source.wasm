@@ -1,36 +1,37 @@
-// Backend-owned .atto budgeting layer for std.net.udp recv_stream.
-// Account before enqueue, release on consumption/cancellation. This class
-// does NOT carry a socket, buffer, or OS permission. The actor that owns the
-// receive queue must serialize mutations; this is not a cross-actor lock.
-
+// Backend-owned AttoLang UDP receive-stream queue budget.
+// This object is actor-serialized state; not a cross-actor lock or socket.
+// Invalid capacities are fail-closed: no packet is ever admitted. The host
+// must still apply actor memory and NETWORK capabilities to real I/O.
 define module UdpStream as
-  pub define class Budget as
-    let int max_packets;
-    let int max_bytes;
-    let mut int packets = 0;
-    let mut int bytes = 0;
-    let mut int dropped = 0;
+  define pub class Budget as
+    mut int max_packets = 0;
+    mut int max_bytes = 0;
+    mut int packets = 0;
+    mut int bytes = 0;
+    mut int dropped = 0;
 
-    pub constructor(int max_packets, int max_bytes) {
-      if max_packets < 1 || max_packets > 65536; do
-        rt fail("UDP stream packet capacity must be 1..65536");
-      fi
-      if max_bytes < 1 || max_bytes > 16777216; do
-        rt fail("UDP stream byte capacity must be 1..16777216");
-      fi
-      self.max_packets = max_packets;
-      self.max_bytes = max_bytes;
+    constructor(int packet_limit, int byte_limit) {
+      self.max_packets = packet_limit;
+      self.max_bytes = byte_limit;
     }
 
-    // A zero-byte packet still consumes one packet slot.
-    pub try_admit(mut self)(int payload_bytes): bool {
-      if payload_bytes < 0; do return false; fi
-      if payload_bytes > 65527; do return false; fi
-      if self.packets >= self.max_packets; do
+    // Empty datagrams still consume one packet slot.
+    // Use subtraction only after verifying current occupancy is in bounds.
+    pub try_admit(int payload_bytes): bool {
+      if self.max_packets < 1 then return false; fi
+      if self.max_packets > 65536 then return false; fi
+      if self.max_bytes < 1 then return false; fi
+      if self.max_bytes > 16777216 then return false; fi
+      if self.packets < 0 then return false; fi
+      if self.bytes < 0 then return false; fi
+      if payload_bytes < 0 then return false; fi
+      if payload_bytes > 65527 then return false; fi
+      if self.packets >= self.max_packets then
         self.record_drop();
         return false;
       fi
-      if payload_bytes > self.max_bytes - self.bytes; do
+      if self.bytes > self.max_bytes then return false; fi
+      if payload_bytes > self.max_bytes - self.bytes then
         self.record_drop();
         return false;
       fi
@@ -39,18 +40,19 @@ define module UdpStream as
       return true;
     }
 
-    // Reject bogus or duplicate releases without corrupting accounting.
-    pub release(mut self)(int payload_bytes): bool {
-      if self.packets <= 0; do return false; fi
-      if payload_bytes < 0; do return false; fi
-      if payload_bytes > self.bytes; do return false; fi
+    // Release exactly one admitted datagram, never underflowing.
+    pub release(int payload_bytes): bool {
+      if self.packets <= 0 then return false; fi
+      if self.bytes < 0 then return false; fi
+      if payload_bytes < 0 then return false; fi
+      if payload_bytes > self.bytes then return false; fi
       self.packets = self.packets - 1;
       self.bytes = self.bytes - payload_bytes;
       return true;
     }
 
-    pub record_drop(mut self)(): void {
-      if self.dropped < 2147483647; do
+    pub record_drop(): void {
+      if self.dropped < 2147483647 then
         self.dropped = self.dropped + 1;
       fi
     }
