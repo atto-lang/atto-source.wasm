@@ -40,9 +40,15 @@ passed 128 unique nonces, authenticated roundtrip, wrong-key and
 tamper rejection, and key closure. A direct WebCrypto test also
 passed the NIST empty-message AES-256-GCM tag
 `530f8afbc74536b9a963b4f1c4cb738b`.
-**Repository test files and actual Wasm guest compiler/AOT tests
-are NOT_EXECUTED**; this is not yet an Atto `std.crypto` import
-or guest-facing crypto capability.
+**The repository's exact Node source tests have now been executed
+locally under Node 22: 3/3 passed, 0 skipped.** Git blob SHAs:
+`webcrypto-aead-host-v1.test.mjs`
+`1b3cd6b4f4e3d72f3068c156b0f19b13b16f42a8`,
+`crypto-aead-known-vector.test.mjs`
+`06cfef60b8549152cac8d00d0b20be717f1a1108`.
+This is still **host-only**: actual Wasm guest compiler/AOT tests remain
+NOT_EXECUTED, and there is no Atto `std.crypto` import or
+guest-facing crypto capability wired to this host.
 
 ## Public API to implement
 
