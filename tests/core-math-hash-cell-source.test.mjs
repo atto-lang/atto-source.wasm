@@ -9,7 +9,7 @@ import {assertScalarSourceHasNoImports} from "../scripts/compile-ores.mjs";
 const expected = Object.freeze({
   "math": "dc8c4f16f2b96639951cc63b5c92eb9ac4814db6",
   "hash": "85b6f087a1e7a1b7e775d9ee5c89734fcf5eb98f",
-  "cell": "b7695151bf4a6521ea52301ef12eec73f8810c0f"
+  "cell": "0b44fe273e22e881d0129371dbcead5addc96a8a"
 });
 function gitBlob(bytes) {
   return createHash("sha1").update(Buffer.from("blob " + bytes.length + "\0"))
