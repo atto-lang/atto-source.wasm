@@ -90,7 +90,7 @@ test('mutated boundaries, spoofed exports and hosted imports are rejected',()=>{
   ];
   for(const changed of variants){assert.notEqual(changed,source);assert.throws(()=>check(changed));}
 });
-test('positive linked fixture and all four compiler-negative fixtures are present',()=>{
+test('positive linked fixture and all six compiler-negative fixtures are present',()=>{
   assert.match(positive,/import \* as types from "\.\.\/\.\.\/\.\.\/core\/types\.atto";/);
   assert.match(positive,/pub fnc main\(\) -> int/);
   for(const name of names)assert.ok(positive.includes('types.'+name+'('),name);
@@ -98,7 +98,9 @@ test('positive linked fixture and all four compiler-negative fixtures are presen
     ['void-value-negative.atto',/let void invalid/],
     ['void-return-negative.atto',/fnc bad\(\) -> void\s*\{\s*return 7;/],
     ['bool-truthiness-negative.atto',/if 1; do/],
-    ['i64-literal-overflow-negative.atto',/9223372036854775808/]
+    ['i64-literal-overflow-negative.atto',/9223372036854775808/],
+    ['wrong-arg-negative.atto',/types\.fits_u8\(true\)/],
+    ['u64-outside-int-negative.atto',/types\.fits_u64\(18446744073709551615\)/]
   ];
   for(const [file,pattern] of required){
     const body=readFileSync(new URL(file,fixtureRoot),'utf8');
