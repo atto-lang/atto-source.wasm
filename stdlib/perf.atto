@@ -29,6 +29,8 @@ define module Perf as
     if sample_key < 0 || every_n < 1 || every_n > 65536; do
       return false;
     fi
-    return (sample_key % every_n) == 0;
+    // Division is guarded above; quotient*divisor cannot exceed sample_key.
+    // This avoids the reserved '%' source token across Atto compilers.
+    return (sample_key / every_n) * every_n == sample_key;
   }
 end
