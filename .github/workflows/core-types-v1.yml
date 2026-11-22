@@ -4,6 +4,7 @@ on:
     paths:
       - 'core/types.atto'
       - 'tests/core-types-source.test.mjs'
+      - 'tests/core-types-matrix-source.test.mjs'
       - 'tests/fixtures/core-types-v1/**'
       - '.github/workflows/core-types-v1.yml'
   workflow_dispatch:
@@ -31,7 +32,7 @@ jobs:
       - name: Run freestanding Atto source oracle and mutation controls
         run: |
           set -euo pipefail
-          node --test tests/core-types-source.test.mjs
+          node --test tests/core-types-source.test.mjs tests/core-types-matrix-source.test.mjs
           echo 'CORE_TYPES_SOURCE_ONLY=PASS'
           echo 'CORE_TYPES_COMPILED_GUEST=NOT_EXECUTED_BY_THIS_JOB'
       - name: Preserve evidence boundary
