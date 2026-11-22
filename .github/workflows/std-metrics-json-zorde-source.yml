@@ -13,6 +13,7 @@ on:
       - '.github/workflows/std-metrics-json-zorde-source.yml'
       - 'contracts/core-borrow-preflight-v1.json'
       - 'tests/core-borrow-preflight-source.test.mjs'
+      - 'tests/fixtures/core-borrow-v1/**'
       - 'stdlib/core/borrow_admission.atto'
   workflow_dispatch:
 permissions:
