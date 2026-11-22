@@ -53,7 +53,7 @@ function checkedPath(path) {
   if (typeof path !== 'string' || path.length < 1 || path.length > 256 ||
       path.startsWith('/') || path.includes('\\') || path.includes(':') ||
       !path.isWellFormed() ||
-      /[\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]/u.test(path) ||
+      /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/u.test(path) ||
       textEncoder.encode(path).length > 256) fail('E_FS_PATH');
   const p = path.startsWith('./') ? path.slice(2) : path;
   const parts = p.split('/');
