@@ -68,7 +68,7 @@ test("UDP close rejects a pending receive, retires its queue, and is idempotent"
   await closing;
   await receiver.close();
   assert.equal(receiver.stats().queued_packets,0);
-  await assert.rejects(receiver.recv_from(8),/closed/);
+  assert.throws(()=>receiver.recv_from(8),/closed/);
  } finally { await sender.close(); await receiver.close(); }
 });
 
