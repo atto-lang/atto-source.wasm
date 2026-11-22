@@ -10,7 +10,7 @@ This implementation belongs to `atto-source.wasm`. It is independently maintaine
 
 This backend does **not** yet have a certified `.atto` LogEntry, bounded actor-owned Buffer, single-consumer ACK, permission-checked async stderr/stdout/file sink, UTF-8 size authentication, cancellation/supervisor teardown, or exact guest/AOT execution. On browsers/unsupported targets, do not pretend that a native file/console writer exists. These pieces must follow independently for this backend.
 
-`node --test tests/log_policy_contract.test.mjs` checks the source-extracted scalar policy against a severity/threshold matrix and byte-boundary cases. The check is explicitly **SOURCE-ONLY**, not this compiler compiling or executing `.atto`. The workflow pins an exact PR head. Require real nonempty runner steps for CI credit; `steps=[]`/no runner is NOT_EXECUTED. Do not export private sources across organizations without independently authenticated export authorization.
+`node --test tests/log_policy_contract.test.mjs` uses the fail-closed, no-eval `tests/atto_pure_subset.mjs` parser to interpret a tiny scalar source subset across a severity/threshold matrix and byte-boundary cases. The **6/6 local checks** cover both semantics and parser rejection of unsupported host syntax; they remain source-only. The check is explicitly **SOURCE-ONLY**, not this compiler compiling or executing `.atto`. The workflow pins an exact PR head. Require real nonempty runner steps for CI credit; `steps=[]`/no runner is NOT_EXECUTED. Do not export private sources across organizations without independently authenticated export authorization.
 
 ### Convergence target
 
