@@ -131,3 +131,39 @@ test('UDP buffered packet source is reauthorized at dequeue after revocation',as
   assert.deepEqual(Array.from((await pending).bytes),[5]);
  }finally{await sender.close();await receiver.close()}
 });
+
+test('UDP stream return cancels a pending receive and releases its socket watch',async()=>{
+  const receiver=await openNodeUdpLoopback({authorize});
+  const sender=await openNodeUdpLoopback({authorize});
+  try{
+    const stream=receiver.recv_stream(8);
+    const pending=stream.next();
+    const stopped=await stream.return();
+    assert.equal(stopped.done,true);
+    const retired=await Promise.race([pending,new Promise((_,reject)=>
+      setTimeout(()=>reject(new Error('UDP stream return did not cancel pending read')),1000))]);
+    assert.equal(retired.done,true);
+    assert.equal((await stream.next()).done,true);
+    const fresh=receiver.recv_from(8);
+    await sender.send_to(new Uint8Array([99]),receiver.local_port());
+    assert.deepEqual(Array.from((await fresh).bytes),[99]);
+  }finally{await sender.close();await receiver.close();}
+});
+
+test('UDP stream rejects concurrent next and external cancellation retires read',async()=>{
+  const receiver=await openNodeUdpLoopback({authorize});
+  try{
+    const cancelled=new AbortController();
+    const stream=receiver.recv_stream(8,{signal:cancelled.signal});
+    const pending=stream.next();
+    await assert.rejects(stream.next(),/concurrent UDP stream.next/);
+    cancelled.abort(new Error('stream external cancellation'));
+    await assert.rejects(pending,/stream external cancellation/);
+    await stream.return();
+    assert.equal((await stream.next()).done,true);
+    const retry=new AbortController();
+    const pending2=receiver.recv_from(8,{signal:retry.signal});
+    retry.abort();
+    await assert.rejects(pending2);
+  }finally{await receiver.close();}
+});
