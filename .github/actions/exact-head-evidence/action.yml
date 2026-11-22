@@ -1,0 +1,45 @@
+name: Exact-head evidence gate
+description: Verify exact Git commit/tree/blob inputs and keep host/source-only evidence distinct from guest execution.
+inputs:
+  expected_head:
+    description: Full expected 40-character commit SHA from the triggering event.
+    required: true
+  manifest_path:
+    description: Repository-relative TSV manifest of Git blob SHA, tab, path entries.
+    required: true
+  manifest_sha:
+    description: Reviewed full Git blob SHA of the manifest itself.
+    required: true
+  evidence_class:
+    description: host-only, source-only, or guest-executed.
+    required: true
+  guest_receipt_path:
+    description: Runtime receipt generated only after guest tests in this same job.
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Compile exact-head verifier
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        rustc --edition=2021 --deny warnings "$ACTION_PATH/../../../verification/exact-head-evidence.rs" -o "$RUNNER_TEMP/oreslang-exact-head-evidence"
+    - name: Verify checkout, manifest and evidence classification
+      shell: bash
+      env:
+        EXPECTED_HEAD: ${{ inputs.expected_head }}
+        MANIFEST_PATH: ${{ inputs.manifest_path }}
+        MANIFEST_SHA: ${{ inputs.manifest_sha }}
+        EVIDENCE_CLASS: ${{ inputs.evidence_class }}
+        GUEST_RECEIPT_PATH: ${{ inputs.guest_receipt_path }}
+      run: |
+        set -euo pipefail
+        if [[ "$EVIDENCE_CLASS" == "guest-executed" ]]; then
+          test -n "$GUEST_RECEIPT_PATH"
+          "$RUNNER_TEMP/oreslang-exact-head-evidence" "$GITHUB_WORKSPACE" "$EXPECTED_HEAD" "$MANIFEST_PATH" "$MANIFEST_SHA" "$EVIDENCE_CLASS" "$GUEST_RECEIPT_PATH"
+        else
+          test -z "$GUEST_RECEIPT_PATH"
+          "$RUNNER_TEMP/oreslang-exact-head-evidence" "$GITHUB_WORKSPACE" "$EXPECTED_HEAD" "$MANIFEST_PATH" "$MANIFEST_SHA" "$EVIDENCE_CLASS"
+        fi

@@ -26,13 +26,20 @@ export class PooledWasmActors {
   #mailboxCapacity;
   #timeoutMs;
   #isolation;
+  #threadPolicy;
 
   // 'dedicated': at most one live actor per Worker. This contains even an
   // uninstrumented native Wasm stack trap to that actor's fault domain, at
   // the price of reduced concurrency. 'shared' retains the original pooling
   // behavior and requires compiler-checked frames for actor-only faults.
-  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16,
-    timeoutMs = 2000, isolation = 'shared'} = {}) {
+  constructor({workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
+    isolation = 'shared', threadPolicy = null} = {}) {
+    // Every admitted actor owns private, import-free, non-shared linear memory.
+    // A single OS Worker serializes all turns of actors assigned to it;
+    // distinct workers may execute disjoint actor memories in parallel.
+    if (threadPolicy !== null && threadPolicy !== 'single-threaded')
+      throw new TypeError('unsupported WASM actor pool threading policy');
+    this.#threadPolicy = threadPolicy;
     bounded(workers, 1, 4, 'worker count');
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
@@ -55,6 +62,7 @@ export class PooledWasmActors {
     }
   }
   get isolation() {return this.#isolation;}
+  get threadPolicy() {return this.#threadPolicy;}
   get workerCount() {return this.#carriers.length;}
   get actorCount() {return this.#actors.size;}
   get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}

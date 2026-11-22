@@ -233,3 +233,184 @@ test('registry Map lookup survives prototype replacement after import', async ()
   assert.equal(await registry.send(reduced, 1n, 2n), 2n);
   await registry.close();
 });
+
+
+test('registry close waits for a late spawn to stop physically before reporting success', async () => {
+  let resolveSpawn, resolveStop, stopStarted = false, closeSettled = false;
+  const pool = {
+    spawn: () => new Promise(resolve => { resolveSpawn = resolve; }),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+  const closing = registry.close().then(() => {closeSettled = true;});
+  // Drain enough microtasks to catch a close that only waits on pool.close()
+  // but incorrectly omits this pending spawn from its admission barrier.
+  for (let i = 0; i < 16; i++) await Promise.resolve();
+  assert.equal(closeSettled, false, 'close must await the pending spawn');
+  resolveSpawn({
+    send: async () => 1n,
+    stop: () => {stopStarted = true; return new Promise(resolve => {resolveStop = resolve;});}
+  });
+  for (let i = 0; i < 8 && !stopStarted; i++) await Promise.resolve();
+  assert.equal(stopStarted, true, 'the late successor must not be orphaned');
+  assert.equal(closeSettled, false, 'pool close alone is not a teardown barrier');
+  resolveStop();
+  await assert.rejects(spawning, /closed while spawning/);
+  await closing;
+  assert.equal(closeSettled, true);
+  assert.equal(registry.actorCount, 0);
+});
+
+test('registry close retains a quarantined late spawn if its stop ACK fails', async () => {
+  let resolveSpawn;
+  const pool = {
+    spawn: () => new Promise(resolve => {resolveSpawn = resolve;}),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+  const closing = registry.close();
+  resolveSpawn({send: async () => 1n,
+    stop: async () => {throw Error('physical retirement unknown');}});
+  await assert.rejects(spawning, /late spawned actor retirement unconfirmed/);
+  await assert.rejects(closing, /cannot prove late-spawn retirement/);
+  assert.equal(registry.actorCount, 1,
+    'an unconfirmed physical worker retains its registry identity');
+});
+
+
+test('rotation begun before close cannot publish a late successor after pool shutdown', async () => {
+  let resolveSuccessor, stopSuccessor;
+  let spawnCalls = 0, stops = 0, closeSettled = false;
+  const handle = (wait = false) => ({
+    send: async () => 1n,
+    stop: async () => {
+      stops++;
+      if (wait) await new Promise(resolve => {stopSuccessor = resolve;});
+    }
+  });
+  const pool = {
+    spawn: () => ++spawnCalls === 1 ? Promise.resolve(handle()) :
+      new Promise(resolve => {resolveSuccessor = resolve;}),
+    close: async () => {}
+  };
+  const registry = new NativeWasmActorRegistry({pool});
+  const root = await registry.spawn(new Uint8Array([0]), {trusted:true});
+  const rotating = registry.rotate(root, new Uint8Array([1]), {trusted:true});
+  for (let n = 0; n < 10 && !resolveSuccessor; n++) await Promise.resolve();
+  assert.equal(typeof resolveSuccessor, 'function');
+  const closing = registry.close().then(() => {closeSettled = true;});
+  resolveSuccessor(handle(true));
+  for (let n = 0; n < 10 && !stopSuccessor; n++) await Promise.resolve();
+  assert.equal(typeof stopSuccessor, 'function');
+  assert.equal(closeSettled, false, 'late successor stop must hold close barrier');
+  stopSuccessor();
+  await assert.rejects(rotating, /revoked or registry closed during rotation/);
+  await closing;
+  assert.equal(registry.actorCount, 0);
+  assert.equal(spawnCalls, 2);
+  assert.equal(stops, 2);
+});
+
+
+test('ActorRef delegated depth is bounded without revoking valid ancestors', async () => {
+  const {registry,spawn} = fixture();
+  const root = await spawn();
+  let descendant = root;
+  for (let i = 0; i < 64; i++)
+    descendant = registry.attenuate(descendant, {send:true,stop:false});
+  assert.throws(() => registry.attenuate(descendant, {send:true,stop:false}),
+    /attenuation depth exceeded/);
+  assert.equal(await registry.send(root,1n,2n),2n);
+  assert.equal(await registry.send(descendant,2n,3n),5n);
+  await registry.close();
+});
+
+test('ActorRef grant exhaustion is fail-atomic and revocation is not a quota refund', async () => {
+  const {registry,spawn} = fixture();
+  const root = await spawn();
+  // One root + 4095 delegated grants: exact maximum of 4096.
+  let last;
+  for (let i = 0; i < 4095; i++)
+    last = registry.attenuate(root, {send:true,stop:false});
+  assert.throws(() => registry.attenuate(root, {send:true,stop:false}),
+    /grant capacity exceeded/);
+  registry.revoke(last);
+  assert.throws(() => registry.attenuate(root, {send:true,stop:false}),
+    /grant capacity exceeded/,
+    'revoke does not prove the host/guest discarded every copy of a grant');
+  assert.equal(await registry.send(root,1n,7n),7n);
+  await registry.close();
+});
+
+
+test('poisoned native collection iterators cannot bypass in-flight shutdown fences', async () => {
+  let resolveSpawn, resolveStop, stopped = false, closeSettled = false;
+  const registry = new NativeWasmActorRegistry({pool: {
+    spawn: () => new Promise(resolve => {resolveSpawn = resolve;}),
+    close: async () => {}
+  }});
+  const setCursor = Object.getPrototypeOf(new Set().values());
+  const mapCursor = Object.getPrototypeOf(new Map().values());
+  const old = {
+    setAdd: Set.prototype.add,
+    setDelete: Set.prototype.delete,
+    setValues: Set.prototype.values,
+    setNext: setCursor.next,
+    mapValues: Map.prototype.values,
+    mapNext: mapCursor.next
+  };
+  let spawning, closing;
+  try {
+    Set.prototype.add = () => {throw Error('poisoned Set.add');};
+    Set.prototype.delete = () => {throw Error('poisoned Set.delete');};
+    Set.prototype.values = () => {throw Error('poisoned Set.values');};
+    setCursor.next = () => ({done:true});
+    Map.prototype.values = () => {throw Error('poisoned Map.values');};
+    mapCursor.next = () => ({done:true});
+    spawning = registry.spawn(new Uint8Array([0]), {trusted:true});
+    closing = registry.close().then(() => {closeSettled = true;});
+  } finally {
+    Set.prototype.add = old.setAdd;
+    Set.prototype.delete = old.setDelete;
+    Set.prototype.values = old.setValues;
+    setCursor.next = old.setNext;
+    Map.prototype.values = old.mapValues;
+    mapCursor.next = old.mapNext;
+  }
+  await Promise.resolve();
+  assert.equal(closeSettled, false);
+  resolveSpawn({send:async()=>1n, stop: () => {
+    stopped = true;
+    return new Promise(resolve=>{resolveStop=resolve;});
+  }});
+  for (let i=0; i<8 && !stopped; i++) await Promise.resolve();
+  assert.equal(stopped, true, 'late actor must not survive via poisoned iterators');
+  assert.equal(closeSettled, false);
+  resolveStop();
+  await assert.rejects(spawning, /closed while spawning/);
+  await closing;
+  assert.equal(closeSettled, true);
+  assert.equal(registry.actorCount, 0);
+});
+
+test('poisoned Map iterator cannot conceal live actors during close', async () => {
+  const {registry,spawn,events} = fixture();
+  const root = await spawn();
+  const mapCursor = Object.getPrototypeOf(new Map().values());
+  const oldValues = Map.prototype.values, oldNext = mapCursor.next;
+  let closing;
+  try {
+    Map.prototype.values = () => {throw Error('poisoned Map.values');};
+    mapCursor.next = () => ({done:true});
+    closing = registry.close();
+  } finally {
+    Map.prototype.values = oldValues;
+    mapCursor.next = oldNext;
+  }
+  await closing;
+  assert.deepEqual(events, ['spawn','close']);
+  assert.equal(registry.actorCount, 0);
+  await assert.rejects(registry.send(root,1n,1n), /registry closed/);
+});

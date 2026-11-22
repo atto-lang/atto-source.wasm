@@ -1,0 +1,38 @@
+name: CPU GPU task v2 canonical contract parity
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/v2/cpu-gpu-task-unsupported-v2.json'
+      - 'contracts/v2/check_cpu_gpu_task_v2_contract.py'
+      - '.github/workflows/cpu-gpu-task-v2-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact private Wasm source head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source identity and checkout head
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_PRIVATE: ${{ github.event.repository.private }}
+          SOURCE_REPO_ID: ${{ github.repository_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = ores-truffle-oreslang/oreslang-source.wasm
+          test "$SOURCE_REPO_ID" = 1419858954
+          test "$SOURCE_PRIVATE" = true
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test -z "$(git status --porcelain --untracked-files=normal)"
+      - name: Verify cross-backend canonical case IDs, bytes and negative controls
+        run: python3 -I contracts/v2/check_cpu_gpu_task_v2_contract.py --self-test

@@ -322,3 +322,25 @@ test('failed carrier cannot settle admitted work before delayed physical termina
     await pool.close();
   }
 });
+
+
+test('single-threaded policy executes private actors on distinct workers without merging memories', async () => {
+  const wasm = compile();
+  const pool = new PooledWasmActors({workers: 2, threadPolicy: 'single-threaded'});
+  try {
+    assert.equal(pool.threadPolicy, 'single-threaded');
+    assert.equal(pool.workerCount, 2,
+      'disjoint private guest memories do not require one OS thread per process');
+    const a = await pool.spawn(wasm, {trusted:true, expectedSha256:pin(wasm)});
+    const b = await pool.spawn(wasm, {trusted:true, expectedSha256:pin(wasm)});
+    assert.deepEqual(await Promise.all([a.send(3n),b.send(7n)]),[3n,7n]);
+    assert.deepEqual(await Promise.all([a.send(4n),b.send(2n)]),[7n,9n]);
+    await Promise.all([a.stop(),b.stop()]);
+  } finally {
+    await pool.close();
+  }
+  assert.throws(() => new PooledWasmActors({threadPolicy:'unbounded'}),
+    /unsupported WASM actor pool threading policy/);
+  assert.throws(() => new PooledWasmActors({threadPolicy:2}),
+    /unsupported WASM actor pool threading policy/);
+});

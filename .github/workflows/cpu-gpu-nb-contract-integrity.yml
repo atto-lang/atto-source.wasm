@@ -1,0 +1,23 @@
+name: CPU-GPU-nb pinned source contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  contract-integrity:
+    name: cpu-gpu-nb-contract-integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact proposed source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Run exact Git-blob source contract and adversarial self-tests
+        run: python3 -I contracts/v1/check_cpu_gpu_nb_contract.py --self-test
