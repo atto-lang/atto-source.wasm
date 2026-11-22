@@ -3,37 +3,36 @@
 // These are VALUE widths and range admission checks, not host ABI size/alignment.
 // int is signed i64. A bool is not an integer and void is not a value.
 // Do not use these functions as an unchecked cast or as nominal TypeId.
-define pub module types as
-  pub fnc int_value_bits() -> int { return 64; }
-  pub fnc bool_value_bits() -> int { return 1; }
-  pub fnc byte_value_bits() -> int { return 8; }
+use namespace types;
+pub fnc int_value_bits() -> int { return 64; }
+pub fnc bool_value_bits() -> int { return 1; }
+pub fnc byte_value_bits() -> int { return 8; }
 
-  pub fnc int_min_value() -> int { return -9223372036854775807 - 1; }
-  pub fnc int_max_value() -> int { return 9223372036854775807; }
+pub fnc int_min_value() -> int { return -9223372036854775807 - 1; }
+pub fnc int_max_value() -> int { return 9223372036854775807; }
 
-  pub fnc fits_i8(int value) -> bool {
-    return value >= -128 && value <= 127;
-  }
-  pub fnc fits_i16(int value) -> bool {
-    return value >= -32768 && value <= 32767;
-  }
-  pub fnc fits_i32(int value) -> bool {
-    return value >= -2147483648 && value <= 2147483647;
-  }
-  pub fnc fits_i64(int value) -> bool {
-    return true; // int is an i64 input; no conversion or allocation occurs.
-  }
+pub fnc fits_i8(int value) -> bool {
+  return value >= -128 && value <= 127;
+}
+pub fnc fits_i16(int value) -> bool {
+  return value >= -32768 && value <= 32767;
+}
+pub fnc fits_i32(int value) -> bool {
+  return value >= -2147483648 && value <= 2147483647;
+}
+pub fnc fits_i64(int value) -> bool {
+  return true; // int is an i64 input; no conversion or allocation occurs.
+}
 
-  pub fnc fits_u8(int value) -> bool {
-    return value >= 0 && value <= 255;
-  }
-  pub fnc fits_u16(int value) -> bool {
-    return value >= 0 && value <= 65535;
-  }
-  pub fnc fits_u32(int value) -> bool {
-    return value >= 0 && value <= 4294967295;
-  }
-  pub fnc fits_u64(int value) -> bool {
-    return value >= 0; // Only checks signed-int -> u64 representability.
-  }
-end
+pub fnc fits_u8(int value) -> bool {
+  return value >= 0 && value <= 255;
+}
+pub fnc fits_u16(int value) -> bool {
+  return value >= 0 && value <= 65535;
+}
+pub fnc fits_u32(int value) -> bool {
+  return value >= 0 && value <= 4294967295;
+}
+pub fnc fits_u64(int value) -> bool {
+  return value >= 0; // Only checks signed-int -> u64 representability.
+}

@@ -17,12 +17,12 @@ const widths={int_value_bits:64n,bool_value_bits:1n,byte_value_bits:8n,
 const names=[...Object.keys(widths),...Object.keys(ranges)];
 function parseSource(raw){
   const src=raw.replace(/\/\/[^\r\n]*/g,'').trim();
-  assert.match(src,/^define pub module types as\s/);
-  assert.match(src,/\bend\s*$/);
+  assert.match(src,/^use namespace types;\s/);
+  assert.doesNotMatch(src,/\bdefine\s+(?:pub\s+)?module\b/);
   assert.doesNotMatch(src,/\b(import|alloc|std|ffi|extern|host|reflect|await|spawn|unsafe|new|rt)\b|\busing\s+/);
   const decl=/pub fnc ([a-z][a-z_0-9]*)\((int value)?\) -> (int|bool) \{\s*return ([^;{}]+);\s*\}/g;
   const matches=[...src.matchAll(decl)];
-  const remaining=src.replace(decl,'').replace(/^define pub module types as\s*/,'').replace(/\bend\s*$/,'').trim();
+  const remaining=src.replace(decl,'').replace(/^use namespace types;\s*/,'').trim();
   assert.equal(remaining,'','non-reference code must be reviewed rather than guessed');
   assert.equal(matches.length,names.length);
   const result=new Map();
@@ -84,13 +84,13 @@ test('mutated boundaries, spoofed exports and hosted imports are rejected',()=>{
     source.replace('value <= 127','value <= 128'),
     source.replace('value >= 0; // Only checks signed-int','value >= -1; // Only checks signed-int'),
     source.replace('return true; // int is an i64','return false; // int is an i64'),
-    source.replace('define pub module types as','define module types as'),
+    source.replace('use namespace types;','use namespace hostile;'),
     source.replace('pub fnc fits_i8','pub fnc fits_i16'),
     source+'\nimport * as fs from "std/fs";'
   ];
   for(const changed of variants){assert.notEqual(changed,source);assert.throws(()=>check(changed));}
 });
-test('positive linked fixture and all six compiler-negative fixtures are present',()=>{
+test('positive linked fixture and all eight compiler-negative fixtures are present',()=>{
   assert.match(positive,/import \* as types from "\.\.\/\.\.\/\.\.\/core\/types\.atto";/);
   assert.match(positive,/pub fnc main\(\) -> int/);
   for(const name of names)assert.ok(positive.includes('types.'+name+'('),name);
@@ -100,7 +100,9 @@ test('positive linked fixture and all six compiler-negative fixtures are present
     ['bool-truthiness-negative.atto',/if 1; do/],
     ['i64-literal-overflow-negative.atto',/9223372036854775808/],
     ['wrong-arg-negative.atto',/types\.fits_u8\(true\)/],
-    ['u64-outside-int-negative.atto',/types\.fits_u64\(18446744073709551615\)/]
+    ['u64-outside-int-negative.atto',/types\.fits_u64\(18446744073709551615\)/],
+    ['namespace-duplicate-negative.atto',/use namespace wrong;/],
+    ['namespace-late-negative.atto',/use namespace late;/]
   ];
   for(const [file,pattern] of required){
     const body=readFileSync(new URL(file,fixtureRoot),'utf8');
