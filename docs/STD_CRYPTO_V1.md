@@ -35,17 +35,27 @@ node --test tests/crypto-aead-known-vector.test.mjs
 
 An isolated **Node 22** smoke test of the exact committed
 `webcrypto-aead-host-v1.mjs` source, blob SHA
-`5f922970a4809c424e3d721316befff2112ffb18`,
+`aa5b96e6ef0930c4146864ddd5716eecffdbe700`,
 passed 128 unique nonces, authenticated roundtrip, wrong-key and
 tamper rejection, and key closure. A direct WebCrypto test also
 passed the NIST empty-message AES-256-GCM tag
 `530f8afbc74536b9a963b4f1c4cb738b`.
 **The repository's exact Node source tests have now been executed
-locally under Node 22: 3/3 passed, 0 skipped.** Git blob SHAs:
+locally under Node 22: 4/4 passed, 0 skipped.** Git blob SHAs:
 `webcrypto-aead-host-v1.test.mjs`
-`1b3cd6b4f4e3d72f3068c156b0f19b13b16f42a8`,
+`bb61a5b0e7637ecc6008e708f5968dc432b79dff`,
 `crypto-aead-known-vector.test.mjs`
 `06cfef60b8549152cac8d00d0b20be717f1a1108`.
+The hardened bridge now explicitly rejects `SharedArrayBuffer`-backed
+AAD/plaintext/ciphertext/nonce inputs, because another worker could
+mutate the underlying shared bytes concurrently with an encryption
+snapshot. Sealing rejects with a typed error; opening uses the same
+uniform authentication-failure result. The additional fourth Node test
+covers these races. The exact hardened blobs are
+`aa5b96e6ef0930c4146864ddd5716eecffdbe700`
+(bridge) and `bb61a5b0e7637ecc6008e708f5968dc432b79dff`
+(test).
+
 This is still **host-only**: actual Wasm guest compiler/AOT tests remain
 NOT_EXECUTED, and there is no Atto `std.crypto` import or
 guest-facing crypto capability wired to this host.
