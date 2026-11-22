@@ -1,0 +1,66 @@
+// WASM-owned AttoLang process admission source, pure checks only.
+// Browser Wasm has no native child-process capability; pure checks do not supply one.
+// Host must check actual RUN capability and canonical command grants. Success
+// here never authorizes spawning or grants OS handles.
+define module ProcessPolicy as
+  // 0=closed, 1=inherit, 2=pipe; other redirections require extra grants.
+  pub fnc stdio_mode_valid(int mode): bool {
+    return mode >= 0 && mode <= 2;
+  }
+  pub fnc stdio_shape_admissible(int stdin_mode, int stdout_mode, int stderr_mode): bool {
+    if stdio_mode_valid(stdin_mode) == false then return false; fi
+    if stdio_mode_valid(stdout_mode) == false then return false; fi
+    return stdio_mode_valid(stderr_mode);
+  }
+  // Counts are UTF-8 bytes. Host must also reject NUL, unsafe cwd and
+  // executable resolution, forbidden environment, and shell interpolation.
+  pub fnc spawn_shape_admissible(
+      int executable_bytes, int argument_count, int argument_bytes,
+      int environment_count, int environment_bytes, int cwd_bytes): bool {
+    if executable_bytes < 1 || executable_bytes > 4096 then return false; fi
+    if argument_count < 0 || argument_count > 4096 then return false; fi
+    if argument_bytes < 0 || argument_bytes > 4194304 then return false; fi
+    if environment_count < 0 || environment_count > 1024 then return false; fi
+    if environment_bytes < 0 || environment_bytes > 1048576 then return false; fi
+    if cwd_bytes < 0 || cwd_bytes > 4096 then return false; fi
+    return true;
+  }
+  // Host must reserve these budgets atomically (no check/use race).
+  pub fnc child_reservation_admissible(
+      int live_children, int max_children,
+      int reserved_bytes, int additional_bytes, int total_budget): bool {
+    if live_children < 0 || max_children < 1 then return false; fi
+    if live_children >= max_children then return false; fi
+    if reserved_bytes < 0 || additional_bytes < 0 || total_budget < 0 then return false; fi
+    if reserved_bytes > total_budget then return false; fi
+    return additional_bytes <= total_budget - reserved_bytes;
+  }
+  pub fnc capture_append_admissible(int buffered, int incoming, int capacity): bool {
+    if buffered < 0 || incoming < 0 || capacity < 0 then return false; fi
+    if buffered > capacity then return false; fi
+    return incoming <= capacity - buffered;
+  }
+  // A requested timeout of zero disables the deadline, if allowed.
+  pub fnc timeout_admissible(int requested_ms, int max_ms, bool deadline_required): bool {
+    if requested_ms < 0 || max_ms < 0 then return false; fi
+    if requested_ms > max_ms then return false; fi
+    if deadline_required && requested_ms == 0 then return false; fi
+    return true;
+  }
+  pub fnc deadline_reached(int now_ns, int started_ns, int duration_ns): bool {
+    if now_ns < 0 || started_ns < 0 || duration_ns <= 0 then return false; fi
+    if now_ns < started_ns then return false; fi
+    return now_ns - started_ns >= duration_ns;
+  }
+  // Use a generation-bound child ticket; never authorize kill via PID alone.
+  pub fnc kill_escalation_due(int now_ns, int requested_ns, int grace_ns, bool exited): bool {
+    if exited then return false; fi
+    if now_ns < 0 || requested_ns < 0 || grace_ns < 0 then return false; fi
+    if now_ns < requested_ns then return false; fi
+    return now_ns - requested_ns >= grace_ns;
+  }
+  // Windows exit codes are not limited to POSIX 8-bit exit status.
+  pub fnc exit_succeeded(int code, bool signaled): bool {
+    return code == 0 && signaled == false;
+  }
+end
