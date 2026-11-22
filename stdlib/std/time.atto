@@ -14,7 +14,7 @@ define module time as
     pub as_ms_floor(): int { return self.nanos / 1000000; }
     pub as_ms_ceil(): int {
       let int whole = self.nanos / 1000000;
-      if self.nanos % 1000000 == 0; do return whole; fi
+      if Integer.rem(self.nanos, 1000000) == 0; do return whole; fi
       return whole + 1;
     }
     pub is_zero(): bool { return self.nanos == 0; }
