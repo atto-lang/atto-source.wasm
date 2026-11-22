@@ -3,6 +3,16 @@
 // Result<T,E>/Ok/Err are nominal ADTs; Err is not a thrown exception.
 // Match must consume at most one active payload with exact lifetime cleanup.
 define module result as
+  // Loan-only tag queries: never acquire or transfer an Ok/Err owner.
+  // This is a compiler admission target, not proof that borrow generics lower.
+  pub fnc is_ok_borrowed<T, E>(borrow Result<T, E> value): bool {
+    return value.is_ok();
+  }
+
+  pub fnc is_err_borrowed<T, E>(borrow Result<T, E> value): bool {
+    return value.is_err();
+  }
+
   pub fnc flatten<T, E>(Result<Result<T, E>, E> value): Result<T, E> {
     return match value over
       on Ok(inner) -> inner,
