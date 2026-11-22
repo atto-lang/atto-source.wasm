@@ -99,7 +99,7 @@ pub fnc websocket_mask_octet(int octet, int mask_octet): int {
   let factor: int = 1;
   let result: int = 0;
   for (let int i = 0; i < 8; i = i + 1) {
-    if a % 2 != b % 2 then result = result + factor; fi
+    if (a - (a / 2) * 2) != (b - (b / 2) * 2) then result = result + factor; fi
     a = a / 2;
     b = b / 2;
     factor = factor * 2;
