@@ -66,7 +66,10 @@ function granted(name, allow, deny) {
  * A missing granted key differs from a denied key; denied keys cannot be
  * probed via has(). This object is not automatically exposed to guest code.
  */
-export function create_scoped_env_host({values = Object.create(null), allow = [], deny = []} = {}) {
+export function create_scoped_env_host({values = Object.create(null), allow = [], deny = [], environmentCapability = false} = {}) {
+  // This flag must come from authenticated isolate authority, NEVER from guest input.
+  if (typeof environmentCapability !== 'boolean')
+    throw new EnvHostError('ENV_INVALID_POLICY');
   const allowed = policy_rules(allow);
   const denied = policy_rules(deny);
   if (values === null || typeof values !== 'object' ||
@@ -79,7 +82,7 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
   const snapshot = new Map();
   for (const key of keys) {
     if (typeof key !== 'string') throw new EnvHostError('ENV_INVALID_SNAPSHOT');
-    if (!KEY.test(key) || !granted(key, allowed, denied)) continue;
+    if (!KEY.test(key) || !environmentCapability || !granted(key, allowed, denied)) continue;
     const field = Object.getOwnPropertyDescriptor(values, key);
     if (!field || !Object.hasOwn(field, 'value') ||
         typeof field.value !== 'string' ||
@@ -91,7 +94,7 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
   }
   function require_grant(name) {
     check_name(name);
-    if (!granted(name, allowed, denied))
+    if (!environmentCapability || !granted(name, allowed, denied))
       throw new EnvHostError('ENV_PERMISSION_DENIED');
   }
   return Object.freeze({
