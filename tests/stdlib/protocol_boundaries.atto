@@ -148,7 +148,7 @@ pub routine main(): int {
   if !(!compute_workgroup_valid(16, 16, 2, 256)) then return 98; fi
   if !(compute_groups_for_axis(9223372036854775807, 1) == 9223372036854775807) then return 99; fi
   if !(compute_groups_for_axis(9, 8) == 2) then return 100; fi
-  if !(compute_dispatch_valid(16, 16, 1, 8, 8, 1, 64)) then return 101; fi
+  if !(compute_dispatch_valid(16, 16, 1, 8, 8, 1, 64) && compute_dispatch_valid(1, 1, 1, 8, 8, 1, 64) && compute_dispatch_valid(9, 9, 1, 8, 8, 1, 64)) then return 101; fi
   if !(!compute_dispatch_valid(16, 16, 1, 8, 8, 2, 64)) then return 102; fi
   if !(compute_simd_lanes_supported(4, 8)) then return 103; fi
   if !(!compute_simd_lanes_supported(3, 8)) then return 104; fi
