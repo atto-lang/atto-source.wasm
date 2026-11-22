@@ -19,11 +19,11 @@ A trusted host interface must validate key names, check both coarse isolate ENV 
 - `pure_bool.atto`: target exit 42 after actual compiler import/link/run; it makes no environment call.
 - `denied_fallback.atto`: with an explicit denial of `ATTO_ENV_SECRET_KEY`, the guest must fail before returning any value, including `fallback`.
 
-**Evidence: NOT_EXECUTED.** Fixtures are source-level contract targets until exact-head compiler-backed material CI runs. Never represent these files as implemented host access or full parity.
+**Guest fixture evidence: NOT_EXECUTED.** These .atto fixtures are source-level contract targets until exact-head compiler-backed material CI runs. Never represent these files as implemented host access or full parity.
 
 ## Host-side preflight adapter (added in this draft)
 
-`src/std-env-host.mjs` provides `create_scoped_env_host`, accepting **trusted** explicitly supplied snapshot values and scoped allow/deny rules; it rejects invalid keys, bounds entry/value sizes, and checks grants before lookup. This is deliberately **not** exported to untrusted guest code and does not call `process.env`. `tests/std-env-host.test.mjs` exercises deny-overrides-allow, absence versus empty, snapshot copy, invalid inputs, and denial-before-reading restricted getters. These are **host-model tests only**, and remain NOT_EXECUTED until a stepful test run occurs. Native guest import resolution, compiler binding, ABI and AOT evidence remain pending.
+`src/std-env-host.mjs` provides `create_scoped_env_host`, accepting **trusted** explicitly supplied snapshot values and scoped allow/deny rules; it rejects invalid keys, bounds entry/value sizes, and checks grants before lookup. This is deliberately **not** exported to untrusted guest code and does not call `process.env`. `tests/std-env-host.test.mjs` exercises deny-overrides-allow, absence versus empty, snapshot copy, invalid inputs, and denial-before-reading restricted getters. These are **host-model tests only**; exact-blob local host-model execution is recorded below, but source-org material CI remains NOT_EXECUTED until jobs run. Native guest import resolution, compiler binding, ABI and AOT evidence remain pending.
 
 ## Controlled positive guest fixture
 
@@ -44,3 +44,12 @@ A trusted host interface must validate key names, check both coarse isolate ENV 
 - `tests/std-env-guest-dispatch-v1.test.mjs` covers no arbitrary opcodes, forged hosts, invalid key, getter payload, secret-safe denial, empty-vs-absent, revocation.
 
 **Local exact-source evidence:** The two new dispatch files plus the updated `std-env-host.mjs` and host test files have verified Git blob identity. `node --test tests/std-env-host.test.mjs tests/std-env-guest-dispatch-v1.test.mjs`: **11/11 PASS** on Node v22.16.0. This is a *host-wire and admission* result, **not** guest compilation, actor sandbox or browser Wasm guest execution. Upstream runner admission remains unverified.
+
+## Dedicated exact-head host/wire Actions gate (2026-11-22)
+
+`.github/workflows/std-env-host-wire-v1.yml` checks the exact PR source HEAD,
+records the complete root tree and four test/implementation Git blob SHAs,
+then executes both Node 22 test files. It fails closed if TAP does not report
+**exactly 11 tests, 11 pass, 0 fail and 0 skipped**. The gate explicitly
+reports HOST/WIRE evidence only, not compiled Atto guest behavior, and
+will not be marked PASS if GitHub Actions cannot admit a runner.
