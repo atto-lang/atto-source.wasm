@@ -375,6 +375,13 @@ test('File handle overloads reject forged, cross-actor, cross-tenant and closed 
   const readOnly=await a.open(owner,'secret',{read:true});
   await assert.rejects(a.write_text(owner,readOnly,'x'),rejects('E_IO_PERMISSION'));
   await readOnly.close();
+  const writeOnly=await a.open(owner,'secret',{write:true});
+  await assert.rejects(a.read_text(owner,writeOnly),rejects('E_IO_PERMISSION'));
+  await writeOnly.close();
+  // FileStream is intentionally NOT a File; implicit conversion is forbidden.
+  const stream=await a.read_stream(owner,'secret',2);
+  await assert.rejects(a.read_text(owner,stream),rejects('E_FS_HANDLE'));
+  await stream.close();
   await file.close();
   await assert.rejects(a.read_file(owner,file),rejects('E_FS_CLOSED'));
   a.close();b.close();
