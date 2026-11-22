@@ -122,10 +122,42 @@ define module metrics as
     let int accepted_sum;
     let int rejected_samples;
 
+    // This public constructor MUST NOT retain borrowed/mutable caller arrays.
+    // Clone after validating lengths, bucket totals and numeric budgets.
+    // It is a dynamic safety fence in addition to (not instead of) static
+    // ownership/borrow checking at the compiler boundary.
     pub constructor(Array<int> finite_bounds, Array<int> per_bucket,
                     int accepted_samples, int accepted_sum, int rejected_samples) {
-      self.finite_bounds = finite_bounds;
-      self.per_bucket = per_bucket;
+      if finite_bounds.size > 64 ||
+         per_bucket.size != finite_bounds.size + 1 ||
+         accepted_samples < 0 || accepted_samples > 2147483647 ||
+         accepted_sum < 0 || accepted_sum > 2147483647 ||
+         rejected_samples < 0 || rejected_samples > 2147483647; do
+        rt fail("metrics: invalid snapshot counts");
+      fi
+      let mut Array<int> detached_bounds = new Array<int>();
+      let mut Array<int> detached_counts = new Array<int>();
+      let int total = 0;
+      for (let int i = 0; i < finite_bounds.size; i = i + 1) {
+        let int upper = finite_bounds.get(i);
+        if upper < 0 || (i > 0 && upper <= finite_bounds.get(i - 1)); do
+          rt fail("metrics: invalid snapshot bounds");
+        fi
+        detached_bounds.add(upper);
+      }
+      for (let int i = 0; i < per_bucket.size; i = i + 1) {
+        let int count = per_bucket.get(i);
+        if count < 0 || count > accepted_samples - total; do
+          rt fail("metrics: invalid snapshot bucket count");
+        fi
+        total = total + count;
+        detached_counts.add(count);
+      }
+      if total != accepted_samples; do
+        rt fail("metrics: snapshot bucket totals differ");
+      fi
+      self.finite_bounds = detached_bounds;
+      self.per_bucket = detached_counts;
       self.accepted_samples = accepted_samples;
       self.accepted_sum = accepted_sum;
       self.rejected_samples = rejected_samples;
