@@ -1,0 +1,60 @@
+// atto-source.wasm: freestanding helpers for the candidate numeric error catalog.
+// These predicates do NOT establish nominal Error identity or catch authority.
+// The compiler/runtime owns Error, actor CONTROL, cancellation and serialization.
+define module error as
+
+  // Candidate code meanings follow atto-lang/atto-source.java PR #662.
+  // Only stable built-in codes are recognized. Never use this as a type cast.
+  pub fnc is_known_core_code(int code): bool {
+    if code == 0; do return true; fi
+    return (code >= 1000 && code <= 1008) ||
+           (code >= 2000 && code <= 2013) ||
+           (code >= 3000 && code <= 3008) ||
+           code == 3090 ||
+           (code >= 4000 && code <= 4008) ||
+           (code >= 5000 && code <= 5008) ||
+           (code >= 6000 && code <= 6011) ||
+           (code >= 7000 && code <= 7008) ||
+           (code >= 8000 && code <= 8010) ||
+           (code >= 9000 && code <= 9014);
+  }
+
+  pub fnc is_bounds_code(int code): bool {
+    return code == 1007 || code == 1008;
+  }
+
+  // Retry is advisory only. It NEVER grants permission or automatic retries.
+  pub fnc is_retry_advisory_code(int code): bool {
+    return code == 4003 || code == 5001 || code == 5003 ||
+           code == 5005 || code == 5006;
+  }
+
+  // Actor API errors are ordinary recoverable API values, not the
+  // supervisor-only panic/raise CONTROL channel.
+  pub fnc is_actor_api_code(int code): bool {
+    return code == 2012 || code == 2013 ||
+           (code >= 9000 && code <= 9014);
+  }
+
+  // Callers validate UTF-8 separately. This does not sanitize message bytes.
+  pub fnc valid_message_length(int bytes, int maximum): bool {
+    return bytes >= 0 && maximum >= 0 && bytes <= maximum;
+  }
+
+  // A numeric *catalog group* classifier, not a class ancestry proof.
+  // The nominal Error hierarchy must still be checked by the compiler.
+  pub fnc code_group(int code): Option<int> {
+    if !is_known_core_code(code); do return None; fi
+    if code == 0; do return Some(0); fi
+    if code >= 1000 && code <= 1008; do return Some(1000); fi
+    if code >= 2000 && code <= 2013; do return Some(2000); fi
+    if code >= 3000 && code <= 3008 || code == 3090; do return Some(3000); fi
+    if code >= 4000 && code <= 4008; do return Some(4000); fi
+    if code >= 5000 && code <= 5008; do return Some(5000); fi
+    if code >= 6000 && code <= 6011; do return Some(6000); fi
+    if code >= 7000 && code <= 7008; do return Some(7000); fi
+    if code >= 8000 && code <= 8010; do return Some(8000); fi
+    return Some(9000);
+  }
+
+end
