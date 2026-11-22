@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = p => readFileSync(path.join(repo, p), "utf8");
@@ -184,6 +185,11 @@ test("three identical Atto guest fixtures have pinned nonempty 127-line goldens"
     assert.equal(vector.path,"tests/fixtures/std-metrics-json-zorde/"+name+".atto");
     assert.equal(vector.stdout_lines.length,expected);
     const source = read(vector.path);
+    const bytes = Buffer.from(source, "utf8");
+    const blob = createHash("sha1")
+      .update(Buffer.from("blob " + bytes.length + "\\0"))
+      .update(bytes).digest("hex");
+    assert.equal(blob, vector.git_blob_sha, "guest fixture blob changed: " + name);
     assert.equal((source.match(/stdio\.println\(/g)||[]).length,expected);
     outputs += expected;
   }
