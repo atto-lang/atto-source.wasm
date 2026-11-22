@@ -45,6 +45,10 @@ test('malformed policy, invalid names, getters and oversize values fail closed',
   assert.throws(() => make({GOOD: 'x'}, ['*']).get(''), /ENV_INVALID_NAME/);
   assert.throws(() => make({GOOD: 'x'}, ['*']).get('A\\0B'), /ENV_INVALID_NAME/);
   assert.throws(() => make({GOOD: 'x'.repeat(16385)}), /ENV_INVALID_SNAPSHOT/);
+  assert.throws(() => make({GOOD: 'é'.repeat(8193)}), /ENV_INVALID_SNAPSHOT/);
+  assert.throws(() => make({GOOD: '\\uD800'}), /ENV_INVALID_SNAPSHOT/);
+  assert.throws(() => make({GOOD: '\\uDC00'}), /ENV_INVALID_SNAPSHOT/);
+  assert.deepEqual(make({GOOD: '🎯'}).get('GOOD'), {some: true, value: '🎯'});
   const object = {};
   Object.defineProperty(object, 'GOOD', {get() { throw Error('accessor called'); }});
   assert.throws(() => make(object), /ENV_INVALID_SNAPSHOT/);
