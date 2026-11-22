@@ -21,6 +21,20 @@ function checkedPath(path) {
 }
 
 
+// Path value normalization is lexical only: remove redundant separators and
+// '.', but NEVER collapse '..' across the tenant boundary.
+function normalizedPath(value) {
+  if (typeof value!=='string' || value.length<1 || !value.isWellFormed() ||
+      value.startsWith('/') || value.includes('\\') || value.includes(':') ||
+      value.includes('\0')) fail('E_FS_PATH');
+  const parts=value.split('/').filter(part=>part!=='' && part!=='.');
+  if (parts.some(part=>part==='..') || parts.length===0) fail('E_FS_PATH');
+  return checkedPath(parts.join('/'));
+}
+function checkedDirectoryPath(value) {
+  if (value==='.' || value==='./') return ''; // Read-only tenant root selector.
+  return checkedPath(value);
+}
 function pathParent(p) {
   const slash = p.lastIndexOf('/');
   return slash < 0 ? '' : p.slice(0, slash);
@@ -35,7 +49,7 @@ function scalarCompare(a,b) {
 }
 // Pure lexical paths; no filesystem resolution, symlink access or authority.
 export class FsPath {
-  constructor(value) { this.value=checkedPath(value); Object.freeze(this); }
+  constructor(value) { this.value=normalizedPath(value); Object.freeze(this); }
   toString() { return this.value; }
   join(child) { return new FsPath(this.value+'/'+String(child)); }
   parent() { const parent=pathParent(this.value); return parent ? new FsPath(parent) : null; }
@@ -48,13 +62,13 @@ export class FsPath {
 }
 export class FsPathBuf {
   #value;
-  constructor(value) { this.#value=checkedPath(value); }
-  to_path() { return new FsPath(this.#value); }
-  push(value) { this.#value=checkedPath(this.#value+'/'+String(value)); }
+  constructor(value) { this.#value=normalizedPath(value); }
+  to_path() { return this.#value ? new FsPath(this.#value) : null; }
+  push(value) { this.#value=normalizedPath(this.#value ? this.#value+'/'+String(value) : String(value)); }
   pop() {
-    const old=this.#value, parent=pathParent(old);
-    if (!parent) return null;
-    this.#value=parent;
+    if (!this.#value) return null;
+    const old=this.#value;
+    this.#value=pathParent(old);
     return old.slice(old.lastIndexOf('/')+1);
   }
   toString() { return this.#value; }
@@ -326,19 +340,19 @@ export class TenantHostedIoV1 {
   }
   async read_dir(token,path) {
     this.#actor(token,'read');
-    const p=checkedPath(String(path));
+    const p=checkedDirectoryPath(String(path));
     if (!this.#dirs.has(p)) {
       if (this.#files.has(p)) fail('E_FS_NOT_DIR');
       fail('E_FS_NOT_FOUND');
     }
     const entries=[];
     for (const dir of this.#dirs) {
-      if (pathParent(dir)===p) entries.push(Object.freeze({
-        name:dir.slice(p.length+1),path:dir,kind:'directory'}));
+      if (dir && pathParent(dir)===p) entries.push(Object.freeze({
+        name:p ? dir.slice(p.length+1) : dir,path:dir,kind:'directory'}));
     }
     for (const filename of this.#files.keys()) {
       if (pathParent(filename)===p) entries.push(Object.freeze({
-        name:filename.slice(p.length+1),path:filename,kind:'file'}));
+        name:p ? filename.slice(p.length+1) : filename,path:filename,kind:'file'}));
     }
     entries.sort((a,b)=>scalarCompare(a.name,b.name));
     return Object.freeze(entries);
@@ -375,23 +389,23 @@ export class TenantHostedIoV1 {
   }
   async metadata(token,path) {
     this.#actor(token,'read');
-    const p=checkedPath(String(path));
+    const p=checkedDirectoryPath(String(path));
     if (this.#dirs.has(p)) return Object.freeze({is_file:false,is_dir:true,size:0});
     const bytes=this.#file(p);
     return Object.freeze({is_file:true,is_dir:false,size:bytes.length});
   }
   async exists(token,path) {
     this.#actor(token,'read');
-    const p=checkedPath(String(path));
+    const p=checkedDirectoryPath(String(path));
     return this.#dirs.has(p) || this.#files.has(p);
   }
   async is_file(token,path) {
     this.#actor(token,'read');
-    return this.#files.has(checkedPath(String(path)));
+    return this.#files.has(checkedDirectoryPath(String(path)));
   }
   async is_dir(token,path) {
     this.#actor(token,'read');
-    return this.#dirs.has(checkedPath(String(path)));
+    return this.#dirs.has(checkedDirectoryPath(String(path)));
   }
   async file_size(token,path) {
     this.#actor(token,'read');
