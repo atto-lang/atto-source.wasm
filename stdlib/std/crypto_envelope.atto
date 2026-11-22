@@ -1,7 +1,9 @@
+use namespace crypto;
+
 // std.crypto authenticated payload envelope v1 (pure AttoLang policy).
 // Layout: [nonce:12 | ciphertext:N | tag:16], algorithm/key supplied out
 // of band and already authenticated/authorized by the host. No raw key or
-// partial plaintext is exposed by this module.
+// partial plaintext is exposed by this namespace.
 // Every length is measured in bytes, not Unicode code points.
 
 pub fnc crypto_envelope_size_admissible(int envelope_bytes, int aad_bytes): bool {
