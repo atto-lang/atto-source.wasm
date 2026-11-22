@@ -131,3 +131,32 @@ test("five negative admission mutations fail closed", () => {
   assertMutantRejected("injected host code",
     alter("telemetry", "pub fnc sampled_flag", "java:evil\npub fnc sampled_flag"));
 });
+
+test("all 134 native guest checks are generated from the pinned vectors (NOT_EXECUTED)", () => {
+  const guest = bytesFrom(new URL("../tests/fixtures/atto_std_pure_policy_guest_v1.atto", import.meta.url)).value;
+  const literal = v => typeof v === "boolean" ? (v ? "true" : "false") : String(v);
+  const expected = [
+    "// CANDIDATE ONLY. These 134 checks MUST run as one compiled native Atto",
+    "// guest after trusted std modules are actually linked. Source-model tests",
+    "// or a backend that ignores imports DO NOT count as execution/parity.",
+    'import module path from "std/path";',
+    'import module sync from "std/sync";',
+    'import module telemetry from "std/telemetry";',
+    "",
+    "pub fnc main(): int {",
+    ...contract.vectors.map((vector, i) => {
+      const call = vector.module + "." + vector.fn + "(" +
+        vector.args.map(literal).join(", ") + ")";
+      const bad = typeof vector.expected === "boolean"
+        ? (vector.expected ? "!" + call : call)
+        : call + " != " + literal(vector.expected);
+      return "  if " + bad + " then return " + (i + 1) + "; fi";
+    }),
+    "  return 0;",
+    "}",
+    ""
+  ].join("\n");
+  assert.equal(guest, expected, "candidate fixture/contract drift (never count as guest PASS)");
+  assert.equal((guest.match(/\bthen return \d+; fi/g) || []).length, 134);
+  assert.equal((guest.match(/\breturn 0;/g) || []).length, 1);
+});
