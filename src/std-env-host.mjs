@@ -35,6 +35,20 @@ function matches(name, pattern) {
   return name === pattern;
 }
 
+function valid_utf16(value) {
+  for (let i = 0; i < value.length; i++) {
+    const unit = value.charCodeAt(i);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      if (i + 1 >= value.length) return false;
+      const next = value.charCodeAt(++i);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function check_name(name) {
   if (typeof name !== 'string' || !KEY.test(name))
     throw new EnvHostError('ENV_INVALID_NAME');
@@ -69,7 +83,7 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
     const field = Object.getOwnPropertyDescriptor(values, key);
     if (!field || !Object.hasOwn(field, 'value') ||
         typeof field.value !== 'string' ||
-        field.value.length > MAX_VALUE_BYTES ||
+        field.value.length > MAX_VALUE_BYTES || !valid_utf16(field.value) ||
         utf8.encode(field.value).length > MAX_VALUE_BYTES) {
       throw new EnvHostError('ENV_INVALID_SNAPSHOT');
     }
