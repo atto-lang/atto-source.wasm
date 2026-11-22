@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 
 const source = readFileSync(new URL("../stdlib/actor/policy.atto", import.meta.url), "utf8");
 const smoke = readFileSync(new URL("../stdlib/actor/guest_smoke.atto", import.meta.url), "utf8");
+const edges = readFileSync(new URL("../stdlib/actor/guest_edges.atto", import.meta.url), "utf8");
 const functions = [
   "actor_mailbox_admissible", "actor_future_transition_valid",
   "actor_lifecycle_transition_valid", "actor_should_restart",
@@ -35,4 +36,23 @@ test("restart and physical stop policies remain fail-closed", () => {
   assert.match(source, /if kind == 3 then return true;/);
   assert.match(source, /if old_quiescent == false then return false;/);
   assert.match(source, /return physical_quiescent;/);
+});
+
+test("native actor adversarial boundary matrix is broad and fail-closed", () => {
+  assert.match(edges, /use namespace std\.actor\.boundaries;/);
+  assert.match(edges, /from "\.\/policy\.atto";/);
+  assert.doesNotMatch(edges, /from "\.\.\/|from pkg/);
+  for (const name of functions) {
+    assert.match(edges, new RegExp("\\b" + name + "\\b"));
+  }
+  const codes = [...edges.matchAll(/\bthen return (1\d\d|2\d\d); fi/g)].map(match => Number(match[1]));
+  assert.equal(codes.length, 133, "all 133 edge cases must be present");
+  assert.equal(new Set(codes).size, 133, "each failure case needs a unique diagnostic exit");
+  assert.equal(Math.min(...codes), 100);
+  assert.equal(Math.max(...codes), 232);
+  assert.match(edges, /return 42;/);
+  assert.match(edges, /65535, 65536/);
+  assert.match(edges, /2147483647/);
+  assert.match(edges, /physical turn not retired/);
+  assert.match(edges, /forged CONTROL/);
 });
