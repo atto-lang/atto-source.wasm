@@ -7,7 +7,7 @@
 // The compiler must enforce field moves, exclusive receivers, and exactly-once
 // dropping on normal exits and exceptional/cancellation unwind.
 define module alloc_box as
-  pub define class OwnedBox<T> as
+  define pub class OwnedBox<T> as
     let Option<T> slot = None;
   end
 

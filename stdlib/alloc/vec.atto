@@ -6,7 +6,7 @@
 // There is deliberately no fake reserve(), zero-copy slice or unsafe pop():
 // those need checked allocator/element-take compiler primitives.
 define module alloc_vec as
-  pub define class Vec<T> as
+  define pub class Vec<T> as
     let mut Array<T> values = new Array<T>();
   end
 

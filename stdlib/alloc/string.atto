@@ -141,7 +141,7 @@ define module alloc_string as
     return true;
   }
 
-  pub define class Utf8String as
+  define pub class Utf8String as
     let mut Array<int> bytes = new Array<int>();
   end
 
