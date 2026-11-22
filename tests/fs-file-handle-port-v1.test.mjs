@@ -233,3 +233,15 @@ test('port close fences an overlapping flush and prevents handle reuse',async()=
   assert.ok(again>id);
   await port.close(again);vfs.close();
 });
+
+test('File.close is idempotent for issued IDs but cannot accept forged IDs',async()=>{
+  const vfs=mk(),ticket=vfs.open_actor(1,1,grants);
+  const port=new ActorFileHandlePortV1(vfs,ticket);
+  const id=await port.open('cleanup',{read:true,write:true,create:true});
+  await port.close(id);
+  await port.close(id);
+  assert.equal(vfs.handle_count,0);
+  await assert.rejects(port.close(id+1),codeIs('E_FS_HANDLE'));
+  await assert.rejects(port.read_text(id),codeIs('E_FS_CLOSED'));
+  await port.close_all();vfs.close();
+});
