@@ -15,6 +15,7 @@ own .atto source; no cross-repository shared-source dependency is introduced.
   an authenticated deadline without a trusted runtime clock provenance check.
 - `Deadline`: checked construction, inclusive expiration at now >= due,
   remaining time clamped to zero, explicit domain mismatch.
+- `ManualClock`: deterministic .atto virtual clock for test fixtures, with forward-only checked progression and no mutation on overflow. **Not** a trusted clock source or provenance token.
 - `Timer`: owner-local, once-only, pollable lifecycle; cancel before firing.
 - `Interval`: owner-local fixed-delay, no unbounded catch-up. Late polls
   coalesce missed periods and rearm relative to observed monotonic time.
