@@ -5,6 +5,7 @@
 const MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
 const MAX_AAD_BYTES = 64 * 1024;
 const MAX_ENCRYPTIONS = 1n << 32n;
+const INTERNAL_KEY_CONSTRUCTOR = Symbol("trusted AEAD key constructor");
 
 function provider() {
   const crypto = globalThis.crypto;
@@ -51,7 +52,7 @@ export class WebCryptoAeadHostV1 {
     const prefix = new Uint8Array(4);
     crypto.getRandomValues(prefix);
     this.authorize("aead_new_key");
-    return new WebCryptoAeadKeyV1(this, key, prefix);
+    return new WebCryptoAeadKeyV1(this, key, prefix, INTERNAL_KEY_CONSTRUCTOR);
   }
 }
 
@@ -62,8 +63,9 @@ export class WebCryptoAeadKeyV1 {
   #next = 0n;
   #closed = false;
 
-  constructor(owner, key, prefix) {
-    if (!(owner instanceof WebCryptoAeadHostV1) ||
+  constructor(owner, key, prefix, constructorProof) {
+    if (constructorProof !== INTERNAL_KEY_CONSTRUCTOR ||
+        !(owner instanceof WebCryptoAeadHostV1) ||
         !(key instanceof CryptoKey) || key.extractable ||
         !(prefix instanceof Uint8Array) || prefix.byteLength !== 4) {
       throw new TypeError("invalid trusted crypto key construction");
