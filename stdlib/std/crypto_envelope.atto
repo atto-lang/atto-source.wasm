@@ -1,0 +1,43 @@
+// std.crypto authenticated payload envelope v1 (pure AttoLang policy).
+// Layout: [nonce:12 | ciphertext:N | tag:16], algorithm/key supplied out
+// of band and already authenticated/authorized by the host. No raw key or
+// partial plaintext is exposed by this module.
+// Every length is measured in bytes, not Unicode code points.
+
+pub fnc crypto_envelope_size_admissible(int envelope_bytes, int aad_bytes): bool {
+  if envelope_bytes < 28 then return false; fi
+  if envelope_bytes > 16777244 then return false; fi
+  if aad_bytes < 0 then return false; fi
+  return aad_bytes <= 65536;
+}
+
+pub fnc crypto_envelope_nonce_offset(): int {
+  return 0;
+}
+
+pub fnc crypto_envelope_nonce_bytes(): int {
+  return 12;
+}
+
+pub fnc crypto_envelope_ciphertext_offset(): int {
+  return 12;
+}
+
+// -1 means malformed; callers MUST check the sentinel before any indexing.
+pub fnc crypto_envelope_ciphertext_bytes(int envelope_bytes): int {
+  if crypto_envelope_size_admissible(envelope_bytes, 0) == false then
+    return -1;
+  fi
+  return envelope_bytes - 28;
+}
+
+pub fnc crypto_envelope_tag_offset(int envelope_bytes): int {
+  if crypto_envelope_size_admissible(envelope_bytes, 0) == false then
+    return -1;
+  fi
+  return envelope_bytes - 16;
+}
+
+pub fnc crypto_envelope_tag_bytes(): int {
+  return 16;
+}
