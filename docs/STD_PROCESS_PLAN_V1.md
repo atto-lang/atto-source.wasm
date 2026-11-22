@@ -1,5 +1,22 @@
 # AttoLang std.process — Wasm host ABI policy
 
+## Public library path contract (2026-11-22)
+
+Atto's preferred public import is `std/process`; `atto.std/process`
+is the explicit, disambiguating built-in import. Apply the same rule to
+`std/process_policy` and `atto.std/process_policy`. Do **not** publish
+`ores.std/process` or `ores.std/process_policy` as new import names.
+The two accepted spellings must resolve to the same compiler-owned module
+identity and source, not two copies or an unchecked filesystem path.
+The `atto.std/*` root must be reserved against local-package shadowing.
+
+This backend's current relative fixture imports and source-only policy
+**do not establish that either hosted import alias is implemented** in its
+compiler. Resolver registration, positive/negative guest tests and an
+exact-head execution receipt remain required before calling namespace
+parity implemented.
+
+
 This backend owns `stdlib/process_policy.atto` and the regression
 `tests/fixtures/std-process-policy-v1/main.atto`. They implement only pure
 byte bounds, quotas, deadline and exit predicates; they are **not** a host
