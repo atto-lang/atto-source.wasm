@@ -2,7 +2,7 @@
 // Expected diagnostic: use-after-move; no output artifact.
 import module alloc_box from "atto.alloc/box";
 pub fnc main() -> int {
-  let owned = alloc_box.boxed<int>(42);
+  let owned = alloc_box.boxed_copy<int>(42);
   let transferred = take! owned;
   return owned.is_full() ? 1 : 0;
 }
