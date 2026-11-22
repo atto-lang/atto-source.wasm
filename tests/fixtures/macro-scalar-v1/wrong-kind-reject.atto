@@ -1,0 +1,6 @@
+define macro identity(Syntax<Expr> value) -> Syntax<Expr> {
+    return value;
+}
+pub fnc main() -> int {
+    return identity!(const 42);
+}

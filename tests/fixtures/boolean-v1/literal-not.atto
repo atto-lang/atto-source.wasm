@@ -1,0 +1,1 @@
+pub fnc main():int{const flag:bool=!!!false;if(flag){return 42;}fi return 0;}

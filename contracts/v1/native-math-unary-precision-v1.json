@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "contract": "oreslang.native-math-unary-precision.v1",
+  "status": "normative-reference-not-backend-proof",
+  "semantics": {
+    "fixed_signed": "Math.abs and Math.neg are checked; MIN_VALUE returns OVERFLOW rather than wrapping.",
+    "bigint": "Exact arbitrary-precision integer unary sign operations, subject only to explicit resource budgets.",
+    "decimal": "Exact base-10 unary sign operations preserve scale; Decimal has no binary-float coercion.",
+    "binary64": "IEEE-754 sign operations; abs clears the sign bit and neg toggles it for finite values, signed zero and infinities. NaN remains NaN; payload/sign preservation is not a cross-backend promise.",
+    "precision": "Binary floating point is approximate; Decimal is base-10 exact until an operation requiring rounding uses an explicit context."
+  },
+  "signed_i64_unary": [
+    {"id":"neg-zero","operation":"Math.neg","operand":"0","expect":{"value":"0"}},
+    {"id":"neg-positive","operation":"Math.neg","operand":"42","expect":{"value":"-42"}},
+    {"id":"neg-negative","operation":"Math.neg","operand":"-42","expect":{"value":"42"}},
+    {"id":"neg-max","operation":"Math.neg","operand":"9223372036854775807","expect":{"value":"-9223372036854775807"}},
+    {"id":"neg-min-overflow","operation":"Math.neg","operand":"-9223372036854775808","expect":{"error":"OVERFLOW"}},
+    {"id":"abs-zero","operation":"Math.abs","operand":"0","expect":{"value":"0"}},
+    {"id":"abs-positive","operation":"Math.abs","operand":"42","expect":{"value":"42"}},
+    {"id":"abs-negative","operation":"Math.abs","operand":"-42","expect":{"value":"42"}},
+    {"id":"abs-max","operation":"Math.abs","operand":"9223372036854775807","expect":{"value":"9223372036854775807"}},
+    {"id":"abs-min-overflow","operation":"Math.abs","operand":"-9223372036854775808","expect":{"error":"OVERFLOW"}}
+  ],
+  "bigint_unary": [
+    {"id":"bigint-neg-2pow127","operation":"Math.neg","operand":"170141183460469231731687303715884105728","expect":"-170141183460469231731687303715884105728"},
+    {"id":"bigint-neg-negative-2pow127","operation":"Math.neg","operand":"-170141183460469231731687303715884105728","expect":"170141183460469231731687303715884105728"},
+    {"id":"bigint-abs-negative-2pow256","operation":"Math.abs","operand":"-115792089237316195423570985008687907853269984665640564039457584007913129639936","expect":"115792089237316195423570985008687907853269984665640564039457584007913129639936"},
+    {"id":"bigint-abs-zero","operation":"Math.abs","operand":"0","expect":"0"}
+  ],
+  "decimal_unary": [
+    {"id":"decimal-neg-scale","operation":"Math.neg","operand":"12.3400","expect":"-12.3400","scale":4},
+    {"id":"decimal-abs-scale","operation":"Math.abs","operand":"-12.3400","expect":"12.3400","scale":4},
+    {"id":"decimal-zero-scale","operation":"Math.abs","operand":"0.0000","expect":"0.0000","scale":4}
+  ],
+  "binary64_unary": [
+    {"id":"f64-abs-negative-zero","operation":"Math.abs","operand_bits":"8000000000000000","expect_bits":"0000000000000000"},
+    {"id":"f64-neg-positive-zero","operation":"Math.neg","operand_bits":"0000000000000000","expect_bits":"8000000000000000"},
+    {"id":"f64-neg-negative-zero","operation":"Math.neg","operand_bits":"8000000000000000","expect_bits":"0000000000000000"},
+    {"id":"f64-abs-negative-one","operation":"Math.abs","operand_bits":"bff0000000000000","expect_bits":"3ff0000000000000"},
+    {"id":"f64-neg-positive-one","operation":"Math.neg","operand_bits":"3ff0000000000000","expect_bits":"bff0000000000000"},
+    {"id":"f64-abs-negative-infinity","operation":"Math.abs","operand_bits":"fff0000000000000","expect_bits":"7ff0000000000000"},
+    {"id":"f64-neg-positive-infinity","operation":"Math.neg","operand_bits":"7ff0000000000000","expect_bits":"fff0000000000000"}
+  ],
+  "precision_cases": [
+    {"id":"binary64-point-one-plus-point-two","domain":"binary64","lhs":"0.1","rhs":"0.2","operation":"+","must_equal_decimal_string":"0.30000000000000004"},
+    {"id":"decimal-point-one-plus-point-two","domain":"decimal","lhs":"0.1","rhs":"0.2","operation":"+","expect":"0.3"},
+    {"id":"bigint-above-2pow53","domain":"bigint","value":"9007199254740993","binary64_conversion":"explicit-only"},
+    {"id":"decimal-one-third","domain":"decimal","lhs":"1","rhs":"3","operation":"/","without_context":"NONTERMINATING_REQUIRES_CONTEXT"}
+  ],
+  "resource_policy": {
+    "bigint": "Backends must enforce explicit bit/digit/work budgets before catastrophic allocation and remain cancellation/cooperation aware.",
+    "decimal": "Precision, scale, input size and work budgets are explicit; no mutable global MathContext.",
+    "hard_rt": "Arbitrary-precision operations are outside hard-real-time profiles unless a statically bounded profile proves memory and WCET."
+  }
+}

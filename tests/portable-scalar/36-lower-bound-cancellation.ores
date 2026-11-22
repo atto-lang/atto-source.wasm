@@ -1,0 +1,2 @@
+// 36: signed i64 min and max with valid ordered intermediate results.
+pub fnc main(): int { return -9223372036854775808 + 9223372036854775807 + 43; }

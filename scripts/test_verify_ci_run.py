@@ -40,7 +40,7 @@ class RunContract(unittest.TestCase):
                 "event": "push",
                 "status": "completed",
                 "conclusion": "success", "run_attempt": 2, "workflow_id": 991},
-            self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1": {
+            self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1": {
                 "total_count": 1, "jobs": [
                     {"id": 31, "name": "unit", "run_id": 17, "run_attempt": 2,
                      "head_sha": self.commit,
@@ -89,13 +89,13 @@ class RunContract(unittest.TestCase):
         self.assertTrue(module.executable_step_name("Execute test suite"))
 
     def test_whitespace_only_job_name_denied_with_real_test_step(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         self.values[page]["jobs"][0]["name"] = " \t "
         with self.assertRaisesRegex(module.Denied, "missing workflow job name"):
             self.validate()
 
     def test_whitespace_only_step_name_denied_despite_real_test_step(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         self.values[page]["jobs"][0]["steps"][0]["name"] = "  \t  "
         with self.assertRaisesRegex(module.Denied, "no name"):
             self.validate()
@@ -106,15 +106,15 @@ class RunContract(unittest.TestCase):
         new = self.prefix + "/actions/runs/1"
         self.values[new] = self.values.pop(old)
         self.values[new]["id"] = 1
-        old_jobs = old + "/jobs?filter=latest&per_page=100&page=1"
-        new_jobs = new + "/jobs?filter=latest&per_page=100&page=1"
+        old_jobs = old + "/attempts/2/jobs?per_page=100&page=1"
+        new_jobs = new + "/attempts/2/jobs?per_page=100&page=1"
         self.values[new_jobs] = self.values.pop(old_jobs)
         self.values[new_jobs]["jobs"][0]["run_id"] = 1
         self.run_id = 1
 
     def test_boolean_job_run_id_cannot_impersonate_run_one(self):
         self._switch_fixture_to_run_id_one()
-        path = self.prefix + "/actions/runs/1/jobs?filter=latest&per_page=100&page=1"
+        path = self.prefix + "/actions/runs/1/attempts/2/jobs?per_page=100&page=1"
         self.values[path]["jobs"][0]["run_id"] = True
         self.rejected()
 
@@ -136,7 +136,9 @@ class RunContract(unittest.TestCase):
 
     def test_boolean_final_attempt_cannot_impersonate_attempt_one(self):
         self.values[self.prefix + "/actions/runs/17"]["run_attempt"] = 1
-        job_path = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        old_job_path = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
+        job_path = self.prefix + "/actions/runs/17/attempts/1/jobs?per_page=100&page=1"
+        self.values[job_path] = self.values.pop(old_job_path)
         self.values[job_path]["jobs"][0]["run_attempt"] = 1
         run_path = self.prefix + "/actions/runs/17"
         calls = [0]
@@ -266,6 +268,24 @@ class RunContract(unittest.TestCase):
                         expected_run_attempt=1)
         self.assertEqual(self.validate()["run_attempt"], 2)
 
+    def test_result_is_machine_consumable_runner_executed_evidence(self):
+        result = self.validate()
+        self.assertEqual(result["schema"], "oreslang-parity-execution-evidence-v1")
+        self.assertEqual(result["claim_tier"], "RUNNER_EXECUTED")
+        self.assertEqual(result["workflow_id"], 991)
+        self.assertIs(result["artifacts_verified"], False)
+        self.assertEqual(result["artifacts"], [])
+        self.assertEqual(len(result["jobs"]), 1)
+        job = result["jobs"][0]
+        self.assertEqual(job["job_id"], 31)
+        self.assertEqual(job["runner_id"], 1000002089)
+        self.assertEqual(job["runner_name"], "GitHub Actions 1")
+        self.assertEqual(job["conclusion"], "success")
+        self.assertEqual(
+            [step["name"] for step in job["meaningful_steps"]],
+            ["Execute test suite"])
+        self.assertEqual(job["meaningful_steps"][0]["category"], "indeterminate")
+
     def test_workflow_blob_pin_required(self):
         with self.assertRaises(module.Denied):
             self.verify(self.fetch, self.backend, self.commit, self.tree,
@@ -288,12 +308,12 @@ class RunContract(unittest.TestCase):
                 self.rejected()
 
     def test_wrong_job_head_sha_denied(self):
-        p = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        p = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         self.values[p]["jobs"][0]["head_sha"] = "d" * 40
         self.rejected()
 
     def test_missing_job_head_sha_denied(self):
-        p = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        p = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         del self.values[p]["jobs"][0]["head_sha"]
         self.rejected()
 
@@ -322,7 +342,7 @@ class RunContract(unittest.TestCase):
                                 workflow_id=value)
 
     def test_duplicate_step_names_within_job_denied(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         steps = self.values[page]["jobs"][0]["steps"]
         steps[0]["name"] = steps[1]["name"]
         self.rejected()
@@ -518,7 +538,7 @@ class RunContract(unittest.TestCase):
 
     def test_failed_run(self):
         self.values[self.prefix+"/actions/runs/17"]["conclusion"] = "failure"
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         self.values[page]["jobs"][0]["conclusion"] = "failure"
         with self.assertRaises(module.Denied) as caught:
             self.validate()
@@ -526,7 +546,7 @@ class RunContract(unittest.TestCase):
 
     def test_failed_before_runner_is_classified_not_executed(self):
         self.values[self.prefix+"/actions/runs/17"]["conclusion"] = "failure"
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         job["conclusion"] = "failure"
         job["runner_id"] = 0
@@ -537,7 +557,7 @@ class RunContract(unittest.TestCase):
 
     def test_malformed_zero_runner_id_cannot_claim_not_executed(self):
         self.values[self.prefix+"/actions/runs/17"]["conclusion"] = "failure"
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         job.update(conclusion="failure", runner_name="", steps=[])
         for value in (False, 0.0, True, 1.0, -1, "0", [], {}):
@@ -548,7 +568,7 @@ class RunContract(unittest.TestCase):
                 self.assertNotIsInstance(caught.exception, module.NotExecuted)
 
     def test_success_zero_step_job_is_rejected_not_classified_not_executed(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         self.values[page]["jobs"][0]["steps"] = []
         with self.assertRaises(module.Denied) as caught:
             self.validate()
@@ -570,7 +590,7 @@ class RunContract(unittest.TestCase):
         self.assertIn("CI_RUN_EVIDENCE_NOT_EXECUTED:", stderr.getvalue())
 
     def test_missing_runner_identity(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         for field in ("runner_id", "runner_name"):
             with self.subTest(field=field):
@@ -579,7 +599,7 @@ class RunContract(unittest.TestCase):
                 job[field] = saved
 
     def test_zero_or_forged_runner_id(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         for value in (0, -1, True, False, None, "1000002089"):
             with self.subTest(value=value):
@@ -587,7 +607,7 @@ class RunContract(unittest.TestCase):
                 self.rejected()
 
     def test_blank_or_wrong_type_runner_name(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         for value in ("", "  ", None, False, 123):
             with self.subTest(value=value):
@@ -595,19 +615,19 @@ class RunContract(unittest.TestCase):
                 self.rejected()
 
     def test_zero_step_jobs(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"] = []
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["steps"] = []
         self.rejected()
 
     def test_skipped_job(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["conclusion"] = "skipped"
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["conclusion"] = "skipped"
         self.rejected()
 
     def test_skipped_step(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"][1]["conclusion"] = "skipped"
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["steps"][1]["conclusion"] = "skipped"
         self.rejected()
 
     def test_housekeeping_only(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"].pop(1)
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["steps"].pop(1)
         self.rejected()
 
     def test_required_proof_step_cannot_be_runner_housekeeping(self):
@@ -630,7 +650,7 @@ class RunContract(unittest.TestCase):
         self.assertEqual(self.validate()["successful_non_housekeeping_steps"], 1)
 
     def test_job_execution_timestamps_required(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         original = copy.deepcopy(job)
         for field, value in (
@@ -644,7 +664,7 @@ class RunContract(unittest.TestCase):
                 self.rejected()
 
     def test_step_execution_numbers_and_timestamps_required(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         original = copy.deepcopy(job)
         def mutate(field, value):
@@ -664,19 +684,28 @@ class RunContract(unittest.TestCase):
                 self.rejected()
 
     def test_wrong_attempt(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["run_attempt"] = 1
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["run_attempt"] = 1
+        self.rejected()
+
+    def test_latest_attempt_shortcut_cannot_substitute_for_pinned_attempt(self):
+        pinned = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
+        latest = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        self.values[latest] = copy.deepcopy(self.values[pinned])
+        self.values[pinned]["jobs"][0]["runner_id"] = 0
+        self.values[pinned]["jobs"][0]["runner_name"] = ""
+        self.values[pinned]["jobs"][0]["steps"] = []
         self.rejected()
 
     def test_missing_required_job(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["name"] = "not-unit"
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["name"] = "not-unit"
         self.rejected()
 
     def test_missing_required_step(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["jobs"][0]["steps"][1]["name"] = "not-the-tests"
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["jobs"][0]["steps"][1]["name"] = "not-the-tests"
         self.rejected()
 
     def test_unrelated_job_cannot_satisfy_required_test_step(self):
-        p = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        p = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         base = self.values[p]["jobs"][0]
         other = copy.deepcopy(base)
         other["id"] = 32
@@ -687,12 +716,12 @@ class RunContract(unittest.TestCase):
         self.rejected()
 
     def test_missing_job_attempt_is_not_execution_evidence(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         del self.values[page]["jobs"][0]["run_attempt"]
         self.rejected()
 
     def test_multi_job_requires_explicit_step_bindings(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         original = self.values[page]["jobs"][0]
         other = copy.deepcopy(original)
         other["id"] = 32
@@ -720,7 +749,7 @@ class RunContract(unittest.TestCase):
                  ("native", "Execute unit suite")])
 
     def test_duplicate_job_names_are_ambiguous(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         other = copy.deepcopy(self.values[page]["jobs"][0])
         other["id"] = 32
         self.values[page]["jobs"].append(other)
@@ -764,11 +793,11 @@ class RunContract(unittest.TestCase):
             self.verify(self.fetch,self.backend,self.commit,self.tree,self.run_id,["unit","unit"],["Execute test suite"])
 
     def test_incomplete_paginated_jobs(self):
-        self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]["total_count"] = 2
+        self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]["total_count"] = 2
         self.rejected()
 
     def test_duplicate_job_id(self):
-        j=self.values[self.prefix+"/actions/runs/17/jobs?filter=latest&per_page=100&page=1"]
+        j=self.values[self.prefix+"/actions/runs/17/attempts/2/jobs?per_page=100&page=1"]
         j["jobs"].append(copy.deepcopy(j["jobs"][0]))
         j["total_count"] = 2
         self.rejected()
@@ -782,7 +811,7 @@ class RunContract(unittest.TestCase):
             self.verify(self.fetch,self.backend,self.commit,self.tree,True,["unit"],["Execute test suite"])
 
     def test_overlapping_step_timestamps_cannot_prove_execution(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         steps = self.values[page]["jobs"][0]["steps"]
         for index, bad_start in ((1, "2026-10-16T10:00:30Z"),
                                  (2, "2026-10-16T10:01:30Z")):
@@ -796,7 +825,7 @@ class RunContract(unittest.TestCase):
                     steps[index]["started_at"] = original
 
     def test_adjacent_equal_step_timestamps_allowed(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         steps = self.values[page]["jobs"][0]["steps"]
         steps[1]["started_at"] = steps[0]["completed_at"]
         steps[2]["started_at"] = steps[1]["completed_at"]
@@ -811,7 +840,7 @@ class RunContract(unittest.TestCase):
 
 
     def test_runner_display_identity_rejects_invisible_and_multiline_spoofs(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         normal = job["runner_name"]
         for malicious in ("Runner\nSpoof", "Runner\u0085Spoof", "Runner\u2028Spoof",
@@ -824,7 +853,7 @@ class RunContract(unittest.TestCase):
 
 
     def test_observed_job_and_step_names_reject_spoofed_labels(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         for target in (job, job["steps"][1]):
             normal = target["name"]
@@ -849,7 +878,7 @@ class RunContract(unittest.TestCase):
 
 
     def test_legible_unicode_display_names_are_not_disallowed(self):
-        page = self.prefix + "/actions/runs/17/jobs?filter=latest&per_page=100&page=1"
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
         job = self.values[page]["jobs"][0]
         job["name"] = "native — unité"
         job["runner_name"] = "GitHub Actions — runner"
@@ -962,6 +991,53 @@ class StrictApiJSONContract(unittest.TestCase):
 
 
 
+    def test_padded_and_unicode_space_labels_fail_closed(self):
+        for label in (" unit", "unit ", " GitHub Actions 1 ",
+                      "Set\u00a0up job", "Set\u2009up job",
+                      "runner\u202fone", "\u3000unit"):
+            with self.subTest(label=repr(label)):
+                self.assertFalse(module._evidence_label(label))
+        self.assertTrue(module._evidence_label("GitHub Actions 1"))
+        self.assertTrue(module._evidence_label("Execute native guest suite"))
+        self.assertTrue(module._evidence_label("検証 native guest"))
+
+    def test_lookalike_housekeeping_does_not_count_as_a_test(self):
+        for label in ("Set  up job", "Complete  job",
+                      "Initialize  containers", "set UP job",
+                      "POST  Checkout", "pre  Setup",
+                      "Set\u00a0up job", "Set\u2009up job"):
+            with self.subTest(label=repr(label)):
+                self.assertFalse(module.executable_step_name(label))
+        self.assertTrue(module.executable_step_name("Execute native guest suite"))
+
+    def test_padded_runner_identity_is_rejected_as_evidence(self):
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
+        baseline = copy.deepcopy(self.values[page])
+        for label in (" GitHub Actions 1", "GitHub Actions 1 ",
+                      "GitHub\u00a0Actions 1"):
+            with self.subTest(label=repr(label)):
+                self.values[page] = copy.deepcopy(baseline)
+                self.values[page]["jobs"][0]["runner_name"] = label
+                self.rejected()
+        self.values[page] = baseline
+
+    def test_padded_job_or_step_does_not_pass_exact_evidence(self):
+        page = self.prefix + "/actions/runs/17/attempts/2/jobs?per_page=100&page=1"
+        baseline = copy.deepcopy(self.values[page])
+        for key, label in (("job", "unit "), ("job", " unit"),
+                           ("step", "Execute  test suite"),
+                           ("step", "Execute\u00a0test suite")):
+            with self.subTest(key=key, label=repr(label)):
+                self.values[page] = copy.deepcopy(baseline)
+                job = self.values[page]["jobs"][0]
+                if key == "job":
+                    job["name"] = label
+                else:
+                    job["steps"][1]["name"] = label
+                self.rejected()
+        self.values[page] = baseline
+
+
 class WorkflowIsolationContract(unittest.TestCase):
     """Prevent candidate import-path shadowing in CI report generation."""
 
@@ -1042,6 +1118,44 @@ class WorkflowIsolationContract(unittest.TestCase):
         self.assertNotIn("pull_request_target:", workflow)
         self.assertNotIn("secrets.", workflow)
 
+
+    def test_exact_head_checkout_denies_untracked_and_ignored_payloads(self):
+        workflow = self.workflow_text()
+        block = workflow.split(
+            "      - name: Bind evidence to actual checked-out Git tree", 1
+        )[1].split("      - name: Run all eight-repository source-free security regressions", 1)[0]
+        self.assertIn('test -z "$(git ls-files --others --exclude-standard)"', block)
+        self.assertIn('test -z "$(git ls-files --others --ignored --exclude-standard)"', block)
+        self.assertIn("git diff --quiet", block)
+        self.assertIn("git diff --cached --quiet", block)
+
+    def test_git_oracle_detects_both_untracked_and_ignored_shadows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.run(
+                    ["git", *args], cwd=root, check=True, text=True,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    timeout=10).stdout.strip()
+            git("init", "-q")
+            git("config", "user.name", "CI")
+            git("config", "user.email", "ci@example.test")
+            (root / ".gitignore").write_text("*.cache\n", encoding="utf-8")
+            (root / "tracked.txt").write_text("trusted", encoding="utf-8")
+            git("add", ".gitignore", "tracked.txt")
+            git("commit", "-qm", "pristine")
+            def clean():
+                return (not git("ls-files", "--others", "--exclude-standard")
+                        and not git("ls-files", "--others", "--ignored",
+                                    "--exclude-standard"))
+            self.assertTrue(clean())
+            (root / "foreign.py").write_text("pass", encoding="utf-8")
+            self.assertFalse(clean())
+            (root / "foreign.py").unlink()
+            (root / "shadow.cache").write_text("bad", encoding="utf-8")
+            self.assertFalse(clean())
+            (root / "shadow.cache").unlink()
+            self.assertTrue(clean())
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
