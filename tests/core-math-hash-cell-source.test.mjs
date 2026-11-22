@@ -47,3 +47,23 @@ test("Wasm scalar bridge rejects unfinished library graph instead of faking gues
   const guest=await readFile(new URL("../contracts/core-math-hash-cell-v1/guest.atto",import.meta.url));
   assert.throws(()=>assertScalarSourceHasNoImports(guest),/source imports require verified complete Wasm module graph/);
 });
+
+
+test('borrow-aware core Cell owner predicates are source-only, never guest authority', async () => {
+  const cell=(await readFile(new URL('../library/atto.core/cell.atto',import.meta.url))).toString('utf8');
+  for(const name of ['valid_loan_state','can_owner_read','can_owner_write',
+                     'can_move_owner','can_suspend_unpinned']){
+    assert.ok(cell.includes('pub fnc '+name+'('),name);
+  }
+  const vectors=[
+    [0,false,true,true], [1,false,true,false],
+    [65535,false,true,false], [65536,false,false,false],
+    [-1,false,false,false], [0,true,true,false], [1,true,false,false]
+  ];
+  for(const [readers,writer,valid,write] of vectors){
+    assert.equal(readers>=0&&readers<=65535&&(!writer||readers===0),valid);
+    assert.equal(readers===0&&!writer,write);
+  }
+  assert.ok(!cell.includes('pub fnc issue_loan('));
+  // This is only a source/policy reference check, NOT a compiled guest test.
+});
