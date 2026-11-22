@@ -1,0 +1,144 @@
+// CANDIDATE ONLY. These 134 checks MUST run as one compiled native Atto
+// guest after trusted std modules are actually linked. Source-model tests
+// or a backend that ignores imports DO NOT count as execution/parity.
+import module path from "std/path";
+import module sync from "std/sync";
+import module telemetry from "std/telemetry";
+
+pub fnc main(): int {
+  if !path.is_separator(47, false) then return 1; fi
+  if path.is_separator(92, false) then return 2; fi
+  if !path.is_separator(92, true) then return 3; fi
+  if path.is_separator(65, true) then return 4; fi
+  if !path.is_ascii_letter(65) then return 5; fi
+  if !path.is_ascii_letter(122) then return 6; fi
+  if path.is_ascii_letter(64) then return 7; fi
+  if path.is_ascii_letter(50) then return 8; fi
+  if !path.is_safe_scalar(233, false) then return 9; fi
+  if path.is_safe_scalar(233, true) then return 10; fi
+  if path.is_safe_scalar(47, false) then return 11; fi
+  if !path.is_safe_scalar(92, false) then return 12; fi
+  if path.is_safe_scalar(92, true) then return 13; fi
+  if path.is_safe_scalar(55296, false) then return 14; fi
+  if path.is_safe_scalar(1114112, false) then return 15; fi
+  if !path.is_safe_scalar(95, true) then return 16; fi
+  if path.component_kind(1, 46, 0) != 1 then return 17; fi
+  if path.component_kind(2, 46, 46) != 2 then return 18; fi
+  if path.component_kind(0, 1, 1) != -1 then return 19; fi
+  if path.component_kind(256, 1, 1) != -1 then return 20; fi
+  if path.component_kind(2, 46, 65) != 0 then return 21; fi
+  if path.advance_relative_depth(0, 2) != -1 then return 22; fi
+  if path.advance_relative_depth(2, 2) != 1 then return 23; fi
+  if path.advance_relative_depth(2, 1) != 2 then return 24; fi
+  if path.advance_relative_depth(255, 0) != 256 then return 25; fi
+  if path.advance_relative_depth(256, 0) != -1 then return 26; fi
+  if path.advance_relative_depth(0, 0) != 1 then return 27; fi
+  if path.advance_relative_depth(-1, 0) != -1 then return 28; fi
+  if path.advance_relative_depth(1, 9) != -1 then return 29; fi
+  if !path.is_windows_drive_prefix(67, 58) then return 30; fi
+  if path.is_windows_drive_prefix(67, 47) then return 31; fi
+  if path.is_windows_drive_prefix(35, 58) then return 32; fi
+  if !path.relative_join_budget_admissible(4, 4, 1, 1) then return 33; fi
+  if path.relative_join_budget_admissible(4095, 1, 1, 1) then return 34; fi
+  if !path.relative_join_budget_admissible(4094, 1, 1, 1) then return 35; fi
+  if path.relative_join_budget_admissible(3, 3, 256, 1) then return 36; fi
+  if path.relative_join_budget_admissible(0, 3, 1, 1) then return 37; fi
+  if path.relative_join_budget_admissible(3, 3, -1, 1) then return 38; fi
+  if !path.extension_offset_admissible(4, 1) then return 39; fi
+  if path.extension_offset_admissible(4, 0) then return 40; fi
+  if path.extension_offset_admissible(4, 3) then return 41; fi
+  if path.extension_offset_admissible(2, 1) then return 42; fi
+  if !sync.mutex_take_admissible(false, false, 0) then return 43; fi
+  if sync.mutex_take_admissible(true, false, 0) then return 44; fi
+  if sync.mutex_take_admissible(false, false, 1) then return 45; fi
+  if sync.mutex_take_admissible(false, true, 0) then return 46; fi
+  if !sync.mutex_enqueue_admissible(false, 0, 4) then return 47; fi
+  if sync.mutex_enqueue_admissible(false, 4, 4) then return 48; fi
+  if sync.mutex_enqueue_admissible(true, 0, 4) then return 49; fi
+  if sync.mutex_enqueue_admissible(false, -1, 4) then return 50; fi
+  if sync.mutex_enqueue_admissible(false, 0, 0) then return 51; fi
+  if !sync.read_take_admissible(0, false, 0, 10) then return 52; fi
+  if sync.read_take_admissible(10, false, 0, 10) then return 53; fi
+  if sync.read_take_admissible(1, false, 1, 10) then return 54; fi
+  if sync.read_take_admissible(0, true, 0, 10) then return 55; fi
+  if sync.read_take_admissible(0, false, 0, 0) then return 56; fi
+  if !sync.write_take_admissible(0, false) then return 57; fi
+  if sync.write_take_admissible(1, false) then return 58; fi
+  if sync.write_take_admissible(0, true) then return 59; fi
+  if !sync.sem_take_admissible(3, 2, 5, false) then return 60; fi
+  if sync.sem_take_admissible(3, 4, 5, false) then return 61; fi
+  if sync.sem_take_admissible(3, 2, 5, true) then return 62; fi
+  if sync.sem_take_admissible(6, 1, 5, false) then return 63; fi
+  if sync.sem_take_admissible(3, 0, 5, false) then return 64; fi
+  if !sync.sem_return_admissible(3, 2, 5, false) then return 65; fi
+  if !sync.sem_return_admissible(3, 2, 5, true) then return 66; fi
+  if sync.sem_return_admissible(4, 2, 5, false) then return 67; fi
+  if sync.sem_return_admissible(0, 0, 5, false) then return 68; fi
+  if sync.sem_return_admissible(3, 2, 0, true) then return 69; fi
+  if !sync.barrier_last_arrival(3, 4, false) then return 70; fi
+  if sync.barrier_last_arrival(2, 4, false) then return 71; fi
+  if sync.barrier_last_arrival(0, 1, true) then return 72; fi
+  if !sync.barrier_last_arrival(65535, 65536, false) then return 73; fi
+  if !sync.barrier_arrival_admissible(0, 4, false) then return 74; fi
+  if !sync.barrier_arrival_admissible(3, 4, false) then return 75; fi
+  if sync.barrier_arrival_admissible(4, 4, false) then return 76; fi
+  if sync.barrier_arrival_admissible(-1, 4, false) then return 77; fi
+  if sync.barrier_arrival_admissible(1, 4, true) then return 78; fi
+  if !sync.mutex_release_receipt_admissible(true, 8, 8, 3, 3, false) then return 79; fi
+  if sync.mutex_release_receipt_admissible(true, 8, 9, 3, 3, false) then return 80; fi
+  if sync.mutex_release_receipt_admissible(true, 8, 8, 3, 2, false) then return 81; fi
+  if sync.mutex_release_receipt_admissible(true, 8, 8, 3, 3, true) then return 82; fi
+  if sync.mutex_release_receipt_admissible(false, 8, 8, 3, 3, false) then return 83; fi
+  if !sync.rw_upgrade_admissible(1, false, 0, true) then return 84; fi
+  if sync.rw_upgrade_admissible(2, false, 0, true) then return 85; fi
+  if sync.rw_upgrade_admissible(1, false, 1, true) then return 86; fi
+  if sync.rw_upgrade_admissible(1, false, 0, false) then return 87; fi
+  if sync.rw_upgrade_admissible(1, true, 0, true) then return 88; fi
+  if !sync.next_epoch_admissible(5, 6) then return 89; fi
+  if sync.next_epoch_admissible(5, 7) then return 90; fi
+  if sync.next_epoch_admissible(2147483647, 0) then return 91; fi
+  if sync.next_epoch_admissible(-1, 0) then return 92; fi
+  if !telemetry.traceparent_v00_fields_valid(0, 1, 0, 1, 255) then return 93; fi
+  if telemetry.traceparent_v00_fields_valid(0, 0, 0, 1, 1) then return 94; fi
+  if telemetry.traceparent_v00_fields_valid(1, 1, 0, 1, 1) then return 95; fi
+  if telemetry.traceparent_v00_fields_valid(0, 1, 0, 0, 1) then return 96; fi
+  if telemetry.traceparent_v00_fields_valid(0, 1, 0, 1, 256) then return 97; fi
+  if !telemetry.traceparent_v00_fields_valid(0, -1, 0, 1, 0) then return 98; fi
+  if !telemetry.sampled_flag(1) then return 99; fi
+  if !telemetry.sampled_flag(3) then return 100; fi
+  if telemetry.sampled_flag(2) then return 101; fi
+  if telemetry.sampled_flag(256) then return 102; fi
+  if telemetry.sampled_flag(0) then return 103; fi
+  if telemetry.sampling_decision(1, false) != 1 then return 104; fi
+  if telemetry.sampling_decision(2, false) != 2 then return 105; fi
+  if telemetry.sampling_decision(3, true) != 2 then return 106; fi
+  if telemetry.sampling_decision(3, false) != 0 then return 107; fi
+  if telemetry.sampling_decision(0, true) != 0 then return 108; fi
+  if telemetry.decision_is_recording(0) then return 109; fi
+  if !telemetry.decision_is_recording(1) then return 110; fi
+  if !telemetry.decision_is_recording(2) then return 111; fi
+  if telemetry.decision_is_recording(3) then return 112; fi
+  if telemetry.decision_is_sampled(0) then return 113; fi
+  if telemetry.decision_is_sampled(1) then return 114; fi
+  if !telemetry.decision_is_sampled(2) then return 115; fi
+  if !telemetry.span_window_valid(0, 0) then return 116; fi
+  if !telemetry.span_window_valid(1, 2) then return 117; fi
+  if telemetry.span_window_valid(2, 1) then return 118; fi
+  if telemetry.span_window_valid(-1, 3) then return 119; fi
+  if !telemetry.dormant_probe_admissible(3, 2, true) then return 120; fi
+  if telemetry.dormant_probe_admissible(3, 2, false) then return 121; fi
+  if telemetry.dormant_probe_admissible(0, 1, true) then return 122; fi
+  if telemetry.dormant_probe_admissible(2, 3, true) then return 123; fi
+  if !telemetry.dormant_probe_admissible(3, 1, true) then return 124; fi
+  if !telemetry.queue_admissible(0, 8, 2, 2) then return 125; fi
+  if telemetry.queue_admissible(8, 8, 0, 0) then return 126; fi
+  if telemetry.queue_admissible(0, 0, 0, 0) then return 127; fi
+  if telemetry.queue_admissible(0, 8, 3, 2) then return 128; fi
+  if telemetry.queue_admissible(0, 65537, 0, 0) then return 129; fi
+  if telemetry.queue_admissible(-1, 8, 0, 0) then return 130; fi
+  if telemetry.drop_increment(0) != 1 then return 131; fi
+  if telemetry.drop_increment(10) != 11 then return 132; fi
+  if telemetry.drop_increment(2147483647) != 2147483647 then return 133; fi
+  if telemetry.drop_increment(-1) != -1 then return 134; fi
+  return 0;
+}
