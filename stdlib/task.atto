@@ -1,0 +1,106 @@
+// AttoLang std/task: backend-local, portable bounded task-group policy (wasm).
+// Import via std/task (or ores.std/task). No host source or embedded JS/Java.
+// Task execution, Future<T> results, and cooperative cancellation MUST be
+// implemented and enforced by this backend compiler/runtime; not faked here.
+// GroupPolicy is LOCAL ACCOUNTING ONLY: it cannot spawn, cancel, authenticate
+// completions, enforce a deadline or discharge outstanding child tasks.
+// Never share one mutable GroupPolicy between unsynchronized concurrent tasks.
+define module task_api as
+  // A zero deadline means no deadline; nonzero values are monotonic clock ticks
+  // from the SAME clock domain. A policy check is not a scheduler timer.
+  pub fnc deadline_reached(int now_tick, int deadline_tick): bool {
+    if now_tick < 0 || deadline_tick <= 0; do return false; fi
+    return now_tick >= deadline_tick;
+  }
+
+  pub fnc remaining_slots(int active, int limit): int {
+    if limit < 1 || limit > 1024 || active < 0 || active > limit; do
+      return 0;
+    fi
+    return limit - active;
+  }
+
+  pub fnc can_admit(int active, int limit): bool {
+    return remaining_slots(active, limit) > 0;
+  }
+
+  // A group must be closed to admissions and EVERY admitted child must
+  // physically retire before a caller may release the group's owned resources.
+  // Completions supplied by an untrusted caller are not authentic receipts.
+  pub define class GroupPolicy as
+    let int generation;
+    let int maximum;
+    let mut int admitted_count = 0;
+    let mut int running_count = 0;
+    let mut int finished_count = 0;
+    let mut bool closing = false;
+    let mut bool cancellation_asked = false;
+
+    pub constructor(int generation, int maximum) {
+      if generation < 1 || maximum < 1 || maximum > 1024; do
+        rt fail("std/task: invalid generation or capacity");
+      fi
+      self.generation = generation;
+      self.maximum = maximum;
+    }
+
+    // The executor must reserve admission atomically and associate a unique,
+    // generation-scoped child ticket; these counters are not that reservation.
+    pub fnc try_admit(mut self)(int generation): bool {
+      if generation != self.generation || self.closing ||
+         self.cancellation_asked || self.running_count >= self.maximum ||
+         self.admitted_count >= 2147483647; do
+        return false;
+      fi
+      self.running_count = self.running_count + 1;
+      self.admitted_count = self.admitted_count + 1;
+      return true;
+    }
+
+    // Call only after the trusted executor has retired one DISTINCT child
+    // ticket and run defers/guard cleanup. No duplicate completion is allowed.
+    pub fnc finish(mut self)(int generation): bool {
+      if generation != self.generation || self.running_count <= 0; do
+        return false;
+      fi
+      self.running_count = self.running_count - 1;
+      self.finished_count = self.finished_count + 1;
+      return true;
+    }
+
+    // Stop new admission, without requesting cancellation of existing tasks.
+    pub fnc close(mut self)(int generation): bool {
+      if generation != self.generation || self.closing; do return false; fi
+      self.closing = true;
+      return true;
+    }
+
+    // Local intent only. Caller must cancel EACH actual Future task handle,
+    // wait for get_done() and verify physical retirement before destruction.
+    pub fnc request_cancel(mut self)(int generation): bool {
+      if generation != self.generation || self.cancellation_asked; do
+        return false;
+      fi
+      self.closing = true;
+      self.cancellation_asked = true;
+      return true;
+    }
+
+    pub fnc ready_to_retire(): bool {
+      return self.closing && self.running_count == 0 &&
+             self.admitted_count == self.finished_count;
+    }
+
+    pub fnc active(): int { return self.running_count; }
+    pub fnc admitted(): int { return self.admitted_count; }
+    pub fnc finished(): int { return self.finished_count; }
+    pub fnc is_closed(): bool { return self.closing; }
+    pub fnc is_cancel_requested(): bool { return self.cancellation_asked; }
+    pub fnc incarnation(): int { return self.generation; }
+  end
+
+  pub fnc group_policy(int generation, int maximum): GroupPolicy {
+    return new GroupPolicy(generation, maximum);
+  }
+
+end
