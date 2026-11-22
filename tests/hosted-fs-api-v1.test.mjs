@@ -1,7 +1,7 @@
 // Host-only FS implementation tests. These do NOT link an Atto guest.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {TenantHostedIoV1, HostIoError, FsPath, FsPathBuf,
+import {TenantHostedIoV1, HostIoError, FsError, FsErrorKind, FsPath, FsPathBuf,
   path_join, path_parent, path_file_name, path_extension, path_normalize}
   from '../runtime/hosted-io-v1.mjs';
 
@@ -154,4 +154,14 @@ test('actor revocation fences leaked handles and does not affect other tenants',
   assert.equal(decode(await one.read_file(next,'secret')),'one');
   await assert.rejects(one.read_file(a,'secret'),rejects('E_IO_STALE'));
   one.close();two.close();
+});
+
+test('filesystem errors expose stable FsErrorKind without leaking host paths',async()=>{
+  const fs=make(),actor=fs.open_actor(1,1,{read:true});
+  await assert.rejects(fs.read_file(actor,'absent'),error=>
+    error instanceof FsError && error.kind===FsErrorKind.not_found &&
+    error.code==='E_FS_NOT_FOUND' && !error.message.includes('/mnt/'));
+  await assert.rejects(fs.read_file(actor,'../escape'),error=>
+    error instanceof FsError && error.kind===FsErrorKind.invalid_path);
+  fs.close();
 });
