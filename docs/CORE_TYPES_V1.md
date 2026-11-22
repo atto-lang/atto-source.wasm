@@ -11,3 +11,7 @@ Conformance target: compile and execute `tests/fixtures/core-types-v1/edge-posit
 ## Namespace-only core source
 
 Canonical `use namespace types;` file header plus public top-level functions; no `define module` wrapper. Consumers still explicitly import the symbols. Compiler parse, namespace source identity, static imports, and executed linked guests require separate proofs. Until the current PR compiles and runs, namespace guest parity remains NOT_EXECUTED.
+
+## Wasm scalar graph admission / compiled-guest gap
+
+This backend's scalar bridge accepts only a standalone source file. The checked-in `core/types.atto` has no import and can undergo source admission, but both positive guest fixtures contain real cross-file imports. The new `tests/core-types-wasm-graph-admission.test.mjs` uses the production bridge's `assertScalarSourceHasNoImports` to require import-denial and resist comment/quote tricks; this **does not** compile or execute a full Atto guest. The compiled wasm32 guest gate requires an independently authenticated compiler binary, its SHA-256, an approved exact source graph, wasm target LLVM IR and WebAssembly instantiation with observed return values. Until this exists the guest status stays `NOT_EXECUTED`, not `PASS`. No cross-org private Git objects should be exported without source authorization.

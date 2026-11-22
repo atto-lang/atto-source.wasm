@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'core/types.atto'
+      - 'scripts/compile-ores.mjs'
+      - 'tests/core-types-wasm-graph-admission.test.mjs'
       - 'tests/core-types-source.test.mjs'
       - 'tests/core-types-matrix-source.test.mjs'
       - 'tests/fixtures/core-types-v1/**'
@@ -38,3 +40,26 @@ jobs:
       - name: Preserve evidence boundary
         if: always()
         run: echo 'This workflow runs a strict source-model oracle only; it neither compiles Atto nor proves NativeAOT/Wasm/JIT guest execution.' >> "$GITHUB_STEP_SUMMARY"
+  wasm-import-graph-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify head and reject unverified cross-file Wasm compilation
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          node --test tests/core-types-wasm-graph-admission.test.mjs
+          echo 'CORE_TYPES_WASM_SOURCE_IMPORT_DENIAL=PASS'
+          echo 'CORE_TYPES_WASM_COMPILED_GUEST=NOT_PROVEN'
+      - name: Evidence
+        if: always()
+        run: echo 'Wasm import-graph source admission only; compiled wasm guest cannot be claimed without authenticated external native frontend, linked source graph, and actual WebAssembly instantiation.' >> "$GITHUB_STEP_SUMMARY"
