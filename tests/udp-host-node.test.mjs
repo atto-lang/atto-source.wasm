@@ -105,3 +105,29 @@ test("UDP denied destination precedes access to hostile guest packet data", asyn
   await assert.rejects(socket.send_to(hostile,12345),/destination denied/);
  }finally{await socket.close();}
 });
+
+test('UDP buffered packet source is reauthorized at dequeue after revocation',async()=>{
+ let denied=false;
+ let sender;
+ const receiver=await openNodeUdpLoopback({authorize:(endpoint,op)=>{
+  if(denied && op==='udp.recv_from' && endpoint.endsWith(':' + sender.local_port()))
+    throw new Error('source grant revoked');
+  authorize(endpoint,op);
+ }});
+ sender=await openNodeUdpLoopback({authorize});
+ try{
+  await sender.send_to(Uint8Array.from([9,8,7]),receiver.local_port());
+  for(let n=0;n<100 && receiver.stats().queued_packets===0;n++)
+    await new Promise(r=>setTimeout(r,2));
+  assert.equal(receiver.stats().queued_packets,1);
+  denied=true;
+  await assert.rejects(receiver.recv_from(8),/source grant revoked/);
+  assert.equal(receiver.stats().queued_bytes,0);
+  assert.equal(receiver.stats().queued_packets,0);
+  assert.equal(receiver.stats().dropped_packets,1);
+  denied=false;
+  const pending=receiver.recv_from(8);
+  await sender.send_to(Uint8Array.from([5]),receiver.local_port());
+  assert.deepEqual(Array.from((await pending).bytes),[5]);
+ }finally{await sender.close();await receiver.close()}
+});
