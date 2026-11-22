@@ -1,6 +1,8 @@
 // Compiler-local source candidate for atto-source.wasm; no shared source dependency.
 // Backend-owned alloc/box module (AttoLang source, not a host-language Box).
-// OwnedBox<T> is a move-only, single-slot heap object. No implicit sharing,
+// OwnedBox<T> is a move-only, single-slot heap object.
+// The consuming generic parameter syntax is a TARGET contract; unsupported
+// compiler profiles must reject it before guest artifact emission. No implicit sharing,
 // raw pointer access, copying or cross-actor admission is granted.
 // The compiler must enforce field moves, exclusive receivers, and exactly-once
 // dropping on normal exits and exceptional/cancellation unwind.
@@ -13,7 +15,7 @@ define module alloc_box as
     return new OwnedBox<T>();
   }
 
-  pub fnc boxed<T>(T value) -> OwnedBox<T> {
+  pub fnc boxed<T>(take! T value) -> OwnedBox<T> {
     let mut OwnedBox<T> result = new OwnedBox<T>();
     result.replace(take! value);
     return take! result;
@@ -29,7 +31,7 @@ define module alloc_box as
 
   // Replacement consumes the new value and transfers the previous owner.
   // The slot is reinitialized before this method returns.
-  pub mtd (mut self: OwnedBox<T>) replace(T next) -> Option<T> {
+  pub mtd (mut self: OwnedBox<T>) replace(take! T next) -> Option<T> {
     let Option<T> previous = take! self.slot;
     self.slot = Some(take! next);
     return take! previous;
