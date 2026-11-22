@@ -27,7 +27,7 @@ pub fnc main(): int {
   if fs_read_range_valid(9223372036854775807, 1, 9223372036854775807) then return 24; fi
   if fs_copy_fits_budget(4, 0, 1, 4, 5) == false then return 25; fi
   if fs_copy_fits_budget(5, 0, 1, 4, 9) then return 26; fi
-  if fs_copy_fits_budget(4, 2, 1, 9, 9) then return 27; fi
+  if fs_copy_fits_budget(4, 2, 6, 9, 10) then return 27; fi
   if fs_dir_quota_valid(4, 2, 6) == false then return 28; fi
   if fs_dir_quota_valid(5, 2, 6) then return 29; fi
   if fs_recursive_remove_admissible(true, true, true, 3, 3) == false then return 30; fi
