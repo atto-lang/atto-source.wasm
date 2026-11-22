@@ -93,6 +93,7 @@ define module io as
   pub define class Sink as
     let mut Array<int> data = new Array<int>();
     let int limit;
+    let mut int used = 0;
     let mut bool closed = false;
 
     pub constructor(int capacity_bytes) {
@@ -100,11 +101,16 @@ define module io as
         rt fail("io.Sink: capacity must be 1..1048576");
       fi
       self.limit = capacity_bytes;
+      // Reserve the logical capacity once; recoverable writes never grow it.
+      // Array<int> is an octet model, NOT byte-compact physical storage.
+      for (let int i = 0; i < capacity_bytes; i = i + 1) {
+        self.data.add(0);
+      }
     }
 
-    pub size(): int { return self.data.size; }
+    pub size(): int { return self.used; }
     pub capacity(): int { return self.limit; }
-    pub remaining(): int { return self.limit - self.data.size; }
+    pub remaining(): int { return self.limit - self.used; }
     pub is_closed(): bool { return self.closed; }
 
     pub write(mut self)(Array<int> bytes): Result<int, String> {
@@ -124,7 +130,7 @@ define module io as
       if bytes.size == 0; do
         return Ok(0);
       fi
-      let int available = self.limit - self.data.size;
+      let int available = self.limit - self.used;
       if available == 0; do
         return Err("WouldBlock");
       fi
@@ -133,8 +139,9 @@ define module io as
         count = available;
       fi
       for (let int i = 0; i < count; i = i + 1) {
-        self.data.add(bytes.get(i));
+        self.data.set(self.used + i, bytes.get(i));
       }
+      self.used = self.used + count;
       return Ok(count);
     }
 
@@ -146,7 +153,7 @@ define module io as
       if bytes.size > 65536; do
         return Err("InvalidWriteSize");
       fi
-      if bytes.size > self.limit - self.data.size; do
+      if bytes.size > self.limit - self.used; do
         return Err("WouldBlock");
       fi
       return self.write(bytes);
@@ -155,7 +162,7 @@ define module io as
     // Snapshot always copies; it cannot alias mutable sink storage.
     pub snapshot(): Array<int> {
       let mut Array<int> out = new Array<int>();
-      for (let int i = 0; i < self.data.size; i = i + 1) {
+      for (let int i = 0; i < self.used; i = i + 1) {
         out.add(self.data.get(i));
       }
       return out;
@@ -184,6 +191,10 @@ define module io as
         rt fail("io.BytePipe: capacity must be 1..1048576");
       fi
       self.limit = capacity_bytes;
+      // Allocate the ring once to keep recoverable writes allocation-free.
+      for (let int i = 0; i < capacity_bytes; i = i + 1) {
+        self.slots.add(0);
+      }
     }
 
     pub capacity(): int { return self.limit; }
@@ -217,11 +228,7 @@ define module io as
       fi
       for (let int i = 0; i < count; i = i + 1) {
         let int index = (self.head + self.used + i) % self.limit;
-        if index == self.slots.size; do
-          self.slots.add(bytes.get(i));
-        else
-          self.slots.set(index, bytes.get(i));
-        fi
+        self.slots.set(index, bytes.get(i));
       }
       self.used = self.used + count;
       return Ok(count);
