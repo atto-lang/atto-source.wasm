@@ -4,7 +4,7 @@
 // A caller-supplied clock_id is comparison metadata, not a security capability.
 // Valid range: signed 64-bit nanoseconds [0, 9223372036854775807].
 define module time as
-  pub define class Duration as
+  define pub class Duration as
     pub val int nanos;
     pub constructor(int nanos) {
       if nanos < 0; do rt fail("time.Duration: negative"); fi
@@ -64,7 +64,7 @@ define module time as
 
   // This is a monotonic sample; it is not a Unix timestamp.
   // Trusted runtime code must establish real clock identity/provenance.
-  pub define class Instant as
+  define pub class Instant as
     pub val int clock_id;
     pub val int ticks_ns;
     pub constructor(int clock_id, int ticks_ns) {
@@ -87,9 +87,14 @@ define module time as
     }
   end
 
+  // Module-qualified factory permits import module time from "std/time".
+  pub fnc instant(int clock_id, int ticks_ns): Instant {
+    return new Instant(clock_id, ticks_ns);
+  }
+
   // Deterministic test clock: never a trusted OS/monotonic clock.
   // Owns a local virtual clock domain and refuses backward motion.
-  pub define class ManualClock as
+  define pub class ManualClock as
     let int clock_id;
     let mut int now_ns;
 
@@ -114,7 +119,12 @@ define module time as
     }
   end
 
-  pub define class Deadline as
+  // A test clock never creates a trusted runtime-clock capability.
+  pub fnc manual_clock(int clock_id, int initial_ns): ManualClock {
+    return new ManualClock(clock_id, initial_ns);
+  }
+
+  define pub class Deadline as
     pub val Instant due;
     pub constructor(Instant due) { self.due = due; }
     pub expired(Instant now): Result<bool, String> {
@@ -135,7 +145,7 @@ define module time as
   }
 
   // Timer is pollable state only: it does not register a scheduler wakeup.
-  pub define class Timer as
+  define pub class Timer as
     let Deadline deadline;
     let mut bool armed = true;
     let mut bool fired = false;
@@ -166,7 +176,7 @@ define module time as
   pub fnc one_shot(Deadline due): Timer { return new Timer(due); }
 
   // Fixed-delay interval. Coalesces missed polls; no catch-up storm.
-  pub define class Interval as
+  define pub class Interval as
     let int clock_id;
     let int period_ns;
     let mut int next_ns;
