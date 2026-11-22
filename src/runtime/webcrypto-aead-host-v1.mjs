@@ -15,7 +15,19 @@ function provider() {
   return crypto;
 }
 
+// Shared buffers may be concurrently mutated by another worker while the
+// trusted host copies them. Reject rather than pretending the snapshot is
+// atomic or that actor ownership has been proven.
+function isSharedBytes(input) {
+  return typeof SharedArrayBuffer !== "undefined" &&
+    input instanceof Uint8Array &&
+    input.buffer instanceof SharedArrayBuffer;
+}
+
 function checkedBytes(input, minimum, maximum, label) {
+  if (isSharedBytes(input)) {
+    throw new TypeError(`shared ${label} buffer is not crypto-owned`);
+  }
   if (!(input instanceof Uint8Array) ||
       input.byteLength < minimum || input.byteLength > maximum) {
     throw new TypeError(`invalid ${label} length`);
@@ -121,7 +133,9 @@ export class WebCryptoAeadKeyV1 {
         !(aad instanceof Uint8Array) || aad.length > MAX_AAD_BYTES ||
         !(ciphertextAndTag instanceof Uint8Array) ||
         ciphertextAndTag.length < 16 ||
-        ciphertextAndTag.length > MAX_MESSAGE_BYTES + 16) {
+        ciphertextAndTag.length > MAX_MESSAGE_BYTES + 16 ||
+        isSharedBytes(nonce) || isSharedBytes(aad) ||
+        isSharedBytes(ciphertextAndTag)) {
       return { ok: false, error: "authentication failed" };
     }
     const n = new Uint8Array(nonce);
