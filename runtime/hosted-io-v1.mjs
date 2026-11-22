@@ -47,9 +47,14 @@ const boundedInteger = (value, min, max) =>
   Number.isSafeInteger(value) && value >= min && value <= max;
 
 function checkedPath(path) {
-  if (typeof path !== 'string' || textEncoder.encode(path).length > 256 || path.length < 1 ||
-      path.includes('\\') || path.includes('\0') || path.startsWith('/') || path.includes(':') ||
-      !path.isWellFormed()) fail('E_FS_PATH');
+  // Reject unbounded strings before TextEncoder allocates its output. UTF-8 is
+  // at most 3 bytes per UTF-16 unit for well-formed text, so a 256-unit input
+  // is a safe preflight ceiling; the actual byte budget is then enforced.
+  if (typeof path !== 'string' || path.length < 1 || path.length > 256 ||
+      path.startsWith('/') || path.includes('\\') || path.includes(':') ||
+      !path.isWellFormed() ||
+      /[\\u0000-\\u001f\\u007f-\\u009f\\u202a-\\u202e\\u2066-\\u2069]/u.test(path) ||
+      textEncoder.encode(path).length > 256) fail('E_FS_PATH');
   const p = path.startsWith('./') ? path.slice(2) : path;
   const parts = p.split('/');
   if (parts.some(s => !s || s === '.' || s === '..')) fail('E_FS_PATH');
