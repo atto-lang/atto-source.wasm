@@ -4,7 +4,7 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
-import {types} from "node:util";
+import {types, TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -18,19 +18,53 @@ import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
 import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
+import {rejectRawSourceControls} from "../src/raw-source-control-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// Snapshot tokenization intrinsics before same-realm plugins can monkeypatch
+// host globals. This admission scanner is not a guest-language parser.
+const tokenApply = Reflect.apply;
+// Pin brand checks before untrusted host plugins can monkeypatch util.types.
+const tokenIsProxy = types.isProxy;
+const tokenIsSharedArrayBuffer = types.isSharedArrayBuffer;
+const tokenIsTypedArray = types.isTypedArray;
+const tokenIsDataView = types.isDataView;
+const tokenIsArrayBuffer = types.isArrayBuffer;
+const tokenRegExpExec = RegExp.prototype.exec;
+const tokenStringSlice = String.prototype.slice;
+const tokenStringIndexOf = String.prototype.indexOf;
+const tokenArrayIncludes = Array.prototype.includes;
+const tokenArrayPush = Array.prototype.push;
+const tokenSetHas = Set.prototype.has;
+const tokenDecoder = new NodeTextDecoder('utf-8', {fatal:true});
+const tokenDecode = NodeTextDecoder.prototype.decode;
+const tokenEncoder = new NodeTextEncoder();
+const tokenEncode = NodeTextEncoder.prototype.encode;
+// Invoke the native exec directly: RegExp.prototype.test delegates to a
+// mutable .exec property and can fail open after module initialization.
+const tokenRegex = (re,c) => tokenApply(tokenRegExpExec,re,[c]) !== null;
+const tokenSlice = (s,a,b) => tokenApply(tokenStringSlice,s,[a,b]);
+const tokenIndexOf = (s,c) => tokenApply(tokenStringIndexOf,s,[c]);
+const tokenIncludes = (arr,c) => tokenApply(tokenArrayIncludes,arr,[c]);
+const tokenHas = (set,c) => tokenApply(tokenSetHas,set,[c]);
+const tokenUtf8 = s => tokenApply(tokenEncode,tokenEncoder,[s]);
+const tokenUtf8Text = bytes => tokenApply(tokenDecode,tokenDecoder,[bytes]);
 // The scalar Wasm bridge accepts ONE standalone source file, not a graph.
 // Validate the pinned source snapshot before invoking even a "real" compiler:
 // a compiler silently ignoring an import must not publish a valid-looking
 // scalar Wasm with incomplete source provenance. This is an admission scanner,
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
- const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ // Public source-admission entry points must enforce the same physical
+ // nonshared 1 MiB input bound, even when called outside compileOresToWasm.
+ const physicalLength=physicalSourceByteLength(bytes);
+ if(physicalLength>MAX_SOURCE_BYTES)
+  throw new RangeError("WASM source preflight byte budget exceeded");
+ const source=tokenUtf8Text(bytes);
  // A NUL byte is invalid source, even if a downstream scalar compiler
  // chooses to truncate or ignore it before resolving the source graph.
- if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
+ if(tokenIndexOf(source,"\0")!==-1)throw Error("NUL byte in Oreslang source");
  let i=0;
  while(i<source.length){
   const ch=source[i],next=source[i+1];
@@ -38,7 +72,7 @@ export function assertScalarSourceHasNoImports(bytes){
    // A CR-only line ending is still a new source line. Otherwise an import
    // after \\r could be hidden from this pre-publication admission check.
    i+=2;
-   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   while(i<source.length&&!tokenIncludes(["\r","\n","\u0085","\u2028","\u2029"],source[i]))i++;
    continue;
   }
   if(ch==="/"&&next==="*"){
@@ -66,10 +100,10 @@ export function assertScalarSourceHasNoImports(bytes){
    if(!closed)throw Error("unterminated Oreslang string or character literal");
    continue;
   }
-  if(/[A-Za-z_]/.test(ch)){
+  if(tokenRegex(/[A-Za-z_]/,ch)){
    const begin=i++;
-   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
-   if(source.slice(begin,i)==="import")
+   while(i<source.length&&tokenRegex(/[A-Za-z0-9_]/,source[i]))i++;
+   if(tokenSlice(source,begin,i)==="import")
     throw Error("source imports require verified complete Wasm module graph");
    continue;
   }
@@ -92,19 +126,19 @@ const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLeng
 // .byteLength property from a Uint8Array/DataView subclass or a Proxy.
 // Shared backing is rejected: another worker could change source during scanning.
 function physicalSourceByteLength(input) {
- if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+ if(input == null || tokenIsProxy(input) || tokenIsSharedArrayBuffer(input))
   throw new TypeError("WASM source preflight requires nonshared byte input");
- if(types.isTypedArray(input)) {
-  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+ if(tokenIsTypedArray(input)) {
+  if(tokenIsSharedArrayBuffer(sourceTypedBuffer(input)))
    throw new TypeError("WASM source preflight forbids shared backing");
   return sourceTypedLength(input);
  }
- if(types.isDataView(input)) {
-  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+ if(tokenIsDataView(input)) {
+  if(tokenIsSharedArrayBuffer(sourceDataViewBuffer(input)))
    throw new TypeError("WASM source preflight forbids shared backing");
   return sourceDataViewLength(input);
  }
- if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ if(tokenIsArrayBuffer(input)) return sourceArrayBufferLength(input);
  throw new TypeError("WASM source preflight requires byte input");
 }
 
@@ -116,13 +150,13 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const text=tokenUtf8Text(sourceBytes);
  // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
  // can erase a comment or quoted literal, and prior to compiler invocation or
  // staging. The byte budget above bounds this conversion and its allocation.
- const nul=text.indexOf("\0");
+ const nul=tokenIndexOf(text,"\0");
  if(nul!==-1) {
-  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  const offset=tokenUtf8(tokenSlice(text,0,nul)).byteLength;
   throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
  }
  const tokens=[];
@@ -130,17 +164,19 @@ function tupleV2Tokens(sourceBytes){
  const pushToken=token=>{
   if(tokens.length>=MAX_SOURCE_TOKENS)
    throw new RangeError("WASM source preflight token budget exceeded");
-  tokens.push(token);
+  // Discarding tokens on a patched Array.prototype.push must never admit
+  // unsupported source into the scalar guest compilation path.
+  tokenApply(tokenArrayPush,tokens,[token]);
  };
- const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
+ const idStart=c=>tokenRegex(/[A-Za-z_]/,c), idPart=c=>tokenRegex(/[A-Za-z0-9_]/,c);
  for(let i=0;i<text.length;){
   const c=text[i];
   // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
   // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
   // declarations can be split into punctuation tokens and evade preflight.
-  if(/\s/.test(c)||c==="\u0085"){i++;continue}
+  if(tokenRegex(/\s/,c)||c==="\u0085"){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
-   i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
+   i+=2;while(i<text.length&&!tokenIncludes(["\n","\r","\u0085","\u2028","\u2029"],text[i]))i++;continue;
   }
   if(c==="/"&&text[i+1]==="*"){
    const start=i;i+=2;let depth=1;
@@ -152,7 +188,7 @@ function tupleV2Tokens(sourceBytes){
    if(depth)throw Error("unterminated block comment at byte "+start);
    continue;
   }
-  if(c==="\""||c==="'"){
+  if(c==="\""||c==="'"||c==="`"){
    const quote=c;const start=i++;let escaped=false,closed=false;
    while(i<text.length){
     const q=text[i++];
@@ -165,7 +201,7 @@ function tupleV2Tokens(sourceBytes){
   }
   if(idStart(c)){
    const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
+   pushToken({text:tokenSlice(text,start,i),offset:start,id:true});continue;
   }
   pushToken({text:c,offset:i,id:false});i++;
  }
@@ -323,32 +359,60 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
 }
 
 /** Actor pipeline transport is not lowered by the scalar Wasm bridge.
- * This is a source admission gate, NOT successful guest actor execution.
- * The tokenized check ignores quoted strings, comments, normal identifiers
- * named pipe, and functional |> composition.
+ * This is a fail-closed source admission gate, NOT guest actor execution.
+ * Token positions preserve contextual bang adjacency; quoted text, comments,
+ * ordinary identifiers and functional |> remain untouched.
  */
 export function rejectUnsupportedActorPipeSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
+ // The shared tokenizer's offsets are UTF-16 indices, not physical byte
+ // offsets. Convert lazily on a failure so compiler diagnostics remain exact.
+ const sourceText=tokenUtf8Text(sourceBytes);
+ const byteOffset=index=>tokenUtf8(tokenSlice(sourceText,0,index)).length;
  const reservedBefore=new Set([
   "fnc","routine","method","define","pub","static","val",
-  "let","const","final","return","spawn","pipe","as","case"
+  "let","const","final","return","spawn","pipe","rpipe",
+  "stop","await","as","case"
  ]);
  const forbiddenNext=new Set(["then","fi","end","else","as","case","over"]);
  for(let i=0;i<tokens.length;i++) {
   const current=tokens[i];
-  if(!current.id||current.text!=="pipe")continue;
+  if(!current.id)continue;
+  if(!tokenIncludes(["pipe","rpipe","stop"],current.text))continue;
   const prev=tokens[i-1],next=tokens[i+1];
-  const classCall=prev?.text==="." && tokens[i-2]?.id &&
-      tokens[i-2].text==="ActorUtils";
-  const classColonCall=prev?.text===":" &&
+  // The ! belongs to the contextual operator only when contiguous. A
+  // separate logical ! or an identifier suffix must never be rewritten.
+  const bang=next?.text==="!" &&
+      next.offset===current.offset+current.text.length;
+  const rhs=tokens[i+(bang?2:1)];
+
+  // No actor lifecycle STOP is executable in the scalar Wasm profile.
+  // A globally rewritten 'stop!' would be unsafe; this only recognizes the
+  // exact contiguous operator in a token stream that skips literals/trivia.
+  if(current.text==="stop") {
+    if(bang)throw Error("wasm graceful actor stop! source lowering unsupported at byte "+byteOffset(current.offset));
+    continue;
+  }
+
+  // A contiguous bang spelling reserves the entire source operator, even
+  // when its endpoints are missing or malformed. The actual compiler must
+  // reject such source, but no scalar artifact should reach that invocation.
+  if (bang)
+    throw Error("wasm actor "+current.text+"! source lowering unsupported at byte "+byteOffset(current.offset));
+
+  const classCall=current.text==="pipe" && prev?.text==="." &&
+      tokens[i-2]?.id && tokens[i-2].text==="ActorUtils";
+  const classColonCall=current.text==="pipe" && prev?.text===":" &&
       tokens[i-2]?.text===":" &&
       tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
-  const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
-      [")","]","}"].includes(prev.text));
-  const rightStart=next && ((next.id&&!forbiddenNext.has(next.text)) ||
-      ["(","["].includes(next.text));
+  const leftEnd=prev && ((prev.id && !tokenHas(reservedBefore,prev.text)) ||
+      tokenIncludes([")","]","}"],prev.text));
+  const rightStart=rhs && ((rhs.id&&!tokenHas(forbiddenNext,rhs.text)) ||
+      tokenIncludes(["(","["],rhs.text));
+  // Reject named-actor and stream/channel edges in both lexical directions.
+  // Never emit a scalar Wasm guest for unknown continuous transport.
   if(classCall||classColonCall||(leftEnd&&rightStart))
-    throw Error("wasm actor pipe source lowering unsupported at byte "+current.offset);
+    throw Error("wasm actor "+current.text+(bang?"!":"")+" source lowering unsupported at byte "+byteOffset(current.offset));
  }
 }
 /** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
@@ -546,6 +610,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
     compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
   throw Error("compiler or source input changed between preflight and snapshot");
  const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Reject deceptive raw source controls (including in comments/strings)
+ // before LLVM invocation, filename publication or any source normalization.
+ rejectRawSourceControls(sourceBytes);
  // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
  assertScalarSourceHasNoImports(sourceBytes);
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
