@@ -1,0 +1,9 @@
+// Must reject as nonexhaustive with NO executable guest artifact.
+// Even if program initializes to Some, checking is not value-constant
+// folded to pretend the None constructor is globally unreachable.
+fnc invalid(Option<int> value): int {
+  return match value over
+    on Some(item) -> item,
+  end;
+}
+pub fnc main(): int { return invalid(Some(42)); }
