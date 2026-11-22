@@ -169,3 +169,42 @@ test('UDP stream rejects concurrent next and external cancellation retires read'
     await assert.rejects(pending2);
   }finally{await receiver.close();}
 });
+
+test('UDP outbound send capacity is bounded and released on completion and close',async()=>{
+ const sender=await openNodeUdpLoopback({authorize,maxPendingSends:1,maxPendingBytes:4});
+ const receiver=await openNodeUdpLoopback({authorize});
+ try{
+  const recv=receiver.recv_from(8);
+  const first=sender.send_to(Uint8Array.from([1,2,3]),receiver.local_port());
+  assert.equal(sender.stats().pending_send_packets,1);
+  assert.equal(sender.stats().pending_send_bytes,3);
+  await assert.rejects(sender.send_to(Uint8Array.from([4]),receiver.local_port()),/send quota/);
+  assert.equal(await first,3);
+  assert.equal(sender.stats().pending_send_packets,0);
+  assert.equal(sender.stats().pending_send_bytes,0);
+  assert.deepEqual(Array.from((await recv).bytes),[1,2,3]);
+  await assert.rejects(sender.send_to(Uint8Array.from([1,2,3,4,5]),receiver.local_port()),/send quota/);
+  // A new send can acquire the retired capacity.
+  const second=sender.send_to(Uint8Array.from([9]),receiver.local_port());
+  const close=sender.close();
+  await assert.rejects(second,/closed/);
+  await close;
+  assert.equal(sender.stats().pending_send_packets,0);
+  assert.equal(sender.stats().pending_send_bytes,0);
+ }finally{await sender.close();await receiver.close();}
+});
+test('UDP stats require live NETWORK authority and reject input quota bypass',async()=>{
+ let allowed=true;
+ const guarded=await openNodeUdpLoopback({authorize:(resource,op)=>{
+   if(!allowed) throw new Error('NET revoked');
+   authorize(resource,op);
+ }});
+ try{
+  allowed=false;
+  assert.throws(()=>guarded.stats(),/NET revoked/);
+  allowed=true;
+  assert.equal(guarded.stats().pending_send_packets,0);
+ }finally{await guarded.close();}
+ await assert.rejects(openNodeUdpLoopback({authorize,maxPendingSends:0}),/queue quota/);
+ await assert.rejects(openNodeUdpLoopback({authorize,maxPendingBytes:4194305}),/queue quota/);
+});
