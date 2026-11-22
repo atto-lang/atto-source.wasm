@@ -12,11 +12,11 @@ pub fnc quic_stream_id_valid(int stream_id): bool {
 }
 
 pub fnc quic_stream_client_initiated(int stream_id): bool {
-  return quic_stream_id_valid(stream_id) && stream_id % 2 == 0;
+  return quic_stream_id_valid(stream_id) && (stream_id - (stream_id / 2) * 2) == 0;
 }
 
 pub fnc quic_stream_bidirectional(int stream_id): bool {
-  return quic_stream_id_valid(stream_id) && stream_id % 4 < 2;
+  return quic_stream_id_valid(stream_id) && (stream_id - (stream_id / 4) * 4) < 2;
 }
 
 pub fnc quic_encoding_min_width(int value): int {
@@ -45,7 +45,7 @@ pub fnc quic_varint_octet(int value, int width, int index): int {
   for (let int i = index + 1; i < width; i = i + 1) {
     divisor = divisor * 256;
   }
-  let octet: int = (value / divisor) % 256;
+  let octet: int = ((value / divisor) - ((value / divisor) / 256) * 256);
   if index == 0 then
     if width == 2 then return octet + 64; fi
     if width == 4 then return octet + 128; fi
