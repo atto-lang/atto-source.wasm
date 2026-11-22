@@ -1,0 +1,42 @@
+// SOURCE CANDIDATE — expected 0 when compiler-owned atto.alloc imports,
+// generic classes, exclusive receivers and Array<T> are linked/executable.
+// NOT an executed native/guest test receipt.
+import module alloc_box from "atto.alloc/box";
+import module alloc_vec from "atto.alloc/vec";
+import module alloc_string from "atto.alloc/string";
+
+pub fnc main() -> int {
+  let owned = alloc_box.boxed<int>(42);
+  if !owned.is_full(); do return 1; fi
+  let previous = owned.take_value();
+  if previous.unwrap_or(0) != 42 || !owned.is_empty(); do return 2; fi
+  if owned.take_value().is_some(); do return 3; fi
+
+  let values = alloc_vec.new_vec<int>();
+  values.push(7);
+  values.push(35);
+  if values.len() != 2 || values.get_copy(1).unwrap_or(-1) != 35; do
+    return 4;
+  fi
+  if values.get_copy(-1).is_some() || values.get_copy(2).is_some(); do
+    return 5;
+  fi
+  if alloc_vec.next_capacity(8, 9, 64).unwrap_or(0) != 16; do
+    return 6;
+  fi
+  if alloc_vec.next_capacity(32, 40, 40).unwrap_or(0) != 40; do
+    return 7;
+  fi
+  if alloc_vec.next_capacity(32, 41, 40).is_some(); do return 8; fi
+
+  let utf8 = alloc_string.new_string();
+  if !utf8.append_scalar(65); do return 9; fi
+  if !utf8.append_scalar(8364); do return 10; fi
+  if !utf8.append_scalar(128512); do return 11; fi
+  if utf8.append_scalar(55296); do return 12; fi
+  if utf8.byte_len() != 8 || utf8.chars().unwrap_or(-1) != 3; do
+    return 13;
+  fi
+  if utf8.byte_copy(1).unwrap_or(-1) != 226; do return 14; fi
+  return 0;
+}
