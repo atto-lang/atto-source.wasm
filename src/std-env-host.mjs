@@ -84,7 +84,9 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
       (Object.getPrototypeOf(values) !== Object.prototype &&
        Object.getPrototypeOf(values) !== null))
     throw new EnvHostError('ENV_INVALID_SNAPSHOT');
-  const keys = Reflect.ownKeys(values);
+  // With no coarse capability, never enumerate even the *names* of host keys.
+  // Scoped allow rules cannot turn metadata observation into authority.
+  const keys = environmentCapability ? Reflect.ownKeys(values) : [];
   if (keys.length > MAX_ENTRIES)
     throw new EnvHostError('ENV_INVALID_SNAPSHOT');
   const snapshot = new Map();
