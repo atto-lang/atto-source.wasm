@@ -208,3 +208,18 @@ test('UDP stats require live NETWORK authority and reject input quota bypass',as
  await assert.rejects(openNodeUdpLoopback({authorize,maxPendingSends:0}),/queue quota/);
  await assert.rejects(openNodeUdpLoopback({authorize,maxPendingBytes:4194305}),/queue quota/);
 });
+
+test('UDP rejects async, false and malformed host authorization outcomes',async()=>{
+ await assert.rejects(openNodeUdpLoopback({authorize:()=>Promise.resolve(true)}),/synchronous/);
+ await assert.rejects(openNodeUdpLoopback({authorize:()=>false}),/authorization denied/);
+ await assert.rejects(openNodeUdpLoopback({authorize:()=>null}),/synchronous/);
+ let allowed=true;
+ const udp=await openNodeUdpLoopback({authorize:()=>allowed});
+ try{
+  allowed=false;
+  assert.throws(()=>udp.local_port(),/authorization denied/);
+  await assert.rejects(udp.send_to(Uint8Array.of(9),12345),/authorization denied/);
+  allowed=true;
+  assert.ok(udp.local_port()>0);
+ }finally{await udp.close();}
+});
