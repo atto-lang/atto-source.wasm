@@ -28,3 +28,9 @@ A trusted host interface must validate key names, check both coarse isolate ENV 
 ## Controlled positive guest fixture
 
 `positive_get.atto` requires a deterministic trusted host injection of `ATTO_ENV_EMPTY=""` and `ATTO_ENV_FLAG="true"`, with `ATTO_ENV_ABSENT` explicitly unset. Grant only scoped `ATTO_ENV_*` keys and explicitly deny `ATTO_ENV_SECRET_KEY`. The target is exit code 42, checking present-empty versus missing, nonempty filtering, required-key errors, strict boolean parsing and fallback. Do not use ambient process environment to synthesize a passing result; the compiler must execute the actual .atto guest. **NOT_EXECUTED.**
+
+## Hardening update (2026-11-22)
+
+`create_scoped_env_host` now accepts an independent **authenticated host-supplied** `environmentCapability` flag (default false). A scoped allow rule cannot elevate a missing coarse isolate grant. `revoke()` retires access and clears the retained copy; the owning host must call it on actor/isolate teardown. Neither flag nor the returned host object may become an untrusted guest-controlled options bag. No guest bridge is implied.
+
+**Exact-blob local host-model evidence (Node.js 22.16.0):** `src/std-env-host.mjs` SHA `b3fedb17d2d0ac17c715f6193951a0245096c4d7` and `tests/std-env-host.test.mjs` SHA `5180631e876bf79364d418922f574eb27a09a8e1`; verified with `git hash-object`; `node --test tests/std-env-host.test.mjs`: **6/6 PASS**. This local host-model evidence is *not* compiler-backed guest/NativeAOT parity or source-org CI admission.
