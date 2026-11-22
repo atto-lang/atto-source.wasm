@@ -126,7 +126,7 @@ define module metrics as
     // Clone after validating lengths, bucket totals and numeric budgets.
     // It is a dynamic safety fence in addition to (not instead of) static
     // ownership/borrow checking at the compiler boundary.
-    pub constructor(Array<int> finite_bounds, Array<int> per_bucket,
+    constructor(Array<int> finite_bounds, Array<int> per_bucket,
                     int accepted_samples, int accepted_sum, int rejected_samples) {
       if finite_bounds.size > 64 ||
          per_bucket.size != finite_bounds.size + 1 ||
