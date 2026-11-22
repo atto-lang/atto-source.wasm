@@ -2,8 +2,8 @@
 
 ## Status
 
-This repository owns its own `stdlib/std/crypto.atto` source. This first
-change is **pure admission policy**, not a complete encryption implementation.
+This repository owns its own `stdlib/std/crypto.atto` source. The `.atto` functions in this first slice are **pure admission policy**,
+not a complete guest-callable encryption implementation.
 A module path of `"std.crypto"` is the intended core import (never
 `pkg "std.crypto"`), but **the import resolver and host crypto bindings still
 need implementation and an executed compiler-backed test**. Do not promote
@@ -17,8 +17,10 @@ the fixture or this PR as proof of functioning encryption.
   for bounded protocol compatibility only; Argon2id is a later audited
   password-storage service, not a substitute for HKDF.
 - `random.secure_bytes(n) -> SecretBytes` and `random.key_256() -> SecretKey`.
-- `aead.aes_256_gcm.seal(key, nonce, aad, plaintext) -> Ciphertext` and
+- `aead.aes_256_gcm.seal(key, aad, plaintext) -> Sealed{nonce,ciphertext}` and
   `aead.aes_256_gcm.open(key, nonce, aad, ciphertext) -> Result<Bytes, CryptoError>`.
+  Sealing reserves a nonce through the opaque key handle; callers do not
+  choose a nonce for managed encryption.
 - `aead.chacha20_poly1305.seal/open(...)` with equivalent authenticated
   semantics where vetted support exists.
 - `constant_time.equals(left, right) -> bool` implemented by backend code,
@@ -37,7 +39,7 @@ Ciphertext size in this proposal is plaintext length + 16 tag bytes
 version, algorithm, nonce, and lengths, without silently altering this shape.
 Do not expose an unauthenticated cipher as an encryption convenience API.
 
-Prefer an internal nonce manager with per-key counters and crash-safe
+Use an internal nonce manager with per-key counters and crash-safe
 reservation, or another reviewed nonce-generation strategy. A random nonce
 by itself is not an unlimited uniqueness guarantee. Never auto-generate a
 nonce with an untrusted/noncryptographic RNG or let untrusted code seed the
