@@ -54,8 +54,8 @@ jobs:
             tests/std-env-host.test.mjs \
             tests/std-env-guest-dispatch-v1.test.mjs \
             | tee "$RUNNER_TEMP/std-env-host-wire.tap"
-          grep -Eq '^# tests 11$' "$RUNNER_TEMP/std-env-host-wire.tap"
-          grep -Eq '^# pass 11$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# tests 12$' "$RUNNER_TEMP/std-env-host-wire.tap"
+          grep -Eq '^# pass 12$' "$RUNNER_TEMP/std-env-host-wire.tap"
           grep -Eq '^# fail 0$' "$RUNNER_TEMP/std-env-host-wire.tap"
           grep -Eq '^# skipped 0$' "$RUNNER_TEMP/std-env-host-wire.tap"
-          echo 'RECEIPT 11_HOST_WIRE_TESTS_EXECUTED=PASS (GUEST_LINKING_NOT_VERIFIED)'
+          echo 'RECEIPT 12_HOST_WIRE_TESTS_EXECUTED=PASS (GUEST_LINKING_NOT_VERIFIED)'
