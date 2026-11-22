@@ -152,7 +152,8 @@ export function path_extension(value) { return new FsPath(String(value)).extensi
 export function path_normalize(value) { return new FsPath(String(value)); }
 
 function allowedUrl(input, origins, loopbackOnly) {
-  if (typeof input !== 'string' || !input || textEncoder.encode(input).length > 2048 ||
+  if (typeof input !== 'string' || !input || input.length > 2048 ||
+      textEncoder.encode(input).length > 2048 ||
       /[\u0000-\u0020\\]/u.test(input)) fail('E_NET_URL');
   let parsed;
   try { parsed = new URL(input); } catch { fail('E_NET_URL'); }
@@ -218,7 +219,8 @@ export class TenantHostedIoV1 {
     this.#fetch = fetchImpl;
     this.#allowedOrigins = new Set();
     for (const origin of allowedOrigins) {
-      if (typeof origin !== 'string') fail('E_IO_CONFIG');
+      if (typeof origin !== 'string' || origin.length > 2048 ||
+          !origin.isWellFormed()) fail('E_IO_CONFIG');
       let url;
       try { url = new URL(origin); } catch { fail('E_IO_CONFIG'); }
       if (url.origin !== origin || url.pathname !== '/' || url.search || url.hash ||
@@ -293,8 +295,11 @@ export class TenantHostedIoV1 {
 
   async write_text(token, path, text) {
     this.#actor(token, 'write');
-    const p = checkedPath(path);
+    const p = checkedPath(String(path));
     if (typeof text !== 'string' || !text.isWellFormed()) fail('E_INVALID_UTF8');
+    // UTF-8 encoded size is never smaller than UTF-16 code-unit count.
+    // Reject oversized strings BEFORE encoding allocates a host byte array.
+    if (text.length > this.#maxFileBytes) fail('E_FS_LIMIT');
     const bytes = textEncoder.encode(text);
     if (bytes.byteLength > this.#maxFileBytes) fail('E_FS_LIMIT');
     const previous = this.#files.get(p);
@@ -306,7 +311,7 @@ export class TenantHostedIoV1 {
   }
   async read_text(token, path) {
     this.#actor(token, 'read');
-    const bytes = this.#file(checkedPath(path));
+    const bytes = this.#file(checkedPath(String(path)));
     try { return textDecoder.decode(bytes); } catch { fail('E_INVALID_UTF8'); }
   }
 
