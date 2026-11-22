@@ -1,0 +1,48 @@
+// Proposed iterator-callback conformance (not CI-admitted until a real
+// compiler links atto.core/iter and executes the exact source head).
+import module iter from "atto.core/iter";
+
+pub fnc main(): int {
+  let mut Array<int> values = new Array<int>();
+  values.add(2);
+  values.add(-3);
+  values.add(4);
+
+  if iter.fold_int(values, 0, 3, 10,
+      (int accumulated, int value) -> accumulated + value).unwrap_or(-1) != 13; do
+    return 1;
+  fi
+  if !iter.any_int(values, 0, 3,
+      (int value) -> value < 0).unwrap_or(false); do
+    return 2;
+  fi
+  if iter.all_int(values, 0, 3,
+      (int value) -> value >= 0).unwrap_or(true); do
+    return 3;
+  fi
+  if !iter.all_int(values, 0, 0,
+      (int value) -> value >= 0).unwrap_or(false); do
+    return 4;
+  fi
+  if iter.any_int(values, 0, 0,
+      (int value) -> value >= 0).unwrap_or(true); do
+    return 5;
+  fi
+  if iter.find_if_int(values, 0, 3,
+      (int value) -> value < 0).unwrap_or(-1) != 1; do
+    return 6;
+  fi
+  if iter.count_if_int(values, 0, 3,
+      (int value) -> value > 0).unwrap_or(-1) != 2; do
+    return 7;
+  fi
+  if iter.fold_int(values, 0, 0, 21,
+      (int total, int value) -> total + value).unwrap_or(-1) != 21; do
+    return 8;
+  fi
+  if !iter.fold_int(values, 3, 1, 10,
+      (int total, int value) -> total + value).is_none(); do
+    return 9;
+  fi
+  return 0;
+}
