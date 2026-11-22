@@ -58,21 +58,26 @@ pub routine main(): void {
   check(due.expired(alien).is_err(), "deadline-domain");
 
   let mut Timer timer = one_shot(due);
+  check(timer.next_due().expect("timer due").ticks_ns == 1500000000, "timer-next-due");
   check(!timer.poll(start).expect("before"), "timer-not-early");
   check(timer.poll(later).expect("on-time"), "timer-fire");
   check(!timer.poll(later).expect("again"), "timer-no-repeat");
   check(timer.did_fire(), "timer-fired");
+  check(timer.next_due().is_err(), "timer-inactive-next-due");
   check(!timer.cancel(), "timer-already-done");
   let mut Timer abandoned = one_shot(due);
   check(abandoned.cancel(), "timer-cancel");
   check(!abandoned.poll(later).expect("cancelled"), "timer-cancel-stops");
 
   let mut Interval every = interval(later, half);
+  check(every.next_due().expect("initial next").ticks_ns == 1500000000, "interval-first-due");
   check(!every.poll(start).expect("early"), "interval-not-early");
   check(every.poll(later).expect("first"), "interval-first");
+  check(every.next_due().expect("second due").ticks_ns == 2000000000, "interval-next-due");
   check(!every.poll(later).expect("same"), "interval-no-repeat");
   check(every.poll(new Instant(9, 2500000000)).expect("late"), "interval-coalesce");
   check(every.cancel(), "interval-cancel");
+  check(every.next_due().is_err(), "interval-inactive-next-due");
   check(!every.poll(new Instant(9, 3000000000)).expect("stop"), "interval-stopped");
 
   check(deadline_after(new Instant(9, 9223372036854775807), one).is_err(), "deadline-overflow");
