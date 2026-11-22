@@ -23,13 +23,19 @@ export class ActorFileHandlePortV1 {
   #vfs;
   #actorTicket;
   #handles = new Map();
+  #issued = new Set(); // Only successfully issued IDs can become CLOSED.
+  #pendingOpens = new Set(); // Await late opens on structured close_all.
   #nextId = 1;
   #pending = 0;
   #maxOpen;
   #maxIssued;
   #closed = false;
 
-  constructor(vfs, actorTicket, {maxOpen = 64, maxIssued = 4096} = {}) {
+  constructor(vfs, actorTicket, options = {}) {
+    if (!options || typeof options!=='object' || Array.isArray(options) ||
+        Object.keys(options).some(k=>k!=='maxOpen' && k!=='maxIssued'))
+      fsFail('E_FS_OPTIONS');
+    const {maxOpen = 64, maxIssued = 4096} = options;
     if (!(vfs instanceof TenantHostedIoV1) ||
         !actorTicket || typeof actorTicket !== 'object' ||
         !boundedInt(maxOpen,1,1024) ||
@@ -47,7 +53,7 @@ export class ActorFileHandlePortV1 {
 
   #lookup(id) {
     this.#requireOpen();
-    if (!boundedInt(id,1,this.#maxIssued) || id >= this.#nextId)
+    if (!boundedInt(id,1,this.#maxIssued) || !this.#issued.has(id))
       fsFail('E_FS_HANDLE');
     const file=this.#handles.get(id);
     if (!file) fsFail('E_FS_CLOSED');
@@ -62,17 +68,27 @@ export class ActorFileHandlePortV1 {
         this.#nextId > this.#maxIssued) fsFail('E_FS_LIMIT');
     const id=this.#nextId++;
     this.#pending++;
-    try {
-      const file=await this.#vfs.open(this.#actorTicket,path,options);
-      if (this.#closed) {
-        try { await file.close(); } catch { /* actor may be revoked */ }
-        fsFail('E_FS_CLOSED');
+    const operation=(async()=>{
+      try {
+        const file=await this.#vfs.open(this.#actorTicket,path,options);
+        if (this.#closed) {
+          try { await file.close(); } catch { /* actor may be revoked */ }
+          fsFail('E_FS_CLOSED');
+        }
+        this.#issued.add(id);
+        this.#handles.set(id,file);
+        return id;
+      } finally {
+        this.#pending--;
       }
-      this.#handles.set(id,file);
-      return id;
-    } finally {
-      this.#pending--;
-    }
+    })();
+    this.#pendingOpens.add(operation);
+    // Cleanup on either completion path without creating unhandled rejections.
+    void operation.then(
+      ()=>this.#pendingOpens.delete(operation),
+      ()=>this.#pendingOpens.delete(operation)
+    );
+    return operation;
   }
 
   read(id,maxBytes) { return this.#lookup(id).read(maxBytes); }
@@ -110,6 +126,9 @@ export class ActorFileHandlePortV1 {
     this.#handles.clear();
     // Pending opens will see #closed after their await and retire
     // themselves; never leak a late-created host File.
-    await Promise.allSettled(retired.map(file=>file.close()));
+    await Promise.allSettled([
+      ...retired.map(file=>file.close()),
+      ...this.#pendingOpens
+    ]);
   }
 }
