@@ -91,23 +91,23 @@ export class ActorFileHandlePortV1 {
     return operation;
   }
 
-  read(id,maxBytes) { return this.#lookup(id).read(maxBytes); }
-  write(id,bytes) { return this.#lookup(id).write(bytes); }
-  seek(id,offset) { return this.#lookup(id).seek(offset); }
-  flush(id) { return this.#lookup(id).flush(); }
+  async read(id,maxBytes) { return this.#lookup(id).read(maxBytes); }
+  async write(id,bytes) { return this.#lookup(id).write(bytes); }
+  async seek(id,offset) { return this.#lookup(id).seek(offset); }
+  async flush(id) { return this.#lookup(id).flush(); }
 
   // These helpers accept only a host-owned File obtained from #lookup.
   // They do not return File closures or actor tokens into guest memory.
-  read_text(id) {
+  async read_text(id) {
     return this.#vfs.read_text(this.#actorTicket,this.#lookup(id));
   }
-  write_text(id,text) {
+  async write_text(id,text) {
     return this.#vfs.write_text(this.#actorTicket,this.#lookup(id),text);
   }
-  read_file(id) {
+  async read_file(id) {
     return this.#vfs.read_file(this.#actorTicket,this.#lookup(id));
   }
-  write_file(id,bytes) {
+  async write_file(id,bytes) {
     return this.#vfs.write_file(this.#actorTicket,this.#lookup(id),bytes);
   }
 
