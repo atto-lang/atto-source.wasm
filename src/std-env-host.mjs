@@ -7,6 +7,12 @@ const RULE = /^(?:\*|[A-Za-z_][A-Za-z0-9_]{0,127}\*?)$/;
 const MAX_ENTRIES = 512;
 const MAX_VALUE_BYTES = 16384;
 const utf8 = new TextEncoder();
+const issued_hosts = new WeakSet();
+
+// Only real host-issued capabilities may enter guest dispatch.
+export function is_scoped_env_host(value) {
+  return value !== null && typeof value === 'object' && issued_hosts.has(value);
+}
 
 export class EnvHostError extends Error {
   constructor(code) { super(code); this.name = 'EnvHostError'; }
@@ -98,7 +104,7 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
     if (revoked || !environmentCapability || !granted(name, allowed, denied))
       throw new EnvHostError('ENV_PERMISSION_DENIED');
   }
-  return Object.freeze({
+  const api = Object.freeze({
     // Host-side Option envelope; compiler binding/guest ABI is still pending.
     get(name) {
       require_grant(name);
@@ -118,4 +124,6 @@ export function create_scoped_env_host({values = Object.create(null), allow = []
       return true;
     }
   });
+  issued_hosts.add(api);
+  return api;
 }
