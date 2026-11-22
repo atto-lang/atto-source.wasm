@@ -90,26 +90,39 @@ function scalarCompare(a,b) {
 }
 // Pure lexical paths; no filesystem resolution, symlink access or authority.
 export class FsPath {
-  constructor(value) { this.value=normalizedPath(value); Object.freeze(this); }
+  constructor(value) {
+    this.value=(value==='.' || value==='./') ? '.' : normalizedPath(value);
+    Object.freeze(this);
+  }
   toString() { return this.value; }
-  join(child) { return new FsPath(this.value+'/'+String(child)); }
-  parent() { const parent=pathParent(this.value); return parent ? new FsPath(parent) : null; }
-  file_name() { return this.value.slice(this.value.lastIndexOf('/')+1); }
+  join(child) { return new FsPath(this.value==='.' ? String(child) : this.value+'/'+String(child)); }
+  parent() {
+    if (this.value==='.') return null;
+    const parent=pathParent(this.value);
+    return new FsPath(parent || '.');
+  }
+  file_name() {
+    return this.value==='.' ? null : this.value.slice(this.value.lastIndexOf('/')+1);
+  }
   extension() {
-    const name=this.file_name(), at=name.lastIndexOf('.');
-    return at <= 0 ? null : name.slice(at+1);
+    const name=this.file_name();
+    if (name===null) return null;
+    const at=name.lastIndexOf('.');
+    return at<=0 ? null : name.slice(at+1);
   }
   normalize() { return this; }
 }
 export class FsPathBuf {
   #value;
-  constructor(value) { this.#value=normalizedPath(value); }
-  to_path() { return this.#value ? new FsPath(this.#value) : null; }
-  push(value) { this.#value=normalizedPath(this.#value ? this.#value+'/'+String(value) : String(value)); }
+  constructor(value) { this.#value=(value==='.' || value==='./') ? '.' : normalizedPath(value); }
+  to_path() { return new FsPath(this.#value); }
+  push(value) {
+    this.#value=normalizedPath(this.#value==='.' ? String(value) : this.#value+'/'+String(value));
+  }
   pop() {
-    if (!this.#value) return null;
+    if (this.#value==='.') return null;
     const old=this.#value;
-    this.#value=pathParent(old);
+    this.#value=pathParent(old) || '.';
     return old.slice(old.lastIndexOf('/')+1);
   }
   toString() { return this.#value; }
