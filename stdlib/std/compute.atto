@@ -63,9 +63,9 @@ pub fnc compute_dispatch_valid(
   int local_x, int local_y, int local_z, int max_invocations
 ): bool {
   if global_x <= 0 || global_y <= 0 || global_z <= 0 then return false; fi
-  if local_x > global_x || local_y > global_y || local_z > global_z then
-    return false;
-  fi
+  // Local workgroups may extend past the logical global size. Padded lanes
+  // MUST be bounds-guarded by the kernel/runtime before any buffer access.
+  // This pure helper does not authorize a device or validate device group limits.
   return compute_workgroup_valid(local_x, local_y, local_z, max_invocations);
 }
 
