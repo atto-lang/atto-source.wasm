@@ -1,0 +1,166 @@
+// Compiler-local source candidate for atto-source.wasm; no shared source dependency.
+// Backend-owned alloc/string: validated, heap-backed UTF-8 bytes.
+// A String/UTF-8 conversion requires the separate, trusted runtime codec;
+// this module never treats character count as byte length or accepts malformed
+// UTF-8. Appends are not OOM-transactional until Array offers fallible reserve.
+define module alloc_string as
+  fnc continuation(int byte) -> bool {
+    return byte >= 128 && byte <= 191;
+  }
+
+  fnc byte_at(borrow Array<int> bytes, int index) -> int {
+    return bytes.get_copy(index).unwrap_or(-1);
+  }
+
+  pub fnc valid_scalar(int scalar) -> bool {
+    if scalar < 0 || scalar > 1114111; do
+      return false;
+    fi
+    return scalar < 55296 || scalar > 57343;
+  }
+
+  pub fnc valid_utf8(borrow Array<int> bytes) -> bool {
+    let int i = 0;
+    let int n = bytes.size;
+    while i < n do
+      let int a = byte_at(bytes, i);
+      if a >= 0 && a <= 127; do
+        i = i + 1;
+      else
+        if a >= 194 && a <= 223; do
+          if n - i < 2 || !continuation(byte_at(bytes, i + 1)); do
+            return false;
+          fi
+          i = i + 2;
+        else
+          if a >= 224 && a <= 239; do
+            if n - i < 3; do
+              return false;
+            fi
+            let int b = byte_at(bytes, i + 1);
+            let int c = byte_at(bytes, i + 2);
+            if !continuation(c); do
+              return false;
+            fi
+            if a == 224 && (b < 160 || b > 191); do
+              return false;
+            fi
+            if a == 237 && (b < 128 || b > 159); do
+              return false;
+            fi
+            if a != 224 && a != 237 && !continuation(b); do
+              return false;
+            fi
+            i = i + 3;
+          else
+            if a >= 240 && a <= 244; do
+              if n - i < 4; do
+                return false;
+              fi
+              let int b = byte_at(bytes, i + 1);
+              if a == 240 && (b < 144 || b > 191); do
+                return false;
+              fi
+              if a == 244 && (b < 128 || b > 143); do
+                return false;
+              fi
+              if a != 240 && a != 244 && !continuation(b); do
+                return false;
+              fi
+              if !continuation(byte_at(bytes, i + 2)) ||
+                 !continuation(byte_at(bytes, i + 3)); do
+                return false;
+              fi
+              i = i + 4;
+            else
+              return false;
+            fi
+          fi
+        fi
+      fi
+    done
+    return true;
+  }
+
+  pub fnc char_count(borrow Array<int> bytes) -> Option<int> {
+    if !valid_utf8(bytes); do
+      return None;
+    fi
+    let int count = 0;
+    let int i = 0;
+    while i < bytes.size do
+      let int a = byte_at(bytes, i);
+      count = count + 1;
+      if a <= 127; do i = i + 1;
+      else
+        if a <= 223; do i = i + 2;
+        else
+          if a <= 239; do i = i + 3;
+          else i = i + 4;
+          fi
+        fi
+      fi
+    done
+    return Some(count);
+  }
+
+  pub fnc is_char_boundary(borrow Array<int> bytes, int index) -> bool {
+    if index < 0 || index > bytes.size || !valid_utf8(bytes); do
+      return false;
+    fi
+    if index == 0 || index == bytes.size; do
+      return true;
+    fi
+    return !continuation(byte_at(bytes, index));
+  }
+
+  pub fnc push_scalar(borrow mut Array<int> bytes, int scalar) -> bool {
+    if !valid_scalar(scalar); do
+      return false;
+    fi
+    if scalar <= 127; do
+      bytes.add(scalar);
+    else
+      if scalar <= 2047; do
+        bytes.add(192 + (scalar >> 6));
+        bytes.add(128 + (scalar & 63));
+      else
+        if scalar <= 65535; do
+          bytes.add(224 + (scalar >> 12));
+          bytes.add(128 + ((scalar >> 6) & 63));
+          bytes.add(128 + (scalar & 63));
+        else
+          bytes.add(240 + (scalar >> 18));
+          bytes.add(128 + ((scalar >> 12) & 63));
+          bytes.add(128 + ((scalar >> 6) & 63));
+          bytes.add(128 + (scalar & 63));
+        fi
+      fi
+    fi
+    return true;
+  }
+
+  pub define class Utf8String as
+    let mut Array<int> bytes = new Array<int>();
+  end
+
+  pub fnc new_string() -> Utf8String {
+    return new Utf8String();
+  }
+
+  pub mtd (Utf8String self) byte_len() -> int {
+    return self.bytes.size;
+  }
+
+  pub mtd (Utf8String self) chars() -> Option<int> {
+    return char_count(self.bytes);
+  }
+
+  pub mtd (Utf8String self) byte_copy(int index) -> Option<int> {
+    return self.bytes.get_copy(index);
+  }
+
+  pub mtd (mut self: Utf8String) append_scalar(int scalar) -> bool {
+    return push_scalar(borrow! mut self.bytes, scalar);
+  }
+end
