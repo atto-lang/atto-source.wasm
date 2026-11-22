@@ -29,7 +29,7 @@ pub routine main(): int {
   if websocket_extended_length_valid(126, 125, true) then return 8; fi
   if websocket_backpressure_admit(9223372036854775807, 1, 9223372036854775807) then return 9; fi
   if websocket_valid_close_code(1006) then return 10; fi
-  if quic_varint_min_width(16384) != 4 then return 11; fi
+  if quic_encoding_min_width(16384) != 4 then return 11; fi
   if quic_varint_octet(15293, 2, 0) != 123 then return 12; fi
   if quic_varint_octet(15293, 2, 1) != 189 then return 13; fi
   if !quic_stream_bidirectional(0) || quic_stream_bidirectional(2) then return 14; fi
