@@ -51,6 +51,17 @@ test('coarse isolate grant is independent of scoped allow rules', () => {
     /ENV_INVALID_POLICY/);
 });
 
+test('no coarse ENV authority means no host key metadata enumeration', () => {
+  const values = new Proxy(Object.create(null), {
+    ownKeys() { throw Error('UNAUTHORIZED_KEY_ENUMERATION'); }
+  });
+  const host = create_scoped_env_host({
+    values, allow: ['*'], environmentCapability: false
+  });
+  assert.throws(() => host.get('ATTO_SECRET'), /ENV_PERMISSION_DENIED/);
+  assert.throws(() => host.has('ATTO_SECRET'), /ENV_PERMISSION_DENIED/);
+});
+
 test('explicit isolate retirement revokes reads, probes and retained snapshot', () => {
   const host = create_scoped_env_host({
     values: {KEY: 'private'}, allow: ['KEY'], environmentCapability: true
