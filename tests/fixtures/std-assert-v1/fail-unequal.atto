@@ -1,0 +1,6 @@
+// EXPECT: checked guest AssertionError, not panic/abort. NOT_EXECUTED on wasm.
+import module assert from pkg "std.assert";
+pub routine main(): void {
+  assert.equal(42, 43);
+  return;
+}
