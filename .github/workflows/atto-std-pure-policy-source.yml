@@ -9,6 +9,7 @@ on:
       - 'scripts/compile-ores.mjs'
       - 'contracts/atto-std-pure-policy-parity-v1.json'
       - 'tests/atto-std-pure-policy-source.test.mjs'
+      - 'tests/fixtures/atto_std_pure_policy_guest_v1.atto'
       - '.github/workflows/atto-std-pure-policy-source.yml'
   workflow_dispatch:
 permissions:
