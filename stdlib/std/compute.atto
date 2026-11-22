@@ -8,7 +8,7 @@ pub fnc compute_alignment_valid(int alignment): bool {
   let n: int = alignment;
   for (let int i = 0; i < 21; i = i + 1) {
     if n == 1 then return true; fi
-    if n % 2 != 0 then return false; fi
+    if (n - (n / 2) * 2) != 0 then return false; fi
     n = n / 2;
   }
   return false;
@@ -54,7 +54,7 @@ pub fnc compute_workgroup_valid(
 pub fnc compute_groups_for_axis(int global_size, int local_size): int {
   if global_size <= 0 || local_size <= 0 then return -1; fi
   let groups: int = global_size / local_size;
-  if global_size % local_size != 0 then groups = groups + 1; fi
+  if (global_size - (global_size / local_size) * local_size) != 0 then groups = groups + 1; fi
   return groups;
 }
 
