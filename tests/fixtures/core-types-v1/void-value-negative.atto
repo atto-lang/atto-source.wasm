@@ -1,0 +1,6 @@
+// Expected compile-time rejection: void is a return marker, not a value type.
+// Never materialize a void local or silently replace it with an integer/unit.
+pub fnc main() -> int {
+  let void invalid;
+  return 0;
+}
