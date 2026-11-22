@@ -219,3 +219,69 @@ test("source gate rejects regressed partial-workgroup check and missing boundary
   assert.notEqual(badGuest,boundary);
   assert.throws(() => verifyPaddedComputeDispatch(sources.compute,badGuest,isQualified));
 });
+
+
+// A candidate .atto core-borrow contract is deliberately source-only until
+// this backend's actual parser, type checker and guest runner attest it.
+// Source integrity guards are not a substitute for borrow checking.
+const coreBorrowCandidate = readFileSync(
+  resolve(root, "tests/stdlib/protocol_borrow_core.atto"), "utf8");
+
+function verifyCoreBorrowCandidate(fixture) {
+  assert.match(fixture, /define class BoundedBuffer as/,
+    "descriptor must have a compiler-owned class root");
+  for (const symbol of ["websocket_backpressure_admit", "quic_stream_range_fits",
+    "compute_buffer_range_fits", "compute_upload_admit"]) {
+    assert.match(fixture, new RegExp("\\b"+symbol+"\\("),
+      "protocol borrow candidate must call real backend helper "+symbol);
+  }
+  const reader=fixture.indexOf("val reader = borrow! buffer;");
+  const writer=fixture.indexOf("val writer = borrow! mut buffer;");
+  const move=fixture.indexOf("val transferred = take! buffer;");
+  assert.ok(reader>=0 && writer>reader && move>writer,
+    "read, exclusive write and final transfer must be ordered");
+  assert.equal(fixture.split("borrow! buffer;").length-1,1);
+  assert.equal(fixture.split("borrow! mut buffer;").length-1,1);
+  assert.equal(fixture.split("take! buffer;").length-1,1);
+  const readBody=fixture.slice(reader,writer);
+  const writeBody=fixture.slice(writer,move);
+  assert.doesNotMatch(readBody, /take! buffer|reader\.consumed\s*=/,
+    "a live read loan forbids taking the owner or writing via the reader");
+  assert.doesNotMatch(writeBody, /take! buffer|buffer\.(capacity|consumed)/,
+    "a live exclusive loan forbids moving or reading the owner");
+  assert.match(readBody, /compute_buffer_range_fits\(2, 3, reader\.capacity\)/);
+  assert.match(readBody, /quic_stream_range_fits\(2, 3, reader\.capacity\)/);
+  assert.match(readBody,
+    /websocket_backpressure_admit\(reader\.consumed, 3, reader\.capacity\)/);
+  assert.match(writeBody, /writer\.consumed\s*=\s*3;/);
+  assert.match(fixture.slice(move), /compute_upload_admit\(2, 3, transferred\.capacity/);
+  assert.doesNotMatch(fixture, /\b(?:share!|weak!|pin!)\b/,
+    "a synthetic source fixture may not grant unverified resource capabilities");
+  assert.deepEqual([...fixture.matchAll(/\bthen return (\d+); fi/g)]
+    .map(m=>Number(m[1])), [1,2,3,4,5,6]);
+}
+
+test("candidate core-owned loan lifecycle source is complete (NOT compiler proof)", () => {
+  verifyCoreBorrowCandidate(coreBorrowCandidate);
+});
+test("source-only borrow lifecycle gate rejects six unsafe mutations", () => {
+  const variants=[
+    coreBorrowCandidate.replace("val reader = borrow! buffer;",
+      "val reader = borrow! buffer; take! buffer;"),
+    coreBorrowCandidate.replace("val reader = borrow! buffer;",
+      "val reader = borrow! buffer; reader.consumed = 1;"),
+    coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
+      "val writer = borrow! mut buffer; val stolen = buffer.capacity;"),
+    coreBorrowCandidate.replace("val writer = borrow! mut buffer;",
+      "val writer = borrow! buffer;"),
+    coreBorrowCandidate.replace("val transferred = take! buffer;",
+      "val transferred = take! buffer; take! buffer;"),
+    coreBorrowCandidate.replace("compute_buffer_range_fits(2, 3, reader.capacity)",
+      "compute_missing_range_fits(2, 3, reader.capacity)"),
+  ];
+  for (const mutant of variants) {
+    assert.notEqual(mutant, coreBorrowCandidate, "mutation must change real .atto source");
+    assert.throws(()=>verifyCoreBorrowCandidate(mutant),
+      "unsafe source candidate must never silently pass static integrity");
+  }
+});
