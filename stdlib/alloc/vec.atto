@@ -1,0 +1,77 @@
+// Compiler-local source candidate for atto-source.wasm; no shared source dependency.
+// Backend-owned alloc/vec module. Array<T> provides the actual heap storage;
+// Vec<T> owns that backing array and never returns an unproven mutable alias.
+// There is deliberately no fake reserve(), zero-copy slice or unsafe pop():
+// those need checked allocator/element-take compiler primitives.
+define module alloc_vec as
+  pub define class Vec<T> as
+    let mut Array<T> values = new Array<T>();
+  end
+
+  pub fnc new_vec<T>() -> Vec<T> {
+    return new Vec<T>();
+  }
+
+  pub mtd (Vec<T> self) len() -> int {
+    return self.values.size;
+  }
+
+  pub mtd (Vec<T> self) is_empty() -> bool {
+    return self.values.size == 0;
+  }
+
+  pub mtd (mut self: Vec<T>) push(T item) -> void {
+    self.values.add(take! item);
+    return;
+  }
+
+  // get_copy is available only for T whose Copy capability the compiler
+  // proves. For owned/non-Copy elements, no implicit shallow copy is allowed.
+  pub mtd (Vec<T> self) get_copy(int index) -> Option<T> {
+    if index < 0 || index >= self.values.size; do
+      return None;
+    fi
+    return self.values.get_copy(index);
+  }
+
+  // Dropping the old backing storage must run T's destructor exactly once.
+  pub mtd (mut self: Vec<T>) clear() -> void {
+    self.values = new Array<T>();
+    return;
+  }
+
+  pub mtd (mut self: Vec<T>) into_array() -> Array<T> {
+    let Array<T> owned = take! self.values;
+    self.values = new Array<T>();
+    return take! owned;
+  }
+
+  // Pure overflow-safe capacity planner. The backing allocator, not this
+  // function, performs reserve/grow or reports allocation failure.
+  pub fnc next_capacity(int current, int needed, int max_capacity) -> Option<int> {
+    if current < 0 || needed < 0 || max_capacity < 0; do
+      return None;
+    fi
+    if current > max_capacity || needed > max_capacity; do
+      return None;
+    fi
+    if needed <= current; do
+      return Some(current);
+    fi
+    let int capacity = current;
+    if capacity < 4; do
+      capacity = 4;
+    fi
+    if capacity > max_capacity; do
+      capacity = max_capacity;
+    fi
+    while capacity < needed do
+      if capacity > max_capacity - capacity; do
+        capacity = max_capacity;
+      else
+        capacity = capacity + capacity;
+      fi
+    done
+    return Some(capacity);
+  }
+end
