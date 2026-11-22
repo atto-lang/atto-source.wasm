@@ -25,7 +25,7 @@ Supported public semantic targets:
 these .atto files, import and module resolution, link against correct nominal
 ADT ABI, positive and negative compiled guest cases, active-payload ownership
 and callback-effect tests, AOT compilation, current-head stepful CI receipts.
-The two `.atto` fixtures only specify expected behavior; simply adding them
+The four `.atto` fixtures only specify expected behavior; simply adding them
 does NOT assert they execute or that full generic functions are admitted.
 
 The high-level callback helpers are an API target, not blanket permission
@@ -33,3 +33,13 @@ for non-Copy/affine callback capture. Reject unsupported generic/effect shapes
 until the local compiler proves their safety.
 
 Backend note: Wasm workers: never synthesize guest ADTs in JavaScript. Validate wasm32 guest artifacts, memory ownership and boundary ABI.
+
+### Additional parity vectors
+- `tests/core_option_result/tag_zero_42.atto`: expected 42; distinguish
+  Some(0) from None and Ok(0) from Err(0) using nominal tags.
+- `tests/core_option_result/negative_nonexhaustive.atto`: must reject a
+  partial Option match with no guest artifact.
+
+Only Rust currently wires these new scalar fixtures into a native compiler
+unit-test source. All other backends need real compiler harness integration,
+and Rust itself still needs a stepful exact-head test receipt.
