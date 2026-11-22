@@ -1,0 +1,91 @@
+// Atto std/collections v1: owned results from borrowed int arrays.
+// Core Array<T> storage is supplied by the compiler/runtime. No hidden host
+// collections, implicit sharing or changes to the caller's storage. This
+// hosted algorithms module complements (does not replace) alloc/vec or the
+// separate std/collections class-family workstream.
+define module collections as
+  pub fnc is_sorted_int(borrow Array<int> values): bool {
+    for (let int i = 1; i < values.size; i = i + 1) {
+      if values.get(i - 1) > values.get(i); do return false; fi
+    }
+    return true;
+  }
+
+  pub fnc index_of_int(borrow Array<int> values, int needle): int {
+    for (let int i = 0; i < values.size; i = i + 1) {
+      if values.get(i) == needle; do return i; fi
+    }
+    return -1;
+  }
+
+  pub fnc contains_int(borrow Array<int> values, int needle): bool {
+    return index_of_int(values, needle) >= 0;
+  }
+
+  // Lower bound is the first index with value >= needle; allow size for
+  // insertion at end. Validate sortedness rather than returning garbage.
+  pub fnc lower_bound_int(borrow Array<int> values, int needle): Result<int, String> {
+    if !is_sorted_int(values); do return Err("lower bound requires sorted input"); fi
+    let int low = 0;
+    let int high = values.size;
+    while low < high; do
+      val int mid = low + (high - low) / 2;
+      if values.get(mid) < needle; do
+        low = mid + 1;
+      else
+        high = mid;
+      fi
+    done
+    return Ok(low);
+  }
+
+  // Dedup retains the first occurrence and stable order. Quadratic until
+  // portable Hash/Eq policy is proved: enforce a strict processing ceiling.
+  pub fnc unique_int(borrow Array<int> values): Result<Array<int>, String> {
+    if values.size > 4096; do return Err("unique_int input exceeds 4096 items"); fi
+    let mut Array<int> output = new Array<int>();
+    for (const item of values) {
+      if !contains_int(output, item); do output.add(item); fi
+    }
+    return Ok(output);
+  }
+
+  // Stable sorted merge with caller-supplied budget and no size-add overflow.
+  // Neither source is modified. Equality chooses from the left first.
+  pub fnc merge_sorted_int(
+      borrow Array<int> left, borrow Array<int> right, int max_items
+    ): Result<Array<int>, String> {
+    if max_items < 0 || max_items > 65536; do
+      return Err("merge budget outside 0..65536");
+    fi
+    if left.size > max_items || right.size > max_items - left.size; do
+      return Err("merge exceeds item budget");
+    fi
+    if !is_sorted_int(left) || !is_sorted_int(right); do
+      return Err("merge requires sorted inputs");
+    fi
+    let mut Array<int> output = new Array<int>();
+    let int left_size = left.size;
+    let int right_size = right.size;
+    let int i = 0;
+    let int j = 0;
+    while i < left_size && j < right_size; do
+      if left.get(i) <= right.get(j); do
+        output.add(left.get(i));
+        i = i + 1;
+      else
+        output.add(right.get(j));
+        j = j + 1;
+      fi
+    done
+    while i < left_size; do
+      output.add(left.get(i));
+      i = i + 1;
+    done
+    while j < right_size; do
+      output.add(right.get(j));
+      j = j + 1;
+    done
+    return Ok(output);
+  }
+end

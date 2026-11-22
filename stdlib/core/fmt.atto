@@ -1,0 +1,66 @@
+// Atto core/fmt v1. Deterministic, locale-independent, allocation-bounded
+// presentation helpers. Full Display/Debug traits and format templates are
+// intentionally NOT claimed before trait dispatch and escaping are portable.
+define module fmt as
+  pub fnc format_bool(bool value): String {
+    if value; do return "true"; fi
+    return "false";
+  }
+
+  // Signed 64-bit decimal without negating i64::MIN. Powers and all partial
+  // products fit signed i64. This extracts the audited negative-accumulation
+  // algorithm already used in Java telemetry, with a reusable core API.
+  pub fnc format_int(int value): String {
+    if value == 0; do return "0"; fi
+    val digits = arr["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    val powers = arr[
+      -1000000000000000000, -100000000000000000,
+      -10000000000000000, -1000000000000000,
+      -100000000000000, -10000000000000, -1000000000000,
+      -100000000000, -10000000000, -1000000000,
+      -100000000, -10000000, -1000000, -100000,
+      -10000, -1000, -100, -10, -1
+    ];
+    let int remaining = value > 0 ? -value : value;
+    let String result = "";
+    for (const power of powers) {
+      let int digit = 0;
+      if remaining <= power; do
+        if remaining <= power * 8; do
+          remaining = remaining - power * 8;
+          digit = digit + 8;
+        fi
+        if remaining <= power * 4; do
+          remaining = remaining - power * 4;
+          digit = digit + 4;
+        fi
+        if remaining <= power * 2; do
+          remaining = remaining - power * 2;
+          digit = digit + 2;
+        fi
+        if remaining <= power; do
+          remaining = remaining - power;
+          digit = digit + 1;
+        fi
+      fi
+      if digit > 0 || result != ""; do
+        result = result + digits.get(digit);
+      fi
+    }
+    if value < 0; do return "-" + result; fi
+    return result;
+  }
+
+  // Exactly two lowercase ASCII hex digits. Invalid input is a typed error,
+  // never silently truncated or wrapped into a byte.
+  pub fnc format_hex_byte(int value): Result<String, String> {
+    if value < 0 || value > 255; do
+      return Err("hex byte out of range");
+    fi
+    val digits = arr["0", "1", "2", "3", "4", "5", "6", "7",
+                     "8", "9", "a", "b", "c", "d", "e", "f"];
+    val int high = value / 16;
+    val int low = value - high * 16;
+    return Ok(digits.get(high) + digits.get(low));
+  }
+end
