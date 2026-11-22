@@ -3,16 +3,17 @@
 // The broker must enforce independent READ/WRITE authority, rooted descriptor
 // resolution, actor incarnation, cancellation, quotas and race-safe cleanup.
 // In particular, a valid preflight is NOT authorization to open or write.
+// Local min helper keeps the compiler entrypoint in a flat guard dialect.
+pub fnc fs_io_min_positive(int left, int right): int {
+  if left <= right then return left; fi
+  return right;
+}
+
 pub fnc fs_io_next_chunk(int remaining_bytes, int primitive_limit_bytes, int operation_budget_bytes): int {
   if remaining_bytes <= 0 then return 0; fi
   if primitive_limit_bytes <= 0 then return 0; fi
   if operation_budget_bytes <= 0 then return 0; fi
-  if remaining_bytes <= primitive_limit_bytes then
-    if remaining_bytes <= operation_budget_bytes then return remaining_bytes; fi
-    return operation_budget_bytes;
-  fi
-  if primitive_limit_bytes <= operation_budget_bytes then return primitive_limit_bytes; fi
-  return operation_budget_bytes;
+  return fs_io_min_positive(fs_io_min_positive(remaining_bytes, primitive_limit_bytes), operation_budget_bytes);
 }
 
 // Only a confirmed positive partial write may advance the guest cursor.
