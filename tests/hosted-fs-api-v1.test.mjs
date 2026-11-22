@@ -22,7 +22,8 @@ test('paths are canonical and the lexical normalization never hides traversal',(
   assert.equal(buf.pop(),'b');
   assert.equal(buf.to_path().toString(),'a');
   assert.equal(buf.pop(),'a');
-  assert.equal(buf.to_path(),null);
+  assert.equal(buf.to_path().toString(),'.');
+  assert.equal(buf.pop(),null);
   buf.push('again');
   assert.equal(buf.toString(),'again');
   for(const p of ['../escape','a/../../escape','/rooted','a/evil\\name','C:/x']) {
@@ -185,5 +186,24 @@ test('renamed files invalidate old handles and preserve bytes', async()=>{
   await assert.rejects(reader.read(1),rejects('E_FS_CLOSED'));
   assert.equal(decode(await fs.read_file(actor,'b')),'payload');
   assert.equal(fs.handle_count,0);
+  fs.close();
+});
+
+test('tenant root is a first-class lexical Path but not a mutable file',async()=>{
+  const root=new FsPath('.');
+  assert.equal(root.toString(),'.');
+  assert.equal(root.parent(),null);
+  assert.equal(root.file_name(),null);
+  assert.equal(root.extension(),null);
+  assert.equal(root.join('alpha').toString(),'alpha');
+  assert.equal(path_parent('alpha').toString(),'.');
+  const buf=new FsPathBuf('.');
+  buf.push('alpha');assert.equal(buf.pop(),'alpha');
+  assert.equal(buf.to_path().toString(),'.');
+  const fs=make(),actor=fs.open_actor(1,1,adminGrants);
+  assert.equal((await fs.metadata(actor,root)).is_dir,true);
+  assert.equal((await fs.read_dir(actor,root)).length,0);
+  await assert.rejects(fs.remove_dir_all(actor,root),rejects('E_FS_PATH'));
+  await assert.rejects(fs.write_file(actor,root,encode('bad')),rejects('E_FS_PATH'));
   fs.close();
 });
