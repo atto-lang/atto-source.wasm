@@ -1,0 +1,9 @@
+// TARGET: typed affine-borrow rejection; no guest output allowed.
+// Parse rejection or unsupported syntax alone does NOT prove ownership safety.
+define class Payload as
+  pub val int value = 42;
+end
+fnc invalid(borrow Option<Payload> value): Payload {
+  return value.unwrap();
+}
+pub fnc main(): int { return 0; }
