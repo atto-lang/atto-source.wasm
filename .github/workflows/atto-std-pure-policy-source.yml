@@ -5,6 +5,8 @@ on:
       - 'stdlib/std/path.atto'
       - 'stdlib/std/sync.atto'
       - 'stdlib/std/telemetry.atto'
+      - 'tests/atto-std-import-admission.test.mjs'
+      - 'scripts/compile-ores.mjs'
       - 'contracts/atto-std-pure-policy-parity-v1.json'
       - 'tests/atto-std-pure-policy-source.test.mjs'
       - '.github/workflows/atto-std-pure-policy-source.yml'
@@ -36,6 +38,12 @@ jobs:
           done
       - name: Verify 134 source-model vectors and mutation-negative controls
         run: node --test tests/atto-std-pure-policy-source.test.mjs
+      - name: Exercise the actual Wasm publication bridge's fail-closed std import gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/atto-std-import-admission.test.mjs
+          echo "ATTO_WASM_SCALAR_STD_MODULE_LINKER=NOT_AVAILABLE"
       - name: Source-only checker must reject forged native execution mode
         shell: bash
         run: |
