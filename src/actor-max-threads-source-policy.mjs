@@ -154,6 +154,16 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
     if (tokens[i] === "define" && tokens[i+1] === "actor")
       throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+    // The Wasm scalar bridge has no typed actor-state CFG, exclusive
+    // field loans, or source-derived transitive effects. Reject actual
+    // guard operations before any compiler invocation or guest staging.
+    // Comments and quoted strings are removed by the bounded lexer above.
+    if ((tokens[i] === "handle_state" && tokens[i+1] === "(") ||
+        (tokens[i] === "critical" && tokens[i+1] === "-" &&
+         (tokens[i+2] === "read" || tokens[i+2] === "write")) ||
+        ((tokens[i] === "this" || tokens[i] === "self") &&
+         tokens[i+1] === "." && tokens[i+2] === "state" && tokens[i+3] === "."))
+      throw Error("WASM source actor-state guard unsupported: no typed CFG/NLL loan proof");
     // The Wasm source bridge has no authenticated ETS table handles,
     // ActorGroup pg memberships, or actor-owned mailbox admission. Reject
     // explicit module access before invoking LLVM or staging a Wasm artifact.

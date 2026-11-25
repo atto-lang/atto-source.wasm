@@ -1,0 +1,947 @@
+{
+  "schema": "atto-borrow-conformance-v1",
+  "version": 1,
+  "rustCanonical": "atto-borrow-mir-v1",
+  "javaShadow": "atto-borrow-mir-v1-java-shadow",
+  "scope": "restricted-acyclic-typed-ownership-CFG-model",
+  "certification": "NO_EXECUTED_BACKEND_EVIDENCE",
+  "backends": [
+    "java",
+    "llvm",
+    "net",
+    "wasm",
+    "forge",
+    "cranelift",
+    "js",
+    "rs",
+    "hdl"
+  ],
+  "evidence": {
+    "java": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "llvm": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "net": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "wasm": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "forge": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "cranelift": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "js": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "rs": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    },
+    "hdl": {
+      "status": "NOT_EXECUTED",
+      "sourceSha": null,
+      "treeSha": null,
+      "compilerReceipt": null,
+      "guestReceipt": null
+    }
+  },
+  "evidencePolicy": {
+    "allowedStatuses": [
+      "NOT_EXECUTED",
+      "SOURCE_AUTHORED",
+      "HOST_ONLY",
+      "COMPILER_NEGATIVE_EXECUTED",
+      "COMPILED_GUEST_EXECUTED",
+      "CERTIFIED"
+    ],
+    "certifiedRequires": [
+      "exactGitCommit",
+      "exactGitTree",
+      "sourceBlobInventory",
+      "compilerGeneratedMirInventory",
+      "emittedInstructionInventory",
+      "runnerJobId",
+      "executedSteps",
+      "compiledGuestReceipt",
+      "semanticNegativeReceipt",
+      "independentReview"
+    ]
+  },
+  "cases": [
+    {
+      "id": "C01",
+      "category": "copy",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": true,
+                "send": false
+              },
+              {
+                "op": "Read",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C02",
+      "category": "move",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Move",
+                "from": 1,
+                "into": 2
+              },
+              {
+                "op": "Read",
+                "owner": 2
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C03",
+      "category": "move",
+      "expected": "reject",
+      "diagnostic": "E_USE_AFTER_MOVE_OR_DROP",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Move",
+                "from": 1,
+                "into": 2
+              },
+              {
+                "op": "Read",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C04",
+      "category": "copy",
+      "expected": "reject",
+      "diagnostic": "E_COPY_PROOF_REQUIRED",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Copy",
+                "from": 1,
+                "into": 2
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C05",
+      "category": "loans",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 11,
+                "kind": "Shared"
+              },
+              {
+                "op": "Read",
+                "owner": 1
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 11
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C06",
+      "category": "loans",
+      "expected": "reject",
+      "diagnostic": "E_BORROW_CONFLICT",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 11,
+                "kind": "Mutable"
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C07",
+      "category": "loans",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Mutable"
+              },
+              {
+                "op": "WriteThrough",
+                "owner": 1,
+                "loan": 10
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C08",
+      "category": "loans",
+      "expected": "reject",
+      "diagnostic": "E_BORROW_CONFLICT",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Write",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C09",
+      "category": "loans",
+      "expected": "reject",
+      "diagnostic": "E_BORROW_CONFLICT",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Drop",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C10",
+      "category": "suspension",
+      "expected": "reject",
+      "diagnostic": "E_SUSPEND_WITH_LIVE_LOAN",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Suspend"
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C11",
+      "category": "suspension",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              },
+              {
+                "op": "Suspend"
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C12",
+      "category": "actor",
+      "expected": "reject",
+      "diagnostic": "E_ACTOR_BORROW_ESCAPE",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "ActorHopBorrow",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C13",
+      "category": "tasks",
+      "expected": "reject",
+      "diagnostic": "E_TASK_CAPTURE_PROOF",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": true,
+                "send": false
+              },
+              {
+                "op": "TaskCaptureCopy",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C14",
+      "category": "tasks",
+      "expected": "accept",
+      "diagnostic": null,
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": true
+              },
+              {
+                "op": "TaskCaptureMove",
+                "owner": 1
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C15",
+      "category": "loans",
+      "expected": "reject",
+      "diagnostic": "E_UNKNOWN_LOAN",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C16",
+      "category": "identities",
+      "expected": "reject",
+      "diagnostic": "E_OWNER_DEF_REUSED",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [],
+            "successors": [
+              1,
+              2
+            ]
+          },
+          {
+            "id": 1,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 2,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 3,
+            "ops": [
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C17",
+      "category": "identities",
+      "expected": "reject",
+      "diagnostic": "E_LOAN_DEF_REUSED",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              }
+            ],
+            "successors": [
+              1,
+              2
+            ]
+          },
+          {
+            "id": 1,
+            "ops": [
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 2,
+            "ops": [
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "EndBorrow",
+                "loan": 10
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 3,
+            "ops": [
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C18",
+      "category": "joins",
+      "expected": "reject",
+      "diagnostic": "E_CFG_JOIN_UNPROVEN",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              }
+            ],
+            "successors": [
+              1,
+              2
+            ]
+          },
+          {
+            "id": 1,
+            "ops": [
+              {
+                "op": "Move",
+                "from": 1,
+                "into": 2
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 2,
+            "ops": [
+              {
+                "op": "Read",
+                "owner": 1
+              }
+            ],
+            "successors": [
+              3
+            ]
+          },
+          {
+            "id": 3,
+            "ops": [
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C19",
+      "category": "loops",
+      "expected": "reject",
+      "diagnostic": "E_CFG_CYCLE_UNPROVEN",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              }
+            ],
+            "successors": [
+              1
+            ]
+          },
+          {
+            "id": 1,
+            "ops": [
+              {
+                "op": "Read",
+                "owner": 1
+              }
+            ],
+            "successors": [
+              1
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "C20",
+      "category": "effects",
+      "expected": "reject",
+      "diagnostic": "E_MIR_UNSUPPORTED_EFFECT",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "UnknownEffect",
+                "kind": "foreign_call"
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C21",
+      "category": "exits",
+      "expected": "reject",
+      "diagnostic": "E_IMPLICIT_EXIT",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Read",
+                "owner": 1
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "C22",
+      "category": "loans",
+      "expected": "reject",
+      "diagnostic": "E_LOAN_ESCAPE",
+      "graph": {
+        "entry": 0,
+        "blocks": [
+          {
+            "id": 0,
+            "ops": [
+              {
+                "op": "Init",
+                "owner": 1,
+                "copy": false,
+                "send": false
+              },
+              {
+                "op": "Borrow",
+                "owner": 1,
+                "loan": 10,
+                "kind": "Shared"
+              },
+              {
+                "op": "Return"
+              }
+            ],
+            "successors": []
+          }
+        ]
+      }
+    }
+  ]
+}
