@@ -447,7 +447,12 @@ export function rejectUnsupportedActorPubSubSource(sourceBytes){
   const typedTopicCall=
     current?.text==="." && tokens[i+1]?.id &&
     tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
-  if(actorGroupCall || typedHandle || typedTopicCall)
+  // An imported or local handle may omit the Topic type spelling.
+  // Conservatively reject the unresolved member, not free functions.
+  const tryPublishMember=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="try_publish";
+  if(actorGroupCall || typedHandle || typedTopicCall || tryPublishMember)
    throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
  }
 }
