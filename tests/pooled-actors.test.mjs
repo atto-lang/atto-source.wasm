@@ -252,3 +252,26 @@ test('single-threaded policy executes private actors on distinct workers without
   assert.throws(() => new PooledWasmActors({threadPolicy:2}),
     /unsupported WASM actor pool threading policy/);
 });
+
+test('unsupported elastic options are denied before allocating pooled Workers', async () => {
+  for (const key of [
+    'maxParallelism','max_parallelism','poolSize','pool_size','pool',
+    'affinity','threadAffinity','schedule','actorSchedule','actor_schedule',
+    'pinnedWorker','dedicatedWorker'
+  ]) {
+    assert.throws(
+      () => new PooledWasmActors({workers:1,[key]:1}),
+      /WASM elastic actor scheduling unsupported/,
+      'constructor key ' + key
+    );
+  }
+  const pool = new PooledWasmActors({workers:1});
+  try {
+    await assert.rejects(pool.spawn(new Uint8Array(0), {
+      expectedSha256:'0'.repeat(64),trusted:true,max_parallelism:2
+    }), /WASM elastic actor scheduling unsupported/);
+    assert.equal(pool.actorCount,0,'no forged source actor admitted');
+  } finally {
+    await pool.close();
+  }
+});

@@ -1,0 +1,121 @@
+{
+  "schema": "atto.tenant-guest-conformance.v1",
+  "purpose": "Compiled actor guest tenant-isolation verification; host-only tests are not evidence",
+  "backends": [
+    "java",
+    "llvm",
+    "wasm",
+    "forge",
+    "net"
+  ],
+  "stages": [
+    "atto_source",
+    "compiler",
+    "guest_artifact",
+    "isolated_tenant_runtime",
+    "authenticated_broker",
+    "verified_quota_revocation_delivery"
+  ],
+  "required_provenance": [
+    "source_repo",
+    "source_head_sha",
+    "source_sha256",
+    "compiler_sha256",
+    "guest_binary_sha256",
+    "trusted_workflow_sha256",
+    "github_run_id",
+    "github_job_id",
+    "github_artifact_digest_sha256",
+    "private_carrier_blob_parity"
+  ],
+  "actor_contract": {
+    "tenant_identity": "injected solely by authenticated host context; never trusted from guest payload",
+    "actor_ref": "opaque broker-issued, generation-fenced, tenant-scoped, replay-resistant",
+    "cross_tenant_access": "default deny without broker-granted capability",
+    "quota": "hierarchical tenant account; actor restart does not replenish aggregate consumption",
+    "reservation": "atomic admission and exactly-once refund after denial, cancellation, or transport failure",
+    "delegation": "capability revocation must fence in-flight dispatch before foreign-resource resolution",
+    "isolation": "failure of tenant A must not starve unrelated tenant B"
+  },
+  "cases": [
+    {
+      "id": "tenant_aggregate_quota_survives_restart",
+      "actors": [
+        "a_sender",
+        "a_restart"
+      ],
+      "expect": "DENY_QUOTA",
+      "asserts": [
+        "aggregate budget unchanged across restart and child spawn",
+        "bytes and outstanding reservations bounded",
+        "CPU/memory envelope evidenced"
+      ]
+    },
+    {
+      "id": "revoked_capability_denied_at_dispatch",
+      "actors": [
+        "a_sender",
+        "b_receiver"
+      ],
+      "expect": "DENY_REVOKED",
+      "asserts": [
+        "generation checked at dispatch",
+        "no delivery after revocation fence",
+        "credits settled exactly once"
+      ]
+    },
+    {
+      "id": "forged_cross_tenant_actorref_denied",
+      "actors": [
+        "a_sender",
+        "b_receiver"
+      ],
+      "expect": "DENY_FORGED_REF",
+      "asserts": [
+        "reject forged tenant identity",
+        "reject stale incarnation and replay",
+        "broker does not resolve foreign object"
+      ]
+    },
+    {
+      "id": "authorized_broker_delivery_exactly_once",
+      "actors": [
+        "a_sender",
+        "b_receiver"
+      ],
+      "expect": "DELIVERED_ONCE",
+      "asserts": [
+        "host-authenticated tenant A and B",
+        "capability authorized",
+        "safe serialization across boundary",
+        "one receiver delivery"
+      ]
+    },
+    {
+      "id": "unrelated_tenant_survives_denial",
+      "actors": [
+        "a_sender",
+        "b_receiver",
+        "b_neighbor"
+      ],
+      "expect": "NEIGHBOR_LIVE",
+      "asserts": [
+        "A quota exhaustion does not affect B progress",
+        "B latency bounded by test contract",
+        "no shared mutable tenant resource handle"
+      ]
+    }
+  ],
+  "assertions": {
+    "compiler_produced_guest_required": true,
+    "live_guest_broker_calls_required": true,
+    "isolated_runtime_required": true,
+    "artifact_download_and_hash_required": true,
+    "source_carrier_sha_parity_required": true,
+    "independent_workflow_run_job_step_verification_required": true,
+    "allow_synthetic_receipts_to_pass": false,
+    "allow_host_only_reference_to_pass": false,
+    "default_on_missing_stage": "NOT_VERIFIED",
+    "production_enforcement_requires_independent_security_review": true
+  }
+}

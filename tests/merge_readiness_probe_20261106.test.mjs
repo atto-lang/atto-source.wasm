@@ -3,15 +3,17 @@ import assert from 'node:assert/strict';
 import {REPOS, assess} from '../scripts/merge_readiness_probe_20261106.mjs';
 
 const HEAD = 'a'.repeat(40);
+const BASE = 'b'.repeat(40);
 function fixture(backend = 'java') {
   const [slug, id] = REPOS[backend];
   return {
     repo: {id, full_name: slug, private: true, archived: false, disabled: false},
-    main: {name: 'main', protected: true},
+    main: {name: 'main', protected: true, commit: {sha: BASE}},
     pr: {number: 17, state: 'open', draft: false, mergeable: true,
-      base: {ref: 'main', repo: {id}}, head: {sha: HEAD, repo: {id}},
+      base: {ref: 'main', repo: {id}, sha: BASE}, head: {sha: HEAD, repo: {id}},
       user: {login: 'the1mills'}},
-    reviews: [{user: {login: 'ORESoftware'}, state: 'APPROVED', commit_id: HEAD}],
+    reviews: [{user: {login: 'ORESoftware'}, state: 'APPROVED', commit_id: HEAD,
+      id: 501, submitted_at: '2026-11-07T20:00:00Z'}],
     runs: [{run: {id: 71, head_sha: HEAD, event: 'pull_request', status: 'completed',
       conclusion: 'success', run_attempt: 1, repository: {id}, head_repository: {id}},
       jobs: [{id: 81, run_id: 71, head_sha: HEAD, run_attempt: 1,

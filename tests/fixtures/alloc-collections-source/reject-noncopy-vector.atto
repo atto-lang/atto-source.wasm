@@ -1,0 +1,12 @@
+// TARGET NEGATIVE — class identity must not be treated as Copy.
+// A compiler without proven Copy<T> monomorphization must fail closed.
+import module alloc_vec from "atto.alloc/vec";
+define class Payload as
+  let int code = 9;
+end
+pub fnc main() -> int {
+  let mut vec = alloc_vec.new_vec<Payload>();
+  let value = new Payload();
+  vec.push_copy(value); // forbidden: Payload is not verified Copy
+  return vec.len();
+}

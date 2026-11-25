@@ -1,0 +1,9 @@
+// expect-error: E_UNBOUND
+// Source namespace MUST NOT import privileged policy functions implicitly.
+use namespace std.actor.consumer;
+pub fnc main(): int {
+  if actor_mailbox_admissible(true, true, true, true, 0, 1) then
+    return 1;
+  fi
+  return 42;
+}

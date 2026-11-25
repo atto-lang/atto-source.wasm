@@ -1,0 +1,26 @@
+// Wasm-local freestanding Atto byte-budget checks.
+// Pure policy: no heap, OS, host interop, or actor authority.
+pub fnc can_fit_bytes(int used_bytes, int extra_bytes, int max_bytes): bool {
+  if used_bytes < 0 then return false; fi
+  if extra_bytes < 0 then return false; fi
+  if max_bytes < 0 then return false; fi
+  if used_bytes > max_bytes then return false; fi
+  return extra_bytes <= max_bytes - used_bytes;
+}
+
+pub fnc bytes_left(int used_bytes, int max_bytes): int {
+  if used_bytes < 0 then return -1; fi
+  if max_bytes < 0 then return -1; fi
+  if used_bytes > max_bytes then return -1; fi
+  return max_bytes - used_bytes;
+}
+
+pub fnc can_replace_bytes(int used_bytes, int old_bytes, int new_bytes, int max_bytes): bool {
+  if used_bytes < 0 then return false; fi
+  if old_bytes < 0 then return false; fi
+  if new_bytes < 0 then return false; fi
+  if max_bytes < 0 then return false; fi
+  if old_bytes > used_bytes then return false; fi
+  if used_bytes > max_bytes then return false; fi
+  return new_bytes <= max_bytes - (used_bytes - old_bytes);
+}

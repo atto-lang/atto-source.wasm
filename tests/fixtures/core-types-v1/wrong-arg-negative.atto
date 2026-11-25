@@ -1,0 +1,3 @@
+// Reject a bool argument at an int-only public core/types function.
+import * as types from "../../../core/types.atto";
+pub fnc main() -> int { if types.fits_u8(true); do return 1; fi return 0; }

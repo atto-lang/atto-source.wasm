@@ -1,0 +1,9 @@
+define class Point as
+    pub final int x: 3;
+end
+pub routine main(): void {
+    const Point original = new Point();
+    const Point next = (rt take original) with {x => 42};
+    stdio.stdout.write(next.x);
+    return;
+}

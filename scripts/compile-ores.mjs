@@ -173,6 +173,25 @@ function tupleV2Tokens(sourceBytes){
 }
 
 /**
+ * Defense in depth for retired language operators. This bounded tokenizer
+ * ignores strings and nested comments, while the exact pinned LLVM compiler
+ * remains responsible for full grammar and type checking. A bridge-only
+ * rejection is never evidence of native compiler semantic parity.
+ */
+export function rejectRetiredSourceOperators(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i];
+  if(token.id || (token.text!=="%" && token.text!=="^"))continue;
+  const isDouble=token.text==="^" && tokens[i+1]?.text==="^" &&
+    !tokens[i+1]?.id && tokens[i+1].offset===token.offset+1;
+  const glyph=isDouble?"^^":token.text;
+  throw Error("ATTO_REMOVED_OPERATOR: '"+glyph+
+    "' is not an AttoLang source operator at offset "+token.offset);
+ }
+}
+
+/**
  * Conservative source admission for new declaration families. This bridge
  * does not own the language parser: native LLVM must also reject unimplemented
  * declarations. Scan exact declaration-head tokens only, never raw substrings.
@@ -297,6 +316,32 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  * only after guest, Worker and linear-memory lifetime evidence exists.
  * Lexical tokenization ignores source comments and string contents.
  */
+/**
+ * A Mutex<T> is a sealed, identity-bearing class. This scalar Wasm bridge
+ * cannot execute its async lease ABI, but must distinguish a missing `new`
+ * from a legal class constructor with unavailable runtime lowering. The
+ * bounded shared tokenizer excludes nested comments and quoted literals.
+ */
+export function rejectMutexResourceClassSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!tokens[i]?.id||tokens[i].text!=="Mutex"||tokens[i+1]?.text!=="<")continue;
+  let depth=0,close=-1;
+  for(let j=i+1;j<tokens.length;j++){
+   if(tokens[j].text==="<")depth++;
+   else if(tokens[j].text===">"){
+    if(--depth===0){close=j;break}
+    if(depth<0)break;
+   }
+  }
+  if(close<0||tokens[close+1]?.text!=="(")continue; // type, not invocation
+  const offset=tokens[i].offset;
+  if(tokens[i-1]?.text!=="new")
+   throw Error("E_NEW_REQUIRED: Mutex<T> is a resource class at byte "+offset);
+  throw Error("E_LOCK_UNSUPPORTED: wasm scalar bridge lacks mutex scheduler at byte "+offset);
+ }
+}
+
 export function rejectUnsupportedHeapContainerSource(sourceBytes){
  const tokens=tupleV2Tokens(sourceBytes);
  const nominal=new Set(["Box","Arc","Weak","Rc","RefCell",
@@ -312,6 +357,18 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
    throw Error("wasm heap/container ownership ABI unsupported: "+
       token.text+" at byte "+token.offset);
   }
+  // Alias syntax must never escape this precompiler ownership admission.
+  // The scalar Wasm backend has no compiled typed-loan/ownership-bang ABI.
+  // Distinguish !eq (inequality) from a postfix ownership bang.
+  const bang=["borrow","take","copy","share"].includes(token.text) &&
+    tokens[i+1]?.text==="!" &&
+    !(tokens[i+2]?.id&&tokens[i+2].text==="eq");
+  const mutBang=token.text==="mut" && tokens[i+1]?.id &&
+    tokens[i+1].text==="borrow" && tokens[i+2]?.text==="!";
+  if(bang||mutBang){
+   throw Error("wasm heap loan/transfer lowering unsupported at byte "+
+      token.offset);
+  }
   if(token.text!=="rt")continue;
   const a=tokens[i+1],b=tokens[i+2];
   if(a?.id&&["borrow","take"].includes(a.text) ||
@@ -323,32 +380,56 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
 }
 
 /** Actor pipeline transport is not lowered by the scalar Wasm bridge.
- * This is a source admission gate, NOT successful guest actor execution.
- * The tokenized check ignores quoted strings, comments, normal identifiers
- * named pipe, and functional |> composition.
+ * This is a fail-closed source admission gate, NOT guest actor execution.
+ * Token positions preserve contextual bang adjacency; quoted text, comments,
+ * ordinary identifiers and functional |> remain untouched.
  */
 export function rejectUnsupportedActorPipeSource(sourceBytes) {
  const tokens=tupleV2Tokens(sourceBytes);
  const reservedBefore=new Set([
   "fnc","routine","method","define","pub","static","val",
-  "let","const","final","return","spawn","pipe","as","case"
+  "let","const","final","return","spawn","pipe","rpipe",
+  "stop","await","as","case"
  ]);
  const forbiddenNext=new Set(["then","fi","end","else","as","case","over"]);
  for(let i=0;i<tokens.length;i++) {
   const current=tokens[i];
-  if(!current.id||current.text!=="pipe")continue;
+  if(!current.id)continue;
+  if(!["pipe","rpipe","stop"].includes(current.text))continue;
   const prev=tokens[i-1],next=tokens[i+1];
-  const classCall=prev?.text==="." && tokens[i-2]?.id &&
-      tokens[i-2].text==="ActorUtils";
-  const classColonCall=prev?.text===":" &&
+  // The ! belongs to the contextual operator only when contiguous. A
+  // separate logical ! or an identifier suffix must never be rewritten.
+  const bang=next?.text==="!" &&
+      next.offset===current.offset+current.text.length;
+  const rhs=tokens[i+(bang?2:1)];
+
+  // No actor lifecycle STOP is executable in the scalar Wasm profile.
+  // A globally rewritten 'stop!' would be unsafe; this only recognizes the
+  // exact contiguous operator in a token stream that skips literals/trivia.
+  if(current.text==="stop") {
+    if(bang)throw Error("wasm graceful actor stop! source lowering unsupported at byte "+current.offset);
+    continue;
+  }
+
+  // A contiguous bang spelling reserves the entire source operator, even
+  // when its endpoints are missing or malformed. The actual compiler must
+  // reject such source, but no scalar artifact should reach that invocation.
+  if (bang)
+    throw Error("wasm actor "+current.text+"! source lowering unsupported at byte "+current.offset);
+
+  const classCall=current.text==="pipe" && prev?.text==="." &&
+      tokens[i-2]?.id && tokens[i-2].text==="ActorUtils";
+  const classColonCall=current.text==="pipe" && prev?.text===":" &&
       tokens[i-2]?.text===":" &&
       tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
   const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
       [")","]","}"].includes(prev.text));
-  const rightStart=next && ((next.id&&!forbiddenNext.has(next.text)) ||
-      ["(","["].includes(next.text));
+  const rightStart=rhs && ((rhs.id&&!forbiddenNext.has(rhs.text)) ||
+      ["(","["].includes(rhs.text));
+  // Reject named-actor and stream/channel edges in both lexical directions.
+  // Never emit a scalar Wasm guest for unknown continuous transport.
   if(classCall||classColonCall||(leftEnd&&rightStart))
-    throw Error("wasm actor pipe source lowering unsupported at byte "+current.offset);
+    throw Error("wasm actor "+current.text+(bang?"!":"")+" source lowering unsupported at byte "+current.offset);
  }
 }
 /** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
@@ -366,10 +447,8 @@ export function rejectUnsupportedActorPubSubSource(sourceBytes){
   const typedTopicCall=
     current?.text==="." && tokens[i+1]?.id &&
     tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
-  // A local/imported Topic<T> may reach .try_publish without spelling
-  // actor.group or Topic<T> in this compilation unit. Deny the canonical
-  // member call before invoking LLVM or staging a wasm guest artifact.
-  // A standalone function named try_publish is not reserved by this gate.
+  // An imported or local handle may omit the Topic type spelling.
+  // Conservatively reject the unresolved member, not free functions.
   const tryPublishMember=
     current?.text==="." && tokens[i+1]?.id &&
     tokens[i+1].text==="try_publish";
@@ -542,19 +621,22 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   }catch(error){if(error?.code!=="ENOENT")throw error}
  }
  await rejectMixedPublication(published,publication);
- const [sourceSnapshot,compilerSnapshot]=await Promise.all([
-  readBoundedRegularFile(sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget"),
-  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")
- ]);
- // Input paths may have changed after the initial preflight/inode overlap
- // checks. Refuse a different input inode rather than pinning a new source
- // through a validated destination alias.
- if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino||
-    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
-  throw Error("compiler or source input changed between preflight and snapshot");
- const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
- // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
+ // Read and pin the SOURCE first. An unresolved import is a fatal admission
+ // error in this standalone scalar bridge, so do not read or execute a
+ // potentially 256 MiB compiler binary before denying that source.
+ // This ordering also makes unlinked-module attacks cheap to reject.
+ const sourceSnapshot=await readBoundedRegularFile(
+  sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget");
+ if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino)
+  throw Error("source input changed between preflight and snapshot");
+ const sourceBytes=sourceSnapshot.bytes;
+ // Never silently compile a partial graph, even with a real trusted LLVM binary.
  assertScalarSourceHasNoImports(sourceBytes);
+ const compilerSnapshot=await readBoundedRegularFile(
+  compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget");
+ if(compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
+  throw Error("compiler input changed between preflight and snapshot");
+ const compilerBytes=compilerSnapshot.bytes;
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
@@ -564,6 +646,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // G0 unsafe gate is independent of the caller-supplied compiler binary.
  rejectUnsupportedUnsafeSource(sourceBytes);
  rejectUnsupportedActorThreadSource(sourceBytes);
+ // Do not delegate retired operators to an old pinned compiler that might
+ // still accept them. This is preflight only, not native rejection evidence.
+ rejectRetiredSourceOperators(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedDurableM0Source(sourceBytes);
@@ -571,6 +656,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
  rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ rejectMutexResourceClassSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");

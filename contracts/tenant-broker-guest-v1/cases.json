@@ -1,0 +1,43 @@
+{
+  "schema": "atto.tenant.broker.guest.v1",
+  "status": "SPECIFICATION_ONLY_NOT_EXECUTED",
+  "guest_origin": "compiler-produced-atto-source-actor",
+  "minimum_distinct_tenants": 2,
+  "cases": [
+    {
+      "id": "tenant_aggregate_quota_survives_restart",
+      "precondition": "same authenticated tenant retains stable supervisor lineage across actor STOP and restart",
+      "action": "exhaust aggregate message and byte credits, restart actor and spawn descendant, retry send",
+      "expected": "rejected before delivery; tenant ledger remains exhausted; credits never reset",
+      "must_observe": ["trusted_tenant_id", "stable_supervisor_lineage", "quota_snapshot_before", "quota_snapshot_after", "delivery_count"]
+    },
+    {
+      "id": "revoked_capability_denied_at_dispatch",
+      "precondition": "authorized producer reserves dispatch credit for destination capability generation G",
+      "action": "revoke capability generation G after reservation and before irreversible broker dispatch",
+      "expected": "dispatch denied, zero destination side effects, credit refunded exactly once after retirement",
+      "must_observe": ["capability_generation", "broker_revoke_epoch", "dispatch_decision", "credits_released", "delivery_count"]
+    },
+    {
+      "id": "forged_cross_tenant_actorref_denied",
+      "precondition": "tenant A has no destination authority and tenant B has a private actor",
+      "action": "submit a forged, stale, or replayed ActorRef and use tenant-B identity as untrusted input",
+      "expected": "broker rejects without resolving or delivering to B, no guest-controlled CONTROL lane",
+      "must_observe": ["authenticated_producer", "untrusted_ref_digest", "dispatch_decision", "delivery_count", "control_lane_count"]
+    },
+    {
+      "id": "authorized_broker_delivery_exactly_once",
+      "precondition": "trusted host issues explicit cross-tenant message capability scoped to destination incarnation",
+      "action": "compile and send one positive DATA message through authenticated broker, including retry identity",
+      "expected": "one DATA delivery, no duplicate side effect and no ambient networking authority",
+      "must_observe": ["capability_generation", "message_dedupe_id", "dispatch_decision", "delivery_count", "destination_tenant_id"]
+    },
+    {
+      "id": "unrelated_tenant_survives_denial",
+      "precondition": "tenants A and B have independent quotas and isolated actor runtime resources",
+      "action": "exhaust A and cancel outstanding work while sending a permitted message within B",
+      "expected": "A fails closed and B remains responsive with unchanged quota accounting",
+      "must_observe": ["tenant_a_failure", "tenant_b_progress", "tenant_b_quota_before", "tenant_b_quota_after"]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+fnc add_one(int value): int {
+  return value + 1;
+}
+
+pub fnc main(): int {
+  return add_one(41);
+}
