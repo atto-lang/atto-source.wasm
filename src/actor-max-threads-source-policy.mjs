@@ -89,8 +89,10 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     "transform", "pipe", "http", "tcp", "websocket", "stream", "unary"
   ]);
   for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
+      throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
     if (tokens[i] === "@" &&
-        ["ActorMaxThreads", "actor_schedule", "ActorSchedule"].includes(tokens[i+1]))
+        ["actor_schedule", "ActorSchedule"].includes(tokens[i+1]))
       throw Error("WASM source actor scheduling unsupported: no guest elastic actor scheduler");
     // A spawn-time policy must not be dropped by a scalar-only delegate.
     if (tokens[i] === "with" && tokens[i+1] === "schedule" && tokens[i+2] === "(")
