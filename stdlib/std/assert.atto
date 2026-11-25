@@ -1,0 +1,43 @@
+// wasm compiler-owned hosted std.assert v1 source CANDIDATE.
+// No backend guest pass is claimed until linking/effects/AOT checks execute.
+// This is not the legacy Assert module; failed checks throw guest Error.
+define module assert as
+
+  define pub class AssertionError extends Error as
+    pub val String message;
+  end
+
+  pub fnc true(bool condition): void {
+    if !condition; do
+      throw new AssertionError("assert.true: expected true");
+    fi
+    return;
+  }
+
+  pub fnc false(bool condition): void {
+    if condition; do
+      throw new AssertionError("assert.false: expected false");
+    fi
+    return;
+  }
+
+  // Expected argument first, evaluated once, then actual exactly once.
+  // Eq must be checked statically: never coerce numbers or compare addresses.
+  pub fnc equal<T: Eq>(T expected, T actual): void {
+    if !(expected eq actual); do
+      throw new AssertionError("assert.equal: values differ");
+    fi
+    return;
+  }
+
+  pub fnc not_equal<T: Eq>(T expected, T actual): void {
+    if expected eq actual; do
+      throw new AssertionError("assert.not_equal: values are equal");
+    fi
+    return;
+  }
+
+  pub fnc fail(String message): void {
+    throw new AssertionError(message);
+  }
+end
