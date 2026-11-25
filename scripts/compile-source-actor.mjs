@@ -37,7 +37,12 @@ function invoke(exe, args, input) {
 }
 
 export async function compileSourceActorToWasm({compiler, source, clang = process.env.CLANG || 'clang',
-  expectedCompilerSha256} = {}) {
+  expectedCompilerSha256, checkedRecursionV1 = false} = {}) {
+  if (typeof checkedRecursionV1 !== 'boolean')
+    throw TypeError('invalid checked recursive actor compiler selector');
+  if (checkedRecursionV1 && (!source?.endsWith('.atto') ||
+      !/^[a-f0-9]{64}$/.test(expectedCompilerSha256 || '')))
+    throw Error('checked recursive actors require canonical .atto source and pinned compiler');
   if (!isAbsolute(compiler || '') || !isAbsolute(source || ''))
     throw TypeError('source actor bridge requires absolute compiler/source paths');
   if (expectedCompilerSha256 !== undefined && !/^[a-f0-9]{64}$/.test(expectedCompilerSha256))
@@ -63,10 +68,19 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     // SHA-256 is byte identity, not proof that source commit built this binary.
     await writeFile(stagedSource, sourceBytes, {mode: 0o400, flag: 'wx'});
     await writeFile(stagedCompiler, compilerBytes, {mode: 0o500, flag: 'wx'});
-    const ir = invoke(stagedCompiler, ['--target=wasm32', stagedSource]);
+    const ir = invoke(stagedCompiler, ['--target=wasm32',
+      ...(checkedRecursionV1 ? ['--experimental-wasm-actor-recursion-v1'] : []),
+      stagedSource]);
     assertWasm32IrTarget(ir);
-    for (const name of exportsRequired)
+    for (const name of [...exportsRequired,
+      ...(checkedRecursionV1 ? ['oreslang_wasm_actor_frame_status'] : [])])
       if (!ir.includes('@' + name + '(')) throw Error('missing compiler-generated actor ABI ' + name);
+    if (checkedRecursionV1 &&
+        (!ir.includes('atto.trampoline.push') ||
+         !ir.includes('atto.trampoline.overflow') ||
+         !ir.includes('atto.trampoline.unwind') ||
+         /@descend\(/.test(ir)))
+      throw Error('checked actor compiler did not emit bounded iterative guest frames');
     if (/@oreslang_source_actor_spawn|@ores_actor_i64_heap_field/.test(ir))
       throw Error('unlowered native actor ABI in WASM actor IR');
     if (sha((await readBoundedRegularFile(stagedCompiler, MAX_COMPILER)).bytes) !== compilerSha256 ||
@@ -80,6 +94,8 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     const linked = spawnSync(clang, ['--target=wasm32', '-x', 'ir', '-Oz', '-nostdlib',
       '-Wl,--no-entry', '-Wl,--export-memory',
       ...exportsRequired.map(name => '-Wl,--export=' + name),
+      ...(checkedRecursionV1
+        ? ['-Wl,--export=oreslang_wasm_actor_frame_status'] : []),
       '-Wl,--initial-memory=131072', '-Wl,--max-memory=131072',
       '-o', output, '-'], {
       input: ir, encoding: 'utf8', timeout: 30000, maxBuffer: 4 * 1024 * 1024,
@@ -92,21 +108,28 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     if (inspected.memoryCount !== 1 || !inspected.hasMemoryMaximum ||
         inspected.memoryInitial !== 2 || inspected.memoryMaximum !== 2)
       throw Error('actor private two-page memory contract violated');
-    assertScalarActorAbi(inspected.bytes);
+    assertScalarActorAbi(inspected.bytes, {checkedRecursionV1});
     const module = new WebAssembly.Module(inspected.bytes);
     if (WebAssembly.Module.imports(module).length !== 0) throw Error('WASM actor imported host capability');
     const actualExports = WebAssembly.Module.exports(module);
-    if (actualExports.length !== 4 ||
+    if (actualExports.length !== (checkedRecursionV1 ? 5 : 4) ||
         ![...exportsRequired.map(name => ({name, kind: 'function'})),
-          {name: 'memory', kind: 'memory'}].every(e =>
+          {name: 'memory', kind: 'memory'},
+          ...(checkedRecursionV1 ? [
+            {name: 'oreslang_wasm_actor_frame_status', kind: 'function'}] : [])].every(e =>
           actualExports.some(a => a.name === e.name && a.kind === e.kind)))
       throw Error('WASM actor export ABI mismatch');
     return {
       wasm,
-      provenance: Object.freeze({kind: 'real-source-pooled-actor-v0',
+      provenance: Object.freeze({
+        kind: checkedRecursionV1
+          ? 'real-source-pooled-actor-bounded-recursion-v1'
+          : 'real-source-pooled-actor-v0',
         sourceSha256, compilerSha256, llvmIrSha256: sha(Buffer.from(ir, 'utf8')),
         wasmSha256: sha(wasm), wasmBytes: wasm.length, guestImports: 0,
-        actorAbi: 'pooled-actor-i64-v0'})
+        actorAbi: checkedRecursionV1
+          ? 'pooled-actor-i64-checked-frame-v1' : 'pooled-actor-i64-v0',
+        checkedRecursionV1, maxGuestFrames: checkedRecursionV1 ? 64 : null})
     };
   } finally {await rm(scratch, {recursive: true, force: true});}
 }

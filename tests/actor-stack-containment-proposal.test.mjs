@@ -5,7 +5,7 @@ import {createHash} from "node:crypto";
 
 const source = new URL("../contracts/actor-stack-containment-v1/recursive-sibling.atto", import.meta.url);
 const contract = new URL("../contracts/actor-stack-containment-v1/manifest.json", import.meta.url);
-const expectedBlob = "3461e6f3d42b639d0df5823781132bbb075ba2bc";
+const expectedBlob = "947781cddf09d8e3e08c51cff2b7d8960e2d4750";
 const gitBlob = bytes => createHash("sha1")
   .update(Buffer.from("blob " + bytes.length + "\0", "utf8"))
   .update(bytes).digest("hex");
@@ -30,6 +30,8 @@ test("nine proposed two-actor acceptance cases remain individually not executed"
   assert.equal(c.workers, 1);
   assert.equal(c.actors, 2);
   assert.equal(c.scenarios.length, 9);
+  assert.equal(c.scenarios.find(x => x.id === "A-OVERFLOW").input, 64);
+  assert.equal(c.scenarios.find(x => x.id === "A-OVERFLOW").first_rejected_frame, 65);
   assert.equal(new Set(c.scenarios.map(x => x.id)).size, 9);
   assert.deepEqual(c.scenarios.map(x => x.id), [
     "A-OVERFLOW", "A-CANCEL-QUEUED", "B-PROGRESS", "SUPERVISOR-CONTROL",

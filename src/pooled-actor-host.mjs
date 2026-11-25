@@ -134,7 +134,9 @@ export class PooledWasmActors {
       // trap after worker-local guest/managed-frame cleanup. Arbitrary traps,
       // engine stack exhaustion, timeouts and cleanup failures stay fatal to
       // the entire carrier. A malformed actor-fault receipt is never success.
-      if (op.kind !== 'send' || message.code !== 'WASM_UNREACHABLE_V1' ||
+      const acceptedActorFault = message.code === 'WASM_UNREACHABLE_V1' ||
+        message.code === 'STACK_BUDGET_EXHAUSTED_V1';
+      if (op.kind !== 'send' || !acceptedActorFault ||
           message.result !== null ||
           !message.frame || message.frame.schemaVersion !== 1 ||
           message.frame.frameBytes !== 16 ||
@@ -148,7 +150,9 @@ export class PooledWasmActors {
       carrier.active = null;
       actor.phase = 'retired';
       this.#actors.delete(actor.id);
-      const error = Error('WASM actor isolated fault: WASM_UNREACHABLE_V1');
+      const error = message.code === 'STACK_BUDGET_EXHAUSTED_V1'
+        ? Error('WASM actor isolated fault: STACK_BUDGET_EXHAUSTED_V1')
+        : Error('WASM actor isolated fault: WASM_UNREACHABLE_V1');
       for (const pending of actor.pending) pending.reject(error);
       actor.pending.clear();
       actor.queue.length = 0;
@@ -336,7 +340,16 @@ export class PooledWasmActors {
     if (admitted.memoryCount !== 1 || !admitted.hasMemoryMaximum ||
         admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
       throw Error('actor requires private fixed two-page memory');
-    assertScalarActorAbi(admitted.bytes);
+    // Parent-side ABI preflight uses the same *exact* opt-in profile as
+    // the Worker. Never enqueue a five-export actor when the typed status
+    // has not been verified, and never grant host imports.
+    const preflightModule = new WebAssembly.Module(admitted.bytes);
+    if (WebAssembly.Module.imports(preflightModule).length)
+      throw Error('pooled actor imports denied before carrier assignment');
+    const checkedRecursionV1 = WebAssembly.Module.exports(preflightModule)
+      .some(e => e.name === 'oreslang_wasm_actor_frame_status' &&
+        e.kind === 'function');
+    assertScalarActorAbi(admitted.bytes, {checkedRecursionV1});
     const id = ++this.#nextId;
     const incarnation = randomBytes(16).toString('hex');
     const live = this.#carriers.filter(c => !c.dead);
