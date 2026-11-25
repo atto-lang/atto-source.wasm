@@ -186,3 +186,26 @@ test("stack-budget failure in one actor does not damage sibling actor execution"
   bad.endTurn(bt); good.endTurn(gt);
   bad.retire(); good.retire();
 });
+
+test("cancel one suspended invocation without disturbing a sibling", () => {
+  const a = arena(812), t = a.beginTurn();
+  const first = a.startStack(t), f = a.pushStackFrame(t, first, 2);
+  a.writeStackFrame(t, first, f, Uint8Array.of(11, 12));
+  const canceled = a.suspendStack(t, first);
+  const second = a.startStack(t), g = a.pushStackFrame(t, second, 2);
+  a.writeStackFrame(t, second, g, Uint8Array.of(42, 7));
+  const survivor = a.suspendStack(t, second);
+  a.endTurn(t);
+  const next = a.beginTurn();
+  a.cancelStack(next, first);
+  assert.equal(a.stackExecutionCount, 1);
+  assert.equal(a.stackBytesInUse, 2);
+  assert.throws(() => a.resumeStack(next, canceled), /stale or consumed/);
+  assert.equal(a.resumeStack(next, survivor), second);
+  assert.deepEqual([...a.readStackFrame(next, second, g)], [42, 7]);
+  a.popStackFrame(next, second, g);
+  a.finishStack(next, second);
+  assert.equal(a.stackExecutionCount, 0);
+  assert.equal(a.stackBytesInUse, 0);
+  a.endTurn(next); a.retire();
+});
