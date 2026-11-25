@@ -304,7 +304,7 @@ export class ActorArena {
     const memory = new trustedWasmMemory({initial: 1, maximum: 1});
     const execution = trustedFreeze({});
     trustedApply(trustedMapSet, this.#stackExecutions, [execution, {
-      memory, top: 0, frames: [], suspension: null
+      memory, top: 0, frames: [], suspension: null, suspendedTurn: null
     }]);
     this.#activeStack = execution;
     return execution;
@@ -380,6 +380,7 @@ export class ActorArena {
     const stack = this.#requireStack(turn, execution);
     const ticket = trustedFreeze({});
     stack.suspension = ticket;
+    stack.suspendedTurn = turn;
     trustedApply(trustedWeakMapSet, this.#stackResumeTickets, [ticket, execution]);
     this.#activeStack = null;
     return ticket;
@@ -393,8 +394,14 @@ export class ActorArena {
     if (!stack || stack.suspension !== ticket) {
       throw new Error("foreign, stale or consumed actor stack resume ticket");
     }
+    // A receipt must cross an actual physical carrier release. Refusal
+    // does not consume the receipt; a later admitted turn may resume it.
+    if (stack.suspendedTurn === turn) {
+      throw new Error("actor stack resume requires a new physical turn");
+    }
     trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [ticket]);
     stack.suspension = null;
+    stack.suspendedTurn = null;
     this.#activeStack = execution;
     return execution;
   }
@@ -406,6 +413,8 @@ export class ActorArena {
     }
     if (stack.suspension !== null) trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [stack.suspension]);
     stack.memory = null;
+    stack.suspension = null;
+    stack.suspendedTurn = null;
     trustedApply(trustedMapDelete, this.#stackExecutions, [execution]);
     if (this.#activeStack === execution) this.#activeStack = null;
   }
