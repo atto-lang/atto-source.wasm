@@ -383,11 +383,12 @@ export class ActorArena {
     this.#requireTurn(turn);
     const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
     if (!stack) throw new Error("foreign or stale actor stack execution");
-    if (this.#activeStack !== null && this.#activeStack !== execution) {
-      throw new Error("another actor stack execution is active");
+    // A suspended sibling owns independent backing and may be canceled
+    // during another invocation's turn. Never clear that active invocation.
+    if (this.#activeStack !== execution && stack.suspension === null) {
+      throw new Error("actor stack cancellation requires active or suspended execution");
     }
-    // Cancellation may clean a suspended task. Its old resume ticket and
-    // every frame lease are revoked, even if the same offsets are reused.
+    // Revoke only this execution's resume ticket and frame leases.
     this.#clearStack(execution, stack);
   }
 
