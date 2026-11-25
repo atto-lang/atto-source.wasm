@@ -173,6 +173,25 @@ function tupleV2Tokens(sourceBytes){
 }
 
 /**
+ * Defense in depth for retired language operators. This bounded tokenizer
+ * ignores strings and nested comments, while the exact pinned LLVM compiler
+ * remains responsible for full grammar and type checking. A bridge-only
+ * rejection is never evidence of native compiler semantic parity.
+ */
+export function rejectRetiredSourceOperators(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const token=tokens[i];
+  if(token.id || (token.text!=="%" && token.text!=="^"))continue;
+  const isDouble=token.text==="^" && tokens[i+1]?.text==="^" &&
+    !tokens[i+1]?.id && tokens[i+1].offset===token.offset+1;
+  const glyph=isDouble?"^^":token.text;
+  throw Error("ATTO_REMOVED_OPERATOR: '"+glyph+
+    "' is not an AttoLang source operator at offset "+token.offset);
+ }
+}
+
+/**
  * Conservative source admission for new declaration families. This bridge
  * does not own the language parser: native LLVM must also reject unimplemented
  * declarations. Scan exact declaration-head tokens only, never raw substrings.
@@ -598,6 +617,9 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // G0 unsafe gate is independent of the caller-supplied compiler binary.
  rejectUnsupportedUnsafeSource(sourceBytes);
  rejectUnsupportedActorThreadSource(sourceBytes);
+ // Do not delegate retired operators to an old pinned compiler that might
+ // still accept them. This is preflight only, not native rejection evidence.
+ rejectRetiredSourceOperators(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedDurableM0Source(sourceBytes);
