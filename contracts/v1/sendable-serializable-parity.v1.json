@@ -1,0 +1,94 @@
+{
+  "schema": "oreslang.sendable-serializable.parity.v1",
+  "status": "intended-behavior-not-implementation-proof",
+  "max_wire_bytes": 1048576,
+  "domains": [
+    "local-owned-data",
+    "local-runtime-capability",
+    "network-data",
+    "supervisor-control"
+  ],
+  "rules": [
+    {
+      "id": "boolean-singleton",
+      "domain": "local-owned-data",
+      "type": "true|false",
+      "expected": "allow"
+    },
+    {
+      "id": "primitive",
+      "domain": "local-owned-data",
+      "type": "int",
+      "expected": "allow"
+    },
+    {
+      "id": "nested-borrow",
+      "domain": "local-owned-data",
+      "type": "Option<borrow int>",
+      "expected": "reject"
+    },
+    {
+      "id": "unknown-nominal",
+      "domain": "local-owned-data",
+      "type": "UnknownHostType",
+      "expected": "reject"
+    },
+    {
+      "id": "callable",
+      "domain": "local-owned-data",
+      "type": "Fnc<void>",
+      "expected": "reject"
+    },
+    {
+      "id": "runtime-envelope",
+      "domain": "local-owned-data",
+      "type": "ActorMail<ActorOutput<int>>",
+      "expected": "reject"
+    },
+    {
+      "id": "actor-ref-on-wire",
+      "domain": "network-data",
+      "type": "ActorRef<T>",
+      "expected": "reject"
+    },
+    {
+      "id": "shared-lock-on-wire",
+      "domain": "network-data",
+      "type": "SharedMutex<T>",
+      "expected": "reject"
+    },
+    {
+      "id": "unregistered-json",
+      "domain": "network-data",
+      "type": "unregistered struct",
+      "format": "Json",
+      "expected": "reject"
+    },
+    {
+      "id": "unregistered-protobuf",
+      "domain": "network-data",
+      "type": "unregistered struct",
+      "format": "Protobuf",
+      "expected": "reject"
+    },
+    {
+      "id": "messagepack-v2",
+      "domain": "network-data",
+      "type": "registered v2 shape",
+      "format": "MessagePack",
+      "expected": "golden-bytes"
+    },
+    {
+      "id": "same-id-cross-mailbox",
+      "domain": "local-runtime-capability",
+      "type": "ActorRef",
+      "expected": "reject"
+    },
+    {
+      "id": "stale-generation",
+      "domain": "local-runtime-capability",
+      "type": "ActorRef",
+      "expected": "reject"
+    }
+  ]
+}

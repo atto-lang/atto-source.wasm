@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {spawnSync} from "node:child_process";
-import {readFile,writeFile,mkdtemp,rm,stat} from "node:fs/promises";
+import {readFile,writeFile,mkdtemp,rm,stat,realpath} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join,isAbsolute} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -120,8 +120,8 @@ const sha256=bytes=>createHash("sha256").update(bytes).digest("hex");
 const blobSha=bytes=>createHash("sha1")
     .update(Buffer.from("blob "+bytes.length+"\0")).update(bytes).digest("hex");
 const missing=async path=>assert.rejects(stat(path),{code:"ENOENT"});
-const git=(args)=> {
- const p=spawnSync("git",args,{cwd:root,encoding:"utf8",timeout:5000,
+const git=(args,cwd=root)=> {
+ const p=spawnSync("git",args,{cwd,encoding:"utf8",timeout:5000,
    env:{PATH:process.env.PATH||"/usr/bin:/bin",LANG:"C",LC_ALL:"C"}});
  assert.ifError(p.error);
  assert.equal(p.status,0,"git "+args.join(" ")+": "+p.stderr);
@@ -158,6 +158,37 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
   "LLVM macro compiler source SHA must match reviewed scalar parser");
  assert.equal(process.env.ORESLANG_LLVM_SOURCE_TREE,reviewedLlvmTree,
   "LLVM source tree mismatch");
+ // An environment string alone does not prove a native compiler's origin.
+ // Require the exact local LLVM source checkout in addition to the reviewed
+ // SHA/tree and compiler binary digest. The caller must still bind its build
+ // job to this checkout; no external/private cross-org source export occurs.
+ const llvmRoot=process.env.ORESLANG_LLVM_SOURCE_ROOT;
+ assert.ok(llvmRoot&&isAbsolute(llvmRoot),"absolute authorized LLVM source checkout required");
+ const llvmPath=await realpath(llvmRoot);
+ assert.equal(git(["rev-parse","HEAD"],llvmPath),reviewedLlvmHead,
+   "live LLVM checkout does not match reviewed compiler source head");
+ assert.equal(git(["rev-parse","HEAD^{tree}"],llvmPath),reviewedLlvmTree,
+   "live LLVM checkout does not match reviewed source tree");
+ assert.equal(git(["status","--porcelain","--untracked-files=no"],llvmPath),"",
+   "dirty tracked LLVM compiler source");
+ const linkerRequested=process.env.CLANG;
+ const linkerDigest=process.env.ORESLANG_MACRO_WASM_CLANG_SHA256;
+ assert.ok(linkerRequested&&isAbsolute(linkerRequested),
+   "absolute reviewed clang/lld executable required");
+ assert.match(linkerDigest||"",/^[0-9a-f]{64}$/,"pinned clang executable SHA-256 required");
+ const linker=await realpath(linkerRequested);
+ const linkerBytes=(await readBoundedRegularFile(linker,256*1024*1024,
+   "clang executable exceeds byte budget")).bytes;
+ assert.equal(sha256(linkerBytes),linkerDigest,"clang/lld toolchain binary mismatch");
+ const wasmLldRequested=process.env.WASM_LD;
+ const wasmLldDigest=process.env.ORESLANG_MACRO_WASM_LLD_SHA256;
+ assert.ok(wasmLldRequested&&isAbsolute(wasmLldRequested),
+   "absolute reviewed wasm-ld binary required");
+ assert.match(wasmLldDigest||"",/^[0-9a-f]{64}$/,"pinned wasm-ld SHA-256 required");
+ const wasmLld=await realpath(wasmLldRequested);
+ const wasmLldBytes=(await readBoundedRegularFile(wasmLld,256*1024*1024,
+   "wasm-ld exceeds byte budget")).bytes;
+ assert.equal(sha256(wasmLldBytes),wasmLldDigest,"wasm-ld executable changed");
  const compiler=process.env.ORESLANG_LLVM_COMPILER;
  const compilerSha=process.env.ORESLANG_LLVM_COMPILER_SHA256;
  assert.ok(compiler&&isAbsolute(compiler),"approved absolute LLVM compiler path required");
@@ -176,7 +207,7 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
    await writeFile(source,bytes,{mode:0o400,flag:"wx"});
    if(f.kind==="pass"){
     const built=await compileOresToWasm({compiler,compilerSha256:compilerSha,
-     source,output,environment:"browser",publication:"atomic"});
+     clang:linker,wasmLinker:wasmLld,source,output,environment:"browser",publication:"atomic"});
     const release=await readAtomicRelease(output);
     assert.equal(built.sourceSha256,sha256(bytes));
     assert.equal(built.compilerSha256,compilerSha);
@@ -193,11 +224,12 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
     console.log("MACRO_WASM32_GUEST_PASS fixture="+f.name+" value=42 source_sha256="+
       sha256(bytes)+" compiler_sha256="+compilerSha+" wasm_sha256="+built.wasmSha256+
       " wasm_head="+expectedWasm+" wasm_tree="+wasmTree+
-      " llvm_head="+reviewedLlvmHead);
+      " llvm_head="+reviewedLlvmHead+" clang_sha256="+linkerDigest+
+      " wasm_ld_sha256="+wasmLldDigest);
    }else{
     await assert.rejects(
       compileOresToWasm({compiler,compilerSha256:compilerSha,
-        source,output,environment:"browser",publication:"atomic"}),
+        clang:linker,wasmLinker:wasmLld,source,output,environment:"browser",publication:"atomic"}),
       e=>{
        assert.equal(e?.status,1,"negative requires typed compiler exit 1");
        assert.equal(e?.signal,null,"negative compiler killed");
@@ -217,8 +249,16 @@ test("real reviewed LLVM macro compiler links and executes seven Wasm32 guests a
   assert.equal(negativeCount,9,"missing source rejection receipts");
   assert.equal(git(["rev-parse","HEAD"]),expectedWasm,"Wasm tree moved during execution");
   assert.equal(git(["status","--porcelain","--untracked-files=no"]),"","dirty source after tests");
+  assert.equal(git(["rev-parse","HEAD"],llvmPath),reviewedLlvmHead,"LLVM HEAD moved");
+  assert.equal(git(["rev-parse","HEAD^{tree}"],llvmPath),reviewedLlvmTree,"LLVM tree moved");
+  assert.equal(git(["status","--porcelain","--untracked-files=no"],llvmPath),"",
+    "LLVM source changed while compiling");
   assert.equal(sha256((await readBoundedRegularFile(compiler,256*1024*1024,
      "compiler changed")).bytes),compilerSha);
+  assert.equal(sha256((await readBoundedRegularFile(linker,256*1024*1024,
+     "linker changed")).bytes),linkerDigest);
+  assert.equal(sha256((await readBoundedRegularFile(wasmLld,256*1024*1024,
+     "wasm-ld changed")).bytes),wasmLldDigest);
   console.log("MACRO_WASM32_EXACT_SOURCE_GUEST_GATE_PASS guests="+positiveCount+
     " rejections="+negativeCount+" wasm_head="+expectedWasm+
     " llvm_head="+reviewedLlvmHead);

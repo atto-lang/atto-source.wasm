@@ -1,0 +1,12 @@
+// atto-ownership: borrow-default-v1
+// BCV1-007 write_loan pass: compiler #347 draft exclusive call-loan profile, NOT_EXECUTED at this head.
+// expect-exit: 42
+define class Counter as pub mut int value = 40; end
+fnc read(Counter p): int { return p.value; }
+fnc update(mut Counter p): void { p.value = 42; }
+pub fnc main(): int {
+  let counter = new Counter();
+  val observed = read(counter);
+  update(mut counter);
+  return read(borrow! counter);
+}

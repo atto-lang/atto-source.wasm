@@ -11,6 +11,11 @@
 /scripts/ @ORESoftware
 /package.json @ORESoftware
 
+# Integration metadata and pinned Rust toolchain are release inputs.
+/.oreslang/ @ORESoftware
+/rust-toolchain.toml @ORESoftware
+
+# Final, fail-closed private-CI ownership block (directory wildcard precedes exact paths).
 /.github/workflows/ @ORESoftware
 /.github/CODEOWNERS @ORESoftware
 /.github/private-ci-approved-repositories.txt @ORESoftware
@@ -18,3 +23,5 @@
 /.github/private-ci-independent-reviewer.json @ORESoftware
 /.github/private-ci-required-checks.json @ORESoftware
 /.github/workflows/private-ci-policy.yml @ORESoftware
+/verification/source-integrity/verify.sh @ORESoftware
+/verification/source-integrity/test.sh @ORESoftware

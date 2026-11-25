@@ -1,0 +1,82 @@
+# Source-free, token-free and checkout-free canary; proves only runner admission.
+# A successful Rust test is NOT compiled .atto guest or native-AOT evidence.
+name: Runner admission canary
+
+on:
+  push:
+    branches:
+      - ci/source-free-runner-admission-20261027
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/runner-admission-canary.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: runner-admission-wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  admission:
+    name: source-free-runner-admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Compile and execute source-free Rust admission tests
+        shell: bash
+        env:
+          EXPECTED_RUN_ID: ${{ github.run_id }}
+          EXPECTED_ATTEMPT: ${{ github.run_attempt }}
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Inline Rust keeps this canary independent of repository checkout.
+          # This does not install tools, fetch source, use tokens, or upload data.
+          cat > "${RUNNER_TEMP}/oreslang_runner_probe.rs" <<'RUST'
+          use std::env;
+
+          fn required(name: &str) -> String {
+              let value = env::var(name).unwrap_or_else(|_| panic!("missing {name}"));
+              assert!(!value.trim().is_empty(), "blank {name}");
+              value
+          }
+
+          #[test]
+          fn github_runner_admitted_a_real_linux_worker() {
+              assert_eq!(required("RUNNER_OS"), "Linux");
+              let _runner_name = required("RUNNER_NAME");
+              assert_eq!(required("GITHUB_REPOSITORY"), required("EXPECTED_REPOSITORY"));
+          }
+
+          #[test]
+          fn github_run_identity_is_not_empty_or_forged() {
+              assert_eq!(required("GITHUB_RUN_ID"), required("EXPECTED_RUN_ID"));
+              assert_eq!(required("GITHUB_RUN_ATTEMPT"), required("EXPECTED_ATTEMPT"));
+              for name in ["GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"] {
+                  let parsed = required(name).parse::<u64>().expect("positive decimal id");
+                  assert!(parsed > 0, "zero {name}");
+              }
+              let sha = required("GITHUB_SHA");
+              assert_eq!(sha, required("EXPECTED_SHA"));
+              assert_eq!(sha.len(), 40, "expected full Git SHA-1");
+              assert!(sha.bytes().all(|b| b.is_ascii_hexdigit()), "invalid Git SHA");
+          }
+
+          #[test]
+          fn source_free_probe_signature_is_stable() {
+              let payload = b"oreslang-source-free-runner-admission-v1";
+              assert!(payload.starts_with(b"oreslang-source-free-"));
+              assert!(payload.ends_with(b"-v1"));
+          }
+          RUST
+          rustc --version
+          rustc --edition=2021 --test -D warnings \
+            "${RUNNER_TEMP}/oreslang_runner_probe.rs" \
+            -o "${RUNNER_TEMP}/oreslang_runner_probe"
+          "${RUNNER_TEMP}/oreslang_runner_probe" --test-threads=1
+          printf 'RUNNER_ADMISSION_MEANINGFUL_STEP_EXECUTED=1 language=rust run_id=%s sha=%s\\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_SHA"

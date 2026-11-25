@@ -1,0 +1,2 @@
+// 35: near signed i64 max, without intermediate overflow.
+pub fnc main(): int { return 9223372036854775807 - 9223372036854775765; }

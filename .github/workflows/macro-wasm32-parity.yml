@@ -5,6 +5,10 @@ on:
       - 'tests/fixtures/macro-scalar-v1/**'
       - 'tests/macro-scalar-wasm32-parity.test.mjs'
       - 'scripts/compile-ores.mjs'
+      - 'scripts/restricted-build-environment.mjs'
+      - 'tests/restricted-build-environment.test.mjs'
+      - 'scripts/macro-wasm32-guest-gate.mjs'
+      - 'tests/macro-wasm32-guest-gate.test.mjs'
       - 'scripts/atomic-release.mjs'
       - 'src/isolated-runner.mjs'
       - 'package.json'
@@ -36,5 +40,5 @@ jobs:
         env:
           ORESLANG_MACRO_WASM_PARITY_REQUIRED: '0'
         run: |
-          node --test tests/macro-scalar-wasm32-parity.test.mjs
+          node --test tests/macro-scalar-wasm32-parity.test.mjs tests/restricted-build-environment.test.mjs tests/macro-wasm32-guest-gate.test.mjs
           echo 'MACRO_WASM_SOURCE_ONLY_PINS_PASS - guest execution NOT checked'

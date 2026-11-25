@@ -1,0 +1,2 @@
+// E_LOCK_UNSUPPORTED: syntax is valid but no async mutex guest runtime exists.
+pub fnc main(): int { val counter = new Mutex<int>(0); return 0; }

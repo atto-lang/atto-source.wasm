@@ -1,0 +1,187 @@
+use namespace std.actor;
+// wasm compiler-owned implementation; no shared-source requirement.
+
+// Native Atto std/actor policy slice (v1).
+// PURE code: these are admission decisions, NOT authority or runtime operations.
+// All "authorized" inputs MUST come from a trusted runtime, never DATA messages.
+// ActorRef, mailbox send, spawn, cancellation, get_ready/get_done, and supervisor
+// CONTROL notices remain privileged runtime contracts, not emulated here.
+//
+// Lifecycle states: 0=created 1=starting 2=running 3=stopping
+//                   4=stopped 5=failed.
+// Completion states: 0=pending 1=success 2=cancelled 3=failed 4=panicked.
+// Restart policies: 1=permanent 2=transient 3=temporary.
+// Restart strategies: 1=one_for_one 2=one_for_all 3=rest_for_one.
+// Failure kinds: 1=throw 2=raise 3=panic.
+
+// Reject stale ActorRef generations, closed/not-ready mailboxes, unsupported
+// ownership transport, and full queues. CONTROL never enters this DATA gate.
+pub fnc actor_mailbox_admissible(
+    bool authorized, bool running, bool generation_matches,
+    bool sendable, int queued, int capacity): bool {
+  if authorized == false then return false; fi
+  if running == false then return false; fi
+  if generation_matches == false then return false; fi
+  if sendable == false then return false; fi
+  if capacity < 1 then return false; fi
+  if capacity > 65536 then return false; fi
+  if queued < 0 then return false; fi
+  return queued < capacity;
+}
+
+// No terminal future can be silently resolved again, even to the same value.
+// Trusted runtime must make settlement linearizable with cancellation.
+pub fnc actor_future_transition_valid(int current, int next): bool {
+  if current != 0 then return false; fi
+  return next >= 1 && next <= 4;
+}
+
+// No resurrection in-place: supervisor restart allocates a new generation.
+// A failed actor cannot continue accepting DATA.
+pub fnc actor_lifecycle_transition_valid(int current, int next): bool {
+  if current == 0 then
+    if next == 1 then return true; fi
+    return next == 3;
+  fi
+  if current == 1 then
+    if next == 2 then return true; fi
+    if next == 3 then return true; fi
+    return next == 5;
+  fi
+  if current == 2 then
+    if next == 3 then return true; fi
+    return next == 5;
+  fi
+  if current == 3 then
+    if next == 4 then return true; fi
+    return next == 5;
+  fi
+  return false;
+}
+
+// Classifying normal/shutdown is a trusted CONTROL responsibility.
+pub fnc actor_should_restart(int policy, bool normal_or_shutdown): bool {
+  if policy == 1 then return true; fi
+  if policy == 2 then return normal_or_shutdown == false; fi
+  return false;
+}
+
+// Half-open restart span. Invalid strategy/index/count returns -1.
+// Stop members in reverse order; restart in forward order.
+pub fnc actor_restart_first(int strategy, int failed_index, int child_count): int {
+  if child_count < 1 then return -1; fi
+  if child_count > 4096 then return -1; fi
+  if failed_index < 0 then return -1; fi
+  if failed_index >= child_count then return -1; fi
+  if strategy == 1 then return failed_index; fi
+  if strategy == 2 then return 0; fi
+  if strategy == 3 then return failed_index; fi
+  return -1;
+}
+
+pub fnc actor_restart_end_exclusive(int strategy, int failed_index, int child_count): int {
+  if child_count < 1 then return -1; fi
+  if child_count > 4096 then return -1; fi
+  if failed_index < 0 then return -1; fi
+  if failed_index >= child_count then return -1; fi
+  if strategy == 1 then return failed_index + 1; fi
+  if strategy == 2 then return child_count; fi
+  if strategy == 3 then return child_count; fi
+  return -1;
+}
+
+// Count ACTUAL restarted children, not just failure events. Subtraction
+// prevents overflow in pending + requested. Window timestamps are host-owned.
+pub fnc actor_restart_budget_allows(int pending, int requested, int maximum): bool {
+  if pending < 0 then return false; fi
+  if requested < 1 then return false; fi
+  if maximum < 0 then return false; fi
+  if maximum > 4096 then return false; fi
+  if requested > maximum then return false; fi
+  return pending <= maximum - requested;
+}
+
+// 0 and -1 are never usable actor generations. Failure returns -1.
+// No generation wrap or reuse may revive old actor handles.
+pub fnc actor_next_generation(int current): int {
+  if current < 1 then return -1; fi
+  if current >= 2147483647 then return -1; fi
+  return current + 1;
+}
+
+// Panic bypasses local recovery; throw/raise may be recovered first.
+// This boolean is only an advisory classification: the runtime must send
+// authenticated priority CONTROL notices and bind actor/parent/generation.
+pub fnc actor_failure_notifies_supervisor(int kind, bool recovered): bool {
+  if kind == 3 then return true; fi
+  if kind == 1 then return recovered == false; fi
+  if kind == 2 then return recovered == false; fi
+  return false;
+}
+
+// Cancellation is a request, never proof that work has stopped or that a
+// future is settled. Only an authorized owner of the exact incarnation may
+// request cancellation of a pending ActorFuture.
+pub fnc actor_cancel_request_admissible(
+    bool authorized, bool generation_matches, int future_state): bool {
+  if authorized == false then return false; fi
+  if generation_matches == false then return false; fi
+  return future_state == 0;
+}
+
+// Stop admission never creates supervisor CONTROL authority. A terminal
+// incarnation cannot be stopped again or revived in place.
+pub fnc actor_stop_request_admissible(
+    bool authorized, bool generation_matches, int lifecycle_state): bool {
+  if authorized == false then return false; fi
+  if generation_matches == false then return false; fi
+  return lifecycle_state >= 0 && lifecycle_state <= 2;
+}
+
+// The runtime must authenticate *all* six inputs against one incarnation.
+// Logical Future completion is not physical carrier/arena quiescence.
+pub fnc actor_stop_completion_admissible(
+    int lifecycle_state, bool data_closed, bool tasks_retired,
+    bool loans_returned, bool outputs_closed, bool physical_quiescent): bool {
+  if lifecycle_state != 3 then return false; fi
+  if data_closed == false then return false; fi
+  if tasks_retired == false then return false; fi
+  if loans_returned == false then return false; fi
+  if outputs_closed == false then return false; fi
+  return physical_quiescent;
+}
+
+// A restart requires the trusted supervisor's CONTROL authority and a
+// physically retired prior incarnation. Never permit old-generation ABA.
+pub fnc actor_restart_generation_admissible(
+    bool control_authorized, bool old_terminal, bool old_quiescent,
+    int old_generation, int new_generation): bool {
+  if control_authorized == false then return false; fi
+  if old_terminal == false then return false; fi
+  if old_quiescent == false then return false; fi
+  return actor_next_generation(old_generation) == new_generation
+      && new_generation > 1;
+}
+
+// A guest DATA message or an unverified parent is NEVER a failure notice.
+// Panic always reaches the supervisor priority CONTROL lane; an uncaught
+// throw or raise must first be escalated by the trusted runtime.
+pub fnc actor_supervisor_notice_admissible(
+    bool authenticated_control, bool actor_generation_matches,
+    bool parent_generation_matches, int kind, bool recovered): bool {
+  if authenticated_control == false then return false; fi
+  if actor_generation_matches == false then return false; fi
+  if parent_generation_matches == false then return false; fi
+  return actor_failure_notifies_supervisor(kind, recovered);
+}
+
+// A pending response may be published only once to the authenticated
+// request capability for the same actor generation and request identity.
+pub fnc actor_reply_admissible(
+    bool request_authorized, bool generation_matches,
+    bool request_matches, bool request_pending): bool {
+  if request_authorized == false then return false; fi
+  if generation_matches == false then return false; fi
+  if request_matches == false then return false; fi
+  return request_pending;
+}

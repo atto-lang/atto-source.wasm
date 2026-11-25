@@ -1,0 +1,123 @@
+// Native AttoLang guest conformance: use actual Array and Result semantics.
+// This is NOT a simulated host-language test. A CI run must compile and
+// execute this file on each backend before recording a backend as passing.
+import class ReplayWindow from './replay_stream';
+import fnc window from './replay_stream';
+
+fnc check(bool condition, String name): void {
+  if !condition; do
+    rt fail("REPLAY-FAIL|" + name);
+  fi
+  stdio.stdout.println("REPLAY-PASS|" + name);
+}
+
+fnc two(int a, int b): Array<int> {
+  let mut Array<int> values = new Array<int>();
+  values.add(a);
+  values.add(b);
+  return values;
+}
+
+fnc three(int a, int b, int c): Array<int> {
+  let mut Array<int> values = two(a, b);
+  values.add(c);
+  return values;
+}
+
+pub routine main(): void {
+  let mut ReplayWindow w = window(7, 4);
+  check(w.capacity_bytes() == 4, "capacity");
+  check(w.incarnation() == 7, "generation");
+  check(w.produced_until() == 0, "initial-produced");
+  check(w.sent_until() == 0, "initial-sent");
+  check(w.acked_until() == 0, "initial-acked");
+  check(w.retained_from() == 0, "initial-floor");
+  check(w.unacked_bytes() == 0, "initial-unacked");
+  val initial = w.checkpoint();
+  check(initial.generation == 7, "checkpoint-generation");
+  check(initial.capacity_bytes == 4, "checkpoint-capacity");
+  check(initial.retained_from == 0, "checkpoint-initial-floor");
+  check(initial.acked_until == 0, "checkpoint-initial-ack");
+  check(w.append(6, two(1, 2)).is_err(), "stale-append");
+  check(w.produced_until() == 0, "stale-append-atomic");
+  check(w.append(7, new Array<int>()).is_err(), "empty-append");
+  check(w.append(7, three(1, 2, 3)).expect("append first") == 3, "first-end");
+  check(w.unacked_bytes() == 3, "first-unacked");
+  check(w.acknowledge(7, 3) == false, "ack-before-send");
+  check(w.mark_sent(8, 3) == false, "stale-send");
+  check(w.mark_sent(7, 4) == false, "future-send");
+  check(w.mark_sent(7, 3), "mark-sent");
+  check(w.mark_sent(7, 2) == false, "regressive-send");
+  check(w.mark_sent(7, 3), "duplicate-send");
+  check(w.acknowledge(8, 2) == false, "stale-ack");
+  check(w.acknowledge(7, 4) == false, "future-ack");
+  check(w.acknowledge(7, 2), "partial-ack");
+  check(w.acknowledge(7, 2), "duplicate-ack");
+  check(w.acked_until() == 2, "partial-ack-watermark");
+  check(w.acknowledge(7, 1) == false, "regressive-ack");
+  check(w.append(7, two(4, 5)).is_err(), "backpressure");
+  check(w.produced_until() == 3, "backpressure-atomic");
+
+  let Array<int> first = w.replay_from(7, 0, 4).expect("replay original");
+  check(first.size == 3, "read-truncates");
+  check(first.get(0) == 1, "original-0");
+  check(first.get(1) == 2, "original-1");
+  check(first.get(2) == 3, "original-2");
+  check(w.replay_from(8, 0, 4).is_err(), "stale-read");
+  check(w.replay_from(7, 4, 4).is_err(), "future-read");
+  check(w.replay_from(7, -1, 4).is_err(), "negative-read");
+  check(w.replay_from(7, 0, 65537).is_err(), "oversized-read");
+  check(w.replay_from(7, 0, 0).is_err(), "invalid-maximum");
+
+  check(w.append(7, two(4, 5)).expect("wrap") == 5, "wrap-append");
+  check(w.retained_from() == 1, "wrap-floor");
+  check(w.replay_from(7, 0, 2).is_err(), "expired-floor");
+  let Array<int> wrapped = w.replay_from(7, 1, 4).expect("wrapped replay");
+  check(wrapped.size == 4, "wrapped-size");
+  check(wrapped.get(0) == 2, "wrapped-0");
+  check(wrapped.get(1) == 3, "wrapped-1");
+  check(wrapped.get(2) == 4, "wrapped-2");
+  check(wrapped.get(3) == 5, "wrapped-3");
+  check(w.replay_from(7, 5, 4).expect("tail").size == 0, "empty-tail-not-eof");
+  check(w.mark_sent(7, 5), "mark-sent-after-wrap");
+  check(w.acknowledge(7, 5), "ack-all");
+  check(w.append(7, three(11, 22, 256)).is_err(), "invalid-tail-byte");
+  check(w.produced_until() == 5, "invalid-tail-byte-atomic");
+  check(w.unacked_bytes() == 0, "fully-acked");
+  val completed = w.checkpoint();
+  check(completed.retained_from == 1, "checkpoint-retained");
+  check(completed.produced_until == 5, "checkpoint-produced");
+  check(completed.sent_until == 5, "checkpoint-sent");
+  check(completed.acked_until == 5, "checkpoint-acked");
+  check(initial.produced_until == 0, "checkpoint-immutable");
+  check(w.append(7, two(6, 7)).expect("second wrap") == 7, "second-wrap");
+  check(w.retained_from() == 3, "second-floor");
+  let Array<int> second = w.replay_from(7, 3, 4).expect("second replay");
+  check(second.size == 4, "second-size");
+  check(second.get(0) == 4, "second-0");
+  check(second.get(1) == 5, "second-1");
+  check(second.get(2) == 6, "second-2");
+  check(second.get(3) == 7, "second-3");
+
+  check(w.append(7, two(9, 256)).is_err(), "invalid-high-byte");
+  check(w.append(7, two(-1, 9)).is_err(), "invalid-low-byte");
+  check(w.produced_until() == 7, "invalid-byte-atomic");
+  check(w.append(7, three(8, 9, 10)).is_err(), "window-full");
+  check(w.acked_until() == 5, "no-implicit-ack");
+
+  let mut ReplayWindow isolated = window(91, 1);
+  check(isolated.append(91, two(1, 2)).is_err(), "overcapacity-append");
+  check(isolated.produced_until() == 0, "overcapacity-atomic");
+  check(isolated.append(91, two(1, 256)).is_err(), "overcapacity-invalid");
+  let mut Array<int> one = new Array<int>();
+  one.add(255);
+  check(isolated.append(91, one).expect("single") == 1, "single-byte");
+  check(isolated.append(91, one).is_err(), "single-backpressure");
+  check(isolated.mark_sent(91, 1), "single-mark");
+  check(isolated.acknowledge(91, 1), "single-ack");
+  check(isolated.append(91, one).expect("single-wrap") == 2, "single-wrap");
+  check(isolated.replay_from(91, 0, 1).is_err(), "single-expired");
+  check(isolated.replay_from(91, 1, 1).expect("single-read").get(0) == 255, "single-value");
+  stdio.stdout.println("REPLAY-CONTRACT-DONE");
+  return;
+}

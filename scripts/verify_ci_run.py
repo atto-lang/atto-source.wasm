@@ -37,18 +37,25 @@ def _evidence_label(value, limit=250):
     # Untrusted REST display labels must be one visible line, without bidi
     # controls or zero-width formatting. Those can visually impersonate an
     # approved runner, CI job, or native guest test step in log/report UIs.
+    # Leading/trailing padding and exotic space separators are visually
+    # indistinguishable from ordinary job/step names in some review surfaces.
+    # Retain plain internal ASCII spaces for legitimate descriptive labels.
     return (isinstance(value, str) and bool(value.strip())
-            and len(value) <= limit
-            and not any(unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
-                        for ch in value))
+            and value == value.strip() and len(value) <= limit
+            and not any(
+                unicodedata.category(ch) in ("Cc", "Cf", "Cs", "Zl", "Zp")
+                or (unicodedata.category(ch) == "Zs" and ch != " ")
+                for ch in value))
 
 
 def executable_step_name(name):
-    # Runner-generated lifecycle steps cannot substitute for a required
-    # build, test, or native guest-execution step.
-    return (_evidence_label(name)
-            and name.strip().casefold() not in {s.casefold() for s in HOUSEKEEPING_STEPS}
-            and re.match(r"^(pre|post)\s", name.strip().casefold()) is None)
+    # Collapse repeated whitespace before comparing runner housekeeping names.
+    # "Set  up job" must not become synthetic evidence of an executed test.
+    if not _evidence_label(name):
+        return False
+    canonical = " ".join(name.casefold().split())
+    return (canonical not in {s.casefold() for s in HOUSEKEEPING_STEPS}
+            and re.match(r"^(pre|post) ", canonical) is None)
 
 
 class Denied(ValueError):

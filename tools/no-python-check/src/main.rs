@@ -47,12 +47,17 @@ fn forbidden_execution_line(line: &str) -> bool {
         "python -c ",
         "python3 -c ",
         "python ",
+        "python2 ",
         "python3 ",
+        "python2.",
+        "python3.",
         "pypy ",
         "pypy3 ",
-        "pip install",
-        "pip3 install",
+        "pip ",
+        "pip3 ",
+        "pipenv ",
         "uv run ",
+        "uv pip ",
         "pytest ",
         "poetry run ",
         "pdm run ",
@@ -95,6 +100,27 @@ fn violations(path: &str, body: &str) -> Vec<String> {
     messages
 }
 
+// An unreadable or symlinked execution surface cannot be certified Python-free.
+// Non-executable binary assets still receive their path-only policy checks.
+fn read_policy_body(file: &Path, execution_surface: bool) -> Result<String, String> {
+    let meta = fs::symlink_metadata(file)
+        .map_err(|e| format!("cannot inspect tracked path: {e}"))?;
+    if meta.file_type().is_symlink() {
+        if execution_surface {
+            return Err("tracked execution surface must not be a symlink".to_string());
+        }
+        return Ok(String::new());
+    }
+    if execution_surface && !meta.is_file() {
+        return Err("tracked execution surface must be a regular file".to_string());
+    }
+    match fs::read_to_string(file) {
+        Ok(body) => Ok(body),
+        Err(e) if execution_surface => Err(format!("cannot inspect execution surface as UTF-8: {e}")),
+        Err(_) => Ok(String::new()),
+    }
+}
+
 fn main() {
     let root = env::args().nth(1).unwrap_or_else(|| ".".to_string());
     let output = Command::new("git")
@@ -115,8 +141,16 @@ fn main() {
         let name = String::from_utf8_lossy(raw);
         let file = Path::new(&root).join(name.as_ref());
 
-        // Path-only checks still apply even when the content is binary or unreadable.
-        let body = fs::read_to_string(&file).unwrap_or_default();
+        // Only non-execution binary assets may skip content inspection.
+        // Never certify unreadable/symlinked workflow or shell sources as clean.
+        let body = match read_policy_body(&file, is_execution_surface(&name)) {
+            Ok(body) => body,
+            Err(e) => {
+                eprintln!("{name}: {e}");
+                found += 1;
+                continue;
+            }
+        };
         for problem in violations(&name, &body) {
             eprintln!("{name}: {problem}");
             found += 1;
@@ -169,6 +203,11 @@ mod tests {
         assert!(forbidden_execution_line("- run: python3 -m pytest"));
         assert!(forbidden_execution_line("pip install -r requirements.txt"));
         assert!(forbidden_execution_line("uv run tool.py"));
+        assert!(forbidden_execution_line("- run: pip3 --version"));
+        assert!(forbidden_execution_line("- run: pipenv run tool"));
+        assert!(forbidden_execution_line("- run: python3.12 -m unittest"));
+        assert!(forbidden_execution_line("- run: python2 -c 'print(1)'"));
+        assert!(forbidden_execution_line("uv pip install foo"));
         assert!(!forbidden_execution_line("- run: cargo test"));
     }
 
@@ -178,6 +217,41 @@ mod tests {
         assert!(python_shebang("#!/usr/bin/python\nprint('x')"));
         assert!(python_shebang("#!/usr/bin/env pypy3\nprint('x')"));
         assert!(!python_shebang("#!/usr/bin/env bash\necho ok"));
+    }
+
+
+    #[test]
+    fn unreadable_or_invalid_utf8_execution_surface_fails_closed() {
+        let absent = std::env::temp_dir().join(format!(
+            "no-python-absent-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap().as_nanos()
+        ));
+        assert!(read_policy_body(&absent, true).is_err());
+        let path = absent.with_extension("sh");
+        fs::write(&path, [0xff]).unwrap();
+        assert!(read_policy_body(&path, true).is_err());
+        assert!(read_policy_body(&path, false).is_ok());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_execution_surface_fails_closed() {
+        use std::os::unix::fs::symlink;
+        let path = std::env::temp_dir().join(format!(
+            "no-python-link-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+                .unwrap().as_nanos()
+        ));
+        let target = path.with_extension("target");
+        fs::write(&target, b"#!/usr/bin/env python3\n").unwrap();
+        symlink(&target, &path).unwrap();
+        let rejected = read_policy_body(&path, true);
+        assert!(rejected.is_err());
+        assert!(rejected.unwrap_err().contains("symlink"));
+        fs::remove_file(path).unwrap();
+        fs::remove_file(target).unwrap();
     }
 
     #[test]

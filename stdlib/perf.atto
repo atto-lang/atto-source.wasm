@@ -1,0 +1,36 @@
+// Compiler-owned AttoLang performance hooks for WASM.
+// Source candidate: import/link, monotonic clock capability and guest AOT
+// evidence are NOT implied by checking in this file.
+// No ambient filesystem, wall-clock timestamp, I/O, cross-actor mutation,
+// source eval or runtime JIT is needed by the intended API.
+define module Perf as
+  // In an AOT-disabled build, the lowering pass may erase the whole call.
+  // Disabled dynamic path must not read the clock.
+  pub fnc begin_ns(bool enabled) -> int {
+    if !enabled; do
+      return 0;
+    fi
+    return process.monotonic_ns();
+  }
+
+  pub fnc duration_ns(int started_ns) -> int {
+    if started_ns <= 0; do
+      return 0;
+    fi
+    val int finished_ns = process.monotonic_ns();
+    if finished_ns < started_ns; do
+      return 0;
+    fi
+    return finished_ns - started_ns;
+  }
+
+  // Explicit, non-secret sample key; no RNG, allocations or clock reads.
+  pub fnc should_sample(int sample_key, int every_n) -> bool {
+    if sample_key < 0 || every_n < 1 || every_n > 65536; do
+      return false;
+    fi
+    // Division is guarded above; quotient*divisor cannot exceed sample_key.
+    // This avoids the reserved '%' source token across Atto compilers.
+    return (sample_key / every_n) * every_n == sample_key;
+  }
+end

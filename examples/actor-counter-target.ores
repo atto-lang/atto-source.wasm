@@ -1,0 +1,16 @@
+// Target guest actor fixture: not yet certified on all toolchains.
+define actor Counter as
+  state {
+    int count = 0;
+  }
+
+  increment() -> void {
+    handle_state(critical-write |s| -> {
+      s.count += 1;
+    });
+  }
+
+  get_count() -> int {
+    return handle_state(critical-read |s| -> s.count);
+  }
+end

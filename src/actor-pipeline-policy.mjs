@@ -25,10 +25,15 @@ function ownField(record,field,optional=false){
  return d.value;
 }
 
-function utf8(value, limit, optional = false, allowNul = false) {
+function utf8(value, limit, optional = false, allowNul = false, topology = false) {
   if (typeof value !== "string" || (!optional && !value) || (!allowNul && value.includes("\0")))
     throw new TypeError("invalid pipeline identifier");
   if (value.length > limit) throw new RangeError("pipeline byte limit");
+  // Compiler-owned actor identities and payload labels must not contain
+  // invisible or direction-changing format controls. Route hash keys remain
+  // caller-owned opaque bytes and intentionally admit arbitrary UTF-8.
+  if(topology && /[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/u.test(value))
+    throw new TypeError("unsafe actor pipeline identifier");
   for (let i = 0; i < value.length; ++i) {
     const c = value.charCodeAt(i);
     if (c >= 0xd800 && c <= 0xdbff) {
@@ -58,8 +63,8 @@ export class ActorPipelinePolicy {
       const role=ownField(stage,"role");
       const inbound=ownField(stage,"inbound",true);
       const outbound=ownField(stage,"outbound",true);
-      utf8(id, 256); utf8(type, 256); utf8(inbound, 256, true);
-      utf8(outbound, 256, true);
+      utf8(id, 256, false, false, true); utf8(type, 256, false, false, true); utf8(inbound, 256, true, false, true);
+      utf8(outbound, 256, true, false, true);
       if (byId.has(id)) throw new TypeError("duplicate pipeline instance");
       if (!((role === "readable" && !inbound && outbound) ||
             (role === "writable" && inbound && !outbound) ||
@@ -72,7 +77,7 @@ export class ActorPipelinePolicy {
     for (const edge of edgeData) {
       const source=ownField(edge,"source"),target=ownField(edge,"target");
       const payload=ownField(edge,"payload");
-      utf8(source, 256); utf8(target, 256); utf8(payload, 256);
+      utf8(source, 256, false, false, true); utf8(target, 256, false, false, true); utf8(payload, 256, false, false, true);
       const from = byId.get(source), to = byId.get(target);
       if (!from || !to || source === target ||
           from.role === "writable" || to.role === "readable" ||

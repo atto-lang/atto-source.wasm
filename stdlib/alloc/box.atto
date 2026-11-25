@@ -1,0 +1,72 @@
+// Compiler-local source candidate for atto-source.wasm; no shared source dependency.
+// Backend-owned alloc/box module (AttoLang source, not a host-language Box).
+// OwnedBox<T> is a move-only, single-slot heap object.
+// The consuming generic parameter syntax is a TARGET contract; unsupported
+// compiler profiles must reject it before guest artifact emission. No implicit sharing,
+// raw pointer access, copying or cross-actor admission is granted.
+// The compiler must enforce field moves, exclusive receivers, and exactly-once
+// dropping on normal exits and exceptional/cancellation unwind.
+define module alloc_box as
+  define pub class OwnedBox<T> as
+    let Option<T> slot = None;
+  end
+
+  // Explicit Copy-only factory; never aliases an unproven object graph.
+  // Compiler must require T: Copy for this specialization.
+  pub fnc boxed_copy<T>(T value) -> OwnedBox<T> {
+    let mut OwnedBox<T> result = new OwnedBox<T>();
+    result.replace_copy(value);
+    return take! result;
+  }
+
+  pub fnc empty<T>() -> OwnedBox<T> {
+    return new OwnedBox<T>();
+  }
+
+  pub fnc boxed<T>(take! T value) -> OwnedBox<T> {
+    let mut OwnedBox<T> result = new OwnedBox<T>();
+    result.replace(take! value);
+    return take! result;
+  }
+
+  pub mtd (OwnedBox<T> self) is_empty() -> bool {
+    return self.slot.is_none();
+  }
+
+  pub mtd (OwnedBox<T> self) is_full() -> bool {
+    return self.slot.is_some();
+  }
+
+  // Replacement consumes the new value and transfers the previous owner.
+  // The slot is reinitialized before this method returns.
+  pub mtd (mut self: OwnedBox<T>) replace(take! T next) -> Option<T> {
+    let Option<T> previous = take! self.slot;
+    self.slot = Some(take! next);
+    return take! previous;
+  }
+
+  // Copy-only replacement. Non-Copy T must be rejected at specialization.
+  pub mtd (mut self: OwnedBox<T>) replace_copy(T next) -> Option<T> {
+    let Option<T> previous = take! self.slot;
+    self.slot = Some(copy! next);
+    return take! previous;
+  }
+
+  // Exactly one caller receives the old payload. A second take yields None.
+  pub mtd (mut self: OwnedBox<T>) take_value() -> Option<T> {
+    let Option<T> previous = take! self.slot;
+    self.slot = None;
+    return take! previous;
+  }
+
+  // No allocation is attempted here; the concrete allocator has the final say.
+  pub fnc valid_layout(int size_bytes, int alignment, int byte_budget) -> bool {
+    if size_bytes < 0 || alignment <= 0 || byte_budget < 0; do
+      return false;
+    fi
+    if (alignment & (alignment - 1)) != 0; do
+      return false;
+    fi
+    return size_bytes <= byte_budget;
+  }
+end

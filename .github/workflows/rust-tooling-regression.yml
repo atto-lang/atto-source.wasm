@@ -1,0 +1,48 @@
+# Rust-first tooling regression for Wasm repository.
+# Does not claim executable .atto guest parity or native-AOT validation.
+name: Rust tooling regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/rust-tooling-regression.yml'
+  pull_request:
+    paths:
+      - 'tools/**'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/rust-tooling-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-tooling-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind tooling regression to exact source head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -n "$(git rev-parse 'HEAD^{tree}')"
+          rustc --version
+          cargo --version
+      - name: Test Rust-only policy checker
+        run: cargo test --manifest-path tools/no-python-check/Cargo.toml --all-targets
+      - name: Test Rust integration and policy utilities
+        run: cargo test --manifest-path tools/repo-policy/Cargo.toml --all-targets
+      - name: Test Sendable / Serializable Rust contract checker
+        run: cargo test --manifest-path tools/serde-contract-gate/Cargo.toml --all-targets
+      - name: Test locked Rust rollout evidence verifier
+        run: cargo test --manifest-path tools/rollout-evidence/Cargo.toml --locked --all-targets

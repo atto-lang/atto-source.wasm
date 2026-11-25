@@ -1,0 +1,47 @@
+{
+  "contract": "oreslang.actor-pubsub.v1.cases",
+  "cases": [
+    {
+      "id": "basic-reliable",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-v1.ores",
+      "expect": "run",
+      "stdout": "subscribed|p-1"
+    },
+    {
+      "id": "multi-group-leave-isolation",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-multigroup-v1.ores",
+      "expect": "run",
+      "stdout": "ready-b|b-still-live"
+    },
+    {
+      "id": "payload-type-mismatch",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-reject-payload-type.ores",
+      "expect": "compile-reject",
+      "diagnostic_contains": "Topic.publish value"
+    },
+    {
+      "id": "actor-cannot-define-topic",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-reject-actor-authority.ores",
+      "expect": "compile-reject",
+      "diagnostic_contains": "actor code may resolve an existing Topic<T> but cannot define one"
+    },
+    {
+      "id": "private-zero-copy-subscribe",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-reject-private-subscribe.ores",
+      "expect": "compile-reject",
+      "diagnostic_contains": "Topic.subscribe currently requires a shared actor"
+    },
+    {
+      "id": "mailbox-capability-escape",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-reject-mailbox-capability.ores",
+      "expect": "compile-reject",
+      "diagnostic_contains": "cannot use Topic across an actor boundary"
+    },
+    {
+      "id": "async-capability-escape",
+      "fixture": "contracts/v1/fixtures/actor-pubsub-reject-async-capability.ores",
+      "expect": "compile-reject",
+      "diagnostic_contains": "must be concrete owned task-safe data"
+    }
+  ]
+}

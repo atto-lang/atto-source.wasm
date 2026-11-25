@@ -26,6 +26,7 @@ const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])
 
 export class ActorArena {
   #memory;
+  #byteView = null;
   #actor;
   #incarnation;
   #turn = null;
@@ -51,6 +52,9 @@ export class ActorArena {
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
     this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    // One wrapper for the normal fixed-size fast path. Even memory.grow(0)
+    // can detach the old ArrayBuffer, so every access must verify its backing.
+    this.#byteView = ownedBytes(this.#memory);
   }
 
   get actorId() { return this.#actor; }
@@ -58,9 +62,22 @@ export class ActorArena {
   get retired() { return this.#closed; }
   get pendingLifetimePins() { return this.#pendingLifetimePins; }
 
+  #refreshBacking() {
+    // WebAssembly.Memory.grow(0) may detach the *existing* ArrayBuffer even
+    // when initial === maximum. A stale cached view silently has byteLength
+    // zero and can skip security scrubbing. The native descriptor cannot be
+    // replaced by later host monkeypatches. The common no-grow path creates
+    // no fresh typed-array wrapper.
+    const actual = trustedApply(trustedMemoryBuffer, this.#memory, []);
+    if (trustedApply(nativeBuffer, this.#byteView, []) !== actual) {
+      this.#byteView = new trustedBytes(actual);
+    }
+    return this.#byteView;
+  }
+
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return ownedBytes(this.#memory);
+    return this.#refreshBacking();
   }
 
   #requireTurn(token) {
@@ -116,7 +133,11 @@ export class ActorArena {
     if (this.#memory === null) return;
     // This zeroes guest-visible bytes and severs the host reference. The JS
     // engine, not Oreslang, decides when physical backing pages are reclaimed.
-    scrub(ownedBytes(this.#memory));
+    // STOP is already logically closed; do not use #bytes(), which denies
+    // guest access. A host grow(0) during the last-pin wait may have detached
+    // our old view, so refresh before zeroizing the actual live backing.
+    scrub(this.#refreshBacking());
+    this.#byteView = null;
     this.#memory = null;
   }
 
@@ -186,22 +207,42 @@ export class ActorArena {
     return entry;
   }
 
+  // A caller-owned destination avoids allocating a JS copy for each read.
+  // The arena never publishes its live backing view.
+  readInto(turn, handle, destination) {
+    const {offset, length} = this.#slot(turn, handle);
+    this.#requireExternalBytes(destination, length);
+    const src = this.#bytes();
+    // Copy directly, avoiding the temporary subarray wrapper of .set().
+    for (let i = 0; i < length; ++i) destination[i] = src[offset + i];
+  }
+
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
     return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
   }
 
+  #requireExternalBytes(data, length) {
+    // Native internal slots prevent instance property overrides from
+    // changing precise length and shared-memory admission checks.
+    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
+      throw new TypeError("arena copy requires exact-size Uint8Array");
+    }
+    const backing = trustedApply(nativeBuffer, data, []);
+    if (trustedIsSharedArrayBuffer(backing)) {
+      throw new TypeError("arena copy rejects shared backing memory");
+    }
+    // A trusted host must not smuggle another view of this arena's backing
+    // into the copy API. This is not protection against arbitrary JS host
+    // code, but fences accidental self-alias and authority confusion.
+    if (backing === trustedApply(nativeBuffer, this.#bytes(), [])) {
+      throw new TypeError("arena copy rejects private backing alias");
+    }
+  }
+
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    // Native internal slots prevent instance property overrides from changing
-    // the exact-size and shared-memory admission checks.
-    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
-      throw new TypeError("arena write requires exact-size Uint8Array");
-    }
-    if (trustedIsSharedArrayBuffer(trustedApply(nativeBuffer, data, []))) {
-      throw new TypeError("arena write rejects shared backing memory");
-    }
-    // Never return live memory views; callers cannot retain a raw alias.
+    this.#requireExternalBytes(data, length);
     trustedApply(trustedSet, this.#bytes(), [data, offset]);
   }
 

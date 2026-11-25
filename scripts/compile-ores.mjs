@@ -4,27 +4,141 @@
  * There is no fallback or mock compiler; caller must pass a real binary.
  */
 import {spawnSync} from "node:child_process";
+import {types} from "node:util";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
 import {dirname,resolve,isAbsolute,join,basename,extname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {assertCoreI64Entry} from "./core-i64-abi.mjs";
+import {restrictedBuildEnvironment} from "./restricted-build-environment.mjs";
 import {inspectWasmBytes} from "./inspect-core-memory.mjs";
 import {assertWasm32IrTarget} from "./wasm32-ir-target.mjs";
+import {assertCheckedOverflowIr} from "./checked-overflow-ir.mjs";
 import {publishAtomicRelease} from "./atomic-release.mjs";
 import {rejectUnsupportedActorThreadSource} from "../src/actor-max-threads-source-policy.mjs";
+import {rejectUnsupportedUnsafeSource} from "../src/unsafe-source-policy.mjs";
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),"..");
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
 const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES=16*1024*1024;
+// The scalar Wasm bridge accepts ONE standalone source file, not a graph.
+// Validate the pinned source snapshot before invoking even a "real" compiler:
+// a compiler silently ignoring an import must not publish a valid-looking
+// scalar Wasm with incomplete source provenance. This is an admission scanner,
+// not a substitute for parsing or linking modules.
+export function assertScalarSourceHasNoImports(bytes){
+ const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ // A NUL byte is invalid source, even if a downstream scalar compiler
+ // chooses to truncate or ignore it before resolving the source graph.
+ if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
+ let i=0;
+ while(i<source.length){
+  const ch=source[i],next=source[i+1];
+  if(ch==="/"&&next==="/"){
+   // A CR-only line ending is still a new source line. Otherwise an import
+   // after \\r could be hidden from this pre-publication admission check.
+   i+=2;
+   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   continue;
+  }
+  if(ch==="/"&&next==="*"){
+   // The Java and LLVM source lexers admit nested comments. Keep this
+   // preflight aligned instead of treating the first inner */ as the end.
+   i+=2;let depth=1;
+   while(i<source.length&&depth>0){
+    if(source[i]==="/"&&source[i+1]==="*"){
+     if(++depth>128)throw Error("Oreslang block comment nesting limit exceeded");
+     i+=2;continue;
+    }
+    if(source[i]==="*"&&source[i+1]==="/"){depth--;i+=2;continue;}
+    i++;
+   }
+   if(depth!==0)throw Error("unterminated Oreslang block comment");
+   continue;
+  }
+  if(ch==='"'||ch==="'"||ch==="`"){
+   const quote=ch;i++;let closed=false;
+   while(i<source.length){
+    if(source[i]==="\\"){i+=2;continue}
+    if(source[i]===quote){i++;closed=true;break}
+    i++;
+   }
+   if(!closed)throw Error("unterminated Oreslang string or character literal");
+   continue;
+  }
+  if(/[A-Za-z_]/.test(ch)){
+   const begin=i++;
+   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
+   if(source.slice(begin,i)==="import")
+    throw Error("source imports require verified complete Wasm module graph");
+   continue;
+  }
+  i++;
+ }
+}
+
+
+
+const intrinsicGetter = (prototype, name) => Function.prototype.call.bind(
+ Object.getOwnPropertyDescriptor(prototype, name).get);
+const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
+const sourceTypedLength = intrinsicGetter(typedArrayProto, "byteLength");
+const sourceTypedBuffer = intrinsicGetter(typedArrayProto, "buffer");
+const sourceDataViewLength = intrinsicGetter(DataView.prototype, "byteLength");
+const sourceDataViewBuffer = intrinsicGetter(DataView.prototype, "buffer");
+const sourceArrayBufferLength = intrinsicGetter(ArrayBuffer.prototype, "byteLength");
+
+// Source admission must enforce the physical byte budget, never a spoofable
+// .byteLength property from a Uint8Array/DataView subclass or a Proxy.
+// Shared backing is rejected: another worker could change source during scanning.
+function physicalSourceByteLength(input) {
+ if(input == null || types.isProxy(input) || types.isSharedArrayBuffer(input))
+  throw new TypeError("WASM source preflight requires nonshared byte input");
+ if(types.isTypedArray(input)) {
+  if(types.isSharedArrayBuffer(sourceTypedBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceTypedLength(input);
+ }
+ if(types.isDataView(input)) {
+  if(types.isSharedArrayBuffer(sourceDataViewBuffer(input)))
+   throw new TypeError("WASM source preflight forbids shared backing");
+  return sourceDataViewLength(input);
+ }
+ if(types.isArrayBuffer(input)) return sourceArrayBufferLength(input);
+ throw new TypeError("WASM source preflight requires byte input");
+}
 
 function tupleV2Tokens(sourceBytes){
+ // Exported source-admission gates can be called before the CLI's bounded file
+ // snapshot. Enforce the same byte budget before decode or token allocation.
+ const physicalLength=physicalSourceByteLength(sourceBytes);
+ if(!Number.isSafeInteger(physicalLength))
+  throw new TypeError("WASM source preflight requires byte input");
+ if(physicalLength>MAX_SOURCE_BYTES)
+  throw new RangeError("WASM source preflight byte budget exceeded");
  const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
+ // can erase a comment or quoted literal, and prior to compiler invocation or
+ // staging. The byte budget above bounds this conversion and its allocation.
+ const nul=text.indexOf("\0");
+ if(nul!==-1) {
+  const offset=new TextEncoder().encode(text.slice(0,nul)).byteLength;
+  throw Error("WASM source preflight contains NUL byte at byte offset "+offset);
+ }
  const tokens=[];
+ const MAX_SOURCE_TOKENS=100_000;
+ const pushToken=token=>{
+  if(tokens.length>=MAX_SOURCE_TOKENS)
+   throw new RangeError("WASM source preflight token budget exceeded");
+  tokens.push(token);
+ };
  const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
  for(let i=0;i<text.length;){
   const c=text[i];
-  if(/\s/.test(c)){i++;continue}
+  // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
+  // JavaScript /\\s/ excludes it. Treat it consistently or unsupported
+  // declarations can be split into punctuation tokens and evade preflight.
+  if(/\s/.test(c)||c==="\u0085"){i++;continue}
   if(c==="/"&&text[i+1]==="/"){
    i+=2;while(i<text.length&&!["\n","\r","\u0085","\u2028","\u2029"].includes(text[i]))i++;continue;
   }
@@ -51,9 +165,9 @@ function tupleV2Tokens(sourceBytes){
   }
   if(idStart(c)){
    const start=i++;while(i<text.length&&idPart(text[i]))i++;
-   tokens.push({text:text.slice(start,i),offset:start,id:true});continue;
+   pushToken({text:text.slice(start,i),offset:start,id:true});continue;
   }
-  tokens.push({text:c,offset:i,id:false});i++;
+  pushToken({text:c,offset:i,id:false});i++;
  }
  return tokens;
 }
@@ -183,6 +297,32 @@ export function rejectUnsupportedStructuralPatternSource(sourceBytes){
  * only after guest, Worker and linear-memory lifetime evidence exists.
  * Lexical tokenization ignores source comments and string contents.
  */
+/**
+ * A Mutex<T> is a sealed, identity-bearing class. This scalar Wasm bridge
+ * cannot execute its async lease ABI, but must distinguish a missing `new`
+ * from a legal class constructor with unavailable runtime lowering. The
+ * bounded shared tokenizer excludes nested comments and quoted literals.
+ */
+export function rejectMutexResourceClassSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  if(!tokens[i]?.id||tokens[i].text!=="Mutex"||tokens[i+1]?.text!=="<")continue;
+  let depth=0,close=-1;
+  for(let j=i+1;j<tokens.length;j++){
+   if(tokens[j].text==="<")depth++;
+   else if(tokens[j].text===">"){
+    if(--depth===0){close=j;break}
+    if(depth<0)break;
+   }
+  }
+  if(close<0||tokens[close+1]?.text!=="(")continue; // type, not invocation
+  const offset=tokens[i].offset;
+  if(tokens[i-1]?.text!=="new")
+   throw Error("E_NEW_REQUIRED: Mutex<T> is a resource class at byte "+offset);
+  throw Error("E_LOCK_UNSUPPORTED: wasm scalar bridge lacks mutex scheduler at byte "+offset);
+ }
+}
+
 export function rejectUnsupportedHeapContainerSource(sourceBytes){
  const tokens=tupleV2Tokens(sourceBytes);
  const nominal=new Set(["Box","Arc","Weak","Rc","RefCell",
@@ -198,6 +338,18 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
    throw Error("wasm heap/container ownership ABI unsupported: "+
       token.text+" at byte "+token.offset);
   }
+  // Alias syntax must never escape this precompiler ownership admission.
+  // The scalar Wasm backend has no compiled typed-loan/ownership-bang ABI.
+  // Distinguish !eq (inequality) from a postfix ownership bang.
+  const bang=["borrow","take","copy","share"].includes(token.text) &&
+    tokens[i+1]?.text==="!" &&
+    !(tokens[i+2]?.id&&tokens[i+2].text==="eq");
+  const mutBang=token.text==="mut" && tokens[i+1]?.id &&
+    tokens[i+1].text==="borrow" && tokens[i+2]?.text==="!";
+  if(bang||mutBang){
+   throw Error("wasm heap loan/transfer lowering unsupported at byte "+
+      token.offset);
+  }
   if(token.text!=="rt")continue;
   const a=tokens[i+1],b=tokens[i+2];
   if(a?.id&&["borrow","take"].includes(a.text) ||
@@ -208,6 +360,54 @@ export function rejectUnsupportedHeapContainerSource(sourceBytes){
  }
 }
 
+/** Actor pipeline transport is not lowered by the scalar Wasm bridge.
+ * This is a source admission gate, NOT successful guest actor execution.
+ * The tokenized check ignores quoted strings, comments, normal identifiers
+ * named pipe, and functional |> composition.
+ */
+export function rejectUnsupportedActorPipeSource(sourceBytes) {
+ const tokens=tupleV2Tokens(sourceBytes);
+ const reservedBefore=new Set([
+  "fnc","routine","method","define","pub","static","val",
+  "let","const","final","return","spawn","pipe","as","case"
+ ]);
+ const forbiddenNext=new Set(["then","fi","end","else","as","case","over"]);
+ for(let i=0;i<tokens.length;i++) {
+  const current=tokens[i];
+  if(!current.id||current.text!=="pipe")continue;
+  const prev=tokens[i-1],next=tokens[i+1];
+  const classCall=prev?.text==="." && tokens[i-2]?.id &&
+      tokens[i-2].text==="ActorUtils";
+  const classColonCall=prev?.text===":" &&
+      tokens[i-2]?.text===":" &&
+      tokens[i-3]?.id && tokens[i-3].text==="ActorUtils";
+  const leftEnd=prev && ((prev.id && !reservedBefore.has(prev.text)) ||
+      [")","]","}"].includes(prev.text));
+  const rightStart=next && ((next.id&&!forbiddenNext.has(next.text)) ||
+      ["(","["].includes(next.text));
+  if(classCall||classColonCall||(leftEnd&&rightStart))
+    throw Error("wasm actor pipe source lowering unsupported at byte "+current.offset);
+ }
+}
+/** ActorGroup/Topic source lowering is not implemented by the Wasm bridge yet. */
+export function rejectUnsupportedActorPubSubSource(sourceBytes){
+ const tokens=tupleV2Tokens(sourceBytes);
+ for(let i=0;i<tokens.length;i++){
+  const current=tokens[i];
+  const actorGroupCall=
+    current?.id && current.text==="actor" &&
+    tokens[i+1]?.text==="." && tokens[i+2]?.id &&
+    tokens[i+2].text==="group";
+  const typedHandle=
+    current?.id && (current.text==="Topic" || current.text==="Subscription") &&
+    tokens[i+1]?.text==="<";
+  const typedTopicCall=
+    current?.text==="." && tokens[i+1]?.id &&
+    tokens[i+1].text==="topic" && tokens[i+2]?.text==="<";
+  if(actorGroupCall || typedHandle || typedTopicCall)
+   throw Error("wasm ActorGroup/Topic source lowering unsupported at byte "+current.offset);
+ }
+}
 // A preflight stat + readFile(path) is not a byte-budget: the file can be
 // replaced or expanded before readFile allocates. Open once with NOFOLLOW,
 // reject FIFOs/non-files, read exactly the statted budget and verify the
@@ -295,8 +495,15 @@ async function withPublicationLock(published,publication,callback){
  }
 }
 const absolute=(value,label)=>{if(!value||!isAbsolute(value))throw Error(label+" must be an absolute path");return value};
-function run(command,args,{input}={}){
- const output=spawnSync(command,args,{input,encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true});
+function run(command,args,{input,cwd}={}){
+ // The native source compiler and clang/lld are trusted build tools, not
+ // sandboxes. Keep their ambient environment free of CI tokens, Node hooks,
+ // cloud credentials and dynamic-loader overrides. Compile in the private
+ // scratch workspace so accidental relative writes cannot hit the checkout.
+ const output=spawnSync(command,args,{
+  input,cwd,env:restrictedBuildEnvironment(),
+  encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,windowsHide:true
+ });
  if(output.error||output.status!==0||output.signal){
   // Keep the historic diagnostic message, but retain process evidence. A
   // rejected compiler that wrote partial IR to stdout or died by signal must
@@ -317,10 +524,11 @@ function run(command,args,{input}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy"}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
+ if (wasmLinker !== undefined) absolute(wasmLinker,"wasm linker");
  const sourceExtension=extname(source).toLowerCase();
  if(sourceExtension!==".atto"&&sourceExtension!==".ores")
   throw Error("source file must use canonical .atto or legacy .ores extension");
@@ -339,6 +547,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  const published=join(outputParent,basename(output));
  const protectedInputs=new Set([sourcePath,compilerPath]);
  if(!["atomic","legacy"].includes(publication))throw Error("invalid artifact publication mode");
+ if(checkedOverflowOperation!==undefined && !["sadd","ssub","smul"].includes(checkedOverflowOperation))
+  throw Error("invalid checked overflow witness operation");
  for(const destination of [published,published+".provenance.json",published+".artifact.json",published+".current.json",published+".releases",published+".publication.lock"]){
   if(protectedInputs.has(destination))
    throw Error("output or artifact metadata path overlaps a compiler/source input");
@@ -363,19 +573,30 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   }catch(error){if(error?.code!=="ENOENT")throw error}
  }
  await rejectMixedPublication(published,publication);
- const [sourceSnapshot,compilerSnapshot]=await Promise.all([
-  readBoundedRegularFile(sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget"),
-  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")
- ]);
- // Input paths may have changed after the initial preflight/inode overlap
- // checks. Refuse a different input inode rather than pinning a new source
- // through a validated destination alias.
- if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino||
-    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
-  throw Error("compiler or source input changed between preflight and snapshot");
- const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
+ // Read and pin the SOURCE first. An unresolved import is a fatal admission
+ // error in this standalone scalar bridge, so do not read or execute a
+ // potentially 256 MiB compiler binary before denying that source.
+ // This ordering also makes unlinked-module attacks cheap to reject.
+ const sourceSnapshot=await readBoundedRegularFile(
+  sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget");
+ if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino)
+  throw Error("source input changed between preflight and snapshot");
+ const sourceBytes=sourceSnapshot.bytes;
+ // Never silently compile a partial graph, even with a real trusted LLVM binary.
+ assertScalarSourceHasNoImports(sourceBytes);
+ const compilerSnapshot=await readBoundedRegularFile(
+  compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget");
+ if(compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
+  throw Error("compiler input changed between preflight and snapshot");
+ const compilerBytes=compilerSnapshot.bytes;
+ // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
+ // Reject before invoking LLVM or staging any guest artifact.
+ rejectUnsupportedActorPubSubSource(sourceBytes);
+ rejectUnsupportedActorPipeSource(sourceBytes);
  // Source actors/physical actor threading are not implemented by this
  // scalar Wasm bridge. Reject before invoking the pinned native compiler.
+ // G0 unsafe gate is independent of the caller-supplied compiler binary.
+ rejectUnsupportedUnsafeSource(sourceBytes);
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
@@ -384,6 +605,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedTupleV2Source(sourceBytes);
  rejectUnsupportedStructuralPatternSource(sourceBytes);
  rejectUnsupportedInvertedLayoutSource(sourceBytes);
+ rejectMutexResourceClassSource(sourceBytes);
  rejectUnsupportedHeapContainerSource(sourceBytes);
  const actualCompilerHash=sha(compilerBytes);
  if(compilerSha256!==undefined&&compilerSha256!==actualCompilerHash)throw Error("compiler binary SHA-256 does not match pinned hash");
@@ -407,7 +629,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  await writeFile(stagedCompiler,compilerBytes,{mode:0o500,flag:"wx"});
  // This is a Wasm compiler bridge in every publication mode. Never
  // accept host-targeted LLVM IR just because the linker targets wasm32.
- const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource]);
+ const ir=run(stagedCompiler,["--tree-shake","--tree-shake-root=main","--target=wasm32",stagedSource],{cwd:scratch});
  if(sha((await readBoundedRegularFile(stagedCompiler,MAX_COMPILER_BYTES,"staged compiler exceeds executable budget")).bytes)!==actualCompilerHash)
   throw Error("staged compiler executable changed during execution");
  // The executable itself is also caller-owned mutable input. Never publish
@@ -418,6 +640,8 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  // original caller path remains unchanged.
  if(sha((await readBoundedRegularFile(stagedSource,MAX_SOURCE_BYTES,"staged source exceeds source budget")).bytes)!==sha(sourceBytes))
   throw Error("staged compiler input changed during execution");
+ // Validate signed-i64 overflow witness against the exact native compiler IR before publication.
+ if(checkedOverflowOperation!==undefined) assertCheckedOverflowIr(ir,checkedOverflowOperation);
  // Require a genuine LLVM triple declaration, not a comment or string.
  // Ensure an actual target triple exists, not a comment, duplicate, or
  // native-target fallback masquerading as wasm32.
@@ -426,10 +650,11 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  if(ir.length>2*1024*1024)throw Error("generated IR exceeds 2 MiB");
  // Avoid shell expansion and avoid relying on persistent temporary LLVM IR.
  // Clang reads the native compiler's verified stdout as LLVM IR.
- run(clang,["--target=wasm32","-x","ir","-Oz","-nostdlib",
+ run(clang,[...(wasmLinker ? ["-fuse-ld="+wasmLinker] : []),
+   "--target=wasm32","-x","ir","-Oz","-nostdlib",
    "-Wl,--no-entry","-Wl,--export="+exportName,
    "-Wl,--initial-memory=131072","-Wl,--max-memory=131072",
-   "-o",provisional,"-"],{input:ir});
+   "-o",provisional,"-"],{input:ir,cwd:scratch});
  const wasm=(await readBoundedRegularFile(provisional,MAX_WASM_BYTES,
   "linked Wasm exceeds 16 MiB artifact budget")).bytes;
  // Validate strict no-managed-guest policy before engine compilation.
@@ -452,7 +677,7 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   compilerSha256:actualCompilerHash,sourceSha256:sha(sourceBytes),
   llvmIrSha256:sha(Buffer.from(ir,"utf8")),wasmSha256:sha(wasm),
   exportName,importCount:imports.length,wasmBytes:wasm.length,
-  clangVersion:run(clang,["--version"]).split("\n")[0],
+  clangVersion:run(clang,["--version"],{cwd:scratch}).split("\n")[0],
   note:"Binary provenance: exact compiler executable bytes, not proof of source-repository commit or feature parity."
  };
  let manifest=null;

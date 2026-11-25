@@ -38,7 +38,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
-      - name: Validate numerical vectors and capability claims (data-only)
+      - name: Verify Rust-only numeric backend capability claims (data-only)
+        run: |
+          cargo test --manifest-path tools/serde-contract-gate/Cargo.toml --bin numeric-admission
+          cargo run --manifest-path tools/serde-contract-gate/Cargo.toml --bin numeric-admission -- .
+      - name: Verify remaining legacy numeric reference vectors (data-only)
+        # Python vector-oracle migration remains outstanding; retain coverage.
         run: python3 -m unittest discover -s tests -p 'test_numeric_*.py' -v
       - name: Install wasm32 toolchain
         run: sudo apt-get update && sudo apt-get install -y clang lld

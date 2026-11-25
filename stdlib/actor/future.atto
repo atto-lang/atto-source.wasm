@@ -1,0 +1,21 @@
+// std.actor one-shot ActorFuture adapters, written in Atto.
+// These functions DO NOT create futures or CONTROL authority.
+// A sealed ActorFuture<T> must be supplied by the trusted actor runtime.
+// Explicit take! is required at both the formal and call site. Neither
+// implicit borrowing nor double-await may be accepted by the compiler.
+// TARGET_NOT_EXECUTED pending sealed generic Future/affine await support.
+use namespace std.actor;
+// wasm: source-owned staged adapter, runtime capability not claimed.
+
+// Consumes the unique actor reply receipt. The return value is precisely T;
+// actor-level panic / supervisor CONTROL remain separate from T.
+pub susp fnc await_reply<T>(take! ActorFuture<T> receipt) -> T {
+  return await receipt;
+}
+
+// Preserve Result<T,E> exactly; never flatten, unwrap, or turn producer
+// failure into ordinary Err. No ActorStream-to-Future conversion.
+pub susp fnc await_reply_result<T,E>(
+    take! ActorFuture<Result<T,E>> receipt) -> Result<T,E> {
+  return await receipt;
+}

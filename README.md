@@ -1,69 +1,127 @@
-# Oreslang source-to-WebAssembly backend
+> **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/atto-lang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
 
-Dedicated compiler integration and **experimental zero-capability execution host** for Oreslang core Wasm.
-Compare with oreslang-source.* repos.
+# atto-source.wasm
 
-Please keep parity with oreslang-source.java in terms of features and capability. The same guest code that runs on graalvm should compile and execute with gcc/llvm. Do not use python for anything, use Rust instead of python to support the language.
+WebAssembly backend and worker-based runtime for AttoLang in browsers and server environments. The dotnet runtime will also use wasm to achieve TenantVM isolation.
 
-Notes on the compiler and runtime:
+## Scope
 
-* Strive for zero gc. The borrow checker should accomplish this, and having separate heaps/arenas per actor helps reduce gc overhead.
-* Borrow checking uses reserved keywords rt copy, rt share, rt take, rt borrow
-* Go for full AOT. Some JIT elements are ok, as long as they can be explicitly controlled/governed by user.
-* Strive for hard real time not just soft-real time by minimizing JIT (or having JIT switched off for certain paths) and moving towards full AOT.
-* Use data-oriented design and data oriented programming - be mindful of using AoS, SoA, AoSoA and SoAoS where possible.
-* Use 32 bit pointers instead of 64 bit pointers for allocation/heaps. Having separate heaps per actor helps with this. 32 bit pointers helps us save up to 50% on memory/RAM. The 32 bit pointers should be implemented so that it stays 32 bit even on Arm-64 machines, etc etc.
-* OresLang must be built around excellent tree-shaking so we can get final binary executables as small as possible and reduce startup overhead etc.
+This repository is the AttoLang ecosystem home for:
 
+- Wasm compilation, message-passing actor execution, browser and server-worker integration, and portable wire contracts.
+- Compatibility with the [canonical language specification](https://github.com/atto-lang/atto-spec) where applicable.
+- Evidence-based tests, benchmark results, and cross-backend conformance reporting.
 
-## Implemented (initial slice)
+## Architecture and compatibility
 
-- Ported the original source-to-Wasm bridge from the private `oreslang-wasm` repo with its atomic publication / input snapshot / exact compiler hashing tests. The compiler is the existing native `oreslang-llvmc`, NOT a new Oreslang parser.
-- Build pipeline: `.atto` (canonical) or `.ores` (legacy) source -> externally supplied native LLVM compiler -> LLVM IR -> Clang wasm32 -> verified core `.wasm`.
-- Emit SHA-256-based provenance, bounded-memory artifact manifests, and optional atomic release pointers.
-- Deny all guest imports, reject start and table sections, bound private linear memory with a required `memory` export, require an exact `main: () -> i64` signature, and optionally pin module SHA-256.
-- Run admitted modules in disposable Node worker threads. Validation and JIT compilation occur inside the worker's deadline, with a module-local four-worker admission quota; the worker is terminated before returning. Each invocation gets fresh, private module memory; the host provides **zero Wasm imports**.
-- Regression tests use real Clang-generated Wasm. The standalone compiler integration test is explicitly opt-in and requires a real native Oreslang compiler.
+AttoLang is designed around actors, explicit ownership, and portable concurrency semantics. Backend-specific optimizations must not silently change the shared language contract. Runtime capabilities, target restrictions, and unsupported features should be documented explicitly.
 
-## Run locally
+## Building and testing
 
-Requires Node 22+, Clang with wasm32 support, and wasm-ld / LLD.
+Consult the checked-in source tree and CI workflows for verified commands and supported targets. Add target-specific build instructions and exact-head execution results as they become available; do not treat a passing host-unit test as proof of guest-language conformance.
 
-~~~sh
+## Executed Rust/Wasm `trap` conformance
+
+The actual source-to-WebAssembly compiler lives in `atto-lang/atto-source.rs`: it is Rust-authored and can itself run as Wasm. This repository does not yet contain an independent second compiler and does not distribute compiler binaries.
+
+`scripts/verify-trap-wasm.mjs` compiles and executes the **exact** `trap.atto` program from [playground PR #128](https://github.com/atto-lang/atto-lang.github.io/pull/128) against supplied, SHA-256-verified compiler Wasm. Supply the source Git blob SHA-1 to prevent silently testing a different example.
+
+```sh
+node scripts/verify-trap-wasm.mjs \
+  /private/path/atto_compiler.wasm \
+  /path/to/website/play/examples/preview/trap.atto \
+  2f66d63632440f3f9d3686546fe79ae7177b953270be911704941ecd3af80cc6 \
+  71d22c2365c687fbce044cea7d7d2927c3fb6e86
+```
+
+The compiler digest above belongs to the [previously executed private carrier build](https://github.com/scintilla-run/scintilla-e2e/actions/runs/43520455606), **not** the public website. The test requires real generated guest Wasm to print `5`, `id must be nonnegative`, and `an ordinary throw was caught`, in order, then return `7`. It also verifies that checked integer overflow panics bypass `trap` and raw string throws fail the compiler.
+
+Native `attoc`/Wasm byte parity is tested in the Rust compiler's separate conformance suite. This harness verifies actual Wasm guest execution, not an independent Wasm-language compiler, and only runs when an explicitly reviewed artifact is provided.
+
+**Release boundary:** an unpublished compiler candidate must not be copied into public Pages assets or marked executable before independent binary approval, provenance, protection and deployment gates.
+
+## Source-compiled Rust/Wasm diamond-inheritance conformance (candidate only)
+
+The **Atto source compiler** is implemented in `atto-lang/atto-source.rs`, not as a second independent compiler here. Draft [Rust compiler PR #137](https://github.com/atto-lang/atto-source.rs/pull/137) implements a bounded, statically lowered trait/class inheritance subset. A private validation carrier has already built both the native Rust and wasm32 compiler, compared their emitted guest bytes, executed three passing examples (including the exact site preview), and verified nine expected compiler rejections.
+
+This repository provides an **artifact-driven, fail-closed independent check** of the exact [website diamond preview](https://github.com/atto-lang/atto-lang.github.io/pull/130). It does not bundle or distribute an Atto compiler. Before promotion, download an independently reviewed compiler Wasm privately, verify its SHA-256, and invoke:
+
+```sh
+node scripts/verify-diamond-wasm.mjs \
+  /private/atto_compiler.wasm \
+  /local/site/play/examples/preview/diamond-inheritance.atto \
+  <approved-compiler-sha256> \
+  05814acb37c0335c03294875b870560a2839031d
+```
+
+The script validates compiler ABI/imports, exact sample Git blob, generated guest Wasm, expected stdout, and three mutation-based negative checks: unresolved diamond, missing `override`, and signature mismatch. It never fetches binaries or declares compiler disclosure approval. Even passing checks do not authorize publishing a new playground compiler, and the public site sample remains a disabled **syntax preview** until independent release approval and pin update.
+
+## Project status
+
+This README describes the repository's intended responsibilities. Feature support and release readiness must be established from implementation, tests, and CI evidence rather than this description alone.
+
+## Canonical AttoLang name and repository migration
+
+This is the canonical home of the AttoLang WebAssembly integration and host runtime. The Git history includes the repository's earlier development; future contributions and links use [atto-source.wasm](https://github.com/atto-lang/atto-source.wasm) and canonical `.atto` source. Update Git remotes to `https://github.com/atto-lang/atto-source.wasm.git`.
+
+**Normative grammar and semantics:** [atto-spec](https://github.com/atto-lang/atto-spec), including the ownership, lifetime, effects, value-equality, bitwise/stream and module-constant contracts. Historical compiler examples do not supersede the current specification. A specification target is not a claim that this backend implements it.
+
+**Responsibility split:** [atto-source.rs](https://github.com/atto-lang/atto-source.rs) contains the Rust-authored browser compiler, including its wasm32 compiler build. This repository handles LLVM-to-Wasm integration, binary admission, guest execution and worker-host constraints. There is no independently implemented second AttoLang source compiler here. Share guest ABI and differential fixtures through [atto-platform-conformance](https://github.com/atto-lang/atto-platform-conformance) and [atto-compilers-parity-testing](https://github.com/atto-lang/atto-compilers-parity-testing).
+
+## LLVM-to-Wasm integration: implemented narrow slice
+
+- A trusted externally supplied LLVM compiler emits IR for the supported AttoLang subset; Clang/LLD generate wasm32 binaries. Never treat a parser substitute or fake linker-only run as AttoLang guest compilation.
+- The `core-wasm.i64-v1` admission gate requires no guest imports, no start/table sections, bounded and isolated linear memory, a memory export and the exact `main: () -> i64` signature. Optional module digest checks support artifact pinning; a hash alone does not attest compiler provenance.
+- Admitted Wasm executes inside disposable Node workers with bounded deadlines and a module-local admission quota. Validation/JIT compilation occur inside the worker deadline. Workers and V8 isolates are **not** OS process/tenant sandboxes and are **not** a strict-no-JIT runtime.
+- Native compiler integration, actor behaviors, channel I/O, async `select`, ownership transfer, WASI and a general host-import ABI remain independently gated. The worker host does not establish cross-backend guest parity by itself.
+- Tail-call opcodes `return_call` and `return_call_indirect` are rejected with `WASM_TAIL_CALL_FEATURE_UNSUPPORTED` before engine validation; this is a feature gate, not portable tail-call optimization.
+- Preserve fail-closed diagnostics and atomic publication safety: a rejected or unapproved guest must not acquire a release pointer or appear as a verified artifact.
+
+## Local host tests and independently pinned guest tests
+
+Requires Node 22+, Clang with wasm32 target support and LLD for relevant tests.
+
+```sh
 npm test
-node scripts/compile-ores.mjs --compiler=/absolute/path/to/oreslang-llvmc --source=/absolute/path/to/main.atto --output=/absolute/path/to/guest.wasm
 node scripts/run-guest.mjs --wasm=/absolute/path/to/guest.wasm --sha256=EXPECTED_64_HEX_DIGITS
-~~~
+```
 
-For real Oreslang compiler integration, use:
+For compiler-backed scalar and cross-backend checks, inspect `tests/cross-backend-checked-i64-scalar.test.mjs` and `npm run test:real-odb1-shr8` for the **actual** environment-variable contract implemented by the checked-in scripts. Some integration scripts and env keys still carry migration-era identifiers. Do not invent replacement `ATTO_*` variables or rewrite command examples until the implementation has been updated and tested. The old identifiers are intentionally not promoted as current README interfaces.
 
-~~~sh
-ORESLANG_LLVM_COMPILER=/absolute/path/to/oreslang-llvmc npm test
-~~~
+The scalar parity gate must receive an independently reviewed compiler executable, pinned SHA-256 digest, clean exact source SHA/tree, real Clang wasm32 build and an executed positive/negative guest suite. The historical WAL/shift gate is a limited scalar fixture, **not** a claim of full guest database I/O, durability or actor filesystem support. `npm test` alone covers host-side admission checks and must not be counted as compiled AttoLang parity evidence.
 
-A fake or stub compiler exercising the linker does **not** count as real Oreslang language parity.
+## Security, tooling and acceptance requirements
 
-## Security boundary and status
+- Never publish an unreviewed compiler binary or compiler Wasm to the public playground. Release promotion requires independent approval, exact provenance and protected deployment.
+- Use Rust for new test harnesses, analysis and build support rather than Python. Do not remove existing safety checks or fixtures while migrating tooling; language-specific host JavaScript and native LLVM/Clang implementation remain where required.
+- Target goals such as near-zero GC, actor-local arenas, data-oriented layouts (AoS/SoA/AoSoA), governed AOT/JIT and strict isolation must be separately measured and proved per target. A disposable worker is not a hard-real-time or zero-GC proof.
+- Every claimed compiler or runtime capability requires exact commit/tree, compiler artifact digest, target/toolchain, **executed guest** positives and negatives, and `passed` / `failed` / `unsupported` / `not executed` receipts. An empty CI step list is `not executed`, not a pass.
 
-**This is not yet an Oreslang actor runtime, a WASI/component-model host, or a production untrusted-code sandbox.**
+Read [isolation and roadmap](docs/ISOLATION.md), [portable guest builds](docs/PORTABLE_GUEST_BUILD.md), [atomic artifact publication](docs/ATOMIC_ARTIFACT_PUBLICATION.md), [value boundaries](docs/VALUE_BOUNDARIES.md) and the [CPU/GPU proposal](docs/CPU_GPU_NB_GRAPH_V1.md) for target-specific limitations.
 
-- Node worker threads and V8 isolates do not provide OS process separation.
-- The CLI requires a pinned SHA-256 digest and refuses oversized input before reading or executing it.
-- Deadlines are enforced by terminating a worker, not deterministic instruction fuel; cancellation and isolation are not OS guarantees.
-- The four-worker quota is module-local, not a process-wide or cross-service tenant quota; a deployment broker must enforce aggregate budgets.
-- The Node/V8 host may perform JIT compilation of WebAssembly: this is NOT a strict-no-JIT runtime.
-- The current ABI is intentionally limited to a pure `() -> i64` guest. Actors, channels, ownership transfer, await, host I/O, memory64, threads, shared memory, and guest host imports are **not supported**.
-- Static `select` is therefore **fail-closed through the pinned LLVM frontend**, for both `{ ... }` and `over ... end` outer delimiters. The real-compiler gate requires the compiler-owned `native async/channel/select boundary unsupported` diagnostic with no LLVM IR, and the Wasm bridge must publish no release pointer for rejected select source. This repository deliberately does not maintain a second Oreslang select parser.
-- Compiler executable bytes must be trusted. A SHA-256 pin proves byte identity, not that the binary came from any particular source commit.
-- Full strict AOT requires a separate trusted precompilation stage and compatible compiler-free native runtime (planned: Wasmtime host with OS sandbox).
+## Related repositories
 
-See [isolation and roadmap](docs/ISOLATION.md), [portable guest build](docs/PORTABLE_GUEST_BUILD.md), and [atomic artifact publication](docs/ATOMIC_ARTIFACT_PUBLICATION.md).
+- [AttoLang organization](https://github.com/atto-lang)
+- [Language specification](https://github.com/atto-lang/atto-spec)
+- [Platform conformance](https://github.com/atto-lang/atto-platform-conformance)
+- [Commercial infrastructure](https://github.com/atto-co)
 
-Related projects: [Oreslang LLVM compiler](https://github.com/ores-truffle-oreslang/oreslang-source.llvm), [earlier Wasm ABI prototype](https://github.com/ores-truffle-oreslang/oreslang-wasm), [target profiles](https://github.com/ores-truffle-oreslang/oreslang-target-profiles).
+## Repository ownership and contribution routing
 
-See [value-boundary audit and admission tests](docs/VALUE_BOUNDARIES.md) for
-aggregate, call, string, conditional and async feature limits.
+**Belongs in this repository:** Wasm-target compiler lowering and ABI definitions, Wasm guest isolation and host-import contracts, portable runtime/actor semantics, and browser-versus-server runtime integration tests.
 
-## Engineering policy: no Python
+**Belongs elsewhere:** Rust compiler implementation work owned by atto-source.rs; JS lowering owned by atto-source.js; publishing/vendoring the deployed playground compiler owned by atto-playground.
 
-Python is prohibited in this repository and throughout the `ores-truffle-oreslang` organization for scripts, tests, CI helpers, code generators, analyzers, automation, and host tooling. Existing Python functionality must be migrated to **Rust** without weakening behavior, security checks, fixtures, or test coverage. Do not add `.py`, `.pyi`, `.ipynb`, Python dependency manifests, `python`/`python3` commands, `pip`, `pytest`, `poetry`, `uv`, or `actions/setup-python`. The WebAssembly backend remains its language-specific implementation; the Python-to-Rust mandate applies to Python tooling rather than rewriting the backend itself.
+**Safety and verification boundary:** Wasmtime is a native/server host, not a browser API. A Web Worker can host a tenant Wasm instance, but actor heap/stack isolation inside it must be proven with bounds, ownership, traps, quotas and negative tests.
+
+Keep current `.atto` semantics aligned with [atto-spec](https://github.com/atto-lang/atto-spec). Implementation gaps must be reported explicitly instead of silently claiming compatibility.
+
+Changes asserting compiler/runtime support must identify the exact source head, target, toolchain, executed positive and negative guest tests, and failure/unsupported status; an empty CI step list is **not executed**. Documentation records responsibility, **not** a claim of feature completion.
+
+## Callable ABI v1 verification boundary (draft)
+
+The proposed owned-callable ABI is tracked in [atto-spec](https://github.com/atto-lang/atto-spec/blob/spec/owned-callable-abi-v1-20261115/language/callable-owned-closure-abi-v1.md) and [issue #12](https://github.com/atto-lang/atto-source.wasm/issues/12). This repository **does not yet contain an independent AttoLang Wasm compiler** and does not emit Atto closure environments or safe callable handles.
+
+The executable regression test can be run with npm test (Node 22). It builds a small native Wasm module using exact binary sections and executes actual WebAssembly **call_indirect**: a matching signature returns 42; an incompatible function type and an out-of-range table index trap. This is a Wasm-engine primitive check, **not** proof that the Rust compiler can compile an escaping Atto lambda, nor a proof of stale-handle validation or browser parity.
+
+Rust compiler integration must implement owned environment creation, generation/owner checks, cleanup, signature-checked typed indirect calls, and the actual .atto factory/higher-order examples before this backend or /play can be marked executable. The compiler's existing guest ABI v2 and the public playground binary pins must remain unchanged until review, executed guest tests and release approval.

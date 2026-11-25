@@ -1,5 +1,20 @@
 # Experimental Wasmtime strict-AOT host
 
+## Experimental per-tenant Wasmtime Stores
+
+A native tenant compartment prototype now lives in
+[`run/src/tenant_isolation.rs`](run/src/tenant_isolation.rs). One tenant
+owns one `wasmtime::Store` and one Wasm `Instance` with its own
+128-KiB bounded linear memory. A shared `Engine` and compiled `Module`
+may be reused across tenants. The debug-only
+`--tenant-isolation-smoke` runner path executes a real precompiled
+counter guest across two separate Stores and checks lifecycle fencing.
+
+**This is not a production-enabled service or an OS sandbox.** The existing
+release-mode deny gate is unchanged. The tenant ID is not a credential;
+the deployment broker, authenticated approval and process sandbox are
+still required. See [the full contract](../docs/WASMTIME_TENANT_STORES_V0.md).
+
 The Wasm/AOT foundation was merged into `main` through [PR #4](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/4) and [PR #3](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/3).
 **This remains an experimental development-only loader, not a production sandbox.** The independent [private Rust AOT verification run](https://github.com/embedded-alerts-test/web-ui-e2e/actions/runs/38755259716) passed its `wasm-aot` job, but [source-repository CI issue #5](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/issues/5) remains unresolved. Neither result authorizes production execution.
 
@@ -174,3 +189,37 @@ unexpected dependency resolution or missing lockfile. Cargo locks are
 reproducibility records, not security attestations.
 
 Verified private runner: https://github.com/benefactor-cc/backend.rs/actions/runs/38691712667 .
+
+
+### Native strict-AOT managed-reference rejection
+
+The **trusted Rust precompiler** now validates the complete Wasm module with
+`wasmparser::Validator` configured to reject the GC, GC-types,
+reference-types, and typed-function-reference proposals. This validation
+happens on the same SHA-256-pinned input byte snapshot before Wasmtime's
+`Module::from_binary` and serialization. It complements, but does not
+replace, the existing raw section checks and the separate JavaScript
+`no-managed-wasm` admission for Node hosts.
+
+Rust regression tests present **otherwise valid Wasm binaries** carrying
+an unused `externref` function parameter, a GC `struct` type, a
+`ref.null extern` instruction hidden in a function body, an unused SIMD
+vector instruction, and a tail-call instruction. Default proposal validation
+must accept each binary; the strict AOT precompiler must reject
+each. SIMD/relaxed-SIMD, tail calls, threads, exception handling, memory64,
+multi-memory and managed reference proposals are disabled by the native
+scalar feature profile to match the narrower Node scalar admission. Run with:
+
+```sh
+cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
+```
+
+This prevents managed Wasm references from entering the native guest profile.
+It is **not** a proof of zero allocation or zero GC for the host process, and
+it does not authorize production use of native serialized artifacts. Guest
+linear-memory reclamation and ownership proofs still require separate
+compiler-generated evidence. Browser, Node, and desktop Wasm execution can
+share portable ahead-of-time-generated `.wasm` modules, but browser and Node
+engines may still JIT or tier them; native Wasmtime `.cwasm` precompiled
+artifacts are host/CPU/version-specific and must never be treated as a
+portable browser binary.
