@@ -144,6 +144,21 @@ mod tests{
   assert!(validate_scalar_module(&wasm).is_err());
  }
  #[test]
+ fn strict_scalar_profile_accepts_ordinary_static_call_body(){
+  // Ordinary direct calls must survive the scalar feature mask.
+  let wasm=[
+   0,97,115,109,1,0,0,0,
+   1,5,1,0x60,0,1,0x7e,
+   3,3,2,0,0,
+   5,4,1,1,1,2,
+   7,17,2,4,109,97,105,110,0,0,6,109,101,109,111,114,121,2,0,
+   10,11,2,4,0,0x10,1,0x0b,4,0,0x42,42,0x0b
+  ];
+  assert!(Validator::new().validate_all(&wasm).is_ok());
+  assert!(validate_scalar_module(&wasm).is_ok());
+ }
+
+ #[test]
  fn strict_scalar_profile_rejects_valid_tail_call_body(){
   // Valid main() returning 42 via return_call helper(). Node scalar
   // admission rejects opcode 0x12; strict native precompile must agree.
