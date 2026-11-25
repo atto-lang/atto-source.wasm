@@ -246,3 +246,22 @@ test("stack lifecycle preserves current-main allocation-free arena readInto", ()
   a.endTurn(t);
   a.retire();
 });
+
+
+test("same-turn resume is denied without consuming the suspension ticket", () => {
+  const a = arena(814), t = a.beginTurn();
+  const e = a.startStack(t), f = a.pushStackFrame(t, e, 2);
+  a.writeStackFrame(t, e, f, Uint8Array.of(42, 9));
+  const ticket = a.suspendStack(t, e);
+  assert.throws(() => a.resumeStack(t, ticket), /new physical turn/);
+  assert.equal(a.stackExecutionCount, 1);
+  a.endTurn(t);
+  const next = a.beginTurn();
+  assert.equal(a.resumeStack(next, ticket), e);
+  assert.deepEqual([...a.readStackFrame(next, e, f)], [42, 9]);
+  a.popStackFrame(next, e, f);
+  a.finishStack(next, e);
+  assert.throws(() => a.resumeStack(next, ticket), /stale or consumed/);
+  a.endTurn(next);
+  a.retire();
+});
