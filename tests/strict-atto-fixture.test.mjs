@@ -75,3 +75,17 @@ test('rejects symlinked grandparent beyond fixture directory', async t => {
     readStrictAttoFixture(pathToFileURL(join(aliasGrandparent, 'nested', 'guest.atto'))),
     /symlinked or non-directory fixture ancestor/);
 });
+
+test('accepts exact byte budget and rejects one byte above it', async t => {
+  const root = await sandbox(t), file = join(root, 'bounded.atto');
+  const expected = Buffer.from('// bounded canonical source\n');
+  await writeFile(file, expected);
+  assert.deepEqual(await readStrictAttoFixture(pathToFileURL(file), expected.length), expected);
+  await assert.rejects(readStrictAttoFixture(pathToFileURL(file), expected.length - 1), /byte budget/);
+});
+
+test('rejects a directory with a canonical fixture suffix', async t => {
+  const root = await sandbox(t), file = join(root, 'directory.atto');
+  await mkdir(file);
+  await assert.rejects(readStrictAttoFixture(pathToFileURL(file)), /nonregular fixture/);
+});
