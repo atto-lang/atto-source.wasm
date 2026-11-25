@@ -51,5 +51,12 @@ pub fnc main(): int {
   let mut after_seal = reflect.type_info(103, "Other", 1);
   after_seal.seal();
   if registry.add_type(after_seal); do return 30; fi
+  if registry.type_count() != 1; do return 31; fi
+  if registry.type_field_name_at(0, -1) != ""; do return 32; fi
+  if registry.type_field_type_id_at(0, 2) != 0; do return 33; fi
+  if registry.type_field_name_at(1, 0) != ""; do return 34; fi
+  if registry.type_field_count_at(-1) != 0; do return 35; fi
+  if registry.type_kind_at(9223372036854775807) != 0; do return 36; fi
+  if registry.find_type("Other") != -1; do return 37; fi
   return 42;
 }
