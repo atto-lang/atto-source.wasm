@@ -265,3 +265,28 @@ test("same-turn resume is denied without consuming the suspension ticket", () =>
   a.endTurn(next);
   a.retire();
 });
+
+
+test("caller-owned frame reads preserve bytes and physical turn authority", () => {
+  const a = arena(815), t = a.beginTurn();
+  const e = a.startStack(t), f = a.pushStackFrame(t, e, 2);
+  a.writeStackFrame(t, e, f, Uint8Array.of(42, 9));
+  const target = new Uint8Array(2);
+  a.readStackFrameInto(t, e, f, target);
+  assert.deepEqual([...target], [42, 9]);
+  target[0] = 0;
+  a.readStackFrameInto(t, e, f, target);
+  assert.deepEqual([...target], [42, 9]);
+  assert.throws(() => a.readStackFrameInto(t, e, f, new Uint8Array(1)), /exact-size/);
+  const receipt = a.suspendStack(t, e);
+  assert.throws(() => a.readStackFrameInto(t, e, f, target), /active actor stack/);
+  a.endTurn(t);
+  const next = a.beginTurn();
+  a.resumeStack(next, receipt);
+  a.readStackFrameInto(next, e, f, target);
+  assert.deepEqual([...target], [42, 9]);
+  a.popStackFrame(next, e, f);
+  a.finishStack(next, e);
+  a.endTurn(next);
+  a.retire();
+});
