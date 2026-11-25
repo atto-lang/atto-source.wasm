@@ -1,3 +1,4 @@
+import {verifySignedLLVMCompiler} from '../scripts/attested-llvm-compiler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
@@ -29,7 +30,22 @@ const envMode = process.env.ATTO_SEALED_OPERATOR_REAL_GUEST_REQUIRED ?? '0';
 if(!['0','1'].includes(envMode)) throw Error('invalid sealed operator guest requirement');
 const compilerPath = process.env.ORESLANG_LLVM_COMPILER;
 const required = envMode === '1';
-const diagnostics = /(?:operator|unexpected|invalid|unsupported|unknown|token|punctuation)/i;
+// A real LLVM compiler can fail for an unrelated reason while echoing an
+// operator token. A valid negative receipt needs the intended semantic
+// decision on the SAME compiler-owned diagnostic line.
+const semanticPolicy = /(?:noncanonical|removed|unsupported|forbidden|disallowed|not allowed)/i;
+const genericFailure = /(?:syntax error|parse error|unexpected (?:token|character)|unrecognized token|unsupported character|unresolved (?:identifier|symbol)|unknown (?:identifier|symbol)|internal error|stack overflow)/i;
+function matchesReservedOperatorDiagnostic(stderr, token) {
+  if (!['%', '^', '^^'].includes(token) || typeof stderr !== 'string'
+      || stderr.length < 1 || stderr.length > 65536 || genericFailure.test(stderr)) return false;
+  return stderr.split(/\r?\n/).some(line => {
+    if (!/^oreslang-llvmc:\s+/.test(line) || !/\boperator\b/i.test(line)
+        || !semanticPolicy.test(line)) return false;
+    const mentioned = line.match(/\^{1,2}|%/g) ?? [];
+    return mentioned.length > 0 && mentioned.every(symbol => symbol === token);
+  });
+}
+
 
 test('pinned .atto corpus includes an executable positive and five operator rejections (SOURCE ONLY)', () => {
   assert.equal(cases.length,6);
@@ -44,6 +60,43 @@ test('pinned .atto corpus includes an executable positive and five operator reje
     assert.equal(c.token===null, c.id==='multiply-positive');
     if(c.token!==null) assert.ok(c.expr.includes(c.token),c.id);
   }
+});
+
+// Adversarial policy checks are source-only and never certify a native compiler.
+for (const op of ['%', '^', '^^']) {
+  for (const policy of ['noncanonical', 'removed', 'unsupported', 'forbidden', 'disallowed', 'not allowed']) {
+    test('diagnostic oracle: ' + op + ' same-line ' + policy, () => {
+      assert.equal(matchesReservedOperatorDiagnostic(
+        'oreslang-llvmc: ' + policy + " '" + op + "' source operator", op), true);
+    });
+  }
+  const wrong = op === '^' ? '^^' : '^';
+  const bad = [
+    'oreslang-llvmc: error: syntax error near ' + op + '; operator unsupported',
+    "oreslang-llvmc: unexpected token '" + op + "' operator unsupported",
+    "oreslang-llvmc: unsupported character '" + op + "'; operator unsupported",
+    "oreslang-llvmc: unknown identifier '" + op + "'; operator unsupported",
+    'oreslang-llvmc: internal error while checking ' + op + ' operator unsupported',
+    'oreslang-llvmc: ' + op + ' unsupported',
+    "ors-lang-cxx: unsupported '" + op + "' operator",
+    'oreslang-llvmc: permission denied while reading ' + op + ' operator',
+    'oreslang-llvmc: unknown ' + op + ' operator',
+    'oreslang-llvmc: operator ' + op + '\noreslang-llvmc: unrelated operator unsupported',
+    'oreslang-llvmc: unsupported operator ' + wrong,
+    'oreslang-llvmc: unsupported operators ' + op + ' and ' + wrong,
+  ];
+  for (const [index, diagnostic] of bad.entries()) {
+    test('diagnostic oracle: ' + op + ' denies wrong reason ' + index, () => {
+      assert.equal(matchesReservedOperatorDiagnostic(diagnostic, op), false);
+    });
+  }
+}
+test('diagnostic oracle: invalid symbol cannot be certified', () => {
+  assert.equal(matchesReservedOperatorDiagnostic('oreslang-llvmc: removed + operator', '+'), false);
+});
+test('diagnostic oracle: oversized stderr cannot be certified', () => {
+  assert.equal(matchesReservedOperatorDiagnostic(
+    'oreslang-llvmc: removed % operator'.repeat(3000), '%'), false);
 });
 
 test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emitting a runnable 42 Wasm guest', {
@@ -76,6 +129,14 @@ test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emittin
   try {
     const compiler=join(temp,'pinned-llvmc');
     await writeFile(compiler,snapshot,{flag:'wx',mode:0o500});
+    // The actual staged digest was already checked above. Verify the same
+    // binary against a GitHub-signed LLVM main workflow and exact source SHA.
+    // No unsigned build record or local source transfer can satisfy this.
+    const provenCompiler=verifySignedLLVMCompiler({
+      compiler,digest:expectedDigest,sourceSha
+    });
+    assert.equal(provenCompiler.compilerSha256,expectedDigest);
+    assert.equal(provenCompiler.sourceSha,sourceSha);
     for(const c of cases) {
       const input=join(temp,c.id+'.atto'),output=join(temp,c.id+'.wasm');
       const source=bytesFor(c);
@@ -101,7 +162,7 @@ test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emittin
           env:{PATH:process.env.PATH??'/usr/bin:/bin',LANG:'C.UTF-8',LC_ALL:'C.UTF-8'}});
         assertNativeFrontendRejection(native);
         const diagnostic=String(native.stderr);
-        assert.ok(diagnostic.includes(c.token) && diagnostics.test(diagnostic),
+        assert.ok(matchesReservedOperatorDiagnostic(diagnostic,c.token),
           c.id+' rejected for wrong reason: '+diagnostic.slice(0,300));
         await assert.rejects(compileOresToWasm({compiler,
           compilerSha256:expectedDigest,source:input,output,
