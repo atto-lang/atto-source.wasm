@@ -1,17 +1,19 @@
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtemp,readFile,writeFile,rm,readdir} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {compileOresToWasm,readBoundedRegularFile} from './compile-ores.mjs';
 import {readAtomicRelease} from './atomic-release.mjs';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
+import {cleanupRealCompilerWorkspace} from './cleanup-real-compiler.mjs';
 const [compiler,pin,head,tree,clang,wasmLinker]=process.argv.slice(2);
 if(!compiler||!clang||!wasmLinker||! /^[a-f0-9]{64}$/.test(pin??'')||! /^[a-f0-9]{40}$/.test(head??'')||! /^[a-f0-9]{40}$/.test(tree??''))
  throw Error('usage: node scripts/verify-llvm-quantity-wasm32.mjs compiler sha256 head tree clang wasm-ld');
 const sha=x=>createHash('sha256').update(x).digest('hex');
 const work=await mkdtemp(join(tmpdir(),'atto-llvm-quantity-wasm-'));
+let primaryError;
 try{
  const executable=join(work,'compiler');
  const bytes=(await readBoundedRegularFile(resolve(compiler),256*1024*1024,'compiler bytes')).bytes;
@@ -66,4 +68,8 @@ try{
  assert.equal(sha(await readFile(executable)),pin);
  console.log('LLVM_COMPILER '+head+' '+tree+' '+pin);
  console.log('WASM32_QUANTITY_VERIFIED '+(positives.length+negatives.length)+' cases');
-}finally{await rm(work,{recursive:true,force:true});}
+ }catch(error){primaryError=error;throw error;}
+finally{
+ try{await cleanupRealCompilerWorkspace(work);}
+ catch(cleanupError){if(primaryError){primaryError.cleanupFailure=String(cleanupError?.message||cleanupError).slice(0,256);}else throw cleanupError;}
+}
