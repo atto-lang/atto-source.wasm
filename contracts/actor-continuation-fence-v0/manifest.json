@@ -1,0 +1,103 @@
+{
+  "schema": "attolang.actor_continuation_ticket_fence_v0",
+  "classification": "HOST_ONLY_ADMISSION_AUTHORED_NOT_EXECUTED",
+  "guest_continuations_implemented": false,
+  "requires_compiler_owned_frame_pc": true,
+  "canonical_guest_fixture": "contracts/actor-continuation-fence-v0/suspended-actor-negative.atto",
+  "ticket": {
+    "representation": "opaque frozen JS object identity, no enumerable fields",
+    "minting_authority": "trusted host supervisor current generation only",
+    "channel_transfer": "DENY",
+    "serialization": "DENY",
+    "guest_pointer_exposure": "DENY",
+    "maximum_outstanding_per_supervisor": 64,
+    "single_use_claim": true,
+    "claim_authorizes_guest_resume": false,
+    "resume_guest": "ATTO_GUEST_SUSPEND_RESUME_NOT_IMPLEMENTED",
+    "generation": "positive safe integer, monotonic, no recycling"
+  },
+  "invalidation_events": [
+    "typed actor terminal STACK_BUDGET_EXHAUSTED_V1",
+    "nonquota WASM_UNREACHABLE_V1",
+    "explicit STOP accepted",
+    "supervisor close requested",
+    "invalid CONTROL",
+    "confirmed carrier retirement"
+  ],
+  "no_automatic_restart_from": [
+    "foreign ticket",
+    "replayed ticket",
+    "ordinary i64 actor return",
+    "nonquota unreachable",
+    "carrier failure",
+    "malformed terminal receipt"
+  ],
+  "scenarios": [
+    {
+      "id": "CAP-TICKET",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "OPAQUE_NONTRANSFERABLE"
+    },
+    {
+      "id": "CAP-REPLAY",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "REJECT"
+    },
+    {
+      "id": "CAP-FOREIGN",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "REJECT"
+    },
+    {
+      "id": "CAP-QUOTA",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "BOUNDED_64"
+    },
+    {
+      "id": "CAP-CANCEL",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "RECLAIM"
+    },
+    {
+      "id": "CAP-STOP",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "INVALIDATE_BEFORE_STOP"
+    },
+    {
+      "id": "CAP-RESTART",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "OLD_GENERATION_REJECT"
+    },
+    {
+      "id": "CAP-CARRIER",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "CARRIER_EXIT_REVOKES"
+    },
+    {
+      "id": "CAP-RESUME-GUEST",
+      "status": "AUTHORED_HOST_TEST_NOT_EXECUTED",
+      "expected": "NOT_IMPLEMENTED"
+    }
+  ],
+  "evidence": {
+    "host_js_executed": null,
+    "same_worker_compiled_guest_executed": null,
+    "compiler_suspends_admission_rejected": null,
+    "llvm_source_head": null,
+    "llvm_tree_sha": null,
+    "wasm_source_head": null,
+    "wasm_tree_sha": null,
+    "java_llvm_wasm_full_parity": null,
+    "guest_resume_ticket_stale_rejection": null
+  },
+  "holds": [
+    "Real guest suspend/await frames not lowered and cannot be resumed",
+    "Ticket claim only validates trusted host identity; does not authorize invocation",
+    "No heap/ownership roots, task scheduling, return-PC, cancellation wakeup or cleanup ABI",
+    "Do not send JS functions or opaque host tickets across actor channels",
+    "zero-step CI must never be marked executed",
+    "Require independently verified exact LLVM compiler HEAD, tree and binary SHA for guest parity"
+  ],
+  "guest_frame_pc_lowering_implemented": false,
+  "cancellation_resume_scheduler_implemented": false
+}

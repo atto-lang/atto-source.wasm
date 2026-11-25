@@ -20,6 +20,7 @@
     "test:real-actor-guest-frames": "ATTO_REQUIRE_WASM_GUEST_FRAME=1 node --test tests/compiled-actor-guest-frame-m1.test.mjs",
     "test:real-wasm-actor-recursion": "ATTO_REQUIRE_REAL_ACTOR_RECURSION=1 node --test tests/checked-recursive-actor-v1.test.mjs",
     "test:supervised-pooled-actors": "node --test tests/supervised-pooled-actor-v1.test.mjs",
-    "test:real-supervisor-guest": "ATTO_REQUIRE_REAL_SUPERVISOR_GUEST=1 node --test tests/supervised-pooled-actor-v1.test.mjs"
+    "test:real-supervisor-guest": "ATTO_REQUIRE_REAL_SUPERVISOR_GUEST=1 node --test tests/supervised-pooled-actor-v1.test.mjs",
+    "test:host-continuation-fence": "node --test tests/host-continuation-ticket-fence-v0.test.mjs"
   }
 }
