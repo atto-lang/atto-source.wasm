@@ -50,7 +50,7 @@ test("canonical share! try_publish is denied before Wasm bridge execution", () =
   ]) {
     assert.throws(
       () => rejectUnsupportedActorPubSubSource(Buffer.from(source)),
-      /wasm ActorGroup\\/Topic source lowering unsupported/,
+      /wasm ActorGroup\/Topic source lowering unsupported/,
       source
     );
   }
