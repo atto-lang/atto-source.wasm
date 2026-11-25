@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {readFile} from "node:fs/promises";
+import {readFile,mkdtemp,writeFile,readdir,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
 import {createHash} from "node:crypto";
-import {rejectUnsupportedActorPubSubSource, rejectUnsupportedActorPipeSource} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,rejectUnsupportedActorPubSubSource, rejectUnsupportedActorPipeSource} from "../scripts/compile-ores.mjs";
 
 const fixtures = [
   "actor-pubsub-v1.ores",
@@ -118,4 +120,20 @@ test("exact cross-backend alias-only share! Atto source never reaches Wasm artif
     "must be the exact LLVM/.NET/JS/HDL/conformance .atto Git blob");
   assert.throws(()=>rejectUnsupportedActorPubSubSource(data),
     /wasm ActorGroup\/Topic source lowering unsupported/);
+});
+
+// This exercises the real bridge admission path, not Wasm code generation.
+// The sentinel fails the test if the compiler is invoked or an artifact staged.
+test("bridge refuses aliased try_publish without invoking compiler or staging artifacts",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"atto-topic-gate-"));
+  try{
+    const compiler=join(dir,"sentinel.sh"),source=join(dir,"source.atto");
+    await writeFile(compiler,"#!/bin/sh\nexit 99\n",{mode:0o700});
+    await writeFile(source,await readFile(new URL("../contracts/atto-ensemble-v1/canonical-unlowered-try-publish.atto",import.meta.url)));
+    for(const publication of ["legacy","atomic"]){
+      await assert.rejects(()=>compileOresToWasm({compiler,source,output:join(dir,"guest.wasm"),publication}),
+        /wasm ActorGroup\/Topic source lowering unsupported/);
+      assert.deepEqual((await readdir(dir)).sort(),["sentinel.sh","source.atto"]);
+    }
+  }finally{await rm(dir,{recursive:true,force:true});}
 });
