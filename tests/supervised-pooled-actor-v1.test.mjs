@@ -439,3 +439,62 @@ test("manual STOP rejects all 64 bounded pending generation waiters without rest
     await pool.close();
   }
 });
+
+test("DATA/STOP admission fence revokes old Wasm generation without affecting sibling", {
+  timeout: 90000
+}, async () => {
+  // The host sends real WASM actor messages. This is NOT compiled .atto
+  // nested-supervisor recovery, physical native loan proof or Java parity.
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({
+    workers: 1, maxActors: 2, mailboxCapacity: 16, timeoutMs: 10000
+  });
+  let supervisor;
+  try {
+    const sibling = await pool.spawn(bytes, {
+      trusted: true, expectedSha256: digest(bytes)
+    });
+    supervisor = await SupervisedPooledActor.start(pool, bytes, {
+      expectedSha256: digest(bytes), maxRestarts: 2
+    });
+    const old = supervisor.current();
+    // These 48 sends race STOP. Each may settle or be rejected as an
+    // already-admitted pre-fence request; NONE grants a post-STOP ticket.
+    const pending = Array.from({length: 48},
+      (_, index) => old.send(BigInt(index + 1)));
+    const stopping = old.stop();
+    const results = await Promise.allSettled([...pending, stopping]);
+    assert.equal(results.length, 49);
+    let admitted = 0;
+    let denied = 0;
+    for (let index = 0; index < 48; index++) {
+      const result = results[index];
+      if (result.status === "fulfilled") {
+        admitted++;
+        assert.equal(result.value, BigInt(index + 1),
+          "pre-fence accepted DATA returned incorrect payload");
+      } else {
+        denied++;
+        assert.match(String(result.reason), /actor mailbox full/,
+          "unexpected worker/guest failure cannot count as a correct DATA denial");
+      }
+    }
+    // Array.from enqueues all 48 synchronously on one JS turn before STOP.
+    // With capacity 16, the first 16 must be admitted, not merely rejected.
+    assert.equal(admitted, 16, "did not execute the full pre-fence accepted workload");
+    assert.equal(denied, 32, "did not enforce bounded DATA admission");
+    assert.equal(results[48].status, "fulfilled",
+      "manual STOP must physically retire the old Wasm actor");
+    assert.equal(supervisor.status.phase, "stopped");
+    assert.equal(supervisor.status.restarts, 0);
+    assert.equal(pool.actorCount, 1);
+    await assert.rejects(old.send(55n), /STALE_ACTOR_GENERATION/);
+    await assert.rejects(old.stop(), /STALE_ACTOR_GENERATION/);
+    assert.equal(await sibling.send(55n), 55n,
+      "independent sibling lost its carrier/guest state");
+    await sibling.stop();
+  } finally {
+    await supervisor?.close();
+    await pool.close();
+  }
+});
