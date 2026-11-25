@@ -3,13 +3,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFile,writeFile,mkdtemp,stat} from 'node:fs/promises';
+import {writeFile,mkdtemp,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
 import {compileOresToWasm,readBoundedRegularFile} from '../scripts/compile-ores.mjs';
 import {readAtomicRelease} from '../scripts/atomic-release.mjs';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
 import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
+import {readStrictAttoFixture} from './strict-atto-fixture.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1')
@@ -19,30 +20,36 @@ const fixtureBlobPins = Object.freeze({
   'copy-compact': 'a4acedaaf55d03f0fe811875e7dfc70cd64e3c0b',
   'copy-spaced': '7b7728f93d9478b43c9caf0de7c1a60e666ac1a6',
   'legacy-copy': 'ea7931b84d048ef0daba662d55b1cb32401151f7',
-  'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde'
+  'reject-space-before-bang': '4442b57173a7e0cb0f3fca80de0196337ade3bde',
+  'borrow-mut-canonical': '398c533b3758a7ec35cc7f5cdb8bffb40f1c8baa',
+  'borrow-mut-compatible': '7c551be97b88204296f0c00000018dcd4798bd3a'
 });
 const expected = Object.freeze({
   'copy-spaced': 'pub fnc main(): int { return copy! 42; }\n',
   'copy-compact': 'pub fnc main(): int { return copy!42; }\n',
   'legacy-copy': 'pub fnc main(): int { return rt copy 42; }\n',
-  'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n'
+  'reject-space-before-bang': 'pub fnc main(): int { return copy !42; }\n',
+  'borrow-mut-canonical': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(borrow! mut x) + take! x; }\npub fnc main(): int { return wrapper(20); }\n",
+  'borrow-mut-compatible': "fnc inspect_mut(borrow mut int x): int { return x + 2; }\nfnc wrapper(int x): int { return inspect_mut(mut borrow! x) + rt take x; }\npub fnc main(): int { return wrapper(20); }\n"
 });
 
-// Explicit expected LLVM ownership-bang producer identity from draft PR #1831.
+// Explicit expected LLVM ownership-bang + mutable-borrow guest producer from draft PR #1837
+// stacked on #1831. New compiler binary provenance requires independent review.
 // These are *candidate* pins, not an independent review or build attestation.
 // They cannot be self-granted by the CI caller. Any LLVM change must update
 // the expected pair and undergo review. Source SHA/tree agreement alone does
 // NOT prove the executable came from that tree; a trusted build receipt must
 // independently bind that executable SHA-256 before release/guest-parity claims.
-const EXPECTED_LLVM_HEAD = '0a8a9c55860383706598563e796bb40cbaa8fa80';
-const EXPECTED_LLVM_TREE = '5c113f9a34db4675ff973d18414022b49a969e7e';
+const EXPECTED_LLVM_HEAD = '3512a0be998688fe50d685cc038d29e7fe2a5e70';
+const EXPECTED_LLVM_TREE = '13bd97a544bfe7f479bbb39837e7ced3a30877c8';
 
 const entry = name => new URL('./fixtures/ownership-bang-v1/' + name + '.atto',import.meta.url);
 async function fixtures() {
   const result = new Map();
   for (const [name, canonical] of Object.entries(expected)) {
-    const bytes = await readFile(entry(name));
-    assert.ok(bytes.length < 4096,'bounded source');
+    // Pin source-tree provenance as well as content: refuse symlinked fixture
+    // paths, special files and snapshots that change during descriptor reads.
+    const bytes = await readStrictAttoFixture(entry(name));
     assert.equal(bytes.toString('utf8'),canonical,'fixture content drift '+name);
     assert.equal(gitBlob(bytes),fixtureBlobPins[name],
       'reviewed Git blob changed '+name);
@@ -65,7 +72,7 @@ function compilerIdentity(e) {
 
 test('ownership bang .atto fixtures remain exact (SOURCE_ONLY)',async()=>{
   const data=await fixtures();
-  assert.equal(data.size,4);
+  assert.equal(data.size,6);
   assert.notEqual(sha256(data.get('copy-spaced')),sha256(data.get('copy-compact')));
 });
 test('required real compiler cannot silently use an unpinned binary',()=>{
@@ -134,7 +141,7 @@ test('LLVM-to-wasm32 ownership bang source compiles and executes through actual 
       assert.equal(actual.admission.hostCapabilities,0);
       executed++;
     }
-    assert.equal(executed,3);
+    assert.equal(executed,5);
     assert.equal(rejected,1);
   }finally {
     await cleanupRealCompilerWorkspace(work);
