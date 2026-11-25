@@ -29,3 +29,9 @@ jobs:
           node --check scripts/verify-trap-wasm.mjs
           node --check scripts/verify-trap-wasm.test.mjs
           node --test scripts/verify-trap-wasm.test.mjs
+          # Canonical Result profile remains separate from historical Option proof.
+          node --check scripts/verify-trap-result-wasm.mjs
+          node --check src/trap-result-guest-outcome.mjs
+          node --check tests/trap-result-verifier-v1.test.mjs
+          node --check tests/trap-result-guest-outcome.test.mjs
+          node --test tests/trap-result-verifier-v1.test.mjs tests/trap-result-guest-outcome.test.mjs
