@@ -3,7 +3,7 @@
 // Vec<T> owns that backing array and never returns an unproven mutable alias.
 // A consuming generic formal is a TARGET; backends without typed ownership
 // contracts must reject, never silently move a borrowed argument.
-// There is deliberately no fake reserve(), zero-copy slice or unsafe pop():
+// There is deliberately no fake reserve(), zero-copy slice or unchecked pop():
 // those need checked allocator/element-take compiler primitives.
 define module alloc_vec as
   define pub class Vec<T> as
