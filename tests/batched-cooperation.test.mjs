@@ -131,11 +131,11 @@ test('unimplemented Wasm guest checkpoint options fail closed before worker crea
   const bytes = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]);
   await assert.rejects(
     runIsolatedCoreGuest(bytes, {checkpointInterval: 128}),
-    /unknown guest runner option/
+    /unsupported zero-capability guest option/
   );
   await assert.rejects(
     runIsolatedCoreGuest(bytes, {actorPhysicalTurns: 1}),
-    /unknown guest runner option/
+    /unsupported zero-capability guest option/
   );
 });
 
