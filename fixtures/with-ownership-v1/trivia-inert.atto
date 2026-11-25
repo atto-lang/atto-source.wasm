@@ -1,0 +1,6 @@
+// with {x => 5}
+pub routine main(): void {
+    /* nested comment: with {x => 0} */
+    stdio.stdout.write(42);
+    return;
+}
