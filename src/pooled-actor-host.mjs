@@ -41,19 +41,24 @@ export class PooledWasmActors {
   #maxActors;
   #mailboxCapacity;
   #timeoutMs;
+  #isolation;
   #threadPolicy;
 
   constructor(options = {}) {
     // Admit only implemented host options BEFORE starting any OS Worker.
     rejectElasticOptions(options);
     const {workers = 2, maxActors = 256, mailboxCapacity = 16, timeoutMs = 2000,
-      threadPolicy = null} = options;
+      isolation = 'shared', threadPolicy = null} = options;
     // Every admitted actor owns private, import-free, non-shared linear memory.
     // A single OS Worker serializes all turns of actors assigned to it;
     // distinct workers may execute disjoint actor memories in parallel.
     if (threadPolicy !== null && threadPolicy !== 'single-threaded')
       throw new TypeError('unsupported WASM actor pool threading policy');
     this.#threadPolicy = threadPolicy;
+    // Dedicated mode is an interim physical fault domain, not checked-frame parity.
+    if (isolation !== 'shared' && isolation !== 'dedicated')
+      throw new RangeError('invalid actor carrier isolation mode');
+    this.#isolation = isolation;
     bounded(workers, 1, 4, 'worker count');
     this.#maxActors = bounded(maxActors, 1, 4096, 'actor capacity');
     this.#mailboxCapacity = bounded(mailboxCapacity, 1, 1024, 'mailbox capacity');
@@ -72,6 +77,7 @@ export class PooledWasmActors {
       this.#carriers.push(carrier);
     }
   }
+  get isolation() {return this.#isolation;}
   get threadPolicy() {return this.#threadPolicy;}
   get workerCount() {return this.#carriers.length;}
   get actorCount() {return this.#actors.size;}
@@ -260,11 +266,16 @@ export class PooledWasmActors {
         admitted.memoryInitial !== 2 || admitted.memoryMaximum !== 2)
       throw Error('actor requires private fixed two-page memory');
     assertScalarActorAbi(admitted.bytes);
-    const id = ++this.#nextId;
-    const incarnation = randomBytes(16).toString('hex');
     const live = this.#carriers.filter(c => !c.dead);
     if (!live.length) throw Error('no live actor carriers');
-    const carrier = live[(id - 1) % live.length];
+    // Starting, stopping and unconfirmed actors still occupy a carrier.
+    // No await between selection and insertion: concurrent spawn cannot reuse it.
+    const carrier = this.#isolation === 'dedicated'
+      ? live.find(c => ![...this.#actors.values()].some(actor => actor.carrier === c))
+      : live[this.#nextId % live.length];
+    if (!carrier) throw Error('no isolated actor carrier available');
+    const id = ++this.#nextId;
+    const incarnation = randomBytes(16).toString('hex');
     const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
       pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
     this.#actors.set(id, actor);
