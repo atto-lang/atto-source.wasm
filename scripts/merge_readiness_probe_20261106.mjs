@@ -21,7 +21,7 @@ const name_ok = s => typeof s === 'string' && /^[\x20-\x7e]{1,180}$/.test(s)
 const housekeeping = new Set(['set up job', 'complete job', 'initialize containers',
   'start containers', 'stop containers']);
 const meaningful = s => name_ok(s) && !housekeeping.has(s.toLowerCase())
-  && !/^(pre|post)\s/i.test(s);
+  && !/^(?:pre|post)(?:[\s:_-]|$)/i.test(s);
 const own = (o, k) => o !== null && typeof o === 'object'
   && Object.prototype.hasOwnProperty.call(o, k);
 
@@ -58,13 +58,18 @@ export function assess(snapshot, backend, number, expected_head) {
     for (const r of reviews) {
       const login = r?.user?.login;
       if (!name_ok(login) || !name_ok(r?.state)) { deny('MALFORMED_REVIEW'); continue; }
-      latest.set(login.toLowerCase(), r);
+      // GitHub COMMENTED does not revoke a prior APPROVED/CHANGES_REQUESTED state.
+      // DISMISSED and later submitted decisive reviews do supersede it.
+      if (r.state !== 'COMMENTED') latest.set(login.toLowerCase(), r);
     }
-    const owner = latest.get('oresoftware');
-    if (!owner || author.toLowerCase() === 'oresoftware'
-        || owner.state !== 'APPROVED' || owner.commit_id !== expected_head) {
-      deny('MISSING_INDEPENDENT_EXACT_HEAD_APPROVAL');
-    }
+    // Exactly one of the designated reviewers may approve, but never the author.
+    // The diagnostic remains advisory and cannot authorize merging.
+    const approved = ['oresoftware', 'the1mills'].some(login => {
+      const r = latest.get(login);
+      return login !== author.toLowerCase()
+        && r?.state === 'APPROVED' && r.commit_id === expected_head;
+    });
+    if (!approved) deny('MISSING_INDEPENDENT_EXACT_HEAD_APPROVAL');
     if ([...latest.values()].some(r => r.state === 'CHANGES_REQUESTED')) {
       deny('OUTSTANDING_CHANGE_REQUEST');
     }
@@ -90,6 +95,7 @@ export function assess(snapshot, backend, number, expected_head) {
         continue;
       }
       const jobIds = new Set();
+      const jobNames = new Set();
       for (const job of jobs) {
         if (!job || !Number.isSafeInteger(job.id) || job.id < 1
             || jobIds.has(job.id) || job.run_id !== run?.id
@@ -100,6 +106,11 @@ export function assess(snapshot, backend, number, expected_head) {
           deny('UNVERIFIED_JOB_OR_RUNNER');
         }
         if (job?.id) jobIds.add(job.id);
+        if (name_ok(job?.name)) {
+          const key = job.name.toLowerCase();
+          if (jobNames.has(key)) deny('DUPLICATE_JOB_NAME');
+          jobNames.add(key);
+        }
         const steps = job?.steps;
         if (!Array.isArray(steps) || steps.length === 0 || steps.length > 200
             || !steps.some(s => s && meaningful(s.name)
