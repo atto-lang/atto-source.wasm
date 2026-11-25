@@ -9,6 +9,16 @@ fnc checked_value(int input): Result<int, int> {
   return Ok(input);
 }
 pub fnc main(): int {
+  // Exercise inactive alternatives as well as the successful nested match.
+  let int missing = match optional_value(false) over
+    on None -> 20,
+    on Some(_) -> 0,
+  end;
+  let int rejected = match checked_value(-1) over
+    on Err(code) -> 22 + code + 1,
+    on Ok(_) -> 0,
+  end;
+  if missing + rejected != 42; do return 3; fi
   return match optional_value(true) over
     on None -> 1,
     on Some(value) -> match checked_value(2) over
