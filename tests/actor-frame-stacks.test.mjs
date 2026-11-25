@@ -209,3 +209,22 @@ test("cancel one suspended invocation without disturbing a sibling", () => {
   assert.equal(a.stackBytesInUse, 0);
   a.endTurn(next); a.retire();
 });
+
+test("cancel suspended sibling during another active invocation", () => {
+  const a = arena(813), turn = a.beginTurn();
+  const old = a.startStack(turn), f = a.pushStackFrame(turn, old, 2);
+  a.writeStackFrame(turn, old, f, Uint8Array.of(1, 2));
+  const ticket = a.suspendStack(turn, old);
+  const active = a.startStack(turn), g = a.pushStackFrame(turn, active, 2);
+  a.writeStackFrame(turn, active, g, Uint8Array.of(42, 9));
+  a.cancelStack(turn, old);
+  assert.equal(a.stackExecutionCount, 1);
+  assert.equal(a.stackBytesInUse, 2);
+  assert.deepEqual([...a.readStackFrame(turn, active, g)], [42, 9]);
+  a.popStackFrame(turn, active, g);
+  a.finishStack(turn, active);
+  assert.throws(() => a.resumeStack(turn, ticket), /stale or consumed/);
+  assert.equal(a.stackExecutionCount, 0);
+  assert.equal(a.stackBytesInUse, 0);
+  a.endTurn(turn); a.retire();
+});
