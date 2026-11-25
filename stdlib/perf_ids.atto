@@ -1,0 +1,12 @@
+// Compiler-owned static numeric probe IDs for atto.perf-probes.v1.
+// Stable across AOT and optional JIT; never renumber by declaration order.
+// On Java these correlate to CorePerf phase IDs 23..29.
+define module PerfIds as
+  pub fnc actor_user_mail_queue() -> int { return 23; }
+  pub fnc actor_user_mail_dispatch() -> int { return 24; }
+  pub fnc scheduler_turn_queue() -> int { return 25; }
+  pub fnc future_waiter_notify() -> int { return 26; }
+  pub fnc map_set() -> int { return 27; }
+  pub fnc map_get_optional() -> int { return 28; }
+  pub fnc map_delete() -> int { return 29; }
+end
