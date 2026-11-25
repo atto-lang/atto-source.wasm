@@ -17,9 +17,11 @@ jobs:
         shell: bash
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          GIT_NO_REPLACE_OBJECTS: '1'
         run: |
           set -euo pipefail
           [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test -z "$(git for-each-ref --format='%(refname)' refs/replace)" || { echo 'PRIVATE_CI_POLICY_REPLACE_REFS_FORBIDDEN' >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git diff --quiet --exit-code
           # Reject staged index changes and ignored shadow payloads at PR head.
@@ -72,6 +74,8 @@ jobs:
               "/.github/private-ci-independent-reviewer.json",
               "/.github/private-ci-required-checks.json",
               "/.github/workflows/private-ci-policy.yml",
+              "/verification/source-integrity/verify.sh",
+              "/verification/source-integrity/test.sh",
           ]
           for protected_path in paths:
               read_regular("." + protected_path)

@@ -23,3 +23,5 @@
 /.github/private-ci-independent-reviewer.json @ORESoftware
 /.github/private-ci-required-checks.json @ORESoftware
 /.github/workflows/private-ci-policy.yml @ORESoftware
+/verification/source-integrity/verify.sh @ORESoftware
+/verification/source-integrity/test.sh @ORESoftware

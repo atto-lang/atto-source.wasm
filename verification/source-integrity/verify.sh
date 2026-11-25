@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Check physical checkout against a pinned commit before any build step.
 set -euo pipefail
+# Disable commit-object substitution even if a checkout has local replace refs.
+export GIT_NO_REPLACE_OBJECTS=1
 fail() { printf 'SOURCE_INTEGRITY_FAIL: %s\n' "$*" >&2; exit 1; }
 expected="${1:-}"
 [[ "$expected" =~ ^[0-9a-f]{40}$ ]] || fail 'expected SHA must be 40 lowercase hex characters'
 git rev-parse --is-inside-work-tree >/dev/null 2>&1 || fail 'not a Git worktree'
+# A local Git replacement ref must never redefine the pinned commit's tree.
+[[ -z "$(git for-each-ref --format='%(refname)' refs/replace)" ]] || fail 'replace refs are forbidden'
 root="$(git rev-parse --show-toplevel)"
 [[ "$(pwd -P)" == "$(cd "$root" && pwd -P)" ]] || fail 'must run at repository root'
 [[ "$(git rev-parse HEAD)" == "$expected" ]] || fail 'commit mismatch'
