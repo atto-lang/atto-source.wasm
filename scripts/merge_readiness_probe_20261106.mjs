@@ -49,18 +49,56 @@ export function assess(snapshot, backend, number, expected_head) {
       || pr.head?.sha !== expected_head) {
     deny('PR_HEAD_OR_MERGE_STATE');
   }
+  // Bind the PR's reviewed base to the actual main commit from the same read.
+  const mainSha = snapshot?.main?.commit?.sha;
+  if (typeof mainSha !== 'string' || !SHA.test(mainSha)
+      || pr?.base?.sha !== mainSha) {
+    deny('PR_BASE_SHA_NOT_VERIFIED');
+  }
   const author = pr?.user?.login;
   const reviews = snapshot?.reviews;
   if (!Array.isArray(reviews) || reviews.length > 99 || !name_ok(author)) {
     deny('UNTRUSTED_REVIEW_SET');
   } else {
     const latest = new Map();
+    const reviewIds = new Set();
+    const canonicalTime = value => {
+      if (typeof value !== 'string'
+          || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value))
+        return false;
+      const ms = Date.parse(value);
+      if (!Number.isFinite(ms)) return false;
+      const normalized = new Date(ms).toISOString();
+      return normalized === value || normalized.replace('.000Z', 'Z') === value;
+    };
     for (const r of reviews) {
       const login = r?.user?.login;
-      if (!name_ok(login) || !name_ok(r?.state)) { deny('MALFORMED_REVIEW'); continue; }
-      // GitHub COMMENTED does not revoke a prior APPROVED/CHANGES_REQUESTED state.
-      // DISMISSED and later submitted decisive reviews do supersede it.
-      if (r.state !== 'COMMENTED') latest.set(login.toLowerCase(), r);
+      if (!name_ok(login) || !['APPROVED', 'CHANGES_REQUESTED',
+          'DISMISSED', 'COMMENTED', 'PENDING'].includes(r?.state)) {
+        deny('MALFORMED_REVIEW'); continue;
+      }
+      if (!Number.isSafeInteger(r?.id) || r.id < 1 || reviewIds.has(r.id)) {
+        deny('INVALID_OR_DUPLICATE_REVIEW_ID'); continue;
+      }
+      reviewIds.add(r.id);
+      if (r.state !== 'PENDING' && !canonicalTime(r.submitted_at)) {
+        deny('INVALID_REVIEW_TIMESTAMP'); continue;
+      }
+      // A comment is not a submitted approval or revocation. A pending
+      // unsubmitted review is also not a decisive review.
+      if (r.state === 'COMMENTED' || r.state === 'PENDING') continue;
+      const key = login.toLowerCase();
+      const prev = latest.get(key);
+      if (!prev) { latest.set(key, r); continue; }
+      const nextTime = Date.parse(r.submitted_at);
+      const prevTime = Date.parse(prev.submitted_at);
+      // Both ID and timestamp must describe the same submission order.
+      // Never make array/page order a substitute for authenticated chronology.
+      if ((r.id > prev.id && nextTime < prevTime)
+          || (r.id < prev.id && nextTime > prevTime)) {
+        deny('CONTRADICTORY_REVIEW_ORDER'); continue;
+      }
+      if (r.id > prev.id) latest.set(key, r);
     }
     // Exactly one of the designated reviewers may approve, but never the author.
     // The diagnostic remains advisory and cannot authorize merging.
