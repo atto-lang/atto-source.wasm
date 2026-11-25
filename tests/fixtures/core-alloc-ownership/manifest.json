@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "kind": "atto-library-borrow-fixture-v1",
+  "status": "NOT_EXECUTED",
+  "cases": [
+    {
+      "id": "positive_owned_copy",
+      "path": "tests/fixtures/core-alloc-ownership/positive_owned_copy.atto",
+      "expected": "accept"
+    },
+    {
+      "id": "negative_mutate_borrow",
+      "path": "tests/fixtures/core-alloc-ownership/negative_mutate_borrow.atto",
+      "expected": "reject",
+      "diagnostic": "E_BORROW",
+      "evidenceRequired": "semantic-ownership-diagnostic"
+    },
+    {
+      "id": "negative_borrow_escape",
+      "path": "tests/fixtures/core-alloc-ownership/negative_borrow_escape.atto",
+      "expected": "reject",
+      "diagnostic": "E_BORROW",
+      "evidenceRequired": "semantic-ownership-diagnostic"
+    },
+    {
+      "id": "negative_result_escape",
+      "path": "tests/fixtures/core-alloc-ownership/negative_result_escape.atto",
+      "expected": "reject",
+      "diagnostic": "E_BORROW",
+      "evidenceRequired": "semantic-ownership-diagnostic"
+    },
+    {
+      "id": "negative_take_borrow",
+      "path": "tests/fixtures/core-alloc-ownership/negative_take_borrow.atto",
+      "expected": "reject",
+      "diagnostic": "E_BORROW",
+      "evidenceRequired": "semantic-ownership-diagnostic"
+    }
+  ],
+  "promotion": {
+    "compilerParseRequired": true,
+    "semanticOwnershipDiagnosticRequired": true,
+    "syntaxRejectionDoesNotCount": true,
+    "guestExecutionForPositiveRequired": true,
+    "exactHeadRequired": true
+  }
+}

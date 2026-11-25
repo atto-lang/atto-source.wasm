@@ -1,0 +1,6 @@
+// Candidate NEGATIVE: cannot take an object through a shared loan.
+define module borrow_fixture as
+  pub fnc illegal_take(borrow Array<int> input): Array<int> {
+    return rt take input;
+  }
+end

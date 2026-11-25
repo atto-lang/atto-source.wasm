@@ -1,0 +1,50 @@
+// Atto core/convert v2: allocator-free scalar conversions.
+// Integer error codes are an inline value protocol, not heap strings.
+// 1=bool-domain, 2=u8-range, 3=decimal digit, 4=hex digit,
+// 5=invalid decimal accumulator, 6=signed-decimal overflow.
+// These rules require compiler-checked Result ownership/representation.
+define module convert as
+  pub fnc bool_to_int(bool value): int {
+    if value; do return 1; fi
+    return 0;
+  }
+
+  pub fnc try_bool_from_int(int value): Result<bool, int> {
+    if value == 0; do return Ok(false); fi
+    if value == 1; do return Ok(true); fi
+    return Err(1);
+  }
+
+  pub fnc try_u8_from_int(int value): Result<int, int> {
+    if value < 0 || value > 255; do return Err(2); fi
+    return Ok(value);
+  }
+
+  pub fnc ascii_decimal_digit(int scalar): Result<int, int> {
+    if scalar < 48 || scalar > 57; do return Err(3); fi
+    return Ok(scalar - 48);
+  }
+
+  pub fnc ascii_hex_digit(int scalar): Result<int, int> {
+    if scalar >= 48 && scalar <= 57; do return Ok(scalar - 48); fi
+    if scalar >= 65 && scalar <= 70; do return Ok(scalar - 55); fi
+    if scalar >= 97 && scalar <= 102; do return Ok(scalar - 87); fi
+    return Err(4);
+  }
+
+  // Negative accumulator avoids negating i64::MIN. Checking BEFORE
+  // multiplication prevents intermediate overflow in any backend.
+  // The caller tracks the sign and validates the input length/lifetime.
+  pub fnc decimal_step_negative(
+      int accumulator, int digit, bool negative
+    ): Result<int, int> {
+    if digit < 0 || digit > 9; do return Err(3); fi
+    if accumulator > 0; do return Err(5); fi
+    if accumulator < -922337203685477580; do return Err(6); fi
+    if accumulator == -922337203685477580; do
+      if negative && digit > 8; do return Err(6); fi
+      if !negative && digit > 7; do return Err(6); fi
+    fi
+    return Ok(accumulator * 10 - digit);
+  }
+end
