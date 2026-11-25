@@ -1,0 +1,3 @@
+// Reject a value return from a void callable; no guest artifact.
+fnc bad() -> void { return 7; }
+pub fnc main() -> int { bad(); return 0; }

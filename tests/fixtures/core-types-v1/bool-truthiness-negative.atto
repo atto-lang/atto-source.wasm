@@ -1,0 +1,2 @@
+// int is not bool and AttoLang has no truthiness.
+pub fnc main() -> int { if 1; do return 1; fi return 0; }
