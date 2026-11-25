@@ -148,6 +148,64 @@ export async function verifyRealCompiler({
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
       throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
 
+    // Dispatch-v1 canonical source bytes: actual LLVM frontend -> wasm32 ->
+    // zero-import isolated guest. Wasm engine compilation is still runtime JIT.
+    // The class case is a real compile/run admission test, not host JS modeling.
+    for (const caseName of ["direct_call_42", "instance_call_42"]) {
+      const dispatchSource = fileURLToPath(new URL(
+        "../contracts/dispatch-v1/"+caseName+".atto", import.meta.url));
+      const dispatchBytes = await readFile(dispatchSource);
+      const dispatchOutput = join(work, "dispatch-"+caseName+".wasm");
+      const dispatchPublished = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:dispatchSource,
+        output:dispatchOutput, environment:"browser", publication:"atomic"
+      });
+      const dispatchRelease = await readAtomicRelease(dispatchOutput);
+      if (dispatchPublished.sourceSha256 !== sha256(dispatchBytes) ||
+          dispatchPublished.compilerSha256 !== compilerSha256 ||
+          dispatchRelease.manifest.wasmSha256 !== dispatchPublished.wasmSha256 ||
+          sha256(dispatchRelease.wasm) !== dispatchPublished.wasmSha256)
+        throw Error("dispatch source/compiler/Wasm provenance mismatch: "+caseName);
+      const dispatchObserved = await runIsolatedCoreGuest(dispatchRelease.wasm,{
+        expectedSha256:dispatchPublished.wasmSha256,timeoutMs:5000
+      });
+      if (dispatchObserved.value !== 42n ||
+          dispatchObserved.admission.hostCapabilities !== 0 ||
+          dispatchObserved.admission.imports !== 0)
+        throw Error("compiled Atto dispatch did not return isolated 42: "+caseName);
+      console.log("DISPATCH_WASM_GUEST_PASS|case="+caseName+
+        "|llvm_source_head="+llvmSourceSha+
+        "|source_sha256="+dispatchPublished.sourceSha256+
+        "|wasm_sha256="+dispatchPublished.wasmSha256+
+        "|strict_no_jit=NOT_EXECUTED");
+    }
+
+    // Ensure unsupported or invalid shared source never publishes Wasm.
+    // A generic syntax rejection is NOT evidence of a validated arity rule.
+    for(const caseName of [
+      "static_qualified_42","virtual_override_121020","wrong_arity_reject"
+    ]) {
+      const invalidSource = fileURLToPath(new URL(
+        "../contracts/dispatch-v1/"+caseName+".atto",import.meta.url));
+      const rejectedOutput = join(work,"dispatch-reject-"+caseName+".wasm");
+      let rejected=false;
+      try {
+        await compileOresToWasm({
+          compiler:pinnedCompiler,compilerSha256,source:invalidSource,
+          output:rejectedOutput,environment:"browser",publication:"atomic"
+        });
+      } catch(error) {
+        if (!error || !String(error.message || error).trim())
+          throw Error("dispatch rejection lacked diagnostic for "+caseName);
+        rejected=true;
+      }
+      if (!rejected) throw Error("unimplemented dispatch was admitted: "+caseName);
+      try { await stat(rejectedOutput); throw Error("rejected dispatch published Wasm: "+caseName); }
+      catch(error) { if (error.code !== "ENOENT") throw error; }
+      console.log("DISPATCH_WASM_FAIL_CLOSED|case="+caseName+
+        "|wasm_artifact=NONE|virtual_static_parity=NOT_IMPLEMENTED");
+    }
+
     // A real compiler, not an IR test double, must support independently
     // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
     // mistakes that a constant-42 smoke test cannot expose.
