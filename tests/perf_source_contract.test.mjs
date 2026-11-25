@@ -22,7 +22,10 @@ test('disabled clock path returns without monotonic clock access',()=>{
 test('sample decision rejects unknown or excessive divisors before modulo',()=>{
  const sample=perf.split('pub fnc should_sample')[1];
  assert.match(sample,/every_n < 1 \|\| every_n > 65536/);
- assert.ok(sample.indexOf('every_n < 1')<sample.indexOf('sample_key % every_n'));
+ const divisibility = '(sample_key / every_n) * every_n == sample_key';
+ assert.ok(sample.includes(divisibility));
+ assert.ok(sample.indexOf('every_n < 1') < sample.indexOf(divisibility));
+ assert.doesNotMatch(no_comments(sample), /%/);
 });
 test('buffer is actor-owned and finite, saturating drop count',()=>{
  assert.match(alloc,/let mut Array<Event> events/);
