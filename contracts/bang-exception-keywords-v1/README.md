@@ -131,3 +131,8 @@ cases require a real independently reviewed compiler artifact from `.rs`.
 This draft has **no such approved artifact or executed guest receipt** so far.
 Do not transfer private compiler bytes to a new organization without
 destination-specific authorization.
+
+
+## Mandatory keyword separator (Atto-spec #244)
+
+The approved compiler-artifact gate also demands 75 compact-keyword rejections with `E_BANG_KEYWORD_WHITESPACE` and no published guest artifact. Valid examples use `trap! (expr)` and `copy!! value`. This is a real compiler-artifact requirement, not an independent Wasm frontend implementation or a passing evidence claim. The upstream Rust compiler must be updated and independently approved before this gate can qualify.
