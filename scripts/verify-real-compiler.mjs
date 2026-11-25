@@ -75,10 +75,18 @@ export function assertSelectFrontendRejection(frontend) {
 export function assertSingletonFrontendRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   const stderr = String(frontend.stderr || "");
-  if (!stderr.includes("ORES-SINGLETON-UNSUPPORTED") ||
-      !stderr.includes("five-backend guest execution parity"))
+  // Require the code and the semantic parity reason on the *same* native
+  // compiler diagnostic line. Echoed source, tool banners or unrelated
+  // stderr lines cannot spoof an independently issued compiler rejection.
+  if (!/^oreslang-llvmc:[ \t]+ORES-SINGLETON-UNSUPPORTED:[^\r\n]*five-backend guest execution parity(?:[ \t]+at byte [0-9]+)?[ \t]*$/m.test(stderr))
     throw Error("singleton rejection did not come from the required compiler-owned admission gate");
   return true;
+}
+/** Reject only an actual compiler process diagnostic from the Wasm bridge. */
+export function assertSingletonBridgeRejection(error) {
+  if (!(error instanceof Error) || !error.message.startsWith("command failed ("))
+    throw Error("singleton bridge rejection must be an executed native compiler failure");
+  return assertSingletonFrontendRejection(error);
 }
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
@@ -521,7 +529,10 @@ export async function verifyRealCompiler({
         environment:"browser", publication:"atomic"
       });
     } catch (error) {
-      if (!/command failed/i.test(String(error))) throw error;
+      // Do not count a failed clang/linker invocation, timeout, signal or
+      // generic bridge error as proof of compiler-owned singleton rejection.
+      // compileOresToWasm preserves the native process exit/stderr/stdout.
+      assertSingletonBridgeRejection(error);
       singletonBridgeRejected = true;
     }
     if (!singletonBridgeRejected)
