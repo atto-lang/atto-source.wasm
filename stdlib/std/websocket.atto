@@ -1,0 +1,127 @@
+// Backend-owned Atto source: wasm; independent implementation lifecycle.
+// std/websocket: RFC 6455 framing, fragmentation and admission in Atto.
+// No host sockets, SHA-1 handshake, TLS, buffer ownership, UTF-8 decoder or
+// actor scheduler are fabricated here. Those require explicit runtime bindings.
+// All payload sizes are signed i64; negative and over-budget values fail shut.
+pub fnc websocket_valid_octet(int value): bool {
+  return value >= 0 && value <= 255;
+}
+
+pub fnc websocket_valid_opcode(int opcode): bool {
+  return opcode == 0 || opcode == 1 || opcode == 2 ||
+         opcode == 8 || opcode == 9 || opcode == 10;
+}
+
+pub fnc websocket_control_opcode(int opcode): bool {
+  return opcode == 8 || opcode == 9 || opcode == 10;
+}
+
+pub fnc websocket_valid_close_code(int code): bool {
+  if code >= 3000 && code <= 4999 then return true; fi
+  if code < 1000 || code > 1014 then return false; fi
+  if code == 1004 || code == 1005 || code == 1006 then return false; fi
+  return true;
+}
+
+pub fnc websocket_payload_length_width(int seven_bit_length): int {
+  if seven_bit_length < 0 || seven_bit_length > 127 then return -1; fi
+  if seven_bit_length == 126 then return 2; fi
+  if seven_bit_length == 127 then return 8; fi
+  return 0;
+}
+
+// Frame-level header policy; caller still validates UTF-8, RSV extension
+// negotiation, canonical extended-length encoding, and actual buffer lifetime.
+pub fnc websocket_frame_admit(
+  int opcode, bool fin, bool masked, int payload_length, int frame_budget,
+  bool from_client, bool fragmented_open, bool rsv_set
+): bool {
+  if !websocket_valid_opcode(opcode) || rsv_set then return false; fi
+  if payload_length < 0 || frame_budget < 0 then return false; fi
+  if payload_length > frame_budget then return false; fi
+  if from_client != masked then return false; fi
+  if websocket_control_opcode(opcode) then
+    if !fin || payload_length > 125 then return false; fi
+    if opcode == 8 && payload_length == 1 then return false; fi
+    return true;
+  fi
+  if opcode == 0 then return fragmented_open; fi
+  return !fragmented_open;
+}
+
+// 0 or 1 = new fragment-open state; -1 = protocol violation.
+// Control frames may interleave without affecting the fragmented message.
+pub fnc websocket_next_fragment_state(int opcode, bool fin, bool fragmented_open): int {
+  if !websocket_valid_opcode(opcode) then return -1; fi
+  if websocket_control_opcode(opcode) then
+    if !fin then return -1; fi
+    if fragmented_open then return 1; fi
+    return 0;
+  fi
+  if opcode == 0 then
+    if !fragmented_open then return -1; fi
+  else
+    if fragmented_open then return -1; fi
+  fi
+  if fin then return 0; fi
+  return 1;
+}
+
+// Extended payloads must use the shortest length representation.
+// 63-bit signed storage additionally rejects the RFC 6455 64-bit high bit.
+pub fnc websocket_extended_length_valid(int marker, int length, bool high_bit_clear): bool {
+  if length < 0 then return false; fi
+  if marker == 126 then return length >= 126 && length <= 65535; fi
+  if marker == 127 then return high_bit_clear && length >= 65536; fi
+  return false;
+}
+
+// Arithmetic is subtraction-first to avoid overflow of buffered + incoming.
+pub fnc websocket_backpressure_admit(int buffered, int incoming, int capacity): bool {
+  if buffered < 0 || incoming < 0 || capacity < 0 then return false; fi
+  if buffered > capacity then return false; fi
+  return incoming <= capacity - buffered;
+}
+
+pub fnc websocket_payload_fits(int payload_length, int available, int limit): bool {
+  if payload_length < 0 || available < 0 || limit < 0 then return false; fi
+  return payload_length <= available && payload_length <= limit;
+}
+
+// RFC 6455 XOR mask, source-implemented and byte-bounded; returns -1 on bad
+// input. Caller chooses the correct mask byte by payload position modulo 4.
+pub fnc websocket_mask_octet(int octet, int mask_octet): int {
+  if !websocket_valid_octet(octet) || !websocket_valid_octet(mask_octet) then
+    return -1;
+  fi
+  let a: int = octet;
+  let b: int = mask_octet;
+  let factor: int = 1;
+  let result: int = 0;
+  for (let int i = 0; i < 8; i = i + 1) {
+    if (a - (a / 2) * 2) != (b - (b / 2) * 2) then result = result + factor; fi
+    a = a / 2;
+    b = b / 2;
+    factor = factor * 2;
+  }
+  return result;
+}
+
+// The first two bytes of a Close payload encode a network-order status code.
+// A close payload of length zero is handled by the caller as "no status".
+// Returns -1 if either byte is malformed or the code is forbidden on the wire.
+pub fnc websocket_decode_close_code(int high, int low): int {
+  if !websocket_valid_octet(high) || !websocket_valid_octet(low) then
+    return -1;
+  fi
+  let code: int = high * 256 + low;
+  if !websocket_valid_close_code(code) then return -1; fi
+  return code;
+}
+
+pub fnc websocket_header_bytes(int seven_bit_length, bool masked): int {
+  let extension_width: int = websocket_payload_length_width(seven_bit_length);
+  if extension_width < 0 then return -1; fi
+  if masked then return 6 + extension_width; fi
+  return 2 + extension_width;
+}

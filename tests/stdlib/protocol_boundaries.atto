@@ -1,0 +1,161 @@
+// Backend-owned .atto boundary conformance: wasm; independently maintained std implementations.
+// 109 first-failure status assertions; this source is NOT an executed-guest receipt.
+// Imports are explicit from this compiler's own stdlib source files.
+import fnc websocket_backpressure_admit,
+  websocket_control_opcode,
+  websocket_decode_close_code,
+  websocket_extended_length_valid,
+  websocket_frame_admit,
+  websocket_header_bytes,
+  websocket_mask_octet,
+  websocket_next_fragment_state,
+  websocket_payload_fits,
+  websocket_payload_length_width,
+  websocket_valid_close_code,
+  websocket_valid_octet,
+  websocket_valid_opcode
+  from '../../stdlib/std/websocket';
+import fnc quic_ack_delay_exponent_valid,
+  quic_ack_range_valid,
+  quic_connection_credit_admit,
+  quic_datagram_fits,
+  quic_decode_octet_valid,
+  quic_decode_varint_1,
+  quic_decode_varint_2,
+  quic_decode_varint_4,
+  quic_decode_varint_8,
+  quic_encoding_min_width,
+  quic_flow_limit_update_valid,
+  quic_max_ack_delay_valid,
+  quic_stream_bidirectional,
+  quic_stream_client_initiated,
+  quic_stream_id_valid,
+  quic_stream_range_fits,
+  quic_varint_fits_width,
+  quic_varint_octet,
+  quic_wire_integer_valid,
+  quic_zero_rtt_candidate
+  from '../../stdlib/std/quic';
+import fnc compute_alignment_valid,
+  compute_buffer_range_fits,
+  compute_capabilities_satisfy,
+  compute_dispatch_valid,
+  compute_exact_buffer_layout,
+  compute_groups_for_axis,
+  compute_simd_lanes_supported,
+  compute_upload_admit,
+  compute_workgroup_valid
+  from '../../stdlib/std/compute';
+
+pub routine main(): int {
+  if !(!websocket_valid_octet(-1)) then return 1; fi
+  if !(websocket_valid_octet(0)) then return 2; fi
+  if !(websocket_valid_octet(255)) then return 3; fi
+  if !(!websocket_valid_octet(256)) then return 4; fi
+  if !(websocket_valid_opcode(0)) then return 5; fi
+  if !(!websocket_valid_opcode(3)) then return 6; fi
+  if !(websocket_control_opcode(8)) then return 7; fi
+  if !(!websocket_control_opcode(2)) then return 8; fi
+  if !(websocket_valid_close_code(1000)) then return 9; fi
+  if !(!websocket_valid_close_code(1005)) then return 10; fi
+  if !(!websocket_valid_close_code(1015)) then return 11; fi
+  if !(websocket_valid_close_code(3000)) then return 12; fi
+  if !(websocket_valid_close_code(4999)) then return 13; fi
+  if !(!websocket_valid_close_code(5000)) then return 14; fi
+  if !(websocket_payload_length_width(125) == 0) then return 15; fi
+  if !(websocket_payload_length_width(126) == 2) then return 16; fi
+  if !(websocket_payload_length_width(127) == 8) then return 17; fi
+  if !(websocket_payload_length_width(128) == -1) then return 18; fi
+  if !(websocket_frame_admit(9, true, true, 125, 125, true, false, false)) then return 19; fi
+  if !(!websocket_frame_admit(9, true, true, 126, 126, true, false, false)) then return 20; fi
+  if !(websocket_frame_admit(0, true, true, 1, 2, true, true, false)) then return 21; fi
+  if !(!websocket_frame_admit(1, true, true, 1, 2, true, true, false)) then return 22; fi
+  if !(websocket_frame_admit(1, true, false, 1, 2, false, false, false)) then return 23; fi
+  if !(websocket_next_fragment_state(1, false, false) == 1) then return 24; fi
+  if !(websocket_next_fragment_state(0, false, true) == 1) then return 25; fi
+  if !(websocket_next_fragment_state(8, true, true) == 1) then return 26; fi
+  if !(websocket_next_fragment_state(1, true, true) == -1) then return 27; fi
+  if !(websocket_extended_length_valid(126, 126, true)) then return 28; fi
+  if !(!websocket_extended_length_valid(126, 125, true)) then return 29; fi
+  if !(websocket_extended_length_valid(127, 65536, true)) then return 30; fi
+  if !(!websocket_extended_length_valid(127, 65536, false)) then return 31; fi
+  if !(websocket_backpressure_admit(3, 7, 10)) then return 32; fi
+  if !(!websocket_backpressure_admit(3, 8, 10)) then return 33; fi
+  if !(websocket_payload_fits(5, 10, 5)) then return 34; fi
+  if !(!websocket_payload_fits(6, 10, 5)) then return 35; fi
+  if !(websocket_mask_octet(0, 255) == 255) then return 36; fi
+  if !(websocket_mask_octet(999, 1) == -1) then return 37; fi
+  if !(websocket_decode_close_code(0, 0) == -1) then return 38; fi
+  if !(websocket_decode_close_code(11, 184) == 3000) then return 39; fi
+  if !(websocket_header_bytes(125, false) == 2) then return 40; fi
+  if !(websocket_header_bytes(125, true) == 6) then return 41; fi
+  if !(websocket_header_bytes(126, true) == 8) then return 42; fi
+  if !(websocket_header_bytes(127, false) == 10) then return 43; fi
+  if !(websocket_header_bytes(200, false) == -1) then return 44; fi
+  if !(quic_wire_integer_valid(4611686018427387903)) then return 45; fi
+  if !(!quic_wire_integer_valid(4611686018427387904)) then return 46; fi
+  if !(quic_stream_id_valid(2) && quic_stream_client_initiated(2)) then return 47; fi
+  if !(!quic_stream_client_initiated(3)) then return 48; fi
+  if !(!quic_stream_bidirectional(3)) then return 49; fi
+  if !(quic_encoding_min_width(63) == 1) then return 50; fi
+  if !(quic_encoding_min_width(64) == 2) then return 51; fi
+  if !(quic_encoding_min_width(16383) == 2) then return 52; fi
+  if !(quic_encoding_min_width(16384) == 4) then return 53; fi
+  if !(quic_encoding_min_width(1073741824) == 8) then return 54; fi
+  if !(quic_varint_fits_width(63, 1)) then return 55; fi
+  if !(!quic_varint_fits_width(64, 1)) then return 56; fi
+  if !(quic_varint_fits_width(4611686018427387903, 8)) then return 57; fi
+  if !(!quic_varint_fits_width(16384, 2)) then return 58; fi
+  if !(quic_varint_octet(0, 1, 0) == 0) then return 59; fi
+  if !(quic_varint_octet(63, 1, 0) == 63) then return 60; fi
+  if !(quic_varint_octet(1, 2, 0) == 64) then return 61; fi
+  if !(quic_varint_octet(1, 2, 1) == 1) then return 62; fi
+  if !(quic_varint_octet(63, 4, 0) == 128) then return 63; fi
+  if !(quic_stream_range_fits(0, 4611686018427387903, 4611686018427387903)) then return 64; fi
+  if !(!quic_stream_range_fits(4611686018427387903, 1, 4611686018427387903)) then return 65; fi
+  if !(quic_connection_credit_admit(5, 5, 10)) then return 66; fi
+  if !(quic_flow_limit_update_valid(1, 2)) then return 67; fi
+  if !(!quic_flow_limit_update_valid(2, 1)) then return 68; fi
+  if !(quic_ack_range_valid(123, 123)) then return 69; fi
+  if !(!quic_ack_range_valid(3, 4)) then return 70; fi
+  if !(quic_ack_delay_exponent_valid(20)) then return 71; fi
+  if !(!quic_ack_delay_exponent_valid(21)) then return 72; fi
+  if !(quic_max_ack_delay_valid(16383)) then return 73; fi
+  if !(!quic_max_ack_delay_valid(16384)) then return 74; fi
+  if !(quic_datagram_fits(7, 8, 7)) then return 75; fi
+  if !(!quic_datagram_fits(8, 8, 7)) then return 76; fi
+  if !(quic_zero_rtt_candidate(true, true, true, true)) then return 77; fi
+  if !(!quic_zero_rtt_candidate(true, true, true, false)) then return 78; fi
+  if !(quic_decode_octet_valid(255)) then return 79; fi
+  if !(!quic_decode_octet_valid(256)) then return 80; fi
+  if !(quic_decode_varint_1(64) == -1) then return 81; fi
+  if !(quic_decode_varint_2(64, 1) == 1) then return 82; fi
+  if !(quic_decode_varint_4(128, 0, 0, 1) == 1) then return 83; fi
+  if !(quic_decode_varint_8(192, 0, 0, 0, 0, 0, 0, 1) == 1) then return 84; fi
+  if !(quic_decode_varint_8(255, 255, 255, 255, 255, 255, 255, 255) == 4611686018427387903) then return 85; fi
+  if !(quic_varint_octet(2, 2, 0) == 64) then return 86; fi
+  if !(quic_varint_octet(2, 2, 1) == 2) then return 87; fi
+  if !(compute_alignment_valid(1)) then return 88; fi
+  if !(compute_alignment_valid(1048576)) then return 89; fi
+  if !(!compute_alignment_valid(1048577)) then return 90; fi
+  if !(compute_exact_buffer_layout(4, 0, 4, 0)) then return 91; fi
+  if !(!compute_exact_buffer_layout(4, 0, 4, 1)) then return 92; fi
+  if !(compute_exact_buffer_layout(1, 9223372036854775807, 1, 9223372036854775807)) then return 93; fi
+  if !(!compute_exact_buffer_layout(2, 9223372036854775807, 1, 9223372036854775807)) then return 94; fi
+  if !(compute_buffer_range_fits(8, 2, 10)) then return 95; fi
+  if !(!compute_buffer_range_fits(8, 3, 10)) then return 96; fi
+  if !(compute_workgroup_valid(16, 16, 1, 256)) then return 97; fi
+  if !(!compute_workgroup_valid(16, 16, 2, 256)) then return 98; fi
+  if !(compute_groups_for_axis(9223372036854775807, 1) == 9223372036854775807) then return 99; fi
+  if !(compute_groups_for_axis(9, 8) == 2) then return 100; fi
+  if !(compute_dispatch_valid(16, 16, 1, 8, 8, 1, 64) && compute_dispatch_valid(1, 1, 1, 8, 8, 1, 64) && compute_dispatch_valid(9, 9, 1, 8, 8, 1, 64)) then return 101; fi
+  if !(!compute_dispatch_valid(16, 16, 1, 8, 8, 2, 64)) then return 102; fi
+  if !(compute_simd_lanes_supported(4, 8)) then return 103; fi
+  if !(!compute_simd_lanes_supported(3, 8)) then return 104; fi
+  if !(compute_capabilities_satisfy(64, 64, true, true, false, false)) then return 105; fi
+  if !(!compute_capabilities_satisfy(32, 64, true, true, false, false)) then return 106; fi
+  if !(compute_upload_admit(0, 1, 1, true, true)) then return 107; fi
+  if !(!compute_upload_admit(1, 1, 1, true, true)) then return 108; fi
+  if !(!compute_upload_admit(0, 1, 1, false, true)) then return 109; fi
+  return 0;
+}

@@ -1,0 +1,32 @@
+// Candidate backend-owned Atto core/borrow + std protocol contract: wasm.
+// Only Rust has a linked compiler/Wasm guest harness at this stage.
+// This source alone does not prove wasm parses or enforces borrow!/take!.
+// Ownership is enforced in the compiler's core checker, never via a host surrogate.
+import fnc websocket_backpressure_admit from '../../stdlib/std/websocket';
+import fnc quic_stream_range_fits from '../../stdlib/std/quic';
+import fnc compute_buffer_range_fits, compute_upload_admit from '../../stdlib/std/compute';
+
+define class BoundedBuffer as
+  pub let int capacity = 10;
+  pub let int consumed = 0;
+end
+
+pub routine main(): int {
+  let buffer = new BoundedBuffer();
+  block {
+    val reader = borrow! buffer;
+    val second_reader = borrow! buffer;
+    if !compute_buffer_range_fits(2, 3, reader.capacity) then return 1; fi
+    if !quic_stream_range_fits(2, 3, second_reader.capacity) then return 2; fi
+    if !websocket_backpressure_admit(reader.consumed, 3, second_reader.capacity) then return 3; fi
+  }
+  block {
+    val writer = borrow! mut buffer;
+    writer.consumed = 3;
+    if writer.consumed != 3 then return 4; fi
+  }
+  val transferred = take! buffer;
+  if !compute_upload_admit(2, 3, transferred.capacity, true, true) then return 5; fi
+  if transferred.consumed != 3 then return 6; fi
+  return 0;
+}
