@@ -535,19 +535,22 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
   }catch(error){if(error?.code!=="ENOENT")throw error}
  }
  await rejectMixedPublication(published,publication);
- const [sourceSnapshot,compilerSnapshot]=await Promise.all([
-  readBoundedRegularFile(sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget"),
-  readBoundedRegularFile(compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget")
- ]);
- // Input paths may have changed after the initial preflight/inode overlap
- // checks. Refuse a different input inode rather than pinning a new source
- // through a validated destination alias.
- if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino||
-    compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
-  throw Error("compiler or source input changed between preflight and snapshot");
- const sourceBytes=sourceSnapshot.bytes,compilerBytes=compilerSnapshot.bytes;
- // Reject unresolved Oreslang imports before any compiler invocation or artifact staging.
+ // Read and pin the SOURCE first. An unresolved import is a fatal admission
+ // error in this standalone scalar bridge, so do not read or execute a
+ // potentially 256 MiB compiler binary before denying that source.
+ // This ordering also makes unlinked-module attacks cheap to reject.
+ const sourceSnapshot=await readBoundedRegularFile(
+  sourcePath,MAX_SOURCE_BYTES,"source exceeds 1 MiB compiler bridge budget");
+ if(sourceSnapshot.stat.dev!==sourceStat.dev||sourceSnapshot.stat.ino!==sourceStat.ino)
+  throw Error("source input changed between preflight and snapshot");
+ const sourceBytes=sourceSnapshot.bytes;
+ // Never silently compile a partial graph, even with a real trusted LLVM binary.
  assertScalarSourceHasNoImports(sourceBytes);
+ const compilerSnapshot=await readBoundedRegularFile(
+  compilerPath,MAX_COMPILER_BYTES,"compiler exceeds 256 MiB executable budget");
+ if(compilerSnapshot.stat.dev!==compilerStat.dev||compilerSnapshot.stat.ino!==compilerStat.ino)
+  throw Error("compiler input changed between preflight and snapshot");
+ const compilerBytes=compilerSnapshot.bytes;
  // ActorGroup/Topic lowering is a distinct gate from physical actor threading.
  // Reject before invoking LLVM or staging any guest artifact.
  rejectUnsupportedActorPubSubSource(sourceBytes);
