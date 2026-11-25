@@ -1,0 +1,4 @@
+define http actor Endpoint as
+  int requestConcurrency = 3;
+  int messageConcurrency = 4;
+end
