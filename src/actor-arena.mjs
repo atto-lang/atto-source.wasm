@@ -265,7 +265,7 @@ export class ActorArena {
     const memory = new trustedWasmMemory({initial: 1, maximum: 1});
     const execution = trustedFreeze({});
     trustedApply(trustedMapSet, this.#stackExecutions, [execution, {
-      memory, top: 0, frames: [], suspension: null
+      memory, top: 0, frames: [], suspension: null, suspendedTurn: null
     }]);
     this.#activeStack = execution;
     return execution;
@@ -340,7 +340,10 @@ export class ActorArena {
   suspendStack(turn, execution) {
     const stack = this.#requireStack(turn, execution);
     const ticket = trustedFreeze({});
+    // The current physical turn remains authoritative until endTurn().
+    // A suspended logical task may only resume after a new turn was admitted.
     stack.suspension = ticket;
+    stack.suspendedTurn = turn;
     trustedApply(trustedWeakMapSet, this.#stackResumeTickets, [ticket, execution]);
     this.#activeStack = null;
     return ticket;
@@ -354,8 +357,16 @@ export class ActorArena {
     if (!stack || stack.suspension !== ticket) {
       throw new Error("foreign, stale or consumed actor stack resume ticket");
     }
+    // Do not consume the ticket on a denied same-turn attempt: the scheduler
+    // may still end the issuing turn and resume this exact task legitimately.
+    // Checking the opaque token (rather than a caller-controlled epoch) also
+    // rejects same-turn replay while preserving independent actor identities.
+    if (stack.suspendedTurn === turn) {
+      throw new Error("actor stack resume requires a new physical actor turn");
+    }
     trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [ticket]);
     stack.suspension = null;
+    stack.suspendedTurn = null;
     this.#activeStack = execution;
     return execution;
   }
@@ -366,6 +377,8 @@ export class ActorArena {
       trustedApply(trustedWeakMapDelete, this.#stackFrames, [stack.frames[i]]);
     }
     if (stack.suspension !== null) trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [stack.suspension]);
+    stack.suspension = null;
+    stack.suspendedTurn = null;
     stack.memory = null;
     trustedApply(trustedMapDelete, this.#stackExecutions, [execution]);
     if (this.#activeStack === execution) this.#activeStack = null;
