@@ -132,3 +132,31 @@ test('spinning guest kills only its TenantVM and physically retires the worker',
     await assert.rejects(host.send_actor(a, culprit, 1n), /foreign or stale/);
   } finally {await host.close();}
 });
+
+test('confirmed tenant retirement revokes retained actor capabilities across generation reuse', async () => {
+  const wasm = hostFixture();
+  const host = new TrustedTenantVMHost({maxTenants: 1, maxActorsPerTenant: 2,
+    maxHostActors: 2, timeoutMs: 5000});
+  const stale = [];
+  try {
+    for (let generation = 1; generation <= 4; generation++) {
+      const tenant = host.open_trusted_tenant_vm('recycled-id', {trusted: true});
+      const first = await host.spawn_actor(tenant, wasm, {expectedSha256: pin(wasm)});
+      const second = await host.spawn_actor(tenant, wasm, {expectedSha256: pin(wasm)});
+      assert.equal(await host.send_actor(tenant, first, 1n), 1n);
+      assert.equal(await host.send_actor(tenant, second, 2n), 2n);
+      for (const expired of stale) {
+        await assert.rejects(host.send_actor(expired.tenant, expired.ref, 1n), /foreign or stale/);
+        await assert.rejects(host.send_actor(tenant, expired.ref, 1n), /foreign|stale|retired/);
+      }
+      // Keep both actor references in the caller after physical termination:
+      // no old token may authorize a new generation or keep registry authority.
+      await host.close_tenant_vm(tenant);
+      stale.push({tenant, ref: first}, {tenant, ref: second});
+      assert.equal(host.tenantCount, 0);
+      assert.equal(host.reservedActorCount, 0);
+      await assert.rejects(host.send_actor(tenant, first, 1n), /foreign or stale/);
+    }
+    assert.equal(stale.length, 8);
+  } finally { await host.close(); }
+});
