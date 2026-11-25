@@ -1,4 +1,5 @@
 import {types} from "node:util";
+import {copyPrivateBytes, copyPrivateBytesInto} from "./actor-frame-bytes.mjs";
 
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
@@ -18,7 +19,6 @@ const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteL
 const trustedBytes = Uint8Array;
 const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
-const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
 const trustedArrayPush = Array.prototype.push;
 const trustedArrayPop = Array.prototype.pop;
@@ -265,7 +265,7 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
+    return copyPrivateBytes(this.#bytes(), offset, length);
   }
 
   #requireExternalBytes(data, length) {
@@ -352,8 +352,13 @@ export class ActorArena {
 
   readStackFrame(turn, execution, frame) {
     const {stack, slot} = this.#topStackFrame(turn, execution, frame);
-    return trustedApply(trustedSlice, ownedBytes(stack.memory),
-      [slot.offset, slot.offset + slot.length]); // defensive copy
+    return copyPrivateBytes(ownedBytes(stack.memory), slot.offset, slot.length);
+  }
+
+  // Caller-owned destination: no per-read allocation of a result buffer.
+  readStackFrameInto(turn, execution, frame, destination) {
+    const {stack, slot} = this.#topStackFrame(turn, execution, frame);
+    copyPrivateBytesInto(ownedBytes(stack.memory), slot.offset, slot.length, destination);
   }
 
   writeStackFrame(turn, execution, frame, data) {
