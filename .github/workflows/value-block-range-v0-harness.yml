@@ -1,0 +1,39 @@
+name: AttoLang value-block/range guest harness self-tests (SOURCE-FREE)
+on:
+  push:
+    paths:
+      - 'contracts/value-block-range-v0/**'
+      - 'scripts/run-value-block-range-v0.mjs'
+      - 'tests/value-block-range-v0-harness.test.mjs'
+      - '.github/workflows/value-block-range-v0-harness.yml'
+  pull_request:
+    paths:
+      - 'contracts/value-block-range-v0/**'
+      - 'scripts/run-value-block-range-v0.mjs'
+      - 'tests/value-block-range-v0-harness.test.mjs'
+      - '.github/workflows/value-block-range-v0-harness.yml'
+permissions:
+  contents: read
+jobs:
+  harness-negative-controls-not-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind exact PR head
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          echo "ATTO_VBR_SOURCE_HEAD=$EXPECTED_HEAD"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: node --test tests/value-block-range-v0-harness.test.mjs
+      - run: echo "SOURCE_FREE_NEGATIVE_CONTROLS_ONLY_NOT_ATTO_GUEST_VERIFICATION"
