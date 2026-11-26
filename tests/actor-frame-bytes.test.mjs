@@ -39,7 +39,11 @@ test("fixed memory view is reused and refreshed after grow(0)", () => {
   assert.notEqual(next, first);
   assert.equal(next[42], 99);
   assert.equal(refreshPrivateMemoryView(memory, next), next);
-  assert.notEqual(refreshPrivateMemoryView(memory, next.subarray(0, 8)), next);
+  const partial = next.subarray(0, 8);
+  const full = refreshPrivateMemoryView(memory, partial);
+  assert.notEqual(full, partial);
+  assert.equal(full.byteLength, 65536);
+  assert.equal(full[42], 99);
   const shared = new WebAssembly.Memory({initial: 1, maximum: 1, shared: true});
   assert.throws(() => refreshPrivateMemoryView(shared), /shared backing/);
 });
