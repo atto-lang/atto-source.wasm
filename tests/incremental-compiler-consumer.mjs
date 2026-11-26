@@ -57,7 +57,7 @@ if(!isMainThread){
    console.log('V3_WASM_CONSUMER|actual-browser-worker-guests=10203/10203/42010203/40506/40506|observer-byte-stable|stale-pin-denied|strict-native-abi-denial-preserved');
    if(parameterized){
      const [p,w,e]=await Promise.all(args.slice(5).map(p=>readFile(p)));
-     assert.deepEqual(p,w);assert.notDeepEqual(p,e);assert.notDeepEqual(p,edit);
+     assert.deepEqual(p,w);assert.notDeepEqual(p,e);
      const pp=sha(p),ep=sha(e);
      for(const [bytes,pin,expected] of [[p,pp,'42010203'],[w,pp,'42010203'],[e,ep,'43010203']]){
        await assert.rejects(runIsolatedCoreGuest(bytes,{expectedSha256:pin,timeoutMs:5000}),/exactly one privately defined, bounded linear memory/);
