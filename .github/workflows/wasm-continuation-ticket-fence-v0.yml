@@ -1,0 +1,102 @@
+name: Wasm actor continuation ticket host-only v0
+
+on:
+  pull_request:
+    paths:
+      - 'src/host-continuation-ticket-fence-v0.mjs'
+      - 'src/supervised-pooled-actor.mjs'
+      - 'tests/host-continuation-ticket-fence-v0.test.mjs'
+      - 'contracts/actor-continuation-fence-v0/**'
+      - '.github/workflows/wasm-continuation-ticket-fence-v0.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-ticket-admission-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout immutable source HEAD without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify exact source HEAD and canonical negative guest fixture
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          test "$(git hash-object contracts/actor-continuation-fence-v0/suspended-actor-negative.atto)" = "aebd40549e88b49c906fd3fa2b0569ec7800deec"
+          echo "HOST_TICKET_SOURCE_HEAD=$EXPECTED_HEAD"
+          echo "HOST_TICKET_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Install Node.js 22
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Execute nine host ticket tests without any guest interpreter
+        shell: bash
+        env:
+          ATTO_REQUIRE_REAL_SUPERVISOR_GUEST: '0'
+          ORESLANG_LLVM_COMPILER: ''
+          ORESLANG_LLVM_COMPILER_SHA256: ''
+          ORESLANG_LLVM_SOURCE_SHA: ''
+          ORESLANG_LLVM_SOURCE_TREE_SHA: ''
+        run: |
+          set -euo pipefail
+          node --test --test-reporter=tap \
+            tests/host-continuation-ticket-fence-v0.test.mjs \
+            2>&1 | tee "$RUNNER_TEMP/host-continuation-ticket-v0.log"
+          grep -Fx '# tests 9' "$RUNNER_TEMP/host-continuation-ticket-v0.log"
+          grep -Fx '# pass 9' "$RUNNER_TEMP/host-continuation-ticket-v0.log"
+          grep -Fx '# skipped 0' "$RUNNER_TEMP/host-continuation-ticket-v0.log"
+
+      - name: Emit exact-head HOST-ONLY evidence receipt
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 -I - <<'PY'
+          import json, os, pathlib, subprocess
+          folder=pathlib.Path(os.environ["RUNNER_TEMP"])
+          output=(folder/"host-continuation-ticket-v0.log").read_text()
+          for line in ("# tests 9","# pass 9","# skipped 0"):
+              if output.splitlines().count(line)!=1:
+                  raise SystemExit("missing exact executed host admission steps")
+          head=subprocess.check_output(("git","rev-parse","HEAD"),text=True).strip()
+          tree=subprocess.check_output(("git","rev-parse","HEAD^{tree}"),text=True).strip()
+          if head!=os.environ["EXPECTED_HEAD"]:raise SystemExit("HEAD changed")
+          receipt={
+              "schema":"attolang.wasm.host_continuation_ticket_fence_v0",
+              "head_sha":head,"tree_sha":tree,
+              "run_id":int(os.environ["GITHUB_RUN_ID"]),
+              "run_attempt":int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "host_js_ticket_admission_executed":True,
+              "host_tests_passed":9,
+              "guest_suspend_resume_compiler_backed_executed":False,
+              "guest_continuation_frame_lowering_verified":False,
+              "resume_after_restarted_actor_verified":False,
+              "java_llvm_wasm_guest_parity_verified":False,
+              "classification":"HOST_ONLY_EXECUTED_NOT_GUEST"
+          }
+          (folder/"host-continuation-ticket-v0-receipt.json").write_text(
+              json.dumps(receipt,sort_keys=True,indent=2)+"\n")
+          PY
+
+      - name: Preserve non-guest source-owned receipts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: atto-host-continuation-tickets-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/host-continuation-ticket-v0.log
+            ${{ runner.temp }}/host-continuation-ticket-v0-receipt.json
+          if-no-files-found: error
+          retention-days: 7

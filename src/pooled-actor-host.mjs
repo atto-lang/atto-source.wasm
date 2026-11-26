@@ -21,6 +21,7 @@ export class PooledWasmActors {
   #nextId = 0;
   #nextTicket = 0;
   #isolatedGuestFaults = 0;
+  #typedTerminalControls = 0;
   #closed = false;
   #shutdownPromise = null;
   #maxActors;
@@ -76,6 +77,20 @@ export class PooledWasmActors {
   get actorCount() {return this.#actors.size;}
   get activeWorkerCount() {return this.#carriers.filter(c => !c.dead).length;}
   get isolatedGuestFaultCount() {return this.#isolatedGuestFaults;}
+  get typedTerminalControlCount() {return this.#typedTerminalControls;}
+
+  #notifySupervisor(actor, control) {
+    if (!actor.onTerminalControl) return;
+    queueMicrotask(() => {
+      // Observer code is host-local and untrusted as runtime evidence. It
+      // never changes physical fault attribution or blocks the carrier.
+      try {
+        const observed = actor.onTerminalControl(control);
+        if (observed && typeof observed.then === 'function')
+          Promise.resolve(observed).catch(() => {});
+      } catch {}
+    });
+  }
 
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
@@ -159,6 +174,23 @@ export class PooledWasmActors {
       actor.outstanding = 0;
       actor.queued = false;
       ++this.#isolatedGuestFaults;
+      // CONTROL is host-authoritative: minted ONLY after validating the
+      // active Worker's ticket/incarnation and completed actor retirement.
+      // The supervisor must NOT restart from an ordinary unreachable trap;
+      // it still needs an explicit notice to revoke its now-dead handle.
+      const control = Object.freeze({
+        schemaVersion: 1,
+        kind: 'ACTOR_TERMINAL_CONTROL',
+        reason: message.code,
+        actorId: actor.id,
+        terminalTicket: op.ticket,
+        actorRetired: true,
+        frameQuiescent: true,
+        carrierRetained: true
+      });
+      if (message.code === 'STACK_BUDGET_EXHAUSTED_V1')
+        ++this.#typedTerminalControls;
+      this.#notifySupervisor(actor, control);
       // All other actors on the healthy Worker retain their own instances,
       // memories and queues. In-flight messages for the dead actor are denied.
       this.#pump(carrier);
@@ -206,6 +238,18 @@ export class PooledWasmActors {
       actor.queue.length = 0;
       actor.outstanding = 0;
       this.#actors.delete(actor.id);
+      // No carrier-failure CONTROL is minted from a failed terminate()
+      // Promise or forged EventEmitter event. This code runs only after the
+      // native Worker has independently reported a real physical exit.
+      this.#notifySupervisor(actor, Object.freeze({
+        schemaVersion: 1,
+        kind: 'ACTOR_CARRIER_TERMINAL_CONTROL',
+        reason: 'CARRIER_RETIRED',
+        actorId: actor.id,
+        actorRetired: true,
+        carrierRetained: false,
+        physicalExitConfirmed: true
+      }));
     }
     carrier.ready.length = 0;
     carrier.active = null;
@@ -320,7 +364,11 @@ export class PooledWasmActors {
     return this.#shutdownPromise;
   }
 
-  async spawn(bytes, {expectedSha256, trusted = false} = {}) {
+  async spawn(bytes, {expectedSha256, trusted = false,
+    onTerminalControl} = {}) {
+    if (onTerminalControl !== undefined &&
+        typeof onTerminalControl !== 'function')
+      throw new TypeError('terminal CONTROL observer must be a host callback');
     if (this.#closed) throw Error('actor pool retired');
     // Do not place untrusted or noncooperating code alongside other actors.
     if (trusted !== true) throw Error('pooled WASM actors require trusted guest admission');
@@ -356,7 +404,8 @@ export class PooledWasmActors {
     if (!live.length) throw Error('no live actor carriers');
     const carrier = live[(id - 1) % live.length];
     const actor = {id, incarnation, carrier, phase: 'starting', queue: [],
-      pending: new Set(), outstanding: 0, queued: false, stopPromise: null};
+      pending: new Set(), outstanding: 0, queued: false, stopPromise: null,
+      onTerminalControl};
     this.#actors.set(id, actor);
     await this.#enqueue(actor, 'init', {bytes: snapshot});
     // Opaque, host-minted handle; no actor can access another actor's memory.

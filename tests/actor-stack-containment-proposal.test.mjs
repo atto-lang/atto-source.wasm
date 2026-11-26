@@ -54,7 +54,8 @@ test("future nested-call proof cannot be promoted by a host-model, synthetic Was
   assert.equal(c.authoritative_supervisor_control_required, true);
   assert.deepEqual(Object.keys(c.evidence).sort(), [
     "hosted_ci", "java_compiler_backed", "llvm_native_compiler_backed",
-    "wasm_compiler_backed", "wasmtime_aot"
+    "supervisor_atto_compiler_backed", "supervisor_control_restart_guest",
+    "supervisor_host_synthetic_wasm", "wasm_compiler_backed", "wasmtime_aot"
   ]);
   for (const receipt of Object.values(c.evidence))
     assert.equal(receipt, null, "unverified backend cannot be marked green");

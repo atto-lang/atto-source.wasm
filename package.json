@@ -18,6 +18,9 @@
     "test:managed-pooled-actors": "node --test tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-frame-suspension-turn-fence.test.mjs tests/actor-arena.test.mjs tests/pooled-actor-frame-turn.test.mjs tests/pooled-managed-frame-worker.test.mjs tests/pooled-actors.test.mjs tests/actor-scalar-abi.test.mjs",
     "test:real-pooled-actors": "node scripts/verify-real-source-pooled-actor.mjs",
     "test:real-actor-guest-frames": "ATTO_REQUIRE_WASM_GUEST_FRAME=1 node --test tests/compiled-actor-guest-frame-m1.test.mjs",
-    "test:real-wasm-actor-recursion": "ATTO_REQUIRE_REAL_ACTOR_RECURSION=1 node --test tests/checked-recursive-actor-v1.test.mjs"
+    "test:real-wasm-actor-recursion": "ATTO_REQUIRE_REAL_ACTOR_RECURSION=1 node --test tests/checked-recursive-actor-v1.test.mjs",
+    "test:supervised-pooled-actors": "node --test tests/supervised-pooled-actor-v1.test.mjs",
+    "test:real-supervisor-guest": "ATTO_REQUIRE_REAL_SUPERVISOR_GUEST=1 node --test tests/supervised-pooled-actor-v1.test.mjs",
+    "test:host-continuation-fence": "node --test tests/host-continuation-ticket-fence-v0.test.mjs"
   }
 }
