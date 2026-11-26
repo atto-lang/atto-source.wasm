@@ -69,9 +69,20 @@ test('a wrong-stage compiler error cannot masquerade as a semantic denial',()=>{
     assert.equal(acceptedSemanticDiagnostic('internal error: '+id,oracle),false);
     assert.equal(acceptedSemanticDiagnostic('note: '+id,oracle),false);
     if(oracle) {
+      const diagnostic={
+        'removed-modulo':'error: noncanonical % operator',
+        'removed-caret':'error: caret operator removed',
+        'removed-double-caret':'error: double caret operator removed',
+        'legacy-async-modifier':'error: async modifier forbidden',
+        'critical-suspends-modifier':'error: critical suspends modifier forbidden',
+        'suspends-critical-modifier':'error: suspends critical modifier forbidden'
+      }[id];
+      assert.ok(diagnostic && oracle.test(diagnostic),id);
+      assert.equal(acceptedSemanticDiagnostic(diagnostic,oracle),true);
       for(const prefix of ['note','help','hint','warning','info']) {
-        assert.equal(acceptedSemanticDiagnostic(prefix+' : error '+id+' forbidden',oracle),false);
-        assert.equal(acceptedSemanticDiagnostic('note: context\\n'+prefix+': error '+id+' forbidden',oracle),false);
+        assert.equal(acceptedSemanticDiagnostic(prefix+' : '+diagnostic,oracle),false);
+        for(const separator of ['\n','\r\n','\r','\\n','\\r\\n','\\r'])
+          assert.equal(acceptedSemanticDiagnostic('note: context'+separator+prefix+': '+diagnostic,oracle),false);
       }
     }
     if(stage==='UNSUPPORTED_NOT_SEMANTIC_PROOF')
