@@ -22,9 +22,10 @@ if(!isMainThread){
   }catch(error){parentPort.postMessage({ok:false,error:String(error?.message||error)});}
 }else{
  const args=process.argv.slice(2);
- const v3=args[0]==='--v3';if(v3)args.shift();
+ const parameterized=args[0]==='--v3-parameterized';
+ const v3=parameterized||args[0]==='--v3';if(v3)args.shift();
  const [coldPath,warmPath,editPath,observerPath,observerEditPath]=args;
- if(args.length!==(v3?5:3)||args.some(x=>!x))throw Error('expected exact compiler artifact paths');
+ if(args.length!==(parameterized?8:v3?5:3)||args.some(x=>!x))throw Error('expected exact compiler artifact paths');
  const [cold,warm,edit]=await Promise.all([coldPath,warmPath,editPath].map(p=>readFile(p)));
  assert.deepEqual(cold,warm);assert.notDeepEqual(cold,edit);
  const coldPin=sha(cold),editPin=sha(edit);
@@ -54,5 +55,18 @@ if(!isMainThread){
    for(const bytes of [observer,observerEdit])assert.equal(await execute(bytes,observerPin),'40506');
    await assert.rejects(execute(observer,coldPin),/E_PIN/);
    console.log('V3_WASM_CONSUMER|actual-browser-worker-guests=10203/10203/42010203/40506/40506|observer-byte-stable|stale-pin-denied|strict-native-abi-denial-preserved');
+   if(parameterized){
+     const [p,w,e]=await Promise.all(args.slice(5).map(p=>readFile(p)));
+     assert.deepEqual(p,w);assert.notDeepEqual(p,e);
+     const pp=sha(p),ep=sha(e);
+     for(const [bytes,pin,expected] of [[p,pp,'42010203'],[w,pp,'42010203'],[e,ep,'43010203']]){
+       await assert.rejects(runIsolatedCoreGuest(bytes,{expectedSha256:pin,timeoutMs:5000}),/exactly one privately defined, bounded linear memory/);
+       assert.equal(await execute(bytes,pin),expected);
+     }
+     await assert.rejects(execute(e,pp),/E_PIN/);
+     await assert.rejects(execute(p,coldPin),/E_PIN/);
+     await assert.rejects(execute(observer,pp),/E_PIN/);
+     console.log('V3_WASM_PARAMETERIZED|actual-browser-worker-guests=42010203/42010203/43010203|warm-byte-stable|stale-cross-profile-pin-denied|strict-native-abi-denial-preserved');
+   }
  }else console.log('INCREMENTAL_WASM_CONSUMER|actual-browser-worker-guests=42/42/43|stale-pin-denied|strict-native-abi-denial-preserved');
 }

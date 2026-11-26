@@ -5,6 +5,8 @@
  */
 import {spawnSync} from "node:child_process";
 import {types} from "node:util";
+import {snapshotGuestBytes} from "../src/snapshot-guest-bytes.mjs";
+import {rejectBidirectionalSourceControls} from "./source-bidi-admission.mjs";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -27,7 +29,8 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // scalar Wasm with incomplete source provenance. This is an admission scanner,
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
- const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ rejectSourceTerminalControls(bytes);
+ const source=rejectBidirectionalSourceControls(bytes);
  // A NUL byte is invalid source, even if a downstream scalar compiler
  // chooses to truncate or ignore it before resolving the source graph.
  if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
@@ -108,6 +111,16 @@ function physicalSourceByteLength(input) {
  throw new TypeError("WASM source preflight requires byte input");
 }
 
+// Scan exact physical bytes using the existing intrinsic-backed admission primitive.
+export function rejectSourceTerminalControls(sourceBytes) {
+ const length=physicalSourceByteLength(sourceBytes);
+ if(length>MAX_SOURCE_BYTES) throw new RangeError("WASM terminal-control preflight byte budget exceeded");
+ const bytes=snapshotGuestBytes(sourceBytes,MAX_SOURCE_BYTES);
+ for(let i=0;i<bytes.length;i++) {
+  if(bytes[i]===0x1b || bytes[i]===0x7f)
+   throw Error("SOURCE_TERMINAL_CONTROL: ESC/DEL in source at byte "+i);
+ }
+}
 function tupleV2Tokens(sourceBytes){
  // Exported source-admission gates can be called before the CLI's bounded file
  // snapshot. Enforce the same byte budget before decode or token allocation.
@@ -116,7 +129,8 @@ function tupleV2Tokens(sourceBytes){
   throw new TypeError("WASM source preflight requires byte input");
  if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ rejectSourceTerminalControls(sourceBytes);
+ const text=rejectBidirectionalSourceControls(sourceBytes);
  // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
  // can erase a comment or quoted literal, and prior to compiler invocation or
  // staging. The byte budget above bounds this conversion and its allocation.
