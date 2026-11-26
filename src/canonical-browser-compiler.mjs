@@ -33,9 +33,11 @@ export async function createCompiler(compilerBytes) {
   let poisoned = null;
   return {
     compile(source, target = 'wasm', verification = 'ordinary') {
-      if (!['ordinary','strict'].includes(verification)) throw new TypeError('unsupported verification profile');
+      if (!['ordinary','strict','counted-ready-v1'].includes(verification)) throw new TypeError('unsupported verification profile');
       if (verification === 'strict' && (target !== 'wasm' || typeof api.compile_strict_i64 !== 'function'))
         throw new Error('E_VERIFY_UNSUPPORTED: compiler lacks strict i64 Wasm ABI');
+      if (verification === 'counted-ready-v1' && (target !== 'wasm' || typeof api.compile_counted_ready_v1 !== 'function'))
+        throw new Error('E_COUNTED_READY_UNSUPPORTED: compiler lacks explicit counted-ready Wasm ABI');
       if (!['wasm', 'javascript'].includes(target)) throw new TypeError('unsupported compiler target');
       if (target === 'javascript' && typeof api.compile_js !== 'function') throw new Error('Compiler has no JavaScript emitter');
       if (poisoned) throw new Error(`Compiler instance unusable after an internal fault (${poisoned})`);
@@ -48,7 +50,7 @@ export async function createCompiler(compilerBytes) {
       if (pointer < 0 || pointer + bytes.length >= api.memory.buffer.byteLength) throw new Error('Compiler input memory bounds violated');
       new Uint8Array(api.memory.buffer, pointer, bytes.length).set(bytes);
       let status;
-      try { status = (verification === 'strict' ? api.compile_strict_i64 : target === 'javascript' ? api.compile_js : api.compile)(bytes.length); }
+      try { status = (verification === 'strict' ? api.compile_strict_i64 : verification === 'counted-ready-v1' ? api.compile_counted_ready_v1 : target === 'javascript' ? api.compile_js : api.compile)(bytes.length); }
       catch (error) { poisoned = error.message; throw new Error(`Compiler internal fault: ${error.message}`); }
       if (status !== 0) {
         const diagnostic = {
