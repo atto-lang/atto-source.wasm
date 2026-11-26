@@ -19,7 +19,6 @@ const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
 // Avoid mutable TypedArray @@species even when the method is captured.
 const trustedFindIndex = Array.prototype.findIndex;
-const trustedArraySplice = Array.prototype.splice;
 const trustedArraySort = Array.prototype.sort;
 const trustedSet = Uint8Array.prototype.set;
 const trustedArrayPush = Array.prototype.push;
@@ -209,8 +208,14 @@ export class ActorArena {
         const segment = this.#freePersistent[freeIndex];
         segment.offset += length;
         segment.length -= length;
-        if (segment.length === 0)
-          trustedApply(trustedArraySplice, this.#freePersistent, [freeIndex, 1]);
+        if (segment.length === 0) {
+          // Port the species-independent dense-list compaction from #144.
+          // Capturing splice does not prevent a mutable species constructor
+          // from running after handle registration and quota mutation.
+          for (let i = freeIndex + 1; i < this.#freePersistent.length; ++i)
+            this.#freePersistent[i - 1] = this.#freePersistent[i];
+          --this.#freePersistent.length;
+        }
       } else this.#persistentTop += length;
       ++this.#persistentCount;
     }
