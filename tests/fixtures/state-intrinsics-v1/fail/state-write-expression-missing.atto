@@ -1,0 +1,6 @@
+// expect-error: E_STATE_BORROW
+define state container Counter as
+  state { let int count = 0; }
+  pub bad(): int { val a = state_w(|s| -> { s.count = 1; }); return a; }
+end
+pub fnc main(): int { return 0; }

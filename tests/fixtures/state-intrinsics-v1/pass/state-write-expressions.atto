@@ -1,0 +1,24 @@
+// expect-exit: 0
+// expect-stdout: 42
+// expect-stdout: 43
+// expect-stdout: false
+// expect-stdout: 43
+define state container Counter as
+  state { let int count = 0; }
+  pub change(): int {
+    val first = state_w(|s| -> { s.count = 40; return s.count; });
+    val second = 2 + self.handle_state_w(|view| -> { return view.count; });
+    val skipped = false && state_w(|s| -> { s.count = 99; return true; });
+    stdio.println(second);
+    let int next = 0;
+    next = handle_state(critical-write |s| -> { s.count = s.count + 3; return s.count; });
+    stdio.println(next);
+    stdio.println(skipped);
+    return next;
+  }
+end
+pub fnc main(): int {
+  val a = new Counter();
+  stdio.println(a.change());
+  return 0;
+}
