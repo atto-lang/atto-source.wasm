@@ -3,6 +3,7 @@ import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 import {validateCoreOptions} from "./validate-core-options.mjs";
+import {assertVisibilityProfileEntry} from "./visibility-profile.mjs";
 const ownKeys = Reflect.ownKeys;
 const objectKeys = Object.keys;
 const arraySome = Function.prototype.call.bind(Array.prototype.some);
@@ -93,6 +94,7 @@ export function compileAdmittedCoreGuest(input, options = {}) {
     throw Error("guest requires exactly one privately defined, bounded linear memory");
   }
   const module = new WebAssembly.Module(bytes);
+  assertVisibilityProfileEntry(module, entry);
   const imports = WebAssembly.Module.imports(module);
   if (imports.length !== 0) {
     throw Error("host imports denied: " + imports.map(x => x.module + "." + x.name).join(", "));
