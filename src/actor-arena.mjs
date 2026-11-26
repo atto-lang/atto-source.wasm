@@ -26,6 +26,8 @@ const trustedArrayPush = Array.prototype.push;
 const trustedArrayPop = Array.prototype.pop;
 const trustedWasmMemory = WebAssembly.Memory;
 const trustedFreeze = Object.freeze;
+const trustedSafeInteger = Number.isSafeInteger;
+const trustedSetHas = Set.prototype.has;
 const trustedMap = Map;
 const trustedWeakMap = WeakMap;
 const trustedMapGet = Map.prototype.get;
@@ -72,9 +74,9 @@ export class ActorArena {
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!Number.isSafeInteger(actorId) || actorId <= 0 ||
-        !Number.isSafeInteger(incarnation) || incarnation <= 0 ||
-        !kinds.has(kind)) throw new TypeError("invalid actor arena owner");
+    if (!trustedSafeInteger(actorId) || actorId <= 0 ||
+        !trustedSafeInteger(incarnation) || incarnation <= 0 ||
+        !trustedApply(trustedSetHas, kinds, [kind])) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
@@ -108,7 +110,7 @@ export class ActorArena {
   beginTurn() {
     this.#bytes();
     if (this.#turn !== null) throw new Error("actor already admitted");
-    const turn = Object.freeze({});
+    const turn = trustedFreeze({});
     this.#turn = turn;
     return turn;
   }
@@ -134,7 +136,7 @@ export class ActorArena {
     if (this.#pendingLifetimePins >= MAX_HANDLES) {
       throw new RangeError("actor arena lifetime pin quota exhausted");
     }
-    const pin = Object.freeze({});
+    const pin = trustedFreeze({});
     trustedApply(trustedWeakMapSet, this.#lifetimePins, [pin, true]);
     ++this.#pendingLifetimePins;
     return pin;
@@ -173,7 +175,7 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE)
+    if (!trustedSafeInteger(length) || length <= 0 || length > PAGE)
       throw new RangeError("invalid arena allocation length");
     if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES)
       throw new RangeError("actor arena handle quota exhausted");
@@ -306,7 +308,7 @@ export class ActorArena {
 
   pushStackFrame(turn, execution, length) {
     const stack = this.#requireStack(turn, execution);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!trustedSafeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid actor stack frame length");
     }
     if (stack.frames.length >= MAX_STACK_FRAMES) {
@@ -369,8 +371,9 @@ export class ActorArena {
   suspendStack(turn, execution) {
     const stack = this.#requireStack(turn, execution);
     const ticket = trustedFreeze({});
-    stack.suspension = ticket;
+    // Register the ticket before publishing suspended state.
     trustedApply(trustedWeakMapSet, this.#stackResumeTickets, [ticket, execution]);
+    stack.suspension = ticket;
     this.#activeStack = null;
     return ticket;
   }
