@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 
 const corpusUrl = new URL('../contracts/atto-xo-checked-u64-debit-v1/cases.tsv', import.meta.url);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
-const expectedSourceBlob = '3f63b517b5fb0c7c679e0ed581b6d92c03a75a98';
+const expectedSourceBlob = 'f7bf08fc2ccd46116fe69359ef047f08068f04bd';
 const expectedCorpus = '3a79dc1db8ee896fc2b39a4df136c102ebfa341f282b8d16785fb035b663ca58';
 const blob = bytes => createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
 const inventory = new Map([
