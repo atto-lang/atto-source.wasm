@@ -1,0 +1,7 @@
+normal|42|1025|3|75|-|3108|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(1025,3,75)-3108; }
+control|43|1025|3|76|-|3108|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(1025,3,76)-3108; }
+max-valid|42|9223372036854775765|1|42|-|9223372036854775765|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(9223372036854775765,1,42)-9223372036854775765; }
+fee-overflow|overflow|9223372036854775807|1|1|+|0|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(9223372036854775807,1,1)+0; }
+notional-overflow|overflow|9223372036854775807|2|0|+|0|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(9223372036854775807,2,0)+0; }
+overflow-cancel|overflow|9223372036854775807|1|1|-|1|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(9223372036854775807,1,1)-1; }
+overflow-dead-result|overflow|9223372036854775807|2|0|*|0|pub fnc debit(int price,int shares,int fee): int { return price*shares+fee; } pub fnc main(): int { return debit(9223372036854775807,2,0)*0; }
