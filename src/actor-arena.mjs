@@ -1,4 +1,5 @@
 import {types} from "node:util";
+import {copyPrivateBytes} from "./actor-frame-bytes.mjs";
 
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
@@ -14,7 +15,6 @@ const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteL
 const trustedBytes = Uint8Array;
 const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
-const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
@@ -219,7 +219,7 @@ export class ActorArena {
 
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
+    return copyPrivateBytes(this.#bytes(), offset, length);
   }
 
   #requireExternalBytes(data, length) {
