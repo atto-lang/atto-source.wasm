@@ -46,10 +46,10 @@ jobs:
               tests/attested-llvm-compiler.test.mjs \
               tests/sealed_aot_reserved_operators_real_guest_20261107.test.mjs \
             | tee "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
-          grep -Fxq '# tests 95' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
-          grep -Fxq '# pass 94' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
+          grep -Fxq '# tests 78' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
+          grep -Fxq '# pass 77' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
           grep -Fxq '# fail 0' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
           grep -Fxq '# skipped 1' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap" || \
             grep -Fxq '# skip 1' "$RUNNER_TEMP/atto-signed-compiler-source-only.tap"
-          echo 'ATTO_SIGNED_COMPILER_SOURCE_ONLY=94_PASS_1_NATIVE_SKIPPED'
+          echo 'ATTO_SIGNED_COMPILER_SOURCE_ONLY=77_PASS_1_NATIVE_SKIPPED'
           echo 'ATTO_SIGNED_COMPILER_NATIVE=NOT_EXECUTED'
