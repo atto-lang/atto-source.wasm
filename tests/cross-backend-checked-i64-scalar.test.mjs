@@ -72,7 +72,7 @@ async function compileMain(t,expression,name){
     ? "// "+waveId+": candidate source-identical checked-i64 scalar program.\n"
       + "// Expected integer result 42; guest execution on each backend is unverified.\n"
       + "pub fnc main(): int { return "+expression+"; }\n"
-    : header+"define pub fnc main(): int { return "+expression+"; }\n";
+    : header+"pub fnc main(): int { return "+expression+"; }\n";
   if(waveId){
     assert.equal(createHash("sha256").update(guestSource,"utf8").digest("hex"),
       waveSourceSha256[waveId],"Wasm guest source bytes differ from shared Oreslang corpus");
@@ -138,7 +138,7 @@ test("int / int is not admitted as an i64 result",async t=>{
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return 7 / 2; }\n");
+  await writeFile(source,header+"pub fnc main(): int { return 7 / 2; }\n");
   await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
 });
 
