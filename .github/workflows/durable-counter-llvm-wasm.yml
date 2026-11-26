@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/verify-durable-counter-wasm.mjs'
+      - 'scripts/verify-durable-scalar-wasm.mjs'
       - '.github/workflows/durable-counter-llvm-wasm.yml'
 permissions:
   contents: read
@@ -25,11 +26,11 @@ jobs:
           git rev-parse HEAD^{tree}
           dir="$RUNNER_TEMP/atto-llvm"
           git init "$dir"
-          GIT_TERMINAL_PROMPT=0 git -C "$dir" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.llvm.git 07c448eebf6544e0927814ff4c1b63f3ea24cc1b
+          GIT_TERMINAL_PROMPT=0 git -C "$dir" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.llvm.git 21706b5c79ca157d6ccacdc7e3298cc4d124e857
           git -C "$dir" checkout --detach FETCH_HEAD
           git -C "$dir" fsck --full
-          test "$(git -C "$dir" rev-parse HEAD)" = 07c448eebf6544e0927814ff4c1b63f3ea24cc1b
-          test "$(git -C "$dir" rev-parse HEAD^{tree})" = ef8755dedd265791a49263cbe89a29e9f12a5e0e
+          test "$(git -C "$dir" rev-parse HEAD)" = 21706b5c79ca157d6ccacdc7e3298cc4d124e857
+          test "$(git -C "$dir" rev-parse HEAD^{tree})" = c0bd1c1676bc9146422a5f4df442c34b0a47c640
           test -z "$(git -C "$dir" status --porcelain)"
           sudo apt-get update -qq
           sudo apt-get install -y clang lld llvm-dev cmake ninja-build
@@ -38,3 +39,7 @@ jobs:
           export ATTO_LLVM_COMPILER="$dir/build/oreslang-llvmc"
           export ATTO_LLVM_COMPILER_SHA256="$(sha256sum "$ATTO_LLVM_COMPILER" | cut -d' ' -f1)"
           node scripts/verify-durable-counter-wasm.mjs
+          printf '%s\n' 'define durable actor Ledger as state balance: int = -9223372036854775808; state open: bool = true; state last: int = 9223372036854775807; end' > "$RUNNER_TEMP/ledger.atto"
+          "$ATTO_LLVM_COMPILER" --durable-scalar-codec-v1 "$RUNNER_TEMP/ledger.atto" > "$RUNNER_TEMP/ledger.ll"
+          clang --target=wasm32 -Wno-override-module -nostdlib -Wl,--no-entry -Wl,--export=atto_scalar_size_v1 -Wl,--export=atto_scalar_fields_v1 -Wl,--export=atto_scalar_initial_v1 -Wl,--export=atto_scalar_encode_v1 -Wl,--export=atto_scalar_decode_v1 -Wl,--export=__heap_base -Wl,--initial-memory=131072 -Wl,--max-memory=131072 "$RUNNER_TEMP/ledger.ll" -o "$RUNNER_TEMP/ledger.wasm"
+          node scripts/verify-durable-scalar-wasm.mjs "$RUNNER_TEMP/ledger.wasm"
