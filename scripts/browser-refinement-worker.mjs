@@ -10,7 +10,8 @@ self.onmessage=async ({data})=>{
   const wrong=(data.pin[0]==='0'?'1':'0')+data.pin.slice(1);
   try{await verifyCompilerBytes(bytes,wrong,bytes.length);}catch(e){denied=/sha256/.test(e.message);}
   if(!denied)throw Error('incorrect compiler digest admitted');
-  const report=await runRefinementCases(bytes,data.pin,data.head,data.tree,line=>self.postMessage({line}));
+  const typed=data.typed?(await import('/typed-binding-corpus.mjs')).typedBindingCases:null;
+  const report=await runRefinementCases(bytes,data.pin,data.head,data.tree,line=>self.postMessage({line}),typed);
   self.postMessage({ok:true,...report,integrityNegative:true,worker:true,agent:navigator.userAgent});
  }catch(e){self.postMessage({ok:false,error:String(e?.stack??e)});}
 };

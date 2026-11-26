@@ -27,22 +27,32 @@ cases.push(['inferred','pub fnc main() -> int { val a = 42.<Second>::<Positive>;
  ['retag',main('42.<Second>.<Second>'),'E_UNIT_ATTACHMENT'],
  ['overflow',main('(9223372036854775807 + 1) as Bounded'),1]);
 
-export async function runRefinementCases(bytes,pin,head,tree,log=console.log){
+export async function runRefinementCases(bytes,pin,head,tree,log=console.log,typedCases=null){
  if(!/^[a-f0-9]{64}$/.test(pin??'')||! /^[a-f0-9]{40}$/.test(head??'')||! /^[a-f0-9]{40}$/.test(tree??'')) throw Error('invalid compiler receipt');
  assert.ok(bytes.length>8&&bytes.length<=16*1024*1024);
  await verifyCompilerBytes(bytes,pin,bytes.length);
  const module=new WebAssembly.Module(bytes);
  assert.deepEqual(WebAssembly.Module.imports(module),[]);
  const compiler=await createCompiler(bytes);
- for(const [id,body,want] of cases){
- const source=pre+'\n'+body;
+ const codes={integerOverflow:1,divisionByZero:2,refinementViolation:7};
+ const records=typedCases===null?cases.map(([id,body,want])=>[id,pre+'\n'+body,want]):typedCases.map(({source,text,expected})=>{
+   assert.match(source,/^generated-binding-[a-z-]+\.atto$/);
+   assert.ok(typeof text==="string");
+   if(expected.kind==="diagnostic")return [source,text,expected.category];
+   if(expected.kind==="value")return [source,text,BigInt(expected.decimal)];
+   assert.ok(["arithmeticFailure","refinementFailure"].includes(expected.kind)&&Object.hasOwn(codes,expected.category),source);
+   return [source,text,codes[expected.category]];
+ });
+ if(typedCases!==null)assert.equal(records.length,24);
+ assert.equal(new Set(records.map(x=>x[0])).size,records.length);
+ for(const [id,source,want] of records){
  const result=compiler.compile(source);
- if(typeof want==='string'){
+ if(typeof want==='string'||want===null){
   assert.equal(result.ok,false,id);
   assert.equal(Object.hasOwn(result,'wasm'),false,id);
   assert.equal(Object.hasOwn(result,'esm'),false,id);
   assert.equal(result.diagnostics.length,1,id);
-  assert.match(result.diagnostics[0].message,new RegExp(want+':'),id);
+  if(want===null)assert.ok(result.diagnostics[0].message.length>0,id);else assert.match(result.diagnostics[0].message,new RegExp(want+':'),id);
  }else{
   assert.equal(result.ok,true,id+': '+JSON.stringify(result.diagnostics));
   const guest=new WebAssembly.Module(result.wasm);
@@ -72,7 +82,7 @@ assert.equal(again.ok,true);
 assert.equal(await sha(first.wasm),saved);
 assert.equal(new WebAssembly.Instance(new WebAssembly.Module(again.wasm),{}).exports.main(),43n);
 log('BROWSER_COMPILER '+head+' '+tree+' '+pin);
-log('BROWSER_REFINEMENT_VERIFIED '+cases.length+' source cases plus reuse control');
-return { cases: cases.length, reuse: true };
+log('BROWSER_REFINEMENT_VERIFIED '+records.length+' source cases plus reuse control');
+return { cases: records.length, reuse: true };
 
 }

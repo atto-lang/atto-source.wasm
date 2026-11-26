@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {readFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
-const [path,pin,head,tree,chrome]=process.argv.slice(2);
+const [path,pin,head,tree,chrome,corpus]=process.argv.slice(2);
 if(!path||!chrome||!/^[a-f0-9]{64}$/.test(pin??'')||!/^[a-f0-9]{40}$/.test(head??'')||!/^[a-f0-9]{40}$/.test(tree??''))throw Error('usage: node scripts/verify-browser-worker-refinements.mjs compiler.wasm sha256 head tree chrome');
 const bytes=await readFile(path);
 assert.ok(bytes.length>8&&bytes.length<=16*1024*1024);
@@ -16,6 +17,7 @@ const routes=new Map([
  ['/scripts/browser-refinement-corpus.mjs',new URL('./browser-refinement-corpus.mjs',import.meta.url)],
  ['/src/canonical-browser-compiler.mjs',new URL('../src/canonical-browser-compiler.mjs',import.meta.url)]
 ]);
+if(corpus)routes.set('/typed-binding-corpus.mjs',pathToFileURL(resolve(corpus)));
 const page=`<!doctype html><meta charset="utf-8"><script type="module">
 const worker=new Worker('/scripts/browser-refinement-worker.mjs',{type:'module'});
 const lines=[];let done=false;
@@ -23,7 +25,7 @@ async function finish(result){if(done)return;done=true;worker.terminate();await 
 worker.onmessage=({data})=>{if(typeof data.line==='string'){if(lines.length<128)lines.push(data.line);}else finish(data);};
 worker.onerror=e=>finish({ok:false,error:e.message});
 worker.onmessageerror=()=>finish({ok:false,error:'message deserialization error'});
-worker.postMessage(${JSON.stringify({pin,head,tree})});
+worker.postMessage(${JSON.stringify({pin,head,tree,typed:Boolean(corpus)})});
 </script>`;
 let resolveResult,rejectResult;
 const resultPromise=new Promise((resolve,reject)=>{resolveResult=resolve;rejectResult=reject;});
@@ -49,7 +51,7 @@ try{
  const {result,lines}=await resultPromise;
  assert.equal(result.ok,true,result.error);
  assert.equal(result.worker,true);assert.match(result.agent,/Chrome\//);
- assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,23);
+ assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,corpus?24:23);
  const passes=lines.filter(l=>l.startsWith('PASS browser-abi '));
  assert.equal(passes.length,result.cases);assert.equal(new Set(passes.map(l=>l.split(' ')[2])).size,result.cases);
  assert.ok(lines.includes('BROWSER_COMPILER '+head+' '+tree+' '+pin));
