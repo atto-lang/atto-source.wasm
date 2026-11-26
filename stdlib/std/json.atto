@@ -78,7 +78,9 @@ define module json as
         return false;
       fi
       self.index = self.index + 1;
-      self.decoded = new Array<int>();
+      // Only object keys need decoded storage; string values are validated in place.
+      // Keep the previous scratch untouched when capture is false.
+      if capture; do self.decoded = new Array<int>(); fi
       while self.index < self.length; do
         let int ch = self.source.get(self.index);
         self.index = self.index + 1;
@@ -261,7 +263,7 @@ define module json as
       return false;
     }
 
-    read_value(mut self)(int depth): bool {
+    pub read_value(mut self)(int depth): bool {
       if depth > 64 || self.nodes >= 262144; do return false; fi
       self.skip_space();
       if self.index >= self.length; do return false; fi
@@ -279,12 +281,12 @@ define module json as
       return false;
     }
 
-    finished(): bool {
+    pub finished(mut self)(): bool {
       self.skip_space();
       return self.index == self.length;
     }
-    node_count(): int { return self.nodes; }
-    start_kind(): int {
+    pub node_count(): int { return self.nodes; }
+    pub start_kind(mut self)(): int {
       self.skip_space();
       if self.index >= self.length; do return 0; fi
       let int ch = self.source.get(self.index);
@@ -295,7 +297,7 @@ define module json as
       if ch == 123; do return 6; fi
       return 3;
     }
-    length_in_scalars(): int { return self.length; }
+    pub length_in_scalars(): int { return self.length; }
   end
 
   // Quotas: <=1,048,576 Unicode scalars, 64 levels, 262,144 values,
