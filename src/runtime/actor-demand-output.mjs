@@ -176,7 +176,7 @@ export class ActorDemandOutputPort {
   }
   dispose(reader) {
     this.#check(reader);
-    if (!this.#completed || this.#queued !== 0 || this.inFlight!==0)
+    if (!this.#completed || this.#queued !== 0 || this.#inFlightCount()!==0)
       throw new Error('cannot retire demand output before terminal quiescence');
     this.#io.releaseOutputLease(this.#authority,this.#outputLease);
     this.#outputLease = null;
@@ -185,7 +185,8 @@ export class ActorDemandOutputPort {
   get queued() {return this.#queued;}
   get retainedBytes() {return this.#retained;}
   get outstandingDemand() {return this.#credits;}
-  get inFlight() {
+  get inFlight() {return this.#inFlightCount();}
+  #inFlightCount() {
     let count=0;
     for(let i=0;i<slotLength(this.#tickets);i++) if(this.#tickets[i]!==0) count++;
     return count;
