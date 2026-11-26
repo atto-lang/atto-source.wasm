@@ -6,7 +6,7 @@ const base = Object.freeze({protocol_major: 1, tenant: 11n,
   caller_incarnation: 12n, target_actor: 13n, target_incarnation: 14n,
   association_generation: 17n, placement_epoch: 15n, message_id: 16n, attempt: 1n});
 const box = (capacity = 2) =>
-  new HostProxyMailboxTicketsV1({actor: 13n, incarnation: 14n, capacity});
+  new HostProxyMailboxTicketsV1({tenant: 11n, actor: 13n, incarnation: 14n, capacity});
 const route = (id, patch = {}) => ({...base, message_id: BigInt(id), ...patch});
 const admitted = (mail, id, value) => {
   const a = mail.admit(route(id), BigInt(value));
@@ -92,7 +92,7 @@ test('panic fails exact active delivery, abandons queued receipts, fences stale 
   assert.equal(m.admit(route(113), 10n).status, 'closed');
   assert.equal(m.begin(), null);
   assert.equal(m.check_conservation(), true);
-  const next = new HostProxyMailboxTicketsV1({actor: 13n, incarnation: 15n, capacity: 1});
+  const next = new HostProxyMailboxTicketsV1({tenant: 11n, actor: 13n, incarnation: 15n, capacity: 1});
   assert.equal(next.admit(route(114), 1n).status, 'stale');
   const fresh = next.admit(route(114, {target_incarnation: 15n}), 8n);
   assert.equal(fresh.status, 'admitted');
@@ -110,5 +110,16 @@ test('graceful close drains previously admitted messages but cannot mint new tic
   const turn = mail.begin();
   assert.equal(turn.ticket, t);
   assert.equal(mail.commit(turn, 4n), true);
+  assert.equal(mail.check_conservation(), true);
+});
+
+test('wrong tenant cannot mint a ticket even when mailbox is empty', () => {
+  const mail = box(1);
+  assert.equal(mail.admit(route(501, {tenant: 88n}), 7n).status, 'stale');
+  assert.equal(mail.counters.admitted, 0);
+  assert.equal(mail.begin(), null);
+  const ticket = admitted(mail, 501, 7);
+  assert.equal(mail.commit(mail.begin(), 14n), true);
+  assert.equal(mail.snapshot(ticket).result, 14n);
   assert.equal(mail.check_conservation(), true);
 });
