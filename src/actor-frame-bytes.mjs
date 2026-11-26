@@ -10,6 +10,7 @@ const proto = Object.getPrototypeOf(Bytes.prototype);
 const getBuffer = Object.getOwnPropertyDescriptor(proto, "buffer").get;
 const getLength = Object.getOwnPropertyDescriptor(proto, "byteLength").get;
 const memoryBuffer = Object.getOwnPropertyDescriptor(WebAssembly.Memory.prototype, "buffer").get;
+const backingLength = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get;
 
 // Avoid creating a fresh JS view on every logical frame access. Even grow(0)
 // detaches a fixed-memory view, so verify native backing identity before use.
@@ -18,7 +19,7 @@ export function refreshPrivateMemoryView(memory, previous = null) {
   if (isShared(actual)) throw new TypeError("actor memory view rejects shared backing");
   if (previous !== null && isBytes(previous) &&
       apply(getBuffer, previous, []) === actual &&
-      apply(getLength, previous, []) === actual.byteLength) return previous;
+      apply(getLength, previous, []) === apply(backingLength, actual, [])) return previous;
   return new Bytes(actual);
 }
 
