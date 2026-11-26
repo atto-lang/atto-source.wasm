@@ -42,33 +42,48 @@ function wellFormedUtf16(s) {
   }
   return true;
 }
-function validate(value) {
+// Capture exact own data descriptors once; never read the original record
+// again after checking it. Proxy get-traps can lie independently of descriptors.
+function snapshot(value, fields) {
   plain(value);
-  const keys = Object.keys(value);
-  if (keys.length !== FIELDS.length || FIELDS.some(k => !Object.hasOwn(value, k)) ||
-      keys.some(k => !FIELDS.includes(k))) bad('unexpected or missing fields');
-  const props = Object.getOwnPropertyDescriptors(value);
-  for (const k of FIELDS) if (!Object.hasOwn(props[k], 'value')) bad('accessor field denied');
-  if (value.type !== TERMINAL_EFFECT_TYPE) bad('unsupported notice version');
-  identifier(value.actor_id, 'actor_id');
-  identifier(value.parent_id, 'parent_id');
-  integer(value.generation, 'generation');
-  integer(value.sequence, 'sequence');
-  if (!EFFECTS.has(value.effect)) bad('invalid terminal effect');
-  if (typeof value.error_type !== 'string' || !ERROR_RE.test(value.error_type))
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== fields.length ||
+      keys.some(k => typeof k !== 'string' || !fields.includes(k)))
+    bad('unexpected or missing fields');
+  const data = Object.create(null);
+  for (const k of fields) {
+    const d = Object.getOwnPropertyDescriptor(value, k);
+    if (!d || !Object.hasOwn(d, 'value') || d.enumerable !== true)
+      bad('accessor field denied or hidden/missing notice field');
+    data[k] = d.value;
+  }
+  return data;
+}
+function validate(value) {
+  const data = snapshot(value, FIELDS);
+  if (data.type !== TERMINAL_EFFECT_TYPE) bad('unsupported notice version');
+  identifier(data.actor_id, 'actor_id');
+  identifier(data.parent_id, 'parent_id');
+  integer(data.generation, 'generation');
+  integer(data.sequence, 'sequence');
+  if (!EFFECTS.has(data.effect)) bad('invalid terminal effect');
+  if (typeof data.error_type !== 'string' || !ERROR_RE.test(data.error_type))
     bad('invalid Error type label');
-  if (typeof value.message !== 'string' || !wellFormedUtf16(value.message) ||
-      new TextEncoder().encode(value.message).byteLength > 1024 ||
-      /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value.message)) bad('invalid message');
-  return value;
+  if (typeof data.message !== 'string' || !wellFormedUtf16(data.message) ||
+      new TextEncoder().encode(data.message).byteLength > 1024 ||
+      /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(data.message)) bad('invalid message');
+  return Object.freeze(data);
 }
 
 /** Host/runtime encoder. User Atto source must not be able to invoke it. */
 export function makeTerminalEffectNotice(fields) {
-  plain(fields);
-  // Never trust a sender-supplied cleanup_done, cursor or recoverable flag.
+  // The guest cannot assert authority by supplying a 'type', cleanup_done,
+  // recoverable or other extra property. Snapshot a trusted-host field set
+  // before encoding, without executing getters or inconsistent Proxy get traps.
+  const allowed = FIELDS.slice(1);
+  const data = snapshot(fields, allowed);
   const notice = Object.fromEntries(FIELDS.map(k => [k,
-    k === 'type' ? TERMINAL_EFFECT_TYPE : fields[k]]));
+    k === 'type' ? TERMINAL_EFFECT_TYPE : data[k]]));
   validate(notice);
   return Object.freeze(notice);
 }

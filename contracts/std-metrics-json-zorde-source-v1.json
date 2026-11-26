@@ -1,0 +1,381 @@
+{
+  "schema": "atto.stdlib.metrics-json-zorde.source-v1",
+  "evidence": "PORTABLE_REFERENCE_VECTORS_ONLY_NOT_COMPILER_EXECUTION",
+  "import_paths": [
+    "std/metrics",
+    "std/json",
+    "std/zorde"
+  ],
+  "zorde": {
+    "envelope_note": "Experimental ZORD v1; not the canonical Zorde ecosystem wire format",
+    "max_varuint": 2147483647,
+    "valid_varuint31": [
+      {
+        "value": 0,
+        "wire": [
+          0
+        ]
+      },
+      {
+        "value": 1,
+        "wire": [
+          1
+        ]
+      },
+      {
+        "value": 127,
+        "wire": [
+          127
+        ]
+      },
+      {
+        "value": 128,
+        "wire": [
+          128,
+          1
+        ]
+      },
+      {
+        "value": 255,
+        "wire": [
+          255,
+          1
+        ]
+      },
+      {
+        "value": 300,
+        "wire": [
+          172,
+          2
+        ]
+      },
+      {
+        "value": 16383,
+        "wire": [
+          255,
+          127
+        ]
+      },
+      {
+        "value": 16384,
+        "wire": [
+          128,
+          128,
+          1
+        ]
+      },
+      {
+        "value": 2147483646,
+        "wire": [
+          254,
+          255,
+          255,
+          255,
+          7
+        ]
+      },
+      {
+        "value": 2147483647,
+        "wire": [
+          255,
+          255,
+          255,
+          255,
+          7
+        ]
+      }
+    ],
+    "invalid_varuint31": [
+      {
+        "wire": [
+          128,
+          0
+        ]
+      },
+      {
+        "wire": [
+          255,
+          0
+        ]
+      },
+      {
+        "wire": [
+          128
+        ]
+      },
+      {
+        "wire": [
+          255,
+          255,
+          255,
+          255,
+          8
+        ]
+      },
+      {
+        "wire": [
+          255,
+          255,
+          255,
+          255,
+          255
+        ]
+      },
+      {
+        "wire": [
+          128,
+          128,
+          128,
+          128,
+          128
+        ]
+      },
+      {
+        "wire": [
+          128,
+          128,
+          0
+        ]
+      }
+    ],
+    "signed_zigzag31": [
+      {
+        "value": -1073741824,
+        "wire": [
+          255,
+          255,
+          255,
+          255,
+          7
+        ]
+      },
+      {
+        "value": -300,
+        "wire": [
+          215,
+          4
+        ]
+      },
+      {
+        "value": -1,
+        "wire": [
+          1
+        ]
+      },
+      {
+        "value": 0,
+        "wire": [
+          0
+        ]
+      },
+      {
+        "value": 1,
+        "wire": [
+          2
+        ]
+      },
+      {
+        "value": 300,
+        "wire": [
+          216,
+          4
+        ]
+      },
+      {
+        "value": 1073741823,
+        "wire": [
+          254,
+          255,
+          255,
+          255,
+          7
+        ]
+      }
+    ],
+    "frames": [
+      {
+        "schema_id": 7,
+        "schema_version": 1,
+        "payload": [
+          0,
+          255
+        ],
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          1,
+          7,
+          1,
+          2,
+          0,
+          255
+        ]
+      },
+      {
+        "schema_id": 42,
+        "schema_version": 2,
+        "payload": [
+          1
+        ],
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          1,
+          42,
+          2,
+          1,
+          1
+        ]
+      },
+      {
+        "schema_id": 1,
+        "schema_version": 1,
+        "payload": [],
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          1,
+          1,
+          1,
+          0
+        ]
+      }
+    ],
+    "invalid_frames": [
+      {
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          2,
+          1,
+          1,
+          0
+        ],
+        "reason": "unsupported-bootstrap-version"
+      },
+      {
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          1,
+          128,
+          0,
+          1,
+          0
+        ],
+        "reason": "noncanonical-schema-id"
+      },
+      {
+        "wire": [
+          90,
+          79,
+          82,
+          68,
+          1,
+          1,
+          1,
+          2
+        ],
+        "reason": "truncated-payload"
+      }
+    ]
+  },
+  "json": {
+    "signed_integer_scalars": [
+      {
+        "raw": "0",
+        "admit": true
+      },
+      {
+        "raw": "-0",
+        "admit": true
+      },
+      {
+        "raw": "-2147483648",
+        "admit": true
+      },
+      {
+        "raw": "2147483647",
+        "admit": true
+      },
+      {
+        "raw": "-9223372036854775808",
+        "admit": true
+      },
+      {
+        "raw": "9223372036854775807",
+        "admit": true
+      },
+      {
+        "raw": "-9223372036854775809",
+        "admit": false
+      },
+      {
+        "raw": "9223372036854775808",
+        "admit": false
+      },
+      {
+        "raw": "+1",
+        "admit": false
+      },
+      {
+        "raw": "01",
+        "admit": false
+      },
+      {
+        "raw": "-01",
+        "admit": false
+      },
+      {
+        "raw": "1.0",
+        "admit": false
+      },
+      {
+        "raw": "1e3",
+        "admit": false
+      },
+      {
+        "raw": "",
+        "admit": false
+      },
+      {
+        "raw": "-",
+        "admit": false
+      }
+    ],
+    "parser_note": "JsonValue trees, streaming admission and typed decode remain unverified"
+  },
+  "metrics": {
+    "histogram": {
+      "inclusive_bounds": [
+        5,
+        10
+      ],
+      "observations": [
+        4,
+        7,
+        12,
+        -1
+      ],
+      "accepted": 3,
+      "rejected": 1,
+      "sum": 23,
+      "bucket_counts": [
+        1,
+        1,
+        1
+      ]
+    },
+    "snapshot_note": "Counter, Gauge and Histogram snapshots copy values at owner capture time"
+  }
+}

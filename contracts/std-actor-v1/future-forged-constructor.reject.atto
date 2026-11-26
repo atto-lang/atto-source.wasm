@@ -1,0 +1,7 @@
+// expect-error: E_RESERVED
+// Compiler-sealed ActorFuture cannot be guest-constructed.
+use namespace std.actor.future_negative_forgery;
+pub fnc forge_actor_future(): int {
+  val forged = new ActorFuture<int>();
+  return 42;
+}

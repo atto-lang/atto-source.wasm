@@ -1,0 +1,45 @@
+name: Actor-owned execution frames focused exact-head tests
+on:
+  pull_request:
+    paths:
+      - 'src/actor-arena.mjs'
+      - 'src/actor-frame-bytes.mjs'
+      - 'src/pinned-continuation-gate.mjs'
+      - 'tests/actor-frame*.test.mjs'
+      - 'tests/actor-arena.test.mjs'
+      - '.github/workflows/actor-frame-stacks-exact-head.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  frames:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Execute actual actor frame and arena regressions on exact head
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git log -1 --format='%H %T'
+          for file in src/actor-arena.mjs src/actor-frame-bytes.mjs src/pinned-continuation-gate.mjs tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs; do
+            test "$(git hash-object "$file")" = "$(git rev-parse "HEAD:$file")"
+          done
+          node --test --test-reporter=tap tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs | tee "$RUNNER_TEMP/actor-frames.tap"
+          grep -Fx '# fail 0' "$RUNNER_TEMP/actor-frames.tap"
+          grep -Fx '# skipped 0' "$RUNNER_TEMP/actor-frames.tap"
+          grep -Eq '^# pass [1-9][0-9]*$' "$RUNNER_TEMP/actor-frames.tap"
+          echo 'HOST_ACTOR_FRAMES_EXECUTED=YES; COMPILED_GUEST_AOT=NOT_CERTIFIED'

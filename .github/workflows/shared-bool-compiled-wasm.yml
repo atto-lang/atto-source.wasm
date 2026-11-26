@@ -1,0 +1,55 @@
+name: Shared Boolean compiled Wasm
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'src/**'
+      - 'tests/shared-bool-compiled-wasm.mjs'
+      - 'tests/fixtures/core-types-v1/**'
+      - '.github/workflows/shared-bool-compiled-wasm.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify source and build pinned public LLVM
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          echo "EXACT_WASM_HEAD=$EXPECTED_HEAD TREE=$(git rev-parse 'HEAD^{tree}')"
+          export GIT_TERMINAL_PROMPT=0
+          work="$(mktemp -d)"
+          trap 'rm -rf -- "$work"' EXIT
+          git init -q "$work/llvm"
+          git -C "$work/llvm" -c credential.helper= -c http.extraheader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.llvm.git cae50939ccfd63c17bdd96852a3166285da075b3
+          test "$(git -C "$work/llvm" rev-parse FETCH_HEAD)" = cae50939ccfd63c17bdd96852a3166285da075b3
+          test "$(git -C "$work/llvm" rev-parse 'FETCH_HEAD^{tree}')" = f433b41c117d1d550be82418062c0dbf50686d60
+          git -C "$work/llvm" -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
+          git -C "$work/llvm" fsck --strict --no-reflogs
+          test -z "$(git -C "$work/llvm" status --porcelain)"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq llvm-18-dev clang-18 lld-18 libzstd-dev libssl-dev cmake
+          cmake -S "$work/llvm" -B "$work/build" -DCMAKE_BUILD_TYPE=Release -DLLVM_DIR=/usr/lib/llvm-18/lib/cmake/llvm
+          cmake --build "$work/build" --target oreslang-llvmc --parallel 2
+          export PATH="/usr/lib/llvm-18/bin:$PATH"
+          export ORESLANG_LLVM_COMPILER="$work/build/oreslang-llvmc"
+          export ORESLANG_LLVM_COMPILER_SHA256="$(sha256sum "$ORESLANG_LLVM_COMPILER" | cut -d ' ' -f 1)"
+          node --test tests/core-types-wasm-graph-admission.test.mjs
+          export ATTO_SHARED_BROWSER_REQUIRED=1
+          export ATTO_SHARED_BROWSER="$(command -v google-chrome)"
+          test -x "$ATTO_SHARED_BROWSER"
+          node tests/shared-bool-compiled-wasm.mjs

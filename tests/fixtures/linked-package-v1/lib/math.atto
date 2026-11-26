@@ -1,0 +1,6 @@
+use namespace maths;
+export pub module Math;
+define module Math as
+    pub fnc double(int x): int { return x * 2; }
+    fnc secret(): int { return 91; }
+end

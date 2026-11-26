@@ -85,7 +85,7 @@ function tokenize(source) {
 class Parser {
   constructor(source) { this.ts = tokenize(source); this.at = 0; this.locals = new Map(); this.writes = []; }
   get cur() { return this.ts[this.at]; }
-  take(value) { if (this.cur.value === value) { ++this.at; return true; } return false; }
+  take(value) { const t = this.cur; if ((t.kind === 'word' || t.kind === value) && t.value === value) { ++this.at; return true; } return false; }
   expect(value) { if (!this.take(value)) fault('E_BUFFER_SYNTAX', 'expected ' + value, this.cur.offset); }
   word() {
     const t = this.cur;

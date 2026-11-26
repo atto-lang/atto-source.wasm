@@ -1,0 +1,25 @@
+name: Proxy ACK host-only receipt gate (Node)
+on:
+  pull_request:
+    paths: [ 'src/proxy-receipt-gate-v1.mjs', 'tests/proxy-receipt-gate-v1.test.mjs', 'src/proxy-mailbox-ticket-v1.mjs', 'tests/proxy-mailbox-ticket-v1.test.mjs', '.github/workflows/proxy-receipt-host-gate.yml' ]
+  push:
+    paths: [ 'src/proxy-receipt-gate-v1.mjs', 'tests/proxy-receipt-gate-v1.test.mjs', 'src/proxy-mailbox-ticket-v1.mjs', 'tests/proxy-mailbox-ticket-v1.test.mjs', '.github/workflows/proxy-receipt-host-gate.yml' ]
+permissions:
+  contents: read
+jobs:
+  node-host-model:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: node --test tests/proxy-receipt-gate-v1.test.mjs tests/proxy-mailbox-ticket-v1.test.mjs
+      - run: echo 'HOST_MODEL_ONLY: no compiled .atto remote actor, IPC, or cryptographic authentication'

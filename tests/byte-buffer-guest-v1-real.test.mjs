@@ -101,3 +101,13 @@ test('separate WebAssembly instances never share writable byte storage',()=>{
   new Uint8Array(left.exports.memory.buffer)[0]=99;
   assert.equal(new Uint8Array(right.exports.memory.buffer)[0],0x78);
 });
+
+
+test('quoted keywords and punctuation cannot masquerade as grammar tokens',()=>{
+  const original=source('01-u32-le-roundtrip');
+  for(const [from,to] of [['import ','"import" '],['from pkg','"from" pkg'],[';','";"'],['return header','"return" header'],[' eq ',' "eq" ']]) {
+    const altered=original.replace(from,to);
+    assert.notEqual(altered,original);
+    assert.throws(()=>compileByteBufferGuestV1(altered), error=>error instanceof ByteBufferGuestError);
+  }
+});

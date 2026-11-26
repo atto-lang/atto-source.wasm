@@ -1,0 +1,3 @@
+// fits_u64 accepts signed-int inputs, not arbitrary unsigned 64-bit literals.
+import * as types from "../../../core/types.atto";
+pub fnc main() -> int { if types.fits_u64(18446744073709551615); do return 1; fi return 0; }

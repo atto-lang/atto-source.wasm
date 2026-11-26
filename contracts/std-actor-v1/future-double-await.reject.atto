@@ -1,0 +1,7 @@
+// TARGET_REJECT_NO_ARTIFACT: await consumes the affine receipt once.
+use namespace std.actor.future_negative_double;
+
+pub susp fnc reject_double_await(take! ActorFuture<int> receipt) -> int {
+  val int first = await receipt;
+  return await receipt;
+}

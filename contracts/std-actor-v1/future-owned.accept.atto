@@ -1,0 +1,12 @@
+// TARGET_ACCEPT: compile/typecheck using real sealed ActorFuture support.
+// No fake actor_future constructor and no host-language backing implementation.
+use namespace std.actor.future_positive;
+
+pub susp fnc owned_actor_reply(take! ActorFuture<int> receipt) -> int {
+  return await receipt;
+}
+
+pub susp fnc owned_actor_result(
+    take! ActorFuture<Result<int,String>> receipt) -> Result<int,String> {
+  return await receipt;
+}

@@ -1,0 +1,62 @@
+// Wasm-owned native Atto std/sync pure admission policy.
+// Wasm runtime MUST enforce actual ownership. This source NEVER acquires/releases any lock or creates ownership receipts.
+pub fnc mutex_take_admissible(bool held, bool closed, int queued): bool {
+  return !held && !closed && queued == 0;
+}
+
+pub fnc mutex_enqueue_admissible(bool closed, int queued, int capacity): bool {
+  return !closed && queued >= 0 && capacity >= 1 && queued < capacity;
+}
+
+pub fnc read_take_admissible(int readers, bool writer, int pending_writers,
+    int reader_limit): bool {
+  if writer || pending_writers != 0 || readers < 0 then return false; fi
+  return reader_limit >= 1 && readers < reader_limit;
+}
+
+pub fnc write_take_admissible(int readers, bool writer): bool {
+  return readers == 0 && !writer;
+}
+
+pub fnc sem_take_admissible(int available, int requested, int capacity,
+    bool closed): bool {
+  if closed || capacity < 1 || available < 0 || available > capacity then return false; fi
+  return requested >= 1 && requested <= available;
+}
+
+pub fnc sem_return_admissible(int available, int released, int capacity,
+    bool closed): bool {
+  // Returning already-owned permits remains legal after close.
+  if capacity < 1 || available < 0 || available > capacity then return false; fi
+  return released >= 1 && released <= capacity - available;
+}
+
+pub fnc barrier_last_arrival(int arrived, int parties, bool broken): bool {
+  if broken || parties < 1 || parties > 65536 then return false; fi
+  return arrived == parties - 1;
+}
+
+pub fnc barrier_arrival_admissible(int arrived, int parties, bool broken): bool {
+  if broken || parties < 1 || parties > 65536 then return false; fi
+  return arrived >= 0 && arrived < parties;
+}
+
+pub fnc mutex_release_receipt_admissible(bool held, int active_owner,
+    int caller, int active_generation, int receipt_generation,
+    bool consumed): bool {
+  if !held || consumed || active_owner <= 0 then return false; fi
+  if caller != active_owner then return false; fi
+  if active_generation < 0 || receipt_generation < 0 then return false; fi
+  return active_generation == receipt_generation;
+}
+
+pub fnc rw_upgrade_admissible(int readers, bool writer_held,
+    int queued_writers, bool caller_has_read_lease): bool {
+  if !caller_has_read_lease || writer_held then return false; fi
+  return readers == 1 && queued_writers == 0;
+}
+
+pub fnc next_epoch_admissible(int current, int proposed): bool {
+  if current < 0 || current >= 2147483647 then return false; fi
+  return proposed == current + 1;
+}

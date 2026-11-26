@@ -1,0 +1,7 @@
+pub routine main(): void {
+    const point = record{x: 3, y: 4};
+    const next = rt copy point with {x => point.x + 1};
+    stdio.stdout.write(point.x);
+    stdio.stdout.write(next.x);
+    return;
+}

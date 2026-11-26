@@ -1,0 +1,47 @@
+// std.net.udp .atto guest regression vectors.
+// This fixture must be linked with stdlib/net/udp.atto; it is NOT a host test.
+// Return 42 only when every boundary and adversarial vector is satisfied.
+pub fnc main(): int {
+  if udp_address_family_valid(4) == false then return 1; fi
+  if udp_address_family_valid(6) == false then return 2; fi
+  if udp_address_family_valid(0) then return 3; fi
+  if udp_address_family_valid(46) then return 4; fi
+  if udp_bind_port_admissible(0) == false then return 5; fi
+  if udp_bind_port_admissible(65535) == false then return 6; fi
+  if udp_bind_port_admissible(-1) then return 7; fi
+  if udp_bind_port_admissible(65536) then return 8; fi
+  if udp_peer_port_admissible(0) then return 9; fi
+  if udp_peer_port_admissible(1) == false then return 10; fi
+  if udp_peer_port_admissible(65536) then return 11; fi
+  if udp_protocol_payload_limit(4) != 65507 then return 12; fi
+  if udp_protocol_payload_limit(6) != 65527 then return 13; fi
+  if udp_protocol_payload_limit(5) != -1 then return 14; fi
+  if udp_send_payload_admissible(0, 0, 0, 4) == false then return 15; fi
+  if udp_send_payload_admissible(65507, 65535, 65535, 4) == false then return 16; fi
+  if udp_send_payload_admissible(65508, 65535, 65535, 4) then return 17; fi
+  if udp_send_payload_admissible(65527, 65535, 65535, 6) == false then return 18; fi
+  if udp_send_payload_admissible(65528, 65535, 65535, 6) then return 19; fi
+  if udp_send_payload_admissible(1, 0, 100, 4) then return 20; fi
+  if udp_send_payload_admissible(2, 100, 1, 4) then return 21; fi
+  if udp_send_payload_admissible(-1, 100, 100, 4) then return 22; fi
+  if udp_send_payload_admissible(1, -1, 100, 4) then return 23; fi
+  if udp_send_payload_admissible(1, 100, -1, 4) then return 24; fi
+  if udp_send_payload_admissible(1, 100, 100, 0) then return 25; fi
+  if udp_receive_capacity_admissible(0, 100) then return 26; fi
+  if udp_receive_capacity_admissible(1, 1) == false then return 27; fi
+  if udp_receive_capacity_admissible(100, 99) then return 28; fi
+  if udp_receive_capacity_admissible(65536, 100000) then return 29; fi
+  if udp_datagram_complete(0, 1, false) == false then return 30; fi
+  if udp_datagram_complete(0, 1, true) then return 31; fi
+  if udp_datagram_complete(3, 2, false) then return 32; fi
+  if udp_datagram_complete(-1, 1, false) then return 33; fi
+  if udp_queue_can_enqueue(9, 1, 10) == false then return 34; fi
+  if udp_queue_can_enqueue(9, 2, 10) then return 35; fi
+  if udp_queue_can_enqueue(11, 0, 10) then return 36; fi
+  if udp_queue_can_enqueue(9223372036854775807, 1, 9223372036854775807) then return 37; fi
+  if udp_queue_can_enqueue(-1, 0, 5) then return 38; fi
+  if udp_hop_limit_admissible(0) == false then return 39; fi
+  if udp_hop_limit_admissible(255) == false then return 40; fi
+  if udp_hop_limit_admissible(256) then return 41; fi
+  return 42;
+}

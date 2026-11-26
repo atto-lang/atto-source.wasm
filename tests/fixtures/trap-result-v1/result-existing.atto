@@ -1,0 +1,8 @@
+fnc ok(): Result<int, Error> { return Ok(42); }
+pub fnc main(): int {
+  val result: Result<int, Error> = trap ok();
+  return match result over
+    on Ok(value) -> value,
+    on Err() -> 0
+  end;
+}

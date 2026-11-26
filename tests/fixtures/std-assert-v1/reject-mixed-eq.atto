@@ -1,0 +1,7 @@
+// EXPECT: static Eq mismatch rejection, not silent numeric coercion.
+// NOT_EXECUTED on wasm.
+import module assert from pkg "std.assert";
+pub routine main(): void {
+  assert.equal(42, 42.0);
+  return;
+}

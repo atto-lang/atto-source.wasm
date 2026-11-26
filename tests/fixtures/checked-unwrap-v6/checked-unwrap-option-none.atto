@@ -1,0 +1,13 @@
+// expect-exit: 42
+// expect-stdout: called Option::unwrap() on a None value
+fnc missing(): int throws(Error) {
+  val Option<int> x = None;
+  return x.unwrap();
+}
+pub fnc main(): int {
+  val Result<int,Error> r = trap! missing();
+  match r over
+    on Ok(v) -> { return 1; }
+    on Err(e) -> { stdio.println(e.message); return 42; }
+  end
+}
