@@ -5,9 +5,13 @@ import assert from 'node:assert/strict';
 // late mutation must not grant memory authority.
 const OriginalMemory = WebAssembly.Memory;
 let capturedMemory;
-WebAssembly.Memory = class extends OriginalMemory {
-  constructor(options) { super(options); capturedMemory = this; }
-};
+// Proxy preserves the native prototype (including its own buffer getter).
+WebAssembly.Memory = new Proxy(OriginalMemory, {
+  construct(target, args) {
+    capturedMemory = Reflect.construct(target, args);
+    return capturedMemory;
+  }
+});
 let ActorArena;
 try { ({ActorArena} = await import('../src/actor-arena.mjs?whitebox-capture')); }
 finally { WebAssembly.Memory = OriginalMemory; }
