@@ -6,6 +6,7 @@
 import {spawnSync} from "node:child_process";
 import {types} from "node:util";
 import {snapshotGuestBytes} from "../src/snapshot-guest-bytes.mjs";
+import {rejectBidirectionalSourceControls} from "./source-bidi-admission.mjs";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -29,7 +30,7 @@ const MAX_SOURCE_BYTES=1024*1024,MAX_COMPILER_BYTES=256*1024*1024,MAX_WASM_BYTES
 // not a substitute for parsing or linking modules.
 export function assertScalarSourceHasNoImports(bytes){
  rejectSourceTerminalControls(bytes);
- const source=new TextDecoder("utf-8",{fatal:true}).decode(bytes);
+ const source=rejectBidirectionalSourceControls(bytes);
  // A NUL byte is invalid source, even if a downstream scalar compiler
  // chooses to truncate or ignore it before resolving the source graph.
  if(source.includes("\0"))throw Error("NUL byte in Oreslang source");
@@ -129,7 +130,7 @@ function tupleV2Tokens(sourceBytes){
  if(physicalLength>MAX_SOURCE_BYTES)
   throw new RangeError("WASM source preflight byte budget exceeded");
  rejectSourceTerminalControls(sourceBytes);
- const text=new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes);
+ const text=rejectBidirectionalSourceControls(sourceBytes);
  // Unicode decoding alone does not reject raw NUL. Check before any tokenizer
  // can erase a comment or quoted literal, and prior to compiler invocation or
  // staging. The byte budget above bounds this conversion and its allocation.
