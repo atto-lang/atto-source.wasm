@@ -19,6 +19,18 @@ for(const c of manifest.cases.filter(x=>/^(counted-|reject-counted-)/.test(x.id)
  cases.push({id:c.id,source:raw.toString('utf8'),positive:c.target.mode==='run'});
 }
 assert.equal(cases.length,17);assert.equal(cases.filter(x=>x.positive).length,10);
+const prefix='suspends fnc main(): int { const Channel<int> a = Channel.new<int>(1); writech a, 20; ';
+cases.push({id:'raw-future',positive:true,source:prefix+'const Future f = select { default: -> { return 20; } }; const Future batch = select(1) { when readch a: int n -> { return n; } }; const Array[int] values = await batch; const int extra = await select<int> { default: -> { return 2; } }; return (await f) + values[0] + extra; }'});
+for(const [id,body] of [
+ ['raw-initializer','const Future f = 42; return 42; }'],
+ ['wrong-shape','const Future<int> f = select(1) { when readch a: int n -> { return n; } }; return 42; }'],
+ ['capture','const Future f = select { default: -> { return a; } }; return 42; }'],
+ ['escaped','const Future b = select(1) { when readch a: int n -> { return n; } }; return 42; }'],
+ ['wrong-await','const Future b = select(1) { when readch a: int n -> { return n; } }; const int wrong = await b; return wrong; }'],
+ ['double-await','const Future b = select(1) { when readch a: int n -> { return n; } }; const Array[int] first = await b; const Array[int] second = await b; return first[0]; }']
+])cases.push({id,positive:false,source:prefix+body});
+assert.equal(cases.length,24);assert.equal(cases.filter(x=>x.positive).length,11);
+
 assert.ok(bytes.length>8&&bytes.length<=16*1024*1024);
 const profile=await mkdtemp(join(tmpdir(),'atto-worker-chrome-'));
 const routes=new Map([
@@ -59,12 +71,12 @@ try{
  const {result,lines}=await resultPromise;
  assert.equal(result.ok,true,result.error);
  assert.equal(result.worker,true);assert.match(result.agent,/Chrome\//);
- assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,17);assert.equal(result.runtimeControls,6);assert.equal(result.ordinaryDenials,17);
+ assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,24);assert.equal(result.runtimeControls,6);assert.equal(result.ordinaryDenials,24);
  const passes=lines.filter(l=>l.startsWith('PASS counted-browser '));
  assert.equal(passes.length,result.cases);assert.equal(new Set(passes.map(l=>l.split(' ')[2])).size,result.cases);
  assert.ok(lines.includes('BROWSER_COMPILER '+head+' '+tree+' '+pin));
  for(const l of lines)console.log(l);
- console.log('REAL_COUNTED_BROWSER_WORKER_PASS '+result.cases+' source cases; 6 runtime controls; 17 ordinary denials; repeat and digest denial; '+result.agent);
+ console.log('REAL_COUNTED_BROWSER_WORKER_PASS '+result.cases+' source cases; 6 runtime controls; 24 ordinary denials; repeat and digest denial; '+result.agent);
 }finally{
  clearTimeout(timer);
  if(child?.pid&&process.platform!=='win32'){
