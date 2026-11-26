@@ -3,6 +3,10 @@ import {inspectWasmBytes} from "../scripts/inspect-core-memory.mjs";
 import {assertCoreI64Entry} from "../scripts/core-i64-abi.mjs";
 import {snapshotGuestBytes} from "./snapshot-guest-bytes.mjs";
 import {validateCoreOptions} from "./validate-core-options.mjs";
+const ownKeys = Reflect.ownKeys;
+const objectKeys = Object.keys;
+const arraySome = Function.prototype.call.bind(Array.prototype.some);
+const regexTest = Function.prototype.call.bind(RegExp.prototype.test);
 
 /**
  * Zero-capability core-Wasm guest admission (experimental scalar i64 profile).
@@ -53,13 +57,13 @@ export function compileAdmittedCoreGuest(input, options = {}) {
   // transport lease ABI exist in this scalar-only profile.
   if (sharedTcpPool !== false || tcpPoolLeaseCount !== 0 ||
       tcpPoolPointerSharing !== false ||
-      Object.keys(additionalOptions).some(key =>
-        /(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i.test(key)))
+      arraySome(objectKeys(additionalOptions), key =>
+        regexTest(/(?:tcp|socket|connection|shared).*(?:pool|lease|pointer)|(?:pool|lease).*(?:tcp|socket|connection)|(?:shared|frozen|readonly|immutable|borrowed|pinned|zero.?copy).*(?:slab|buffer|memory|pointer|pin)|(?:slab|buffer|memory|pin).*(?:share|pinned|readonly|immutable|lease|pointer|zero.?copy)|zero.?copy|(?:pinned|pin|slab|buffer)bytes/i, key)))
     throw new TypeError("WASM shared TCP pool/lease/pointer capability is unsupported");
   // This profile has no extensible host-capability namespace. Reject ANY
   // unrecognized option, including false-valued typos and Symbol keys, rather
   // than silently implying that a requested capability was provided.
-  if (Reflect.ownKeys(additionalOptions).length !== 0)
+  if (ownKeys(additionalOptions).length !== 0)
     throw new TypeError("WASM rejects unknown core-guest admission options: unsupported zero-capability guest option");
   // The scalar Wasm profile has no manifest-owned multi-file namespace
   // graph, startup barrier or exact-symbol provider routing.
