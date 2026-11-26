@@ -1,0 +1,108 @@
+// Atto std/collections v2: no mutation of borrowed inputs.
+// The compiler MUST prove shared loans cannot be upgraded to mutable loans,
+// cannot cross an independent task/suspension, and cannot escape in Result.
+// Owned outputs are allocated separately and deterministically released by
+// ownership-based cleanup. This module does not mint Send or Sync.
+define module collections as
+  pub fnc is_sorted_int(borrow Array<int> values): bool {
+    for (let int i = 1; i < values.size; i = i + 1) {
+      if values.get(i - 1) > values.get(i); do return false; fi
+    }
+    return true;
+  }
+
+  pub fnc index_of_int(borrow Array<int> values, int needle): int {
+    for (let int i = 0; i < values.size; i = i + 1) {
+      if values.get(i) == needle; do return i; fi
+    }
+    return -1;
+  }
+
+  // No implicit reborrow through another function call.
+  pub fnc contains_int(borrow Array<int> values, int needle): bool {
+    for (let int i = 0; i < values.size; i = i + 1) {
+      if values.get(i) == needle; do return true; fi
+    }
+    return false;
+  }
+
+  pub fnc lower_bound_int(borrow Array<int> values, int needle): Result<int, String> {
+    // Fail closed rather than returning an arbitrary index for unsorted input.
+    for (let int check = 1; check < values.size; check = check + 1) {
+      if values.get(check - 1) > values.get(check); do
+        return Err("lower bound requires sorted input");
+      fi
+    }
+    let int low = 0;
+    let int high = values.size;
+    while low < high; do
+      val int mid = low + (high - low) / 2;
+      if values.get(mid) < needle; do
+        low = mid + 1;
+      else
+        high = mid;
+      fi
+    done
+    return Ok(low);
+  }
+
+  // O(n^2): cap CPU and output size before allocation.
+  pub fnc unique_int(borrow Array<int> values): Result<Array<int>, String> {
+    if values.size > 4096; do return Err("unique_int input exceeds 4096 items"); fi
+    let mut Array<int> output = new Array<int>();
+    for (const item of values) {
+      let bool found = false;
+      for (let int j = 0; j < output.size; j = j + 1) {
+        if output.get(j) == item; do found = true; fi
+      }
+      if !found; do output.add(item); fi
+    }
+    // Returning an owned Array inside Result requires a compiler-checked move.
+    return Ok(rt take output);
+  }
+
+  pub fnc merge_sorted_int(
+      borrow Array<int> left, borrow Array<int> right, int max_items
+    ): Result<Array<int>, String> {
+    if max_items < 0 || max_items > 65536; do
+      return Err("merge budget outside 0..65536");
+    fi
+    // Subtract only after proving left.size <= max_items: no size-add overflow.
+    if left.size > max_items || right.size > max_items - left.size; do
+      return Err("merge exceeds item budget");
+    fi
+    for (let int check = 1; check < left.size; check = check + 1) {
+      if left.get(check - 1) > left.get(check); do
+        return Err("merge requires sorted inputs");
+      fi
+    }
+    for (let int check = 1; check < right.size; check = check + 1) {
+      if right.get(check - 1) > right.get(check); do
+        return Err("merge requires sorted inputs");
+      fi
+    }
+    let mut Array<int> output = new Array<int>();
+    let int left_size = left.size;
+    let int right_size = right.size;
+    let int i = 0;
+    let int j = 0;
+    while i < left_size && j < right_size; do
+      if left.get(i) <= right.get(j); do
+        output.add(left.get(i));
+        i = i + 1;
+      else
+        output.add(right.get(j));
+        j = j + 1;
+      fi
+    done
+    while i < left_size; do
+      output.add(left.get(i));
+      i = i + 1;
+    done
+    while j < right_size; do
+      output.add(right.get(j));
+      j = j + 1;
+    done
+    return Ok(rt take output);
+  }
+end

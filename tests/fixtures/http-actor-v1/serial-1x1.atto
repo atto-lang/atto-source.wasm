@@ -1,0 +1,3 @@
+define pub serial http actor Endpoint as
+  receive(ActorMail<int> mail): void { return; }
+end

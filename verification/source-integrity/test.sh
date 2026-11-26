@@ -87,4 +87,22 @@ outside="$(mktemp -d)"
 ln tracked.txt "$outside/alias.txt"
 reject 'tracked physical hardlink escape'
 rm -rf "$outside"
+# Git replacement refs can make the commit's resolved tree differ from the
+# physical tree belonging to the literal SHA in the release manifest.
+original="$head"
+printf 'forged source bytes\n' > tracked.txt
+git add tracked.txt
+git commit -qm 'forged tree for replace-ref attack'
+forged="$(git rev-parse HEAD)"
+git checkout -q --detach "$original"
+git replace "$original" "$forged"
+git read-tree "${forged}^{tree}"
+git checkout-index -a -f
+[[ "$(git rev-parse HEAD)" == "$original" ]]
+[[ "$(git write-tree)" == "$(git rev-parse "${original}^{tree}")" ]]
+[[ "$(git --no-replace-objects rev-parse "${original}^{tree}")" != "$(git write-tree)" ]]
+reject 'replace refs cannot substitute a forged tree for pinned commit'
+git replace -d "$original" >/dev/null
+git read-tree "${original}^{tree}"
+git checkout-index -a -f
 printf 'PASS: %s source-integrity self-checks (1 positive, %s negative)\n' "$pass" "$((pass-1))"

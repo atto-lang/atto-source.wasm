@@ -1,0 +1,23 @@
+name: std/io Atto source-contract (NOT guest execution)
+on:
+  pull_request:
+    paths:
+      - 'stdlib/std/io.atto'
+      - 'tests/std_io_contract.test.mjs'
+      - '.github/workflows/std-io-source-contract.yml'
+  push:
+    branches:
+      - 'feat/std-io-atto-buffers-20261122'
+    paths:
+      - 'stdlib/std/io.atto'
+      - 'tests/std_io_contract.test.mjs'
+      - '.github/workflows/std-io-source-contract.yml'
+  workflow_dispatch:
+jobs:
+  source-contract-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Node source-contract/reference oracle (not Atto guest)
+        run: node --test tests/std_io_contract.test.mjs

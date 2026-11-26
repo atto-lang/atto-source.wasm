@@ -1,0 +1,50 @@
+// Candidate executable guest policy tests: compile and run with actual Atto compiler.
+// This is NOT a host-side reimplementation of std.actor.
+use namespace std.actor.smoke;
+import actor_mailbox_admissible, actor_future_transition_valid,
+       actor_lifecycle_transition_valid, actor_should_restart,
+       actor_restart_first, actor_restart_end_exclusive,
+       actor_restart_budget_allows, actor_next_generation,
+       actor_failure_notifies_supervisor, actor_cancel_request_admissible,
+       actor_stop_request_admissible, actor_stop_completion_admissible,
+       actor_restart_generation_admissible, actor_supervisor_notice_admissible,
+       actor_reply_admissible from "./policy.atto";
+
+// expect-exit: 42
+pub fnc main(): int {
+  if actor_mailbox_admissible(true, true, true, true, 7, 8) == false then return 1; fi
+  if actor_mailbox_admissible(true, true, false, true, 0, 8) then return 2; fi
+  if actor_mailbox_admissible(true, true, true, true, 8, 8) then return 3; fi
+  if actor_mailbox_admissible(true, true, true, true, -1, 8) then return 4; fi
+  if actor_mailbox_admissible(true, true, true, true, 0, 65537) then return 5; fi
+  if actor_future_transition_valid(0, 3) == false then return 6; fi
+  if actor_future_transition_valid(3, 1) then return 7; fi
+  if actor_future_transition_valid(0, 5) then return 8; fi
+  if actor_lifecycle_transition_valid(2, 3) == false then return 9; fi
+  if actor_lifecycle_transition_valid(4, 2) then return 10; fi
+  if actor_should_restart(2, true) then return 11; fi
+  if actor_should_restart(2, false) == false then return 12; fi
+  if actor_restart_first(2, 2, 4) != 0 then return 13; fi
+  if actor_restart_end_exclusive(3, 2, 4) != 4 then return 14; fi
+  if actor_restart_budget_allows(3, 2, 4) then return 15; fi
+  if actor_restart_budget_allows(2, 2, 4) == false then return 16; fi
+  if actor_next_generation(2147483647) != -1 then return 17; fi
+  if actor_failure_notifies_supervisor(3, true) == false then return 18; fi
+  if actor_cancel_request_admissible(true, true, 0) == false then return 19; fi
+  if actor_cancel_request_admissible(true, false, 0) then return 20; fi
+  if actor_cancel_request_admissible(true, true, 2) then return 21; fi
+  if actor_stop_request_admissible(true, true, 2) == false then return 22; fi
+  if actor_stop_request_admissible(true, true, 4) then return 23; fi
+  if actor_stop_completion_admissible(3, true, true, true, true, false) then return 24; fi
+  if actor_stop_completion_admissible(3, true, true, true, true, true) == false then return 25; fi
+  if actor_restart_generation_admissible(true, true, true, 17, 18) == false then return 26; fi
+  if actor_restart_generation_admissible(true, true, false, 17, 18) then return 27; fi
+  if actor_restart_generation_admissible(true, true, true, 2147483647, 1) then return 28; fi
+  if actor_supervisor_notice_admissible(true, true, true, 3, true) == false then return 29; fi
+  if actor_supervisor_notice_admissible(false, true, true, 3, false) then return 30; fi
+  if actor_supervisor_notice_admissible(true, true, true, 1, true) then return 31; fi
+  if actor_reply_admissible(true, true, true, true) == false then return 32; fi
+  if actor_reply_admissible(true, false, true, true) then return 33; fi
+  if actor_reply_admissible(true, true, true, false) then return 34; fi
+  return 42;
+}

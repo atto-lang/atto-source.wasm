@@ -1,0 +1,45 @@
+// SOURCE CANDIDATE: strict UTF-8 positive and negative cases.
+// Must execute against linked .atto module; do not substitute host-model PASS.
+import module alloc_string from "atto.alloc/string";
+
+pub fnc main() -> int {
+  let mut Array<int> valid = new Array<int>();
+  valid.add(0);        // embedded NUL is ordinary data
+  valid.add(194); valid.add(128);        // U+0080
+  valid.add(226); valid.add(130); valid.add(172); // U+20AC
+  valid.add(240); valid.add(159); valid.add(152); valid.add(128); // U+1F600
+  if !alloc_string.valid_utf8(valid); do return 1; fi
+  if alloc_string.char_count(valid).unwrap_or(-1) != 4; do return 2; fi
+  if !alloc_string.is_char_boundary(valid, 1); do return 3; fi
+  if alloc_string.is_char_boundary(valid, 2); do return 4; fi
+  if !alloc_string.is_char_boundary(valid, valid.size); do return 5; fi
+
+  let mut Array<int> overlong = new Array<int>();
+  overlong.add(192); overlong.add(128);
+  if alloc_string.valid_utf8(overlong); do return 6; fi
+
+  let mut Array<int> surrogate = new Array<int>();
+  surrogate.add(237); surrogate.add(160); surrogate.add(128);
+  if alloc_string.valid_utf8(surrogate); do return 7; fi
+
+  let mut Array<int> too_large = new Array<int>();
+  too_large.add(244); too_large.add(144); too_large.add(128); too_large.add(128);
+  if alloc_string.valid_utf8(too_large); do return 8; fi
+
+  let mut Array<int> truncated = new Array<int>();
+  truncated.add(240); truncated.add(159); truncated.add(152);
+  if alloc_string.valid_utf8(truncated); do return 9; fi
+
+  let mut Array<int> bad_byte = new Array<int>();
+  bad_byte.add(256);
+  if alloc_string.valid_utf8(bad_byte); do return 10; fi
+
+  let mut Array<int> isolated = new Array<int>();
+  isolated.add(128);
+  if alloc_string.valid_utf8(isolated); do return 11; fi
+
+  if alloc_string.valid_scalar(55296); do return 12; fi
+  if alloc_string.valid_scalar(1114112); do return 13; fi
+  if !alloc_string.valid_scalar(1114111); do return 14; fi
+  return 0;
+}

@@ -1,0 +1,844 @@
+{
+  "schema": "atto-core-borrow-ranges-v1",
+  "status": "CANDIDATE_SOURCE_MODEL_ONLY_NOT_COMPILED",
+  "date": "2026-11-22",
+  "language": "AttoLang",
+  "purpose": "Pure projected-slice and loan-slot boundary arithmetic shared by backends. Compiler-owned typed MIR with authenticated owner/loan IDs is mandatory for actual borrow checking.",
+  "dependencies": [
+    "contracts/borrow-checker-v1.tsv",
+    "contracts/collection-ownership-sync-v1.json",
+    "contracts/ownership-capabilities-v1.json"
+  ],
+  "never_proves": [
+    "actual owner identity",
+    "loan provenance",
+    "Send/Sync capabilities",
+    "borrow lifetime across await or actors",
+    "actual allocation",
+    "pointer validity",
+    "mutation authority",
+    "safe exclusive mutable aliasing without typed owner proof"
+  ],
+  "invariants": {
+    "invalid_range_overlap": "true: invalid operands are treated as potential overlap, never disjoint",
+    "empty_valid_range": "zero-width ranges are disjoint",
+    "bounded_readers": "maximum reader slots 1..1024; writer preference rejects queued writers",
+    "owner_transfer": "requires compiler-verified live owner and zero outstanding loans; boolean args are not proof"
+  },
+  "api": {
+    "range_fits": [
+      "int",
+      "int",
+      "int",
+      "bool"
+    ],
+    "ranges_overlap": [
+      "int",
+      "int",
+      "int",
+      "int",
+      "int",
+      "bool"
+    ],
+    "mutable_split_admissible": [
+      "int",
+      "int",
+      "int",
+      "int",
+      "int",
+      "bool"
+    ],
+    "read_loan_slot_admissible": [
+      "int",
+      "int",
+      "bool",
+      "int",
+      "bool"
+    ],
+    "write_loan_slot_admissible": [
+      "int",
+      "bool",
+      "bool"
+    ],
+    "owner_move_slot_admissible": [
+      "bool",
+      "int",
+      "bool",
+      "bool"
+    ]
+  },
+  "vector_count": 64,
+  "vectors": [
+    {
+      "id": "CBR-001",
+      "fn": "range_fits",
+      "args": [
+        10,
+        0,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-002",
+      "fn": "range_fits",
+      "args": [
+        10,
+        10,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-003",
+      "fn": "range_fits",
+      "args": [
+        0,
+        0,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-004",
+      "fn": "range_fits",
+      "args": [
+        10,
+        9,
+        2
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-005",
+      "fn": "range_fits",
+      "args": [
+        10,
+        11,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-006",
+      "fn": "range_fits",
+      "args": [
+        -1,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-007",
+      "fn": "range_fits",
+      "args": [
+        10,
+        -1,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-008",
+      "fn": "range_fits",
+      "args": [
+        10,
+        0,
+        -1
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-009",
+      "fn": "range_fits",
+      "args": [
+        10,
+        0,
+        11
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-010",
+      "fn": "range_fits",
+      "args": [
+        2147483647,
+        2147483647,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-011",
+      "fn": "range_fits",
+      "args": [
+        2147483647,
+        2147483647,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-012",
+      "fn": "range_fits",
+      "args": [
+        9,
+        3,
+        6
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-013",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        5,
+        5,
+        5
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-014",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        5,
+        4,
+        6
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-015",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        4,
+        4,
+        0,
+        4
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-016",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        4,
+        4,
+        0,
+        5
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-017",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        0,
+        0,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-018",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        10,
+        10,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-019",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        2,
+        2,
+        2,
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-020",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        11,
+        2,
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-021",
+      "fn": "ranges_overlap",
+      "args": [
+        10,
+        0,
+        2,
+        10,
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-022",
+      "fn": "ranges_overlap",
+      "args": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-023",
+      "fn": "ranges_overlap",
+      "args": [
+        -1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-024",
+      "fn": "ranges_overlap",
+      "args": [
+        2147483647,
+        2147483646,
+        1,
+        2147483647,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-025",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        5,
+        5,
+        5
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-026",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        5,
+        4,
+        6
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-027",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        4,
+        4,
+        0,
+        4
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-028",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        4,
+        4,
+        0,
+        5
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-029",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        0,
+        0,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-030",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        10,
+        10,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-031",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        2,
+        2,
+        2,
+        2
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-032",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        11,
+        2,
+        2
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-033",
+      "fn": "mutable_split_admissible",
+      "args": [
+        10,
+        0,
+        2,
+        10,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-034",
+      "fn": "mutable_split_admissible",
+      "args": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-035",
+      "fn": "mutable_split_admissible",
+      "args": [
+        -1,
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-036",
+      "fn": "mutable_split_admissible",
+      "args": [
+        2147483647,
+        2147483646,
+        1,
+        2147483647,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-037",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        0,
+        1,
+        false,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-038",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1,
+        1,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-039",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        0,
+        0,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-040",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        0,
+        1025,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-041",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        0,
+        1024,
+        false,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-042",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1023,
+        1024,
+        false,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-043",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1024,
+        1024,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-044",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1,
+        4,
+        true,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-045",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1,
+        4,
+        false,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-046",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        1,
+        4,
+        false,
+        -1
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-047",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        -1,
+        4,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-048",
+      "fn": "read_loan_slot_admissible",
+      "args": [
+        0,
+        4,
+        false,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-049",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        0,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-050",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-051",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        -1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-052",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-053",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        1,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-054",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        -1,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-055",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        1024,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-056",
+      "fn": "write_loan_slot_admissible",
+      "args": [
+        2147483647,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-057",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        true,
+        0,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "CBR-058",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        true,
+        1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-059",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        true,
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-060",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        false,
+        0,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-061",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        false,
+        1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-062",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        false,
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-063",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        true,
+        -1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "CBR-064",
+      "fn": "owner_move_slot_admissible",
+      "args": [
+        true,
+        2147483647,
+        false
+      ],
+      "expected": false
+    }
+  ],
+  "backends": [
+    {
+      "backend": "java",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "llvm",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "net",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "forge",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "wasm",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "rs",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "cranelift",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "js",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "hdl",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "atto",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    },
+    {
+      "backend": "realtime",
+      "source": "NOT_EXECUTED",
+      "native_guest": "NOT_EXECUTED",
+      "compiler_borrow": "NOT_EXECUTED"
+    }
+  ],
+  "evidence_policy": {
+    "model": "SOURCE_ONLY",
+    "compiler_negative": "actual typed front-end rejects with semantic ownership diagnostic and no target artifact",
+    "guest": "real compiled guest with exact head, trees, source blobs and stepful host runner",
+    "forbidden": [
+      "queued_as_pass",
+      "parser_error_as_borrow_diagnostic",
+      "model_boolean_as_loan_proof",
+      "unapproved_private_mirror"
+    ]
+  }
+}

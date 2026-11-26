@@ -1,0 +1,377 @@
+// atto-source.wasm backend-owned .atto stage for std/json.
+// This source is NOT registered/compiled by this backend until a real
+// compiler import/link/guest execution test proves it works. Do not
+// count source presence or another backend's CI as target parity.
+// std/json -- strict, bounded JSON document admission in Atto source.
+// No Java/JS/C host JSON parser, reflection, network I/O or hidden GC.
+// Parses Unicode scalar text with RFC 8259 lexical rules, rejects duplicate
+// object keys *after unescaping*, and preserves valid input for exact re-emit.
+// This first API returns a validated document, not an allocated JsonValue tree.
+// For typed/graph codecs use the separate alloc/json and std/zorde boundaries.
+define module json as
+  pub define class Document as
+    let String original;
+    let int root_kind;
+    let int nodes;
+
+    // Only the parser constructs an admitted document.
+    constructor(String original, int root_kind, int nodes) {
+      self.original = original;
+      self.root_kind = root_kind;
+      self.nodes = nodes;
+    }
+    // Root kinds: null=1, bool=2, number=3, string=4, array=5, object=6.
+    pub kind(): int { return self.root_kind; }
+    pub node_count(): int { return self.nodes; }
+    pub raw(): String { return self.original; }
+  end
+
+  define class Scanner as
+    let Array<int> source;
+    let int length;
+    let mut int index = 0;
+    let mut int nodes = 0;
+    let mut int key_comparisons = 0;
+    let mut Array<int> decoded = new Array<int>();
+
+    constructor(String raw) {
+      self.source = raw.codepoints();
+      self.length = self.source.size;
+    }
+
+    skip_space(mut self)(): int {
+      while self.index < self.length; do
+        let int ch = self.source.get(self.index);
+        if ch != 32 && ch != 9 && ch != 10 && ch != 13; do
+          break;
+        fi
+        self.index = self.index + 1;
+      done
+      return self.index;
+    }
+
+    digit(int ch): bool { return ch >= 48 && ch <= 57; }
+
+    hex_digit(int ch): int {
+      if ch >= 48 && ch <= 57; do return ch - 48; fi
+      if ch >= 65 && ch <= 70; do return ch - 65 + 10; fi
+      if ch >= 97 && ch <= 102; do return ch - 97 + 10; fi
+      return -1;
+    }
+
+    hex4(mut self)(): int {
+      if self.length - self.index < 4; do return -1; fi
+      let int scalar = 0;
+      for (let int i = 0; i < 4; i = i + 1) {
+        let int digit = self.hex_digit(self.source.get(self.index + i));
+        if digit < 0; do return -1; fi
+        scalar = scalar * 16 + digit;
+      }
+      self.index = self.index + 4;
+      return scalar;
+    }
+
+    // Decode scalars only for object keys, not arbitrary string values.
+    // This avoids retaining a copy of a large JSON string payload.
+    read_string(mut self)(bool capture): bool {
+      if self.index >= self.length || self.source.get(self.index) != 34; do
+        return false;
+      fi
+      self.index = self.index + 1;
+      self.decoded = new Array<int>();
+      while self.index < self.length; do
+        let int ch = self.source.get(self.index);
+        self.index = self.index + 1;
+        if ch == 34; do return true; fi
+        // String.codepoints() may expose a lone host UTF-16 surrogate.
+        if ch < 32 || (ch >= 55296 && ch <= 57343) ||
+           ch > 1114111; do return false; fi
+        if ch != 92; do
+          if capture; do self.decoded.add(ch); fi
+        else
+          if self.index >= self.length; do return false; fi
+          let int escaped = self.source.get(self.index);
+          self.index = self.index + 1;
+          if escaped == 34 || escaped == 92 || escaped == 47; do
+            if capture; do self.decoded.add(escaped); fi
+          elif escaped == 98; do
+            if capture; do self.decoded.add(8); fi
+          elif escaped == 102; do
+            if capture; do self.decoded.add(12); fi
+          elif escaped == 110; do
+            if capture; do self.decoded.add(10); fi
+          elif escaped == 114; do
+            if capture; do self.decoded.add(13); fi
+          elif escaped == 116; do
+            if capture; do self.decoded.add(9); fi
+          elif escaped == 117; do
+            let int unicode = self.hex4();
+            if unicode < 0; do return false; fi
+            if unicode >= 55296 && unicode <= 56319; do
+              // A high surrogate MUST be followed by a second \u escape
+              // representing a low surrogate.
+              if self.length - self.index < 6 ||
+                 self.source.get(self.index) != 92 ||
+                 self.source.get(self.index + 1) != 117; do
+                return false;
+              fi
+              self.index = self.index + 2;
+              let int low = self.hex4();
+              if low < 56320 || low > 57343; do return false; fi
+              unicode = 65536 + (unicode - 55296) * 1024 + low - 56320;
+            elif unicode >= 56320 && unicode <= 57343; do
+              return false;
+            fi
+            if capture; do self.decoded.add(unicode); fi
+          else
+            return false;
+          fi
+        fi
+        // Prevent a hostile object key from allocating an unbounded scalar
+        // copy before the object-level quota check runs.
+        if capture && self.decoded.size > 256; do return false; fi
+      done
+      return false;
+    }
+
+    keys_equal(Array<int> left, Array<int> right): bool {
+      if left.size != right.size; do return false; fi
+      for (let int i = 0; i < left.size; i = i + 1) {
+        if left.get(i) != right.get(i); do return false; fi
+      }
+      return true;
+    }
+
+    read_keyword(mut self)(String word): bool {
+      let chars = word.codepoints();
+      if chars.size > self.length - self.index; do return false; fi
+      for (let int i = 0; i < chars.size; i = i + 1) {
+        if self.source.get(self.index + i) != chars.get(i); do
+          return false;
+        fi
+      }
+      self.index = self.index + chars.size;
+      return true;
+    }
+
+    read_number(mut self)(): bool {
+      if self.index < self.length && self.source.get(self.index) == 45; do
+        self.index = self.index + 1;
+      fi
+      if self.index >= self.length; do return false; fi
+      let int first = self.source.get(self.index);
+      if first == 48; do
+        self.index = self.index + 1;
+        if self.index < self.length &&
+           self.digit(self.source.get(self.index)); do
+          return false;
+        fi
+      elif first >= 49 && first <= 57; do
+        while self.index < self.length &&
+              self.digit(self.source.get(self.index)); do
+          self.index = self.index + 1;
+        done
+      else
+        return false;
+      fi
+      if self.index < self.length && self.source.get(self.index) == 46; do
+        self.index = self.index + 1;
+        if self.index >= self.length ||
+           !self.digit(self.source.get(self.index)); do return false; fi
+        while self.index < self.length &&
+              self.digit(self.source.get(self.index)); do
+          self.index = self.index + 1;
+        done
+      fi
+      if self.index < self.length &&
+         (self.source.get(self.index) == 69 ||
+          self.source.get(self.index) == 101); do
+        self.index = self.index + 1;
+        if self.index < self.length &&
+           (self.source.get(self.index) == 43 ||
+            self.source.get(self.index) == 45); do
+          self.index = self.index + 1;
+        fi
+        if self.index >= self.length ||
+           !self.digit(self.source.get(self.index)); do return false; fi
+        while self.index < self.length &&
+              self.digit(self.source.get(self.index)); do
+          self.index = self.index + 1;
+        done
+      fi
+      return true;
+    }
+
+    read_array(mut self)(int depth): bool {
+      self.index = self.index + 1;
+      self.skip_space();
+      if self.index < self.length && self.source.get(self.index) == 93; do
+        self.index = self.index + 1;
+        return true;
+      fi
+      while self.index < self.length; do
+        if !self.read_value(depth + 1); do return false; fi
+        self.skip_space();
+        if self.index >= self.length; do return false; fi
+        let int sep = self.source.get(self.index);
+        self.index = self.index + 1;
+        if sep == 93; do return true; fi
+        if sep != 44; do return false; fi
+      done
+      return false;
+    }
+
+    read_object(mut self)(int depth): bool {
+      self.index = self.index + 1;
+      self.skip_space();
+      if self.index < self.length && self.source.get(self.index) == 125; do
+        self.index = self.index + 1;
+        return true;
+      fi
+      let mut Array<Array<int>> keys = new Array<Array<int>>();
+      while self.index < self.length; do
+        if keys.size >= 128 || !self.read_string(true); do return false; fi
+        if self.decoded.size > 256; do return false; fi
+        for (let int i = 0; i < keys.size; i = i + 1) {
+          if self.key_comparisons >= 65536; do return false; fi
+          self.key_comparisons = self.key_comparisons + 1;
+          if self.keys_equal(keys.get(i), self.decoded); do
+            return false;
+          fi
+        }
+        let mut Array<int> detached = new Array<int>();
+        for (let int i = 0; i < self.decoded.size; i = i + 1) {
+          detached.add(self.decoded.get(i));
+        }
+        keys.add(detached);
+        self.skip_space();
+        if self.index >= self.length || self.source.get(self.index) != 58; do
+          return false;
+        fi
+        self.index = self.index + 1;
+        if !self.read_value(depth + 1); do return false; fi
+        self.skip_space();
+        if self.index >= self.length; do return false; fi
+        let int sep = self.source.get(self.index);
+        self.index = self.index + 1;
+        if sep == 125; do return true; fi
+        if sep != 44; do return false; fi
+        self.skip_space();
+      done
+      return false;
+    }
+
+    read_value(mut self)(int depth): bool {
+      if depth > 64 || self.nodes >= 262144; do return false; fi
+      self.skip_space();
+      if self.index >= self.length; do return false; fi
+      self.nodes = self.nodes + 1;
+      let int ch = self.source.get(self.index);
+      if ch == 34; do return self.read_string(false); fi
+      if ch == 123; do return self.read_object(depth); fi
+      if ch == 91; do return self.read_array(depth); fi
+      if ch == 116; do return self.read_keyword("true"); fi
+      if ch == 102; do return self.read_keyword("false"); fi
+      if ch == 110; do return self.read_keyword("null"); fi
+      if ch == 45 || (ch >= 48 && ch <= 57); do
+        return self.read_number();
+      fi
+      return false;
+    }
+
+    finished(): bool {
+      self.skip_space();
+      return self.index == self.length;
+    }
+    node_count(): int { return self.nodes; }
+    start_kind(): int {
+      self.skip_space();
+      if self.index >= self.length; do return 0; fi
+      let int ch = self.source.get(self.index);
+      if ch == 110; do return 1; fi
+      if ch == 116 || ch == 102; do return 2; fi
+      if ch == 34; do return 4; fi
+      if ch == 91; do return 5; fi
+      if ch == 123; do return 6; fi
+      return 3;
+    }
+    length_in_scalars(): int { return self.length; }
+  end
+
+  // Quotas: <=1,048,576 Unicode scalars, 64 levels, 262,144 values,
+  // 128 keys/object, 256 decoded scalars/key and 65536 global key comparisons.
+  // Duplicate keys reject even
+  // if one spelling uses \u escapes and the other uses literal characters.
+  pub fnc decode(String text): Result<Document, String> {
+    let mut Scanner scanner = new Scanner(text);
+    if scanner.length_in_scalars() > 1048576; do
+      return Err("InputLimit");
+    fi
+    let int kind = scanner.start_kind();
+    if kind == 0 || !scanner.read_value(0) || !scanner.finished(); do
+      return Err("InvalidOrAmbiguousJson");
+    fi
+    return Ok(new Document(text, kind, scanner.node_count()));
+  }
+
+  // Lossless re-emission: accepted text is NOT silently rewritten, rounded
+  // or passed to a host-language JSON.stringify implementation.
+  pub fnc encode(Document document): String {
+    return document.raw();
+  }
+  pub fnc encode_bool(bool value): String {
+    if value; do return "true"; fi
+    return "false";
+  }
+  pub fnc encode_null(): String { return "null"; }
+
+  // JSON is a strict UTF-8/Unicode scalar document, not a numeric cast.
+  // These aliases deliberately share exactly one admission and emit policy.
+  pub fnc parse(String text): Result<Document, String> { return decode(text); }
+  pub fnc stringify(Document document): String { return encode(document); }
+  pub fnc valid(String text): bool { return decode(text).is_ok(); }
+
+  // Strict 64-bit integer-only JSON scalar decoding, with negative
+  // accumulation to admit INT64_MIN without overflowing on magnitude.
+  // Fractions/exponents have no implicit conversion or precision loss.
+  pub fnc decode_int(String text): Result<int, String> {
+    let chars = text.codepoints();
+    if chars.size < 1 || chars.size > 20; do return Err("IntegerRange"); fi
+    let int start = 0;
+    let bool negative = chars.get(0) == 45;
+    if negative; do start = 1; fi
+    if start >= chars.size; do return Err("InvalidInteger"); fi
+    if chars.get(start) == 48 && chars.size - start > 1; do
+      return Err("LeadingZero");
+    fi
+    let int floor = -9223372036854775807;
+    if negative; do floor = floor - 1; fi
+    let int threshold = floor / 10;
+    let int value = 0;
+    for (let int j = start; j < chars.size; j = j + 1) {
+      let int digit = chars.get(j) - 48;
+      if digit < 0 || digit > 9; do return Err("InvalidInteger"); fi
+      if value < threshold; do return Err("IntegerRange"); fi
+      value = value * 10;
+      if value < floor + digit; do return Err("IntegerRange"); fi
+      value = value - digit;
+    }
+    if negative; do return Ok(value); fi
+    return Ok(-value);
+  }
+
+  pub fnc decode_i32(String text): Result<int, String> {
+    let parsed = decode_int(text);
+    if parsed.is_err(); do return Err("InvalidI32"); fi
+    let int value = parsed.unwrap();
+    if value < -2147483647 - 1 || value > 2147483647; do
+      return Err("I32Range");
+    fi
+    return Ok(value);
+  }
+  pub fnc decode_bool(String text): Result<bool, String> {
+    if text == "true"; do return Ok(true); fi
+    if text == "false"; do return Ok(false); fi
+    return Err("InvalidBoolean");
+  }
+end

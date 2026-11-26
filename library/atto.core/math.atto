@@ -1,0 +1,21 @@
+// Wasm backend-owned Atto core integer math. Source candidate only.
+// Guest imports require the pinned LLVM core graph and strict wasm32 admission.
+define module math as
+  pub fnc min_int(int left, int right): int {
+    if left < right; do return left; fi
+    return right;
+  }
+  pub fnc max_int(int left, int right): int {
+    if left > right; do return left; fi
+    return right;
+  }
+  pub fnc signum_int(int value): int {
+    if value < 0; do return -1; fi
+    if value > 0; do return 1; fi
+    return 0;
+  }
+  pub fnc contains_closed_int(int value, int lower, int upper): bool {
+    if lower > upper; do return false; fi
+    return value >= lower && value <= upper;
+  }
+end
