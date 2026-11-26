@@ -8,11 +8,11 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const manifestPath='tests/fixtures/std-metrics-json-zorde/expected-stdout.json';
-const manifestBlob='89816c963ae2cff3b3e2cd3b6c6f8c6b0bbcbb16';
+const manifestBlob='788b14be9760f3fb97044418a6f65012a7947840';
 const fixtures={
   metrics:['360296191eb7ef368aef7dca555e6a9d9cbf9448',36],
   json:['cc6eb203b756ba3dbe4abb0adc76566bf3b9600d',36],
-  zorde:['d3a38b7fe93495c006ab45674dd985fc1aea061b',55],
+  zorde:['0f764e1f48d8cf9bc084b77566d0627d196f551e',55],
 };
 const fail=(message)=>{throw new Error(message);};
 const require=(ok,message)=>{if(!ok)fail(message);};
