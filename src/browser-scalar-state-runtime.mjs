@@ -59,7 +59,7 @@ export function createStateRuntime({
     if (nextContainerId >= MAX_TICKET_ID) fail('container generation exhausted');
     const meta = {
       ptr, containerId: ++nextContainerId,
-      actorIncarnation, generation: 1, retired: false,
+      actorIncarnation, generation: 1, retired: false, readers: 0, writer: false,
     };
     containers.set(ptr, meta);
     emit({kind:'register', containerId:meta.containerId, actorIncarnation});
@@ -74,18 +74,18 @@ export function createStateRuntime({
     if (meta.retired) fail('state container is retired');
     if (active.size >= maxTickets) fail('state admission capacity');
     // Single synchronous Wasm turn: never attempt to wait on contention.
-    for (const claim of active.values()) {
-      if (claim.containerId === meta.containerId && (mode === 1 || claim.mode === 1)) {
-        fail('synchronous state admission contention; suspension not implemented');
-      }
+    if (meta.writer || (mode === 1 && meta.readers !== 0)) {
+      fail('synchronous state admission contention; suspension not implemented');
     }
     if (nextTicketId >= MAX_TICKET_ID) fail('ticket sequence exhausted');
     // i64 capability encoding; distinct host instances cannot share tickets.
     const ticket = (BigInt(actorIncarnation) << 32n) | BigInt(++nextTicketId);
     active.set(ticket, {
       containerId:meta.containerId, actorIncarnation,
-      generation:meta.generation, mode,
+      generation:meta.generation, mode, meta,
     });
+    if (mode === 1) meta.writer = true;
+    else meta.readers++;
     emit({kind:'enter', containerId:meta.containerId, mode});
     return ticket;
   }
@@ -96,10 +96,18 @@ export function createStateRuntime({
     const claim = active.get(ticket);
     if (!claim) fail('missing or replayed admission ticket');
     if ((ticket >> 32n) !== BigInt(actorIncarnation)) fail('foreign actor incarnation');
-    const meta = [...containers.values()].find(m => m.containerId === claim.containerId);
-    if (!meta || meta.generation !== claim.generation ||
+    const meta = claim.meta;
+    if (containers.get(meta.ptr) !== meta || meta.containerId !== claim.containerId ||
+        meta.generation !== claim.generation ||
         meta.actorIncarnation !== claim.actorIncarnation) {
       fail('stale state generation');
+    }
+    if (claim.mode === 1) {
+      if (!meta.writer) fail('inconsistent writer ledger');
+      meta.writer = false;
+    } else {
+      if (meta.readers === 0) fail('inconsistent reader ledger');
+      meta.readers--;
     }
     active.delete(ticket);
     emit({kind:'leave',containerId:claim.containerId,mode:claim.mode});
@@ -116,7 +124,7 @@ export function createStateRuntime({
   function quiescent(ptr) {
     if (!isPtr(ptr) || !containers.has(ptr)) fail('unknown state container');
     const meta = containers.get(ptr);
-    return meta.retired && ![...active.values()].some(c => c.containerId === meta.containerId);
+    return meta.retired && meta.readers === 0 && !meta.writer;
   }
 
   /** Successful physical completion cannot silently abandon a live ticket. */
@@ -133,7 +141,9 @@ export function createStateRuntime({
     assertNotNotifying();
     retired = true;
     active.clear();
-    for (const meta of containers.values()) meta.retired = true;
+    for (const meta of containers.values()) {
+      meta.retired = true; meta.readers = 0; meta.writer = false;
+    }
     emit({kind:'abort'});
   }
 
