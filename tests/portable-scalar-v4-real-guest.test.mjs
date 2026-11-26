@@ -1,4 +1,5 @@
-// v3: real LLVM compiler to Wasm guest, never a host arithmetic substitute.
+// Active v5: real LLVM compiler to Wasm guest, never a host arithmetic substitute.
+// Filename retained for existing CI callers; historical v4 remains immutable.
 // Missing compiler is a SKIP (not parity) unless required mode forbids it.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -10,9 +11,10 @@ import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 import {semanticCompilerRejection} from "../src/oresllm-compiler-evidence.mjs";
 
-const manifestBytes=readFileSync(new URL("../contracts/parity/portable-scalar-v4-20261119.json",import.meta.url));
+const historicalV4=readFileSync(new URL("../contracts/parity/portable-scalar-v4-20261119.json",import.meta.url));
+const manifestBytes=readFileSync(new URL("../contracts/parity/portable-scalar-v5-20261120.json",import.meta.url));
 const corpus=JSON.parse(manifestBytes.toString("utf8"));
-const canonicalGitBlob="8185a1b4bf0e0a776b4168cad4805fc40660327d";
+const canonicalGitBlob="e9b370f81efef07e7f2818d007486fea82c95b3d";
 const gitBlobSha=bytes=>createHash("sha1").update("blob "+bytes.length+"\0").update(bytes).digest("hex");
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
 const compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256;
@@ -20,9 +22,11 @@ const required=process.env.ORESLANG_REQUIRE_REAL_COMPILER==="1";
 const hash=bytes=>createHash("sha256").update(bytes).digest("hex");
 const all=[...corpus.positive,...corpus.compile_reject,...corpus.checked_overflow];
 
-test("scalar v4 manifest is unique, complete and mode-separated",()=>{
+test("historical scalar v4 remains immutable; active v5 is unique and mode-separated",()=>{
+  assert.equal(gitBlobSha(historicalV4),"8185a1b4bf0e0a776b4168cad4805fc40660327d");
+  assert.equal(corpus.supersedes_git_blob,gitBlobSha(historicalV4));
   assert.equal(gitBlobSha(manifestBytes),canonicalGitBlob,"manifest drift across backends");
-  assert.equal(corpus.schema_version,"2026-11-19.scalar-v4");
+  assert.equal(corpus.schema_version,"2026-11-20.scalar-v5");
   assert.equal(corpus.scope,"import-free-pure-i64");
   assert.equal(corpus.positive.length,13);
   assert.equal(corpus.compile_reject.length,4);
@@ -34,18 +38,18 @@ test("scalar v4 manifest is unique, complete and mode-separated",()=>{
     assert.doesNotMatch(x.expression,/\b(?:eval|require|import)\b/);
   }
 });
-async function guest(t,x,kind){
+async function guest(t,x,kind,returnKeyword="return"){
   if(!compiler && !compilerSha256){
-    if(required) throw Error("required v3 guest proof missing compiler + sha256");
+    if(required) throw Error("required v5 guest proof missing compiler + sha256");
     t.skip("no pinned compiler; zero Oreslang guest evidence");
     return;
   }
   assert.ok(compiler&&compilerSha256,"incomplete compiler identity; fail closed");
   assert.match(compilerSha256,/^[0-9a-f]{64}$/);
-  const dir=await mkdtemp(join(tmpdir(),"ores-wasm-scalar-v3-"));
+  const dir=await mkdtemp(join(tmpdir(),"ores-wasm-scalar-v5-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.atto"),output=join(dir,"main.wasm");
-  const bytes=Buffer.from("pub fnc main(): int { return "+x.expression+"; }\n");
+  const bytes=Buffer.from("pub fnc main(): int { "+returnKeyword+" "+x.expression+"; }\n");
   await writeFile(source,bytes,{flag:"wx",mode:0o400});
   const go=()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256,source,output});
   if(kind==="compile_reject"){
@@ -74,10 +78,13 @@ async function guest(t,x,kind){
     assert.throws(()=>instance.exports.main(),WebAssembly.RuntimeError,"checked overflow must trap: "+x.id);
   }
 }
-for(const x of corpus.positive) test("Wasm v4 positive "+x.id,t=>guest(t,x,"positive"));
-for(const x of corpus.compile_reject) test("Wasm v4 compiler reject "+x.id,t=>guest(t,x,"compile_reject"));
-for(const x of corpus.checked_overflow) test("Wasm v4 overflow trap "+x.id,t=>guest(t,x,"checked_overflow"));
-test("required v3 parity never skips missing compiler",()=>{
+for(const x of corpus.positive) test("Wasm v5 positive "+x.id,t=>guest(t,x,"positive"));
+for(const x of corpus.compile_reject) test("Wasm v5 compiler reject "+x.id,t=>guest(t,x,"compile_reject"));
+for(const x of corpus.checked_overflow) test("Wasm v5 overflow trap "+x.id,t=>guest(t,x,"checked_overflow"));
+test("Wasm v5 statement-leading caret return",t=>guest(t,{id:"prefix-caret-return",expression:"40 + 2",expected:"42"},"positive","^"));
+test("Wasm v5 Boolean double-caret is not integer XOR",t=>guest(t,{id:"bool-double-caret",expression:"true ^^ false"},"compile_reject"));
+test("Wasm v5 spaced caret is not integer XOR",t=>guest(t,{id:"spaced-carets",expression:"11 ^ ^ 4"},"compile_reject"));
+test("required v5 parity never skips missing compiler",()=>{
   if(required) assert.ok(compiler&&compilerSha256,"required compiler identity missing");
   if(compiler||compilerSha256) assert.ok(compiler&&compilerSha256,"partial compiler pin");
 });
