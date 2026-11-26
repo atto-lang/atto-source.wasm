@@ -10,6 +10,7 @@ export function verifyCheckedUnwrapRejection(id, output) {
   const entry = checkedUnwrapRejections.find(row => row[0] === id);
   if (!entry || output?.ok !== false || Object.hasOwn(output, 'wasm') ||
       typeof output.diagnostic !== 'string' || output.diagnostic.length > 16384 ||
+      /[\r\n]/.test(output.diagnostic) || output.diagnostic.trimEnd().endsWith(':') ||
       !new RegExp('^(?:[0-9]+:[0-9]+: )?' + entry[2] + ': [^\\r\\n]+$').test(output.diagnostic))
     throw new Error('checked unwrap diagnostic mismatch: ' + id);
 }
