@@ -1,0 +1,7 @@
+import module buffer from pkg "std.buffer";
+
+pub fnc main(): int throws Error {
+  val mut bytes = buffer.ByteBuffer.allocate(4);
+  bytes.write_u8(1, 255);
+  return bytes.read_u8(1) eq 255 ? 1 : 0;
+}
