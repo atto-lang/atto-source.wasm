@@ -21,8 +21,10 @@ if(!isMainThread){
     assert.equal(result.ok,true,result.message);parentPort.postMessage({ok:true,value:result.value});
   }catch(error){parentPort.postMessage({ok:false,error:String(error?.message||error)});}
 }else{
- const [coldPath,warmPath,editPath]=process.argv.slice(2);
- if(!coldPath||!warmPath||!editPath||process.argv.length!==5)throw Error('expected cold, warm, edited compiler artifact paths');
+ const args=process.argv.slice(2);
+ const v3=args[0]==='--v3';if(v3)args.shift();
+ const [coldPath,warmPath,editPath,observerPath,observerEditPath]=args;
+ if(args.length!==(v3?5:3)||args.some(x=>!x))throw Error('expected exact compiler artifact paths');
  const [cold,warm,edit]=await Promise.all([coldPath,warmPath,editPath].map(p=>readFile(p)));
  assert.deepEqual(cold,warm);assert.notDeepEqual(cold,edit);
  const coldPin=sha(cold),editPin=sha(edit);
@@ -43,8 +45,14 @@ if(!isMainThread){
  // Preserve the original strict native ABI rejection for memory-free browser
  // output. Use the correct existing browser runtime profile, not a fallback.
  await assert.rejects(runIsolatedCoreGuest(cold,{expectedSha256:coldPin,timeoutMs:5000}),/exactly one privately defined, bounded linear memory/);
- for(const [bytes,pin,expected] of [[cold,coldPin,'42'],[warm,coldPin,'42'],[edit,editPin,'43']])
+ for(const [bytes,pin,expected] of [[cold,coldPin,v3?'10203':'42'],[warm,coldPin,v3?'10203':'42'],[edit,editPin,v3?'42010203':'43']])
    assert.equal(await execute(bytes,pin),expected);
  await assert.rejects(execute(edit,coldPin),/E_PIN/);
- console.log('INCREMENTAL_WASM_CONSUMER|actual-browser-worker-guests=42/42/43|stale-pin-denied|strict-native-abi-denial-preserved');
+ if(v3){
+   const [observer,observerEdit]=await Promise.all([observerPath,observerEditPath].map(p=>readFile(p)));
+   assert.deepEqual(observer,observerEdit);const observerPin=sha(observer);
+   for(const bytes of [observer,observerEdit])assert.equal(await execute(bytes,observerPin),'40506');
+   await assert.rejects(execute(observer,coldPin),/E_PIN/);
+   console.log('V3_WASM_CONSUMER|actual-browser-worker-guests=10203/10203/42010203/40506/40506|observer-byte-stable|stale-pin-denied|strict-native-abi-denial-preserved');
+ }else console.log('INCREMENTAL_WASM_CONSUMER|actual-browser-worker-guests=42/42/43|stale-pin-denied|strict-native-abi-denial-preserved');
 }
