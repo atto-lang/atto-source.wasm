@@ -34,6 +34,6 @@ self.onmessage=async({data})=>{
     let trapped=false;try{g.main()}catch(e){trapped=e instanceof WebAssembly.RuntimeError;}eq(trapped,true,'native Wasm trap');eq(g.panic_code.value,panic,'panic code');
   }
   const normal=c.compile('pub fnc main(): int { return 42; }');eq(normal.ok,true,'compiler reuse');eq(new WebAssembly.Instance(new WebAssembly.Module(normal.wasm),{}).exports.main(),42n,'normal control');
-  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:17,runtimeControls:6,ordinaryDenials:17});
+  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:data.cases.length,runtimeControls:6,ordinaryDenials:data.cases.length});
  }catch(e){self.postMessage({ok:false,error:String(e?.stack??e)});}
 };
