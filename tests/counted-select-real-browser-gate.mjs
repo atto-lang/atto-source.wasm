@@ -28,7 +28,7 @@ test('ESM emitter capability is explicit, not a guest rejection',()=>{
 test('shared counted fixtures reject in available real browser compiler emitters',async()=>{
   const manifest=JSON.parse(await readFile(corpusPath+'/manifest.json','utf8'));
   const cases=manifest.cases.filter(c=>/^(?:counted-|reject-counted-)/.test(c.id));
-  assert.equal(cases.length,9);
+  assert.equal(cases.length,13);
   for(const c of cases){
     const raw=await readFile(corpusPath+'/'+c.path);
     const digest=createHash('sha1').update('blob '+raw.length+'\0').update(raw).digest('hex');
@@ -44,7 +44,7 @@ test('shared counted fixtures reject in available real browser compiler emitters
 });
 test('isolated counted headers reject without publishing an artifact',()=>{
   for(const prefix of ['select','nb select','await select','await nb select'])
-    for(const header of ['(3)','<int>(3)','(0)','(-1)','(true)','(1+2)'])
+    for(const header of ['(3)','<int>(3)','(0)','(-1)','(true)','(1+2)','(count)'])
       for(const body of ['{ default: -> { return 42; } }','over default: -> { return 42; } end'])
         for(const target of targets){
           const result=compiler.compile('pub fnc main(): int { return '+prefix+header+' '+body+'; }',target);
@@ -59,5 +59,5 @@ test('real compiled procedural control executes in Wasm after all rejections',as
   const {instance}=await WebAssembly.instantiate(result.wasm,{atto:{}});
   assert.equal(instance.exports.main(),42n);
   assert.equal(instance.exports.panic_code.value,0);
-  console.log('COUNTED_BROWSER_ADMISSION_PASS targets='+targets.join(',')+' exact_blobs=9 isolated=48 procedural_control=42; COUNTED_GUEST_NOT_EXECUTED');
+  console.log('COUNTED_BROWSER_ADMISSION_PASS targets='+targets.join(',')+' exact_blobs=13 isolated=56 procedural_control=42; COUNTED_GUEST_NOT_EXECUTED');
 });
