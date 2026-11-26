@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {ActorArena} from "../src/actor-arena.mjs";
+// White-box test only: capture the constructor at module initialization,
+// then restore the global. Production intentionally pins its constructor;
+// late mutation must not grant memory authority.
+const OriginalMemory = WebAssembly.Memory;
+let capturedMemory;
+WebAssembly.Memory = class extends OriginalMemory {
+  constructor(options) { super(options); capturedMemory = this; }
+};
+let ActorArena;
+try { ({ActorArena} = await import('../src/actor-arena.mjs?whitebox-capture')); }
+finally { WebAssembly.Memory = OriginalMemory; }
+
 
 test("fixed backing supports repeated caller-buffer reads without a new result", () => {
   const arena = new ActorArena({actorId: 901, incarnation: 1});
@@ -49,14 +60,8 @@ test("readInto rejects shared, malformed and detached external byte destinations
 });
 
 test("Wasm host copy boundary rejects forged access to private linear memory", () => {
-  const OriginalMemory = WebAssembly.Memory;
-  let backing;
-  WebAssembly.Memory = class extends OriginalMemory {
-    constructor(options) { super(options); backing = this.buffer; }
-  };
-  let arena;
-  try { arena = new ActorArena({actorId: 903, incarnation: 1}); }
-  finally { WebAssembly.Memory = OriginalMemory; }
+  const arena = new ActorArena({actorId: 903, incarnation: 1});
+  const backing = capturedMemory.buffer;
   const turn = arena.beginTurn();
   const h = arena.allocPersistent(turn, 4);
   const safe = Uint8Array.of(42, 43, 44, 45);
@@ -77,15 +82,8 @@ test("Wasm host copy boundary rejects forged access to private linear memory", (
 });
 
 test("zero-page memory.grow detaches cached view without losing live actor bytes", () => {
-  const OriginalMemory = WebAssembly.Memory;
-  let memory;
-  WebAssembly.Memory = class extends OriginalMemory {
-    constructor(options) { super(options); memory = this; }
-  };
-  let arena;
-  try { arena = new ActorArena({actorId: 904, incarnation: 1}); }
-  finally { WebAssembly.Memory = OriginalMemory; }
-
+  const arena = new ActorArena({actorId: 904, incarnation: 1});
+  const memory = capturedMemory;
   const turn = arena.beginTurn();
   const persistent = arena.allocPersistent(turn, 4);
   const scratch = arena.allocScratch(turn, 4);
@@ -116,14 +114,8 @@ test("zero-page memory.grow detaches cached view without losing live actor bytes
 });
 
 test("late lifetime-pin release scrubs current memory after grow(0)", () => {
-  const OriginalMemory = WebAssembly.Memory;
-  let memory;
-  WebAssembly.Memory = class extends OriginalMemory {
-    constructor(options) { super(options); memory = this; }
-  };
-  let arena;
-  try { arena = new ActorArena({actorId: 905, incarnation: 1}); }
-  finally { WebAssembly.Memory = OriginalMemory; }
+  const arena = new ActorArena({actorId: 905, incarnation: 1});
+  const memory = capturedMemory;
   const turn = arena.beginTurn();
   const h = arena.allocPersistent(turn, 4);
   arena.write(turn, h, Uint8Array.of(31, 32, 33, 34));
@@ -139,4 +131,18 @@ test("late lifetime-pin release scrubs current memory after grow(0)", () => {
   assert.deepEqual([...new Uint8Array(memory.buffer, 0, 4)], [0, 0, 0, 0],
     "last release must scrub newly reattached backing, not detached view");
   arena.releaseLifetimePin(pin);
+});
+
+// Normal production module must not use a constructor installed after import.
+test("late host constructor replacement cannot observe arena backing", async () => {
+  const {ActorArena: ProductionArena} = await import("../src/actor-arena.mjs");
+  let calls = 0;
+  WebAssembly.Memory = class extends OriginalMemory {
+    constructor(options) { super(options); calls++; }
+  };
+  try {
+    const arena = new ProductionArena({actorId: 906, incarnation: 1});
+    assert.equal(calls, 0);
+    arena.retire();
+  } finally { WebAssembly.Memory = OriginalMemory; }
 });
