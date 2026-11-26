@@ -5,13 +5,14 @@
   "status": "EXPERIMENTAL_CONSUMER_TEST",
   "implementation_complete": false,
   "claims": [
-    "Run authenticated cold, warm and edited real compiler artifacts inside isolated worker",
-    "Verify exact byte equivalence and reject stale artifact pin"
+    "Run authenticated cold, warm and edited real Rust compiler artifacts inside a deadline-bound browser-ABI test worker using existing browser admission/runtime",
+    "Verify exact byte equivalence and reject stale artifact pin",
+    "Preserve strict native core ABI rejection for memory-free browser artifacts"
   ],
   "not_claimed": [
     "separate compiler implementation",
     "typed-IR reuse",
-    "strict AOT worker",
+    "strict native AOT or OS isolation",
     "production durable cache authority"
   ],
   "tracker": "https://github.com/atto-lang/atto-compilers-parity-testing/issues/53"
