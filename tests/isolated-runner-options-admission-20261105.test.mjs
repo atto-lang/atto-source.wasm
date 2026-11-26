@@ -26,3 +26,49 @@ test("trusted own options retain fail-closed byte and execution gates",async()=>
  const symbols={};symbols[Symbol("authority")]=true;
  await assert.rejects(runIsolatedCoreGuest(bytes,symbols),/unknown guest runner option/);
 });
+
+test("proxy admission options are rejected without executing reflection traps",async()=>{
+ const bytes=Uint8Array.from([1,2,3]);
+ let traps=0;
+ for(const trap of ["getPrototypeOf","ownKeys","getOwnPropertyDescriptor"]){
+  const options=new Proxy({}, {[trap](){traps++;throw Error("attacker trap executed");}});
+  await assert.rejects(runIsolatedCoreGuest(bytes,options),
+   /zero-capability guest option proxies are forbidden/);
+ }
+ const {proxy,revoke}=Proxy.revocable({},{});revoke();
+ await assert.rejects(runIsolatedCoreGuest(bytes,proxy),
+  /zero-capability guest option proxies are forbidden/);
+ assert.equal(traps,0);
+});
+
+test("entry and digest validation do not coerce adversarial object values",async()=>{
+ const bytes=Uint8Array.from([1,2,3]);
+ let coercions=0;
+ for(const [field,output,error] of [
+  ["entry","main",/invalid guest entry/],
+  ["expectedSha256","0".repeat(64),/invalid pinned SHA-256/]
+ ]){
+  const value={
+   [Symbol.toPrimitive](){coercions++;return output;},
+   toString(){coercions++;return output;}
+  };
+  await assert.rejects(runIsolatedCoreGuest(bytes,{[field]:value}),error);
+ }
+ assert.equal(coercions,0);
+});
+
+test("runner entry export names obey the same 128-character budget as guest admission",async()=>{
+ const bytes=Uint8Array.from([1,2,3]);
+ await assert.rejects(runIsolatedCoreGuest(bytes,{entry:"x".repeat(129)}),
+  /invalid guest entry/);
+});
+
+// Exercise every exposed inert option, not just entry/digest coercions.
+test("thread and memory options do not invoke hostile coercion",async()=>{
+ const bytes=Uint8Array.from([1,2,3]);let calls=0;
+ const hostile={[Symbol.toPrimitive](){calls++;throw Error("coerced");},toString(){calls++;throw Error("coerced");}};
+ for(const field of ["timeoutMs","maxModuleBytes","maxMemoryPages","threadPolicy","namespaceBindings"]){
+  await assert.rejects(runIsolatedCoreGuest(bytes,{[field]:hostile}),TypeError);
+ }
+ assert.equal(calls,0);
+});
