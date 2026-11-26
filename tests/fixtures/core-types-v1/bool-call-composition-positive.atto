@@ -1,0 +1,15 @@
+// Shared Boolean callable composition regression. Exit 0 only if every check passes.
+fnc leaf(int x) -> bool { return x eq 0; }
+fnc middle(int x) -> bool { return leaf(x) eq false; }
+fnc risky(int x) -> bool { return 9223372036854775807+x eq 0; }
+fnc both(int x) -> bool { return x eq 0 && risky(x); }
+fnc either(int x) -> bool { return x eq 1 || risky(x); }
+fnc same(int a, int b, int c, int d) -> bool { return a eq b && c neq d; }
+
+pub fnc main() -> int {
+  if middle(0) || !middle(1) || !middle(-1); do return 1; fi
+  if both(0) || both(1) || both(-1); do return 2; fi
+  if !either(1) || either(0) || either(-1); do return 3; fi
+  if !same(1,1,2,3) || same(1,2,3,4) || same(1,1,2,2); do return 4; fi
+  return 0;
+}
