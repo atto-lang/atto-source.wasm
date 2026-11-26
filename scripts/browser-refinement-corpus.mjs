@@ -35,18 +35,19 @@ export async function runRefinementCases(bytes,pin,head,tree,log=console.log,typ
  assert.deepEqual(WebAssembly.Module.imports(module),[]);
  const compiler=await createCompiler(bytes);
  const codes={integerOverflow:1,divisionByZero:2,refinementViolation:7};
- const records=typedCases===null?cases.map(([id,body,want])=>[id,pre+'\n'+body,want]):typedCases.map(({source,text,expected})=>{
+ const records=typedCases===null?cases.map(([id,body,want])=>[id,pre+'\n'+body,want]):typedCases.map(({source,text,expected,verification='ordinary'})=>{
+   assert.ok(['ordinary','strict'].includes(verification),source);
    assert.match(source,/^generated-binding-[a-z-]+\.atto$/);
    assert.ok(typeof text==="string");
-   if(expected.kind==="diagnostic")return [source,text,expected.category];
-   if(expected.kind==="value")return [source,text,BigInt(expected.decimal)];
+   if(expected.kind==="diagnostic")return [source,text,expected.category,verification];
+   if(expected.kind==="value")return [source,text,BigInt(expected.decimal),verification];
    assert.ok(["arithmeticFailure","refinementFailure"].includes(expected.kind)&&Object.hasOwn(codes,expected.category),source);
-   return [source,text,codes[expected.category]];
+   return [source,text,codes[expected.category],verification];
  });
  if(typedCases!==null)assert.equal(records.length,24);
  assert.equal(new Set(records.map(x=>x[0])).size,records.length);
- for(const [id,source,want] of records){
- const result=compiler.compile(source);
+ for(const [id,source,want,verification='ordinary'] of records){
+ const result=compiler.compile(source,'wasm',verification);
  if(typeof want==='string'||want===null){
   assert.equal(result.ok,false,id);
   assert.equal(Object.hasOwn(result,'wasm'),false,id);
@@ -73,11 +74,12 @@ export async function runRefinementCases(bytes,pin,head,tree,log=console.log,typ
 }
 // A failure must not poison subsequent valid compilation, nor mutate the
 // caller's previous copied output, nor retain previous result bytes.
-const first=compiler.compile(pre+'\n'+main('42'));
+const reuseProfile=typedCases?.every(c=>c.verification==='strict')?'strict':'ordinary';
+const first=compiler.compile(pre+'\n'+main('42'),'wasm',reuseProfile);
 assert.equal(first.ok,true);
 const saved=await sha(first.wasm);
-assert.equal(compiler.compile(pre+'\n'+main('missing')).ok,false);
-const again=compiler.compile(pre+'\n'+main('43'));
+assert.equal(compiler.compile(pre+'\n'+main('missing'),'wasm',reuseProfile).ok,false);
+const again=compiler.compile(pre+'\n'+main('43'),'wasm',reuseProfile);
 assert.equal(again.ok,true);
 assert.equal(await sha(first.wasm),saved);
 assert.equal(new WebAssembly.Instance(new WebAssembly.Module(again.wasm),{}).exports.main(),43n);
