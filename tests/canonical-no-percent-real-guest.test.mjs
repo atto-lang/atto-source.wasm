@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {compileOresToWasm} from '../scripts/compile-ores.mjs';
@@ -73,5 +74,5 @@ test('actual LLVM -> wasm32 source rejects legacy % and executes unchanged multi
           id+' published a Wasm artifact after source rejection');
       }
     }
-  }finally{await rm(dir,{recursive:true,force:true});}
+  }finally{await cleanupRealCompilerWorkspace(dir);}
 });
