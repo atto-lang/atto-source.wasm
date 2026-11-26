@@ -162,3 +162,17 @@ test('Canonical Atto roots and mixed colon delimiter aliases fail closed', () =>
   for (const path of ['atto.std/unsafe_tools', 'atto.std:unsafe-math', 'pkg/atto.std/unsafe', 'atto.std/safe'])
     assert.doesNotThrow(() => reject(bytes('import module tools from "' + path + '";')), path);
 });
+
+test('unsafe identity cannot be laundered by traversal or mixed root separators', () => {
+  for (const path of [
+    'std/unsafe/../safe', 'atto.std/unsafe/../safe',
+    'atto::std/unsafe/../safe', 'ores:std/unsafe/../safe',
+    'atto::std/../safe', 'ores:std/../safe',
+    'atto/std/../safe', 'ores/std/../safe',
+    'atto.std/other/../unsafe/ffi'
+  ]) assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+    /wasm unsafe standard-library import unavailable in guest domains/, path);
+  for (const path of ['atto::std/other/../safe', 'atto/std/other/../safe',
+    'atto.std/unsafe_tools', 'pkg/atto.std/unsafe'])
+    assert.doesNotThrow(() => reject(bytes('import module innocent from "' + path + '";')), path);
+});
