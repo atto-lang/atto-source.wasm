@@ -35,18 +35,19 @@ export async function runRefinementCases(bytes,pin,head,tree,log=console.log,typ
  assert.deepEqual(WebAssembly.Module.imports(module),[]);
  const compiler=await createCompiler(bytes);
  const codes={integerOverflow:1,divisionByZero:2,refinementViolation:7};
- const records=typedCases===null?cases.map(([id,body,want])=>[id,pre+'\n'+body,want]):typedCases.map(({source,text,expected})=>{
+ const records=typedCases===null?cases.map(([id,body,want])=>[id,pre+'\n'+body,want]):typedCases.map(({source,text,expected,verification='ordinary'})=>{
+   assert.ok(['ordinary','strict'].includes(verification),source);
    assert.match(source,/^generated-binding-[a-z-]+\.atto$/);
    assert.ok(typeof text==="string");
-   if(expected.kind==="diagnostic")return [source,text,expected.category];
-   if(expected.kind==="value")return [source,text,BigInt(expected.decimal)];
+   if(expected.kind==="diagnostic")return [source,text,expected.category,verification];
+   if(expected.kind==="value")return [source,text,BigInt(expected.decimal),verification];
    assert.ok(["arithmeticFailure","refinementFailure"].includes(expected.kind)&&Object.hasOwn(codes,expected.category),source);
-   return [source,text,codes[expected.category]];
+   return [source,text,codes[expected.category],verification];
  });
  if(typedCases!==null)assert.equal(records.length,24);
  assert.equal(new Set(records.map(x=>x[0])).size,records.length);
- for(const [id,source,want] of records){
- const result=compiler.compile(source);
+ for(const [id,source,want,verification='ordinary'] of records){
+ const result=compiler.compile(source,'wasm',verification);
  if(typeof want==='string'||want===null){
   assert.equal(result.ok,false,id);
   assert.equal(Object.hasOwn(result,'wasm'),false,id);
@@ -82,17 +83,17 @@ const rejected=typedCases===null?['reuse-missing',pre+'\n'+main('missing'),null]
 const subsequent=typedCases===null?['reuse-43',pre+'\n'+main('43'),43n]:
   records.find(record=>typeof record[2]==='bigint'&&record[2]!==initial?.[2]);
 assert.ok(initial&&rejected&&subsequent,'reuse requires two distinct values and a diagnostic');
-const first=compiler.compile(initial[1]);
+const first=compiler.compile(initial[1],'wasm',initial[3]??'ordinary');
 assert.equal(first.ok,true,initial[0]+' reuse initial');
 const saved=await sha(first.wasm);
 assert.equal(new WebAssembly.Instance(new WebAssembly.Module(first.wasm),{}).exports.main(),initial[2],initial[0]);
-const bad=compiler.compile(rejected[1]);
+const bad=compiler.compile(rejected[1],'wasm',rejected[3]??'ordinary');
 assert.equal(bad.ok,false,rejected[0]+' reuse failure');
 assert.equal(Object.hasOwn(bad,'wasm'),false,rejected[0]);
 assert.equal(Object.hasOwn(bad,'esm'),false,rejected[0]);
 assert.equal(bad.diagnostics.length,1,rejected[0]);
 if(rejected[2]!==null)assert.match(bad.diagnostics[0].message,new RegExp(rejected[2]+':'),rejected[0]);
-const again=compiler.compile(subsequent[1]);
+const again=compiler.compile(subsequent[1],'wasm',subsequent[3]??'ordinary');
 assert.equal(again.ok,true,subsequent[0]+' reuse subsequent');
 assert.equal(await sha(first.wasm),saved,'prior output immutable');
 assert.equal(new WebAssembly.Instance(new WebAssembly.Module(again.wasm),{}).exports.main(),subsequent[2],subsequent[0]);
