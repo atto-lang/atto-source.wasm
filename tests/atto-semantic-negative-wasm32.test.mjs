@@ -47,7 +47,8 @@ function acceptedSemanticDiagnostic(message,pattern){
   if(!pattern||typeof message!=='string'||message.length>65536) return false;
   const lines=message.toLowerCase().split(/\r?\n/);
   if(lines.some(line=>/unexpected token|invalid character|internal error|unknown symbol|stack overflow/i.test(line))) return false;
-  return lines.some(line=>pattern.test(line)&&/error|reject|invalid|unsupported|forbidden|removed/i.test(line));
+  return lines.some(line=>!/^\s*(?:note|help|warning)\s*:/i.test(line)&&
+    pattern.test(line)&&/error|reject|invalid|unsupported|forbidden|removed/i.test(line));
 }
 
 test('eight canonical negative .atto Git blobs and evidence stages are pinned',()=>{

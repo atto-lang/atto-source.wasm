@@ -5,7 +5,8 @@ const src=(a,k,o,c,arg)=>pre+a+'fnc divide(int a, int b) -> int '+k+o+' return a
 for(const [id,o,c] of [['brace',' {','}'],['begin','\nbegin','end'],['colon',' ::','end'],['next-colon','\n::','end']]){
  const a='@requires(b != 0)\n',k='requires b != -1';
  for(const [tag,ann,kw] of [['keyword','','requires b != 0 requires b != -1'],['annotation',a+'@requires(b != -1)\n',''],['mixed',a,k]])
-   add(id+'-'+tag,src(ann,kw,o,c,2),{kind:'value',decimal:'42'});
+   // A distinct valid result exercises strict profile reuse after a denial.
+   add(id+'-'+tag,src(ann,kw,o,c,id==='next-colon'&&tag==='mixed'?3:2),{kind:'value',decimal:id==='next-colon'&&tag==='mixed'?'28':'42'});
  for(const [tag,arg] of [['zero',0],['minus-one',-1]])
    add(id+'-'+tag,src(a,k,o,c,arg),{kind:'diagnostic',category:'E_REFINEMENT_PRECONDITION'});
  add(id+'-invalid',src('@requires(b != 0 && b != -1)\n','',o,c,2),{kind:'diagnostic',category:'E_REFINEMENT_CONTRACT'});

@@ -4,12 +4,16 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+import {checkedUnwrapFixtures, verifyCheckedUnwrapFixture, verifyCheckedUnwrapExecution} from '../src/checked-unwrap-fixtures.mjs';
+import {checkedUnwrapRejections, verifyCheckedUnwrapRejection} from '../src/checked-unwrap-rejections.mjs';
 import {isRuntimeTrapWithPanicCode, guardHostImport} from '../src/trap-result-guest-outcome.mjs';
 
-const [compilerPath, samplePath, compilerSha, sampleBlob] = process.argv.slice(2);
-if (process.argv.length !== 6 || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
+const [compilerPath, samplePath, compilerSha, sampleBlob, mode] = process.argv.slice(2);
+const checkedUnwrap = mode === '--checked-unwrap-v6';
+if ((process.argv.length !== 6 && !(process.argv.length === 7 && checkedUnwrap)) || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
     !/^[a-f0-9]{40}$/.test(sampleBlob ?? '')) {
-  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1>');
+  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6]');
 }
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
@@ -17,6 +21,7 @@ const compilerBytes = readFileSync(compilerPath);
 const sampleBytes = readFileSync(samplePath);
 assert.equal(sha256(compilerBytes), compilerSha, 'unreviewed compiler digest');
 assert.equal(gitBlob(sampleBytes), sampleBlob, 'sample does not match reviewed Result fixture blob');
+assert.equal(sampleBlob, '2d71c15eb4e2f9f5b9bf42b5eef8ce3271d8106e', 'sample does not match reviewed Result fixture blob');
 assert.ok(WebAssembly.validate(compilerBytes), 'invalid compiler wasm');
 const compilerModule = new WebAssembly.Module(compilerBytes);
 assert.deepEqual(WebAssembly.Module.imports(compilerModule), [], 'compiler must have zero host imports');
@@ -63,17 +68,22 @@ function run(guest) {
   assert.ok(exports.some(x => x.name === 'panic_code' && x.kind === 'global'));
   assert.ok(exports.every(x => ['main', 'panic_code', 'memory'].includes(x.name)), 'unexpected guest export');
   let stdout = '';
+  const append = text => {
+    assert.ok(stdout.length + text.length <= 65536, 'guest stdout budget');
+    stdout += text;
+  };
   let instance;
   const trustedPrintCallbacks = {
-    print_i64: v => { stdout += String(v); },
-    print_bool: v => { stdout += v ? 'true' : 'false'; },
-    print_f64: v => { stdout += String(v); },
+    print_i64: v => append(String(v)),
+    print_bool: v => append(v ? 'true' : 'false'),
+    print_f64: v => append(String(v)),
     print_str: (ptr, len) => {
       const memory = instance.exports.memory?.buffer;
       assert.ok(memory && ptr >= 0 && len >= 0 && ptr + len <= memory.byteLength, 'invalid guest string');
-      stdout += decoder.decode(new Uint8Array(memory, ptr, len));
+      assert.ok(len <= 65536, 'guest string budget');
+      append(decoder.decode(new Uint8Array(memory, ptr, len)));
     },
-    print_newline: () => { stdout += '\n'; }
+    print_newline: () => append('\n')
   };
   // Every host callback is guarded, including unexpected RuntimeError
   // subclasses: only an actual Wasm instruction may satisfy the fatal trap
@@ -81,6 +91,8 @@ function run(guest) {
   const atto = Object.fromEntries(Object.entries(trustedPrintCallbacks)
     .map(([name, callback]) => [name, guardHostImport(name, callback)]));
   instance = new WebAssembly.Instance(module, {atto});
+  assert.equal(instance.exports.panic_code.value, 0, 'nonzero initial guest panic code');
+  assert.equal(stdout, '', 'guest startup produced output');
   try {
     const value = instance.exports.main();
     return {ok: true, value, panic: instance.exports.panic_code.value, stdout};
@@ -91,6 +103,31 @@ function run(guest) {
       runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic)
     };
   }
+}
+
+// Optional candidate gate runs only the pinned checked-unwrap fixtures.
+// It never turns host models or rejected compilation into guest evidence.
+if (checkedUnwrap) {
+  const guestCases = [];
+  for (const [id] of checkedUnwrapFixtures) {
+    const bytes = readFileSync(fileURLToPath(new URL('../tests/fixtures/checked-unwrap-v6/' + id + '.atto', import.meta.url)));
+    const [,blob] = verifyCheckedUnwrapFixture(id, bytes);
+    const output = compile(decoder.decode(bytes));
+    assert.ok(output.ok, id + ' rejected by compiler: ' + output.diagnostic);
+    const result = run(output.wasm);
+    verifyCheckedUnwrapExecution(id, result);
+    guestCases.push({id, source_git_blob: blob, guest_sha256: sha256(output.wasm)});
+  }
+  const negative = [];
+  for (const [id, source] of checkedUnwrapRejections) {
+    const output = compile(source);
+    verifyCheckedUnwrapRejection(id, output);
+    negative.push({id, diagnostic: output.diagnostic});
+  }
+  console.log(JSON.stringify({status:'PASS', profile:'checked-unwrap-v6-rust-candidate',
+    evidence_kind:'real-compiler-wasm-guest-executed', compiler_sha256:compilerSha,
+    guest_cases:guestCases, guest_executions:guestCases.length, rejected_without_wasm:negative}));
+  process.exit(0);
 }
 
 // This gate is intentionally separate from the historical Option-era /play/
