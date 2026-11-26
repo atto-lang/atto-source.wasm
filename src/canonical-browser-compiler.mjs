@@ -1,4 +1,5 @@
 /** ABI v2 bridge for oreslang-source.rs/browser. Wasm + typed-IR ESM targets. */
+import {invalidSourceUtf16Offset} from "./source-unicode-identifiers.mjs";
 export const COMPILER_ABI = 2;
 const MAX_GUEST_BYTES = 1 << 20;
 const encoder = new TextEncoder();
@@ -42,6 +43,13 @@ export async function createCompiler(compilerBytes) {
       if (target === 'javascript' && typeof api.compile_js !== 'function') throw new Error('Compiler has no JavaScript emitter');
       if (poisoned) throw new Error(`Compiler instance unusable after an internal fault (${poisoned})`);
       if (typeof source !== 'string') throw new TypeError('source must be a string');
+      // UTF-8 encoding replaces lone surrogates with U+FFFD; reject instead
+      // so the exact input is never silently changed before compilation.
+      if (source.length > capacity)
+        return { ok: false, diagnostics: [{ line: 1, column: 1, message: `E_SOURCE_LIMIT: source exceeds ${capacity} UTF-8 bytes` }] };
+      const invalid = invalidSourceUtf16Offset(source);
+      if (invalid !== -1)
+        return { ok: false, diagnostics: [{ line: 1, column: 1, message: `E_SOURCE_UTF16: malformed UTF-16 at code-unit offset ${invalid}` }] };
       const bytes = encoder.encode(source);
       if (bytes.length > capacity) {
         return { ok: false, diagnostics: [{ line: 1, column: 1, message: `E_SOURCE_LIMIT: source exceeds ${capacity} UTF-8 bytes` }] };
