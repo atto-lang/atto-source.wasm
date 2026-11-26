@@ -1,0 +1,35 @@
+// expect-exit: 0
+// expect-stdout: 42
+// expect-stdout: 1
+// expect-stdout: 50
+// expect-stdout: 2
+// expect-stdout: 0
+// expect-stdout: 0
+define state container Account as
+    state { let int balance = 0; let int transactions = 0; }
+    pub deposit(int amount): void {
+        state_w(|s| -> {
+            s.balance = s.balance + amount;
+            s.transactions = s.transactions + 1;
+        });
+    }
+    pub snapshot(): Tuple[int, int] {
+        return state_ro(|s| -> { return (s.balance, s.transactions); });
+    }
+end
+pub fnc main(): int {
+    val a = new Account();
+    val b = new Account();
+    a.deposit(42);
+    val old = a.snapshot();
+    a.deposit(8);
+    val current = a.snapshot();
+    val empty = b.snapshot();
+    stdio.println(old.e0);
+    stdio.println(old.e1);
+    stdio.println(current.e0);
+    stdio.println(current.e1);
+    stdio.println(empty.e0);
+    stdio.println(empty.e1);
+    return 0;
+}
