@@ -150,3 +150,15 @@ test('Deterministic compositional lexical fuzzer: inert unsafe cannot mask real 
                  Buffer.byteLength(prefix, 'utf8'));
   }
 });
+
+test('Canonical Atto roots and mixed colon delimiter aliases fail closed', () => {
+  for (const root of ['std', 'ores.std', 'atto.std', 'atto::std', 'ores::std'])
+    for (const separator of ['/', '.', ':', '::'])
+      for (const suffix of ['', '/ffi', '.ffi', ':ffi', '::ffi']) {
+        const path = root + separator + 'unsafe' + suffix;
+        assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+          /wasm unsafe standard-library import unavailable in guest domains/, path);
+      }
+  for (const path of ['atto.std/unsafe_tools', 'atto.std:unsafe-math', 'pkg/atto.std/unsafe', 'atto.std/safe'])
+    assert.doesNotThrow(() => reject(bytes('import module tools from "' + path + '";')), path);
+});
