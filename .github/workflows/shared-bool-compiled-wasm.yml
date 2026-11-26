@@ -49,4 +49,7 @@ jobs:
           export ORESLANG_LLVM_COMPILER="$work/build/oreslang-llvmc"
           export ORESLANG_LLVM_COMPILER_SHA256="$(sha256sum "$ORESLANG_LLVM_COMPILER" | cut -d ' ' -f 1)"
           node --test tests/core-types-wasm-graph-admission.test.mjs
+          export ATTO_SHARED_BROWSER_REQUIRED=1
+          export ATTO_SHARED_BROWSER="$(command -v google-chrome)"
+          test -x "$ATTO_SHARED_BROWSER"
           node tests/shared-bool-compiled-wasm.mjs
