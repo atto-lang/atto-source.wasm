@@ -5,15 +5,16 @@ import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {Worker,isMainThread,parentPort,workerData} from 'node:worker_threads';
 import {runIsolatedCoreGuest} from '../src/isolated-runner.mjs';
-import {admit_browser_guest} from '../src/browser-tenant-guest-admission.mjs';
+import {admit_pinned_browser_guest} from '../src/browser-tenant-guest-admission.mjs';
 import {runCanonicalGuest} from '../src/browser-tenant-runtime.mjs';
 const sha=b=>createHash('sha256').update(b).digest('hex');
 if(!isMainThread){
   try{
     assert.equal(Object.keys(process.env).length,0);
     const {bytes,pin}=workerData;
-    if(sha(bytes)!==pin)throw Error('E_PIN: stale artifact pin');
-    const admitted=admit_browser_guest(bytes);
+    const admitted=await admit_pinned_browser_guest(bytes,pin);
+    assert.equal(sha(admitted.bytes),pin);
+    const exposed=admitted.bytes; exposed[0]^=1;
     assert.equal(sha(admitted.bytes),pin);
     assert.deepEqual(admitted.imports,[]);
     assert.equal(admitted.actors,false);
@@ -28,6 +29,14 @@ if(!isMainThread){
  const [cold,warm,edit]=await Promise.all([coldPath,warmPath,editPath].map(p=>readFile(p)));
  assert.deepEqual(cold,warm);assert.notDeepEqual(cold,edit);
  const coldPin=sha(cold),editPin=sha(edit);
+ const mutable=new Uint8Array(cold);
+ const pending=admit_pinned_browser_guest(mutable,coldPin);
+ mutable[0]^=1;
+ const snapshot=await pending;
+ assert.equal(sha(snapshot.bytes),coldPin);
+ await assert.rejects(admit_pinned_browser_guest(mutable,sha(mutable)),/E_WASM_INVALID/);
+ await assert.rejects(admit_pinned_browser_guest(cold,'invalid'),/E_PIN/);
+ console.log('PINNED_BROWSER_SNAPSHOT|caller_mutation=ISOLATED|rehashed_invalid=DENIED|malformed_pin=DENIED');
  function execute(bytes,pin){
    return new Promise((resolve,reject)=>{
      const worker=new Worker(new URL(import.meta.url),{workerData:{bytes,pin},env:{},execArgv:[],resourceLimits:{maxOldGenerationSizeMb:32}});
