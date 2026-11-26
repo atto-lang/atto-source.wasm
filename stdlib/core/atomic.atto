@@ -1,0 +1,35 @@
+// Wasm-owned freestanding Atto atomic memory-order policy only.
+// Integer codes: 0 relaxed, 1 acquire, 2 release, 3 acq_rel, 4 seq_cst.
+// Actual Atomic<T> storage, load/store/RMW, CAS and fences MUST be compiler/
+// runtime intrinsics with verified cross-thread semantics; never ordinary vars.
+pub fnc default_order(): int {
+  return 4;
+}
+
+pub fnc valid_load_order(int order): bool {
+  return order == 0 || order == 1 || order == 4;
+}
+
+pub fnc valid_store_order(int order): bool {
+  return order == 0 || order == 2 || order == 4;
+}
+
+pub fnc valid_rmw_order(int order): bool {
+  return order >= 0 && order <= 4;
+}
+
+pub fnc valid_fence_order(int order): bool {
+  return order >= 1 && order <= 4;
+}
+
+// A CAS failure cannot have release semantics or stronger ordering than
+// the successful update. No mutation takes place in this validation helper.
+pub fnc valid_compare_exchange_orders(int success, int failure): bool {
+  if success < 0 || success > 4 then return false; fi
+  if failure != 0 && failure != 1 && failure != 4 then return false; fi
+  if success == 0 then return failure == 0; fi
+  if success == 1 then return failure == 0 || failure == 1; fi
+  if success == 2 then return failure == 0; fi
+  if success == 3 then return failure == 0 || failure == 1; fi
+  return failure == 0 || failure == 1 || failure == 4;
+}

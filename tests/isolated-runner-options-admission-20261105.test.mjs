@@ -33,11 +33,11 @@ test("proxy admission options are rejected without executing reflection traps",a
  for(const trap of ["getPrototypeOf","ownKeys","getOwnPropertyDescriptor"]){
   const options=new Proxy({}, {[trap](){traps++;throw Error("attacker trap executed");}});
   await assert.rejects(runIsolatedCoreGuest(bytes,options),
-   /guest runner options must not be proxies/);
+   /zero-capability guest option proxies are forbidden/);
  }
  const {proxy,revoke}=Proxy.revocable({},{});revoke();
  await assert.rejects(runIsolatedCoreGuest(bytes,proxy),
-  /guest runner options must not be proxies/);
+  /zero-capability guest option proxies are forbidden/);
  assert.equal(traps,0);
 });
 
@@ -61,4 +61,14 @@ test("runner entry export names obey the same 128-character budget as guest admi
  const bytes=Uint8Array.from([1,2,3]);
  await assert.rejects(runIsolatedCoreGuest(bytes,{entry:"x".repeat(129)}),
   /invalid guest entry/);
+});
+
+// Exercise every exposed inert option, not just entry/digest coercions.
+test("thread and memory options do not invoke hostile coercion",async()=>{
+ const bytes=Uint8Array.from([1,2,3]);let calls=0;
+ const hostile={[Symbol.toPrimitive](){calls++;throw Error("coerced");},toString(){calls++;throw Error("coerced");}};
+ for(const field of ["timeoutMs","maxModuleBytes","maxMemoryPages","threadPolicy","namespaceBindings"]){
+  await assert.rejects(runIsolatedCoreGuest(bytes,{[field]:hostile}),TypeError);
+ }
+ assert.equal(calls,0);
 });

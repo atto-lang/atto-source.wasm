@@ -91,6 +91,12 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i] === "@" && tokens[i+1] === "ActorMaxThreads")
       throw Error("WASM source actor @ActorMaxThreads unsupported: no guest actor scheduler");
+    if (tokens[i] === "@" &&
+        ["actor_schedule", "ActorSchedule"].includes(tokens[i+1]))
+      throw Error("WASM source actor scheduling unsupported: no guest elastic actor scheduler");
+    // A spawn-time policy must not be dropped by a scalar-only delegate.
+    if (tokens[i] === "with" && tokens[i+1] === "schedule" && tokens[i+2] === "(")
+      throw Error("WASM source actor scheduling unsupported: no guest elastic actor scheduler");
     if (tokens[i] === "define") {
       // Visibility modifiers may precede the reserved actor-thread enum.
       let j = i + 1;
@@ -117,9 +123,16 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // Actor declarations cannot enter a scalar-only guest through modifiers.
     if (tokens[i] === "define") {
       let j = i + 1;
-      while (j < tokens.length && supervisorModifiers.has(tokens[j])) j++;
-      if (tokens[j] === "actor" || tokens[j] === "isoactor")
+      let isHttpTransport = false;
+      while (j < tokens.length && supervisorModifiers.has(tokens[j])) {
+        if (tokens[j] === "http") isHttpTransport = true;
+        j++;
+      }
+      if (tokens[j] === "actor" || tokens[j] === "isoactor") {
+        if (isHttpTransport)
+          throw Error("WASM source actor execution unsupported: no guest actor scheduler; HTTP_ACTOR_BACKEND_UNSUPPORTED: missing HTTP request/message lifetime and physical shutdown lowering");
         throw Error("WASM source actor execution unsupported: no guest actor scheduler");
+      }
     }
     // The Java frontend also accepts bare "actor A1 as ... end",
     // "actor fnc ..." and "fnc actor ..." declaration families.

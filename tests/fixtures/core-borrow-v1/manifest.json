@@ -1,0 +1,77 @@
+{
+  "schema": "atto.core.borrow-checker-guest-candidate-v1",
+  "status": "SOURCE_ONLY_NO_COMPILER_EXECUTION",
+  "versioned_profile": "canonical-ownership-v1; write-loan requires explicit checked mutable-call profile",
+  "cases": [
+    {
+      "path": "tests/fixtures/core-borrow-v1/pass/read-loan.atto",
+      "git_blob_sha": "aead454081e5b3ea694cbedcf02b6813bd9f1037",
+      "expected": "EXECUTE_GUEST_EXIT_42",
+      "expected_exit": 42,
+      "expected_error": null,
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    },
+    {
+      "path": "tests/fixtures/core-borrow-v1/fail/read-loan.atto",
+      "git_blob_sha": "427df953200ba6f2f0679d548c7c15e8fb701f96",
+      "expected": "REJECT_BEFORE_CODEGEN",
+      "expected_exit": null,
+      "expected_error": "E_BORROW",
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    },
+    {
+      "path": "tests/fixtures/core-borrow-v1/pass/write-loan.atto",
+      "git_blob_sha": "cfdd50415dd0da35bb892dc6f48793eacf19c034",
+      "expected": "EXECUTE_GUEST_EXIT_42",
+      "expected_exit": 42,
+      "expected_error": null,
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    },
+    {
+      "path": "tests/fixtures/core-borrow-v1/fail/write-loan.atto",
+      "git_blob_sha": "fe4d678bd282c9af3331cfd778c78c7d6628bf16",
+      "expected": "REJECT_BEFORE_CODEGEN",
+      "expected_exit": null,
+      "expected_error": "E_BORROW",
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    },
+    {
+      "path": "tests/fixtures/core-borrow-v1/fail/take.atto",
+      "git_blob_sha": "3874d4012c85f5e522458944949ffa9f2a3da22c",
+      "expected": "REJECT_BEFORE_CODEGEN",
+      "expected_exit": null,
+      "expected_error": "E_MOVED",
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    },
+    {
+      "path": "tests/fixtures/core-borrow-v1/fail/suspension.atto",
+      "git_blob_sha": "9b25e1005b9b5436cbb011df7eace1ccab94961f",
+      "expected": "REJECT_BEFORE_CODEGEN",
+      "expected_exit": null,
+      "expected_error": "E_LOAN_SUSPEND",
+      "status": "NOT_EXECUTED",
+      "requires_compiler_borrow_provenance": true
+    }
+  ],
+  "required_evidence": [
+    "immutable compiler + fixture Git heads/trees",
+    "typed place/root and loan lifecycle",
+    "actual process execution and stable diagnostic",
+    "negative generated artifact bytes equals zero",
+    "positive guest exit 42",
+    "stepful CI provenance"
+  ],
+  "forbidden_proof": [
+    "parser-only",
+    "unknown keyword diagnostic instead of E_BORROW",
+    "missing executable fixture",
+    "source-only PASS",
+    "mock compiler",
+    "zero-step Actions"
+  ]
+}

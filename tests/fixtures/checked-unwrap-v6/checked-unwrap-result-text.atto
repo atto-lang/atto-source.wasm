@@ -1,0 +1,10 @@
+// expect-exit: 42
+// expect-stdout: called Result::unwrap() on an Err value
+fnc rejected(): Result<int,String> { return Err("original"); }
+pub fnc main(): int {
+  val Result<int,Error> r = trap! rejected().unwrap();
+  match r over
+    on Ok(v) -> { return 1; }
+    on Err(e) -> { stdio.println(e.message); return 42; }
+  end
+}

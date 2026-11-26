@@ -1,0 +1,28 @@
+name: Stdlib guest receipt adapter synthetic controls (NOT guest proof)
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify-std-metrics-json-zorde-guest.mjs'
+      - 'tests/std-metrics-json-zorde-guest-admission.test.mjs'
+      - 'tests/fixtures/std-metrics-json-zorde/**'
+      - '.github/workflows/std-metrics-json-zorde-guest-admission.yml'
+permissions:
+  contents: read
+jobs:
+  host-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Exact-head synthetic host tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          node --test tests/std-metrics-json-zorde-guest-admission.test.mjs
+          echo NATIVE_COMPILER_NOT_EXECUTED

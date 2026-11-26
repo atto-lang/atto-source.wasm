@@ -1,0 +1,57 @@
+// wasm independent atto test-result assertion candidate.
+// Adapter must map this TestOutcome to the backend's atto-test runner.
+// A failed test condition returns data; it does not throw or panic.
+define module test_assert as
+
+  define pub class TestOutcome as
+    pub val bool passed;
+    pub val String message;
+  end
+
+  pub fnc pass(): TestOutcome {
+    return new TestOutcome(true, "");
+  }
+
+  pub fnc fail(String message): TestOutcome {
+    return new TestOutcome(false, message);
+  }
+
+  pub fnc expect_true(bool actual, String message): TestOutcome {
+    if actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_false(bool actual, String message): TestOutcome {
+    if !actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_equal_int(int expected, int actual, String message): TestOutcome {
+    if expected eq actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_not_equal_int(int expected, int actual, String message): TestOutcome {
+    if expected neq actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_equal_bool(bool expected, bool actual, String message): TestOutcome {
+    if expected eq actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_equal_string(String expected, String actual, String message): TestOutcome {
+    if expected eq actual; do return pass(); fi
+    return fail(message);
+  }
+
+  pub fnc expect_in_range_int(
+    int actual, int low_inclusive, int high_inclusive, String message
+  ): TestOutcome {
+    if low_inclusive > high_inclusive; do return fail(message); fi
+    if actual < low_inclusive; do return fail(message); fi
+    if actual > high_inclusive; do return fail(message); fi
+    return pass();
+  }
+end

@@ -1,0 +1,40 @@
+// Atto Wasm Cell borrow policy only. Absolutely no live Cell<T>/RefCell<T>.
+// Cannot mutate an aliased owner, invent an atomic borrow ticket, share a
+// pointer with a worker or escape a borrow across await/select.
+define module cell as
+  pub fnc can_borrow_read(int readers, bool writer_active): bool {
+    return readers >= 0 && readers < 65535 && !writer_active;
+  }
+  pub fnc can_borrow_write(int readers, bool writer_active): bool {
+    return readers == 0 && !writer_active;
+  }
+  pub fnc readers_after_acquire(int readers, bool writer_active): int {
+    if !can_borrow_read(readers, writer_active); do return -1; fi
+    if readers == 65535; do return -1; fi
+    return readers + 1;
+  }
+  pub fnc readers_after_release(int readers, bool writer_active): int {
+    if readers <= 0 || readers > 65535 || writer_active; do return -1; fi
+    return readers - 1;
+  }
+
+  // Read/write/move/suspend are non-capability admission predicates.
+  // Compiler ownership, root identity, generation and lifetime still gate
+  // actual loans, actor transfer and any reference to mutable storage.
+  pub fnc valid_loan_state(int readers, bool writer_active): bool {
+    return readers >= 0 && readers <= 65535 &&
+      (!writer_active || readers == 0);
+  }
+  pub fnc can_owner_read(int readers, bool writer_active): bool {
+    return readers >= 0 && readers <= 65535 && !writer_active;
+  }
+  pub fnc can_owner_write(int readers, bool writer_active): bool {
+    return readers == 0 && !writer_active;
+  }
+  pub fnc can_move_owner(int readers, bool writer_active): bool {
+    return readers == 0 && !writer_active;
+  }
+  pub fnc can_suspend_unpinned(int readers, bool writer_active): bool {
+    return readers == 0 && !writer_active;
+  }
+end

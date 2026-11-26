@@ -1,0 +1,41 @@
+// wasm backend-owned AttoLang pure core performance policy: no clock, heap, I/O or runtime JIT.
+// Immutable numeric admission logic so these routines can be statically AOT linked.
+// This is NOT proof that the backend resolves the module from core imports.
+define module core as
+  pub fnc perf_valid_probe(int probe_id): bool {
+    return probe_id >= 1 && probe_id <= 2147483647;
+  }
+
+  pub fnc perf_should_sample(int sample_key, int every_n): bool {
+    if sample_key < 0 || every_n < 1 || every_n > 65536; do
+      return false;
+    fi
+    // Guarded integer arithmetic: 0 <= q * every_n <= sample_key,
+    // so no signed-i64 multiplication overflow or reserved '%' token.
+    return (sample_key / every_n) * every_n == sample_key;
+  }
+
+  pub fnc perf_duration_ns(int started_ns, int finished_ns): int {
+    if started_ns <= 0 || finished_ns < started_ns; do
+      return 0;
+    fi
+    return finished_ns - started_ns;
+  }
+
+  pub fnc perf_can_record(bool enabled, int occupied, int capacity): bool {
+    if !enabled || capacity < 1 || capacity > 65536; do
+      return false;
+    fi
+    return occupied >= 0 && occupied < capacity;
+  }
+
+  pub fnc perf_next_dropped(int dropped): int {
+    if dropped < 0; do
+      return 0;
+    fi
+    if dropped >= 2147483647; do
+      return 2147483647;
+    fi
+    return dropped + 1;
+  }
+end

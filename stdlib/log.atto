@@ -1,0 +1,45 @@
+// Backend-owned native Atto log admission policy for atto-source.wasm.
+// Do not replace with host wasm code. File-level namespace, not module.
+// Stage 1: pure filtering, severity names and overflow-safe sink byte policy.
+// Stage 2: typed records, bounded queue, async sink and real guest test remain gated.
+// This source is owned independently of other atto-source.* implementations.
+namespace log;
+
+pub fnc valid_severity(int severity) -> bool {
+  return severity == 10 || severity == 20 || severity == 30
+      || severity == 40 || severity == 50 || severity == 60;
+}
+
+pub fnc valid_threshold(int threshold) -> bool {
+  return threshold == 70 || valid_severity(threshold);
+}
+
+pub fnc enabled(int severity, int threshold) -> bool {
+  if !valid_severity(severity); do return false; fi
+  if !valid_threshold(threshold); do return false; fi
+  if threshold == 70; do return false; fi
+  return severity >= threshold;
+}
+
+pub fnc severity_name(int severity) -> String {
+  if severity == 10; do return "TRACE"; fi
+  if severity == 20; do return "DEBUG"; fi
+  if severity == 30; do return "INFO"; fi
+  if severity == 40; do return "WARN"; fi
+  if severity == 50; do return "ERROR"; fi
+  if severity == 60; do return "FATAL"; fi
+  return "UNKNOWN";
+}
+
+// Requires already measured *actual* UTF-8 bytes by a trusted sink.
+// This pure arithmetic gate does not authorize output or provide a byte counter.
+pub fnc sink_byte_budget_ok(int queued_bytes, int record_bytes,
+                            int max_record_bytes, int max_pending_bytes) -> bool {
+  if queued_bytes < 0 || record_bytes < 0
+      || max_record_bytes < 0 || max_pending_bytes < 0; do
+    return false;
+  fi
+  if queued_bytes > max_pending_bytes; do return false; fi
+  if record_bytes > max_record_bytes; do return false; fi
+  return record_bytes <= max_pending_bytes - queued_bytes;
+}

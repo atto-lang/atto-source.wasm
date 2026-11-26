@@ -320,3 +320,135 @@ test("topic names reject whitespace-only values without sacrificing distinct key
   assert.equal(group.defineTopic("events_2", "lossy", 1).name, "events_2");
   assert.equal(group.close(), true);
 });
+
+
+test("hard resource ceilings cannot be disabled by per-instance configuration", () => {
+  for (const option of [
+    {maxActors: 4097}, {maxActorHistories: 65537},
+    {maxGroups: 4097}, {maxGroupsPerActor: 4097},
+    {maxTopics: 4097}, {maxSubscriptionsPerActor: 1025}
+  ]) assert.throws(() => new WasmActorPubSub(option), /hard limit/);
+
+  const bus = new WasmActorPubSub({maxActors: 2, maxActorHistories: 2});
+  const a = bus.registerActor({actorId: 1, incarnation: 1});
+  const b = bus.registerActor({actorId: 2, incarnation: 1});
+  assert.throws(() => bus.registerActor({actorId: 3, incarnation: 1}),
+    /actor registry capacity/);
+  assert.equal(bus.retireActor(a), true);
+  assert.throws(() => bus.registerActor({actorId: 3, incarnation: 1}),
+    /incarnation history capacity/);
+  // Re-incarnation of an existing ID is allowed without expanding history.
+  const successor = bus.registerActor({actorId: 1, incarnation: 2});
+  assert.equal(bus.retireActor(b), true);
+  assert.equal(bus.retireActor(successor), true);
+  assert.throws(() => bus.registerActor({actorId: 1, incarnation: 2}),
+    /must increase monotonically/);
+  assert.equal(bus.close(), true);
+});
+
+test("untrusted queue sizes and large scalar events fail before admission", () => {
+  const bus = new WasmActorPubSub();
+  assert.throws(() => bus.createGroup({maxMembers: 4097}), /hard limit/);
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  assert.throws(() => group.defineTopic("oversized", "lossy", 1025), /hard limit/);
+  const topic = group.defineTopic("bounded", "reliable", 1);
+  topic.subscribe(subscriber);
+
+  for (const payload of ["x".repeat(4097), Infinity, -Infinity, NaN,
+    1n << 63n, -(1n << 63n) - 1n]) {
+    assert.throws(() => topic.publish(publisher, payload),
+      /payload|hard limit|signed i64/);
+    assert.deepEqual(topic.tryRead(subscriber), {present: false, value: undefined},
+      "a rejected payload must never reach even one subscriber");
+  }
+  assert.equal(topic.publish(publisher, -(1n << 63n)).accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber),
+    {present: true, value: -(1n << 63n)});
+  assert.equal(topic.publish(publisher, "ok").accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber), {present: true, value: "ok"});
+  bus.close();
+});
+
+
+test("global queued-slot budget is atomic and refunded across membership barriers", () => {
+  const bus = new WasmActorPubSub({maxQueuedSlots: 2});
+  const group = bus.createGroup(), other = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const left = bus.registerActor({actorId: 2, incarnation: 1});
+  const right = bus.registerActor({actorId: 3, incarnation: 1});
+  for (const actor of [publisher, left, right]) group.join(actor);
+  other.join(publisher);
+  other.join(left);
+  const reliable = group.defineTopic("reliable", "reliable", 3);
+  const latest = other.defineTopic("latest", "latest", 1);
+  reliable.subscribe(left);
+  reliable.subscribe(right);
+  latest.subscribe(left);
+
+  assert.equal(reliable.publish(publisher, "one").accepted, 2);
+  assert.equal(reliable.publish(publisher, "two").backpressured, true);
+  assert.deepEqual(reliable.tryRead(left), {present: true, value: "one"});
+  assert.equal(reliable.publish(publisher, "two").backpressured, true,
+    "failed admission must not put a second event into the partly drained queue");
+  assert.deepEqual(latest.publish(publisher, "latest"), {
+    subscribers: 1, accepted: 1, dropped: 0, coalesced: 0, backpressured: false
+  });
+  assert.equal(latest.publish(publisher, "newer").coalesced, 1,
+    "LATEST can replace an owned slot even at the global budget limit");
+  assert.equal(group.leave(right), true, "leave refunds every queued slot");
+  assert.equal(reliable.publish(publisher, "two").accepted, 1);
+  assert.deepEqual(latest.tryRead(left), {present: true, value: "newer"});
+  assert.deepEqual(reliable.tryRead(left), {present: true, value: "two"});
+  assert.equal(reliable.unsubscribe(left), true);
+  assert.equal(latest.unsubscribe(left), true);
+  assert.equal(bus.close(), true);
+});
+
+test("LOSSY global exhaustion drops without exceeding capacity and retirement frees it", () => {
+  const bus = new WasmActorPubSub({maxQueuedSlots: 1});
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  const topic = group.defineTopic("lossy", "lossy", 5);
+  topic.subscribe(subscriber);
+  assert.equal(topic.publish(publisher, "one").accepted, 1);
+  assert.equal(topic.publish(publisher, "two").dropped, 1);
+  assert.equal(bus.retireActor(subscriber), true);
+  const successor = bus.registerActor({actorId: 2, incarnation: 2});
+  group.join(successor);
+  topic.subscribe(successor);
+  assert.equal(topic.publish(publisher, "fresh").accepted, 1);
+  assert.deepEqual(topic.tryRead(successor), {present: true, value: "fresh"});
+  assert.equal(bus.close(), true);
+});
+
+
+test("pub-sub portable strings reject orphan UTF-16 surrogates without coalescing valid Unicode", () => {
+  const bus = new WasmActorPubSub();
+  const group = bus.createGroup();
+  const publisher = bus.registerActor({actorId: 1, incarnation: 1});
+  const subscriber = bus.registerActor({actorId: 2, incarnation: 1});
+  group.join(publisher);
+  group.join(subscriber);
+  for (const invalid of ["\uD800", "\uDC00", "ok\uDBFFsuffix"]) {
+    assert.throws(() => group.defineTopic(invalid, "lossy", 1),
+      /invalid topic name/);
+    assert.throws(() => group.topic(invalid), /invalid topic name/);
+  }
+  const topic = group.defineTopic("weather-😀", "reliable", 2);
+  topic.subscribe(subscriber);
+  for (const invalid of ["\uD800", "a\uDC00b", "😀\uDFFF"]) {
+    assert.throws(() => topic.publish(publisher, invalid), /malformed UTF-16/);
+    assert.deepEqual(topic.tryRead(subscriber), {present:false,value:undefined});
+  }
+  assert.equal(topic.publish(publisher, "😀").accepted, 1);
+  assert.deepEqual(topic.tryRead(subscriber), {present:true,value:"😀"});
+  assert.equal(group.close(), true);
+  assert.equal(bus.close(), true);
+});
