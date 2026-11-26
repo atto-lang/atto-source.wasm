@@ -29,38 +29,31 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
     };
     // Never launder an explicitly reserved path through later traversal.
     if (reserved(normalized)) return true;
-    const slashParts = normalized.split('/');
-    const head = slashParts[0].split(/[.:]+/).filter(Boolean);
-    const vendor = head[0] === 'atto' || head[0] === 'ores';
-    const rootDepth = head.length === 1 && head[0] === 'std' ? 1
-      : vendor && head.length === 2 && head[1] === 'std' ? 1
-      : vendor && head.length === 1 && slashParts[1] === 'std' ? 2 : 0;
-    if (rootDepth) {
-      const parts = [];
-      for (const part of normalized.split('/')) {
-        if (part === '' || part === '.') continue;
-        if (part === '..') {
-          if (parts.length <= rootDepth) return true; // Cannot escape stdlib root.
-          parts.pop();
-        } else parts.push(part);
+    // Track the first three logical segments incrementally. Check every
+    // intermediate canonical prefix, not just the final path: traversing
+    // into a forbidden namespace and then out cannot erase its identity.
+    // Each slash component records the prefix length before it was added.
+    const prefix = [];
+    const stack = [];
+    let rootDepth = 0;
+    for (const component of normalized.split('/')) {
+      if (component === '' || component === '.') continue;
+      if (component === '..') {
+        if (rootDepth && stack.length <= rootDepth) return true;
+        if (stack.length) prefix.length = stack.pop();
+        continue;
       }
-      normalized = parts.join('/');
-    } else if (normalized.includes('/')) {
-      // A relative import may become compiler-owned after graph resolution:
-      // ./std/unsafe and pkg/../std/unsafe are not guest package names.
-      const parts = [];
-      for (const part of normalized.split('/')) {
-        if (part === '' || part === '.') continue;
-        if (part === '..') {
-          if (parts.length) parts.pop();
-        } else parts.push(part);
+      stack.push(prefix.length);
+      for (const segment of component.split(/[.:]+/)) {
+        if (segment && prefix.length < 3) prefix.push(segment);
       }
-      normalized = parts.join('/');
+      const offset = prefix[0] === 'atto' || prefix[0] === 'ores' ? 1 : 0;
+      if (prefix[offset] === 'std') {
+        if (!rootDepth) rootDepth = stack.length;
+        if (prefix[offset + 1] === 'unsafe') return true;
+      }
     }
-    // Match exact namespace segments, not spelling-specific prefixes.
-    // Slash traversal was normalized above; colon/dot aliases now share
-    // the same reserved identity, including the canonical Atto namespace.
-    return reserved(normalized);
+    return false;
   };
   function quoted(quote) {
     const at = pos++;

@@ -176,3 +176,19 @@ test('unsafe identity cannot be laundered by traversal or mixed root separators'
     'atto.std/unsafe_tools', 'pkg/atto.std/unsafe'])
     assert.doesNotThrow(() => reject(bytes('import module innocent from "' + path + '";')), path);
 });
+
+test('intermediate canonical unsafe identities and normalized root escapes fail closed', () => {
+  for (const path of [
+    'std/other/../unsafe/../safe', './std/other/../unsafe/../safe',
+    'pkg/../std/other/../unsafe/../safe', 'atto//std/../safe',
+    'atto/./std/../safe', './atto::std/../safe',
+    'pkg/../ores.std/../safe', 'atto/std/other/../unsafe/../safe',
+    'atto/:/std/../safe', 'std/other/../unsafe::ffi/../safe'
+  ]) assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+    /wasm unsafe standard-library import unavailable in guest domains/, path);
+  for (const path of [
+    'std/other/../safe', './atto::std/other/../safe',
+    'pkg/../std/unsafe_tools/../safe', 'pkg/atto.std/unsafe/../safe',
+    'atto/std/other/deeper/../../safe'
+  ]) assert.doesNotThrow(() => reject(bytes('import module tools from "' + path + '";')), path);
+});
