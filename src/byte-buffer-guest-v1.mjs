@@ -20,7 +20,7 @@ const wordPart = c => /[a-zA-Z0-9_]/.test(c);
 const digit = c => /[0-9]/.test(c);
 
 function tokenize(source) {
-  if (typeof source !== 'string' || new TextEncoder().encode(source).byteLength > SOURCE_MAX) {
+  if (typeof source !== 'string' || source.length > SOURCE_MAX || new TextEncoder().encode(source).byteLength > SOURCE_MAX) {
     fault('E_BUFFER_SOURCE_LIMIT', 'source exceeds bounded profile');
   }
   const tokens = [];
@@ -40,9 +40,17 @@ function tokenize(source) {
     if (source.startsWith('/*', at)) {
       const opening = at;
       at += 2;
-      const end = source.indexOf('*/', at);
-      if (end === -1) fault('E_BUFFER_SYNTAX', 'unterminated block comment', opening);
-      at = end + 2;
+      let depth = 1;
+      while (at < source.length && depth !== 0) {
+        if (source.startsWith('/*', at)) {
+          if (++depth > 64) fault('E_BUFFER_SOURCE_LIMIT', 'block comment nesting limit', at);
+          at += 2;
+        } else if (source.startsWith('*/', at)) {
+          --depth;
+          at += 2;
+        } else ++at;
+      }
+      if (depth !== 0) fault('E_BUFFER_SYNTAX', 'unterminated block comment', opening);
       continue;
     }
     if (wordStart(c)) {
@@ -250,6 +258,9 @@ function emit(plan) {
       default:throw new Error('internal invalid expression');
     }
   };
+  // Each call allocates a fresh logical zero-filled region. The exported
+  // fixed memory is reused by this experimental instance, not by the buffer.
+  i32c(0); i32c(0); i32c(plan.length); op(0xfc,0x0b,0); // memory.fill
   for(const s of plan.body){
     if(s.kind==='store_local'){
       value(s.value);op(0x21,...uleb(s.slot)); // local.set

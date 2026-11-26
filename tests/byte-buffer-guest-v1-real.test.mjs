@@ -111,3 +111,17 @@ test('quoted keywords and punctuation cannot masquerade as grammar tokens',()=>{
     assert.throws(()=>compileByteBufferGuestV1(altered), error=>error instanceof ByteBufferGuestError);
   }
 });
+
+
+test('nested comments cannot expose source inside an unterminated comment',()=>{
+  const original=source('01-u32-le-roundtrip');
+  rejects('/* outer /* inner */\n'+original,'E_BUFFER_SYNTAX');
+  assert.deepEqual(compileByteBufferGuestV1('/* outer /* inner */ end */\n'+original),compileByteBufferGuestV1(original));
+  rejects('/*'.repeat(65)+'*/'.repeat(65)+original,'E_BUFFER_SOURCE_LIMIT');
+});
+test('fresh logical allocation zeroes its region on repeated invocation',()=>{
+  const out=guest(source('03-zero-initialized'));
+  out.bytes.fill(255,0,8);
+  assert.equal(out.instance.exports.main(),1n);
+  assert.deepEqual([...out.bytes.slice(0,8)],Array(8).fill(0));
+});
