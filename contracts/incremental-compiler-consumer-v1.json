@@ -1,0 +1,18 @@
+{
+  "schema": "atto.incremental-compiler-consumer.v1",
+  "repository": "atto-lang/atto-source.wasm",
+  "compiler_owner": "atto-lang/atto-source.rs",
+  "status": "EXPERIMENTAL_CONSUMER_TEST",
+  "implementation_complete": false,
+  "claims": [
+    "Run authenticated cold, warm and edited real compiler artifacts inside isolated worker",
+    "Verify exact byte equivalence and reject stale artifact pin"
+  ],
+  "not_claimed": [
+    "separate compiler implementation",
+    "typed-IR reuse",
+    "strict AOT worker",
+    "production durable cache authority"
+  ],
+  "tracker": "https://github.com/atto-lang/atto-compilers-parity-testing/issues/53"
+}
