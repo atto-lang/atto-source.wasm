@@ -18,7 +18,8 @@ pub routine main(): void {
   stdio.println(frame.length());
   stdio.println(frame.bytes().get(1));
   let mut Array<int> bad = frame.bytes();
-  stdio.println(zorde.decode_frame(bad).is_err());
+  let zorde_case_1 = zorde.decode_frame(bad);
+  stdio.println(zorde_case_1.is_err());
   let mut Array<int> prefix = new Array<int>();
   prefix.add(90);
   prefix.add(79);
@@ -44,18 +45,30 @@ pub routine main(): void {
   stdio.println(partial.remaining());
 
   // AOT typed codecs: schema ID and version must both match.
-  let bool_wire = zorde.encode_bool_frame(42, 2, true).unwrap();
-  stdio.println(zorde.decode_bool_frame(42, 2, bool_wire).unwrap());
-  let bool_mismatch = zorde.encode_bool_frame(42, 2, true).unwrap();
-  stdio.println(zorde.decode_bool_frame(42, 3, bool_mismatch).is_err());
-  let schema_mismatch = zorde.encode_bool_frame(42, 2, false).unwrap();
-  stdio.println(zorde.decode_bool_frame(43, 2, schema_mismatch).is_err());
-  let lower_i31 = zorde.encode_i31_frame(10, 4, -1073741824).unwrap();
-  stdio.println(zorde.decode_i31_frame(10, 4, lower_i31).unwrap());
-  let upper_i31 = zorde.encode_i31_frame(10, 4, 1073741823).unwrap();
-  stdio.println(zorde.decode_i31_frame(10, 4, upper_i31).unwrap());
-  stdio.println(zorde.encode_i31_frame(10, 4, -1073741825).is_err());
-  stdio.println(zorde.encode_i31_frame(10, 4, 1073741824).is_err());
+  let bool_wire_result = zorde.encode_bool_frame(42, 2, true);
+  let bool_wire = bool_wire_result.unwrap();
+  let zorde_case_2 = zorde.decode_bool_frame(42, 2, bool_wire);
+  stdio.println(zorde_case_2.unwrap());
+  let bool_mismatch_result = zorde.encode_bool_frame(42, 2, true);
+  let bool_mismatch = bool_mismatch_result.unwrap();
+  let zorde_case_3 = zorde.decode_bool_frame(42, 3, bool_mismatch);
+  stdio.println(zorde_case_3.is_err());
+  let schema_mismatch_result = zorde.encode_bool_frame(42, 2, false);
+  let schema_mismatch = schema_mismatch_result.unwrap();
+  let zorde_case_4 = zorde.decode_bool_frame(43, 2, schema_mismatch);
+  stdio.println(zorde_case_4.is_err());
+  let lower_i31_result = zorde.encode_i31_frame(10, 4, -1073741824);
+  let lower_i31 = lower_i31_result.unwrap();
+  let zorde_case_5 = zorde.decode_i31_frame(10, 4, lower_i31);
+  stdio.println(zorde_case_5.unwrap());
+  let upper_i31_result = zorde.encode_i31_frame(10, 4, 1073741823);
+  let upper_i31 = upper_i31_result.unwrap();
+  let zorde_case_6 = zorde.decode_i31_frame(10, 4, upper_i31);
+  stdio.println(zorde_case_6.unwrap());
+  let zorde_case_7 = zorde.encode_i31_frame(10, 4, -1073741825);
+  stdio.println(zorde_case_7.is_err());
+  let zorde_case_8 = zorde.encode_i31_frame(10, 4, 1073741824);
+  stdio.println(zorde_case_8.is_err());
 
   // A truncated length-delimited read must leave its cursor unchanged.
   let mut Array<int> short_input = new Array<int>();
@@ -81,30 +94,40 @@ pub routine main(): void {
   stdio.println(limited.size());
 
   // Bad external octets must yield Err rather than a Reader constructor trap.
-  let valid_frame = zorde.encode_bool_frame(9, 1, true).unwrap();
+  let valid_frame_result = zorde.encode_bool_frame(9, 1, true);
+  let valid_frame = valid_frame_result.unwrap();
   let mut Array<int> invalid_frame = new Array<int>();
   for (let int i = 0; i < valid_frame.size; i = i + 1) {
     invalid_frame.add(valid_frame.get(i));
   }
   invalid_frame.set(invalid_frame.size - 1, 256);
-  stdio.println(zorde.decode_frame(invalid_frame).is_err());
+  let zorde_case_9 = zorde.decode_frame(invalid_frame);
+  stdio.println(zorde_case_9.is_err());
   let mut Array<int> invalid_bool_payload = new Array<int>();
   invalid_bool_payload.add(2);
-  let invalid_bool_wire = zorde.encode_frame(42, 2, invalid_bool_payload).unwrap();
-  stdio.println(zorde.decode_bool_frame(42, 2, invalid_bool_wire).is_err());
+  let invalid_bool_wire_result = zorde.encode_frame(42, 2, invalid_bool_payload);
+  let invalid_bool_wire = invalid_bool_wire_result.unwrap();
+  let zorde_case_10 = zorde.decode_bool_frame(42, 2, invalid_bool_wire);
+  stdio.println(zorde_case_10.is_err());
 
   let mut Array<int> wrong_byte = new Array<int>();
   wrong_byte.add(-1);
-  stdio.println(zorde.checked_reader(wrong_byte).is_err());
+  let zorde_case_11 = zorde.checked_reader(wrong_byte);
+  stdio.println(zorde_case_11.is_err());
   let mut Array<int> upper_byte = new Array<int>();
   upper_byte.add(256);
-  stdio.println(zorde.checked_reader(upper_byte).is_err());
-  stdio.println(zorde.checked_writer(0).is_err());
-  stdio.println(zorde.checked_writer(1048577).is_err());
-  stdio.println(zorde.checked_writer(16).is_ok());
+  let zorde_case_12 = zorde.checked_reader(upper_byte);
+  stdio.println(zorde_case_12.is_err());
+  let zorde_case_13 = zorde.checked_writer(0);
+  stdio.println(zorde_case_13.is_err());
+  let zorde_case_14 = zorde.checked_writer(1048577);
+  stdio.println(zorde_case_14.is_err());
+  let zorde_case_15 = zorde.checked_writer(16);
+  stdio.println(zorde_case_15.is_ok());
   let mut Array<int> one_byte = new Array<int>();
   one_byte.add(255);
-  stdio.println(zorde.checked_reader(one_byte).is_ok());
+  let zorde_case_16 = zorde.checked_reader(one_byte);
+  stdio.println(zorde_case_16.is_ok());
 
   // Wire framing must be exact: no extra octets, unsupported bootstrap
   // versions, incorrect length fields or noncanonical schema varints.
@@ -113,21 +136,41 @@ pub routine main(): void {
     trailing.add(valid_frame.get(i));
   }
   trailing.add(0);
-  stdio.println(zorde.decode_frame(trailing).is_err());
+  let zorde_case_17 = zorde.decode_frame(trailing);
+  stdio.println(zorde_case_17.is_err());
 
   let mut Array<int> wrong_version = new Array<int>();
   for (let int i = 0; i < valid_frame.size; i = i + 1) {
     wrong_version.add(valid_frame.get(i));
   }
-  wrong_version.set(4, 2);
-  stdio.println(zorde.decode_frame(wrong_version).is_err());
+  // Every fixed-header byte must be checked, including all four magic bytes.
+  // Restore each byte before the next case and admit the original wire again.
+  let bool all_bad_prefixes_rejected = true;
+  for (let int i = 0; i < 5; i = i + 1) {
+    let int original = wrong_version.get(i);
+    wrong_version.set(i, original + 1);
+    // Retain the fixture's original owner across decoder calls; the imported
+    // call is conservatively consuming until its read-loan signature is linked.
+    let mut Array<int> corrupted = new Array<int>();
+    for (let int j = 0; j < wrong_version.size; j = j + 1) {
+      corrupted.add(wrong_version.get(j));
+    }
+    let corrupted_result = zorde.decode_frame(corrupted);
+    if !corrupted_result.is_err(); do
+      all_bad_prefixes_rejected = false;
+    fi
+    wrong_version.set(i, original);
+  }
+  let restored_result = zorde.decode_frame(wrong_version);
+  stdio.println(all_bad_prefixes_rejected && restored_result.is_ok());
 
   let mut Array<int> wrong_length = new Array<int>();
   for (let int i = 0; i < valid_frame.size; i = i + 1) {
     wrong_length.add(valid_frame.get(i));
   }
   wrong_length.set(7, 2);
-  stdio.println(zorde.decode_frame(wrong_length).is_err());
+  let zorde_case_18 = zorde.decode_frame(wrong_length);
+  stdio.println(zorde_case_18.is_err());
 
   let mut Array<int> overlong_schema = new Array<int>();
   overlong_schema.add(90);
@@ -139,7 +182,8 @@ pub routine main(): void {
   overlong_schema.add(0);
   overlong_schema.add(1);
   overlong_schema.add(0);
-  stdio.println(zorde.decode_frame(overlong_schema).is_err());
+  let zorde_case_19 = zorde.decode_frame(overlong_schema);
+  stdio.println(zorde_case_19.is_err());
 
   let mut Array<int> empty_frame = new Array<int>();
   empty_frame.add(90);
@@ -150,7 +194,8 @@ pub routine main(): void {
   empty_frame.add(1);
   empty_frame.add(1);
   empty_frame.add(0);
-  stdio.println(zorde.decode_frame(empty_frame).is_ok());
+  let zorde_case_20 = zorde.decode_frame(empty_frame);
+  stdio.println(zorde_case_20.is_ok());
 
   // Canonical unsigned 31-bit wire limits: writer must not emit a
   // representation its own reader cannot admit. Failure is atomic.
@@ -164,11 +209,15 @@ pub routine main(): void {
   stdio.println(varuint31.write_bytes(illegal_octet));
   stdio.println(varuint31.size());
   let mut Array<int> empty_bytes = new Array<int>();
-  stdio.println(zorde.encode_frame(2147483648, 1, empty_bytes).is_err());
+  let zorde_case_21 = zorde.encode_frame(2147483648, 1, empty_bytes);
+  stdio.println(zorde_case_21.is_err());
   let mut Array<int> empty_bytes2 = new Array<int>();
-  stdio.println(zorde.encode_frame(1, 2147483648, empty_bytes2).is_err());
+  let zorde_case_22 = zorde.encode_frame(1, 2147483648, empty_bytes2);
+  stdio.println(zorde_case_22.is_err());
   let mut Array<int> empty_bytes3 = new Array<int>();
-  stdio.println(zorde.encode_frame(2147483647, 2147483647, empty_bytes3).is_ok());
-  stdio.println(zorde.decode_frame_for(2147483648, 1, valid_frame).is_err());
+  let zorde_case_23 = zorde.encode_frame(2147483647, 2147483647, empty_bytes3);
+  stdio.println(zorde_case_23.is_ok());
+  let zorde_case_24 = zorde.decode_frame_for(2147483648, 1, valid_frame);
+  stdio.println(zorde_case_24.is_err());
   return;
 }
