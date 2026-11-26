@@ -9,6 +9,8 @@ self.onmessage=async({data})=>{
   try{await verifyCompilerBytes(bytes,wrong,bytes.length);}catch(e){denied=/sha256/.test(e.message);}
   eq(denied,true,'digest denial');await verifyCompilerBytes(bytes,data.pin,bytes.length);
   const c=await createCompiler(bytes);
+  if(!Array.isArray(data.cases)||![17,24].includes(data.cases.length))throw Error('unexpected source corpus size');
+  eq(new Set(data.cases.map(x=>x.id)).size,data.cases.length,'unique case ids');
   self.postMessage({line:'BROWSER_COMPILER '+data.head+' '+data.tree+' '+data.pin});
   for(const x of data.cases){
    const ordinary=c.compile(x.source);eq(ordinary.ok,false,x.id+' ordinary admission');eq('wasm' in ordinary,false,'ordinary artifact');
@@ -34,6 +36,6 @@ self.onmessage=async({data})=>{
     let trapped=false;try{g.main()}catch(e){trapped=e instanceof WebAssembly.RuntimeError;}eq(trapped,true,'native Wasm trap');eq(g.panic_code.value,panic,'panic code');
   }
   const normal=c.compile('pub fnc main(): int { return 42; }');eq(normal.ok,true,'compiler reuse');eq(new WebAssembly.Instance(new WebAssembly.Module(normal.wasm),{}).exports.main(),42n,'normal control');
-  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:17,runtimeControls:6,ordinaryDenials:17});
+  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:data.cases.length,runtimeControls:checks.length,ordinaryDenials:data.cases.length});
  }catch(e){self.postMessage({ok:false,error:String(e?.stack??e)});}
 };
