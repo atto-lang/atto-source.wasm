@@ -1,0 +1,6 @@
+// Candidate NEGATIVE: cannot return a borrowed array as owned.
+define module borrow_fixture as
+  pub fnc illegal_escape(borrow Array<int> input): Array<int> {
+    return input;
+  }
+end

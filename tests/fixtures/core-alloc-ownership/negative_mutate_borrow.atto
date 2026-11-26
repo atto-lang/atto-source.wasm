@@ -1,0 +1,8 @@
+// Candidate NEGATIVE: shared borrow cannot call mutable Array operation.
+// Expected compiler semantic ownership error; parser error is NOT a pass.
+define module borrow_fixture as
+  pub fnc illegal_mutation(borrow Array<int> input): void {
+    input.add(9);
+    return;
+  }
+end

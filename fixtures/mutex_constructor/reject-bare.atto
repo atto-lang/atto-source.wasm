@@ -1,0 +1,2 @@
+// E_NEW_REQUIRED: this syntax treats an opaque resource class as a struct.
+pub fnc main(): int { val counter = Mutex<int>(0); return 0; }

@@ -1,0 +1,6 @@
+import fnc valid_slice from "./bounds.atto";
+pub fnc main(): int {
+  // The imported call must fail static checking; no executable IR may escape.
+  if valid_slice("not-an-int", 1, 3) then return 1; fi
+  return 42;
+}

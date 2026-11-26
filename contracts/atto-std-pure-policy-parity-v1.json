@@ -1,0 +1,1701 @@
+{
+  "schema": "atto-std-pure-policy-parity-v1",
+  "status": "CANDIDATE_ONLY; NOT_EXECUTED via native guest",
+  "created": "2026-11-22",
+  "scope": [
+    "std/path lexical predicates only",
+    "std/sync scheduler admission predicates only",
+    "std/telemetry pure sampling and span predicates only"
+  ],
+  "non_claims": [
+    "no OS path authorization or symlink confinement",
+    "no actual lock/permit/barrier synchronization",
+    "no trace ID authority, clocks, exporter, or OTLP transport",
+    "no native execution or cross-compiler parity proof"
+  ],
+  "semantics": "int uses signed Atto scalar semantics on the enumerated input domains; bool literal values are not integers; negative-invalid cases return false or -1 as specified; paths are not filesystem capabilities; closing a semaphore does not invalidate returning owned permits",
+  "api": {
+    "path": {
+      "is_separator": [
+        "int",
+        "bool",
+        "bool"
+      ],
+      "is_ascii_letter": [
+        "int",
+        "bool"
+      ],
+      "is_safe_scalar": [
+        "int",
+        "bool",
+        "bool"
+      ],
+      "component_kind": [
+        "int",
+        "int",
+        "int",
+        "int"
+      ],
+      "advance_relative_depth": [
+        "int",
+        "int",
+        "int"
+      ],
+      "is_windows_drive_prefix": [
+        "int",
+        "int",
+        "bool"
+      ],
+      "relative_join_budget_admissible": [
+        "int",
+        "int",
+        "int",
+        "int",
+        "bool"
+      ],
+      "extension_offset_admissible": [
+        "int",
+        "int",
+        "bool"
+      ]
+    },
+    "sync": {
+      "mutex_take_admissible": [
+        "bool",
+        "bool",
+        "int",
+        "bool"
+      ],
+      "mutex_enqueue_admissible": [
+        "bool",
+        "int",
+        "int",
+        "bool"
+      ],
+      "read_take_admissible": [
+        "int",
+        "bool",
+        "int",
+        "int",
+        "bool"
+      ],
+      "write_take_admissible": [
+        "int",
+        "bool",
+        "bool"
+      ],
+      "sem_take_admissible": [
+        "int",
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "sem_return_admissible": [
+        "int",
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "barrier_last_arrival": [
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "barrier_arrival_admissible": [
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "mutex_release_receipt_admissible": [
+        "bool",
+        "int",
+        "int",
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "rw_upgrade_admissible": [
+        "int",
+        "bool",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "next_epoch_admissible": [
+        "int",
+        "int",
+        "bool"
+      ]
+    },
+    "telemetry": {
+      "traceparent_v00_fields_valid": [
+        "int",
+        "int",
+        "int",
+        "int",
+        "int",
+        "bool"
+      ],
+      "sampled_flag": [
+        "int",
+        "bool"
+      ],
+      "sampling_decision": [
+        "int",
+        "bool",
+        "int"
+      ],
+      "decision_is_recording": [
+        "int",
+        "bool"
+      ],
+      "decision_is_sampled": [
+        "int",
+        "bool"
+      ],
+      "span_window_valid": [
+        "int",
+        "int",
+        "bool"
+      ],
+      "dormant_probe_admissible": [
+        "int",
+        "int",
+        "bool",
+        "bool"
+      ],
+      "queue_admissible": [
+        "int",
+        "int",
+        "int",
+        "int",
+        "bool"
+      ],
+      "drop_increment": [
+        "int",
+        "int"
+      ]
+    }
+  },
+  "vectors": [
+    {
+      "id": "STD-001",
+      "module": "path",
+      "fn": "is_separator",
+      "args": [
+        47,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-002",
+      "module": "path",
+      "fn": "is_separator",
+      "args": [
+        92,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-003",
+      "module": "path",
+      "fn": "is_separator",
+      "args": [
+        92,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-004",
+      "module": "path",
+      "fn": "is_separator",
+      "args": [
+        65,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-005",
+      "module": "path",
+      "fn": "is_ascii_letter",
+      "args": [
+        65
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-006",
+      "module": "path",
+      "fn": "is_ascii_letter",
+      "args": [
+        122
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-007",
+      "module": "path",
+      "fn": "is_ascii_letter",
+      "args": [
+        64
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-008",
+      "module": "path",
+      "fn": "is_ascii_letter",
+      "args": [
+        50
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-009",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        233,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-010",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        233,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-011",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        47,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-012",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        92,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-013",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        92,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-014",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        55296,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-015",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        1114112,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-016",
+      "module": "path",
+      "fn": "is_safe_scalar",
+      "args": [
+        95,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-017",
+      "module": "path",
+      "fn": "component_kind",
+      "args": [
+        1,
+        46,
+        0
+      ],
+      "expected": 1
+    },
+    {
+      "id": "STD-018",
+      "module": "path",
+      "fn": "component_kind",
+      "args": [
+        2,
+        46,
+        46
+      ],
+      "expected": 2
+    },
+    {
+      "id": "STD-019",
+      "module": "path",
+      "fn": "component_kind",
+      "args": [
+        0,
+        1,
+        1
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-020",
+      "module": "path",
+      "fn": "component_kind",
+      "args": [
+        256,
+        1,
+        1
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-021",
+      "module": "path",
+      "fn": "component_kind",
+      "args": [
+        2,
+        46,
+        65
+      ],
+      "expected": 0
+    },
+    {
+      "id": "STD-022",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        0,
+        2
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-023",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        2,
+        2
+      ],
+      "expected": 1
+    },
+    {
+      "id": "STD-024",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        2,
+        1
+      ],
+      "expected": 2
+    },
+    {
+      "id": "STD-025",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        255,
+        0
+      ],
+      "expected": 256
+    },
+    {
+      "id": "STD-026",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        256,
+        0
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-027",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        0,
+        0
+      ],
+      "expected": 1
+    },
+    {
+      "id": "STD-028",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        -1,
+        0
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-029",
+      "module": "path",
+      "fn": "advance_relative_depth",
+      "args": [
+        1,
+        9
+      ],
+      "expected": -1
+    },
+    {
+      "id": "STD-030",
+      "module": "path",
+      "fn": "is_windows_drive_prefix",
+      "args": [
+        67,
+        58
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-031",
+      "module": "path",
+      "fn": "is_windows_drive_prefix",
+      "args": [
+        67,
+        47
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-032",
+      "module": "path",
+      "fn": "is_windows_drive_prefix",
+      "args": [
+        35,
+        58
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-033",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        4,
+        4,
+        1,
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-034",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        4095,
+        1,
+        1,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-035",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        4094,
+        1,
+        1,
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-036",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        3,
+        3,
+        256,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-037",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        0,
+        3,
+        1,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-038",
+      "module": "path",
+      "fn": "relative_join_budget_admissible",
+      "args": [
+        3,
+        3,
+        -1,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-039",
+      "module": "path",
+      "fn": "extension_offset_admissible",
+      "args": [
+        4,
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-040",
+      "module": "path",
+      "fn": "extension_offset_admissible",
+      "args": [
+        4,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-041",
+      "module": "path",
+      "fn": "extension_offset_admissible",
+      "args": [
+        4,
+        3
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-042",
+      "module": "path",
+      "fn": "extension_offset_admissible",
+      "args": [
+        2,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-043",
+      "module": "sync",
+      "fn": "mutex_take_admissible",
+      "args": [
+        false,
+        false,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-044",
+      "module": "sync",
+      "fn": "mutex_take_admissible",
+      "args": [
+        true,
+        false,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-045",
+      "module": "sync",
+      "fn": "mutex_take_admissible",
+      "args": [
+        false,
+        false,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-046",
+      "module": "sync",
+      "fn": "mutex_take_admissible",
+      "args": [
+        false,
+        true,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-047",
+      "module": "sync",
+      "fn": "mutex_enqueue_admissible",
+      "args": [
+        false,
+        0,
+        4
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-048",
+      "module": "sync",
+      "fn": "mutex_enqueue_admissible",
+      "args": [
+        false,
+        4,
+        4
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-049",
+      "module": "sync",
+      "fn": "mutex_enqueue_admissible",
+      "args": [
+        true,
+        0,
+        4
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-050",
+      "module": "sync",
+      "fn": "mutex_enqueue_admissible",
+      "args": [
+        false,
+        -1,
+        4
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-051",
+      "module": "sync",
+      "fn": "mutex_enqueue_admissible",
+      "args": [
+        false,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-052",
+      "module": "sync",
+      "fn": "read_take_admissible",
+      "args": [
+        0,
+        false,
+        0,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-053",
+      "module": "sync",
+      "fn": "read_take_admissible",
+      "args": [
+        10,
+        false,
+        0,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-054",
+      "module": "sync",
+      "fn": "read_take_admissible",
+      "args": [
+        1,
+        false,
+        1,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-055",
+      "module": "sync",
+      "fn": "read_take_admissible",
+      "args": [
+        0,
+        true,
+        0,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-056",
+      "module": "sync",
+      "fn": "read_take_admissible",
+      "args": [
+        0,
+        false,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-057",
+      "module": "sync",
+      "fn": "write_take_admissible",
+      "args": [
+        0,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-058",
+      "module": "sync",
+      "fn": "write_take_admissible",
+      "args": [
+        1,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-059",
+      "module": "sync",
+      "fn": "write_take_admissible",
+      "args": [
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-060",
+      "module": "sync",
+      "fn": "sem_take_admissible",
+      "args": [
+        3,
+        2,
+        5,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-061",
+      "module": "sync",
+      "fn": "sem_take_admissible",
+      "args": [
+        3,
+        4,
+        5,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-062",
+      "module": "sync",
+      "fn": "sem_take_admissible",
+      "args": [
+        3,
+        2,
+        5,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-063",
+      "module": "sync",
+      "fn": "sem_take_admissible",
+      "args": [
+        6,
+        1,
+        5,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-064",
+      "module": "sync",
+      "fn": "sem_take_admissible",
+      "args": [
+        3,
+        0,
+        5,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-065",
+      "module": "sync",
+      "fn": "sem_return_admissible",
+      "args": [
+        3,
+        2,
+        5,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-066",
+      "module": "sync",
+      "fn": "sem_return_admissible",
+      "args": [
+        3,
+        2,
+        5,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-067",
+      "module": "sync",
+      "fn": "sem_return_admissible",
+      "args": [
+        4,
+        2,
+        5,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-068",
+      "module": "sync",
+      "fn": "sem_return_admissible",
+      "args": [
+        0,
+        0,
+        5,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-069",
+      "module": "sync",
+      "fn": "sem_return_admissible",
+      "args": [
+        3,
+        2,
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-070",
+      "module": "sync",
+      "fn": "barrier_last_arrival",
+      "args": [
+        3,
+        4,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-071",
+      "module": "sync",
+      "fn": "barrier_last_arrival",
+      "args": [
+        2,
+        4,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-072",
+      "module": "sync",
+      "fn": "barrier_last_arrival",
+      "args": [
+        0,
+        1,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-073",
+      "module": "sync",
+      "fn": "barrier_last_arrival",
+      "args": [
+        65535,
+        65536,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-074",
+      "module": "sync",
+      "fn": "barrier_arrival_admissible",
+      "args": [
+        0,
+        4,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-075",
+      "module": "sync",
+      "fn": "barrier_arrival_admissible",
+      "args": [
+        3,
+        4,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-076",
+      "module": "sync",
+      "fn": "barrier_arrival_admissible",
+      "args": [
+        4,
+        4,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-077",
+      "module": "sync",
+      "fn": "barrier_arrival_admissible",
+      "args": [
+        -1,
+        4,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-078",
+      "module": "sync",
+      "fn": "barrier_arrival_admissible",
+      "args": [
+        1,
+        4,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-079",
+      "module": "sync",
+      "fn": "mutex_release_receipt_admissible",
+      "args": [
+        true,
+        8,
+        8,
+        3,
+        3,
+        false
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-080",
+      "module": "sync",
+      "fn": "mutex_release_receipt_admissible",
+      "args": [
+        true,
+        8,
+        9,
+        3,
+        3,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-081",
+      "module": "sync",
+      "fn": "mutex_release_receipt_admissible",
+      "args": [
+        true,
+        8,
+        8,
+        3,
+        2,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-082",
+      "module": "sync",
+      "fn": "mutex_release_receipt_admissible",
+      "args": [
+        true,
+        8,
+        8,
+        3,
+        3,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-083",
+      "module": "sync",
+      "fn": "mutex_release_receipt_admissible",
+      "args": [
+        false,
+        8,
+        8,
+        3,
+        3,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-084",
+      "module": "sync",
+      "fn": "rw_upgrade_admissible",
+      "args": [
+        1,
+        false,
+        0,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-085",
+      "module": "sync",
+      "fn": "rw_upgrade_admissible",
+      "args": [
+        2,
+        false,
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-086",
+      "module": "sync",
+      "fn": "rw_upgrade_admissible",
+      "args": [
+        1,
+        false,
+        1,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-087",
+      "module": "sync",
+      "fn": "rw_upgrade_admissible",
+      "args": [
+        1,
+        false,
+        0,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-088",
+      "module": "sync",
+      "fn": "rw_upgrade_admissible",
+      "args": [
+        1,
+        true,
+        0,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-089",
+      "module": "sync",
+      "fn": "next_epoch_admissible",
+      "args": [
+        5,
+        6
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-090",
+      "module": "sync",
+      "fn": "next_epoch_admissible",
+      "args": [
+        5,
+        7
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-091",
+      "module": "sync",
+      "fn": "next_epoch_admissible",
+      "args": [
+        2147483647,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-092",
+      "module": "sync",
+      "fn": "next_epoch_admissible",
+      "args": [
+        -1,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-093",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        0,
+        1,
+        0,
+        1,
+        255
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-094",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        0,
+        0,
+        0,
+        1,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-095",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        1,
+        1,
+        0,
+        1,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-096",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        0,
+        1,
+        0,
+        0,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-097",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        0,
+        1,
+        0,
+        1,
+        256
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-098",
+      "module": "telemetry",
+      "fn": "traceparent_v00_fields_valid",
+      "args": [
+        0,
+        -1,
+        0,
+        1,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-099",
+      "module": "telemetry",
+      "fn": "sampled_flag",
+      "args": [
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-100",
+      "module": "telemetry",
+      "fn": "sampled_flag",
+      "args": [
+        3
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-101",
+      "module": "telemetry",
+      "fn": "sampled_flag",
+      "args": [
+        2
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-102",
+      "module": "telemetry",
+      "fn": "sampled_flag",
+      "args": [
+        256
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-103",
+      "module": "telemetry",
+      "fn": "sampled_flag",
+      "args": [
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-104",
+      "module": "telemetry",
+      "fn": "sampling_decision",
+      "args": [
+        1,
+        false
+      ],
+      "expected": 1
+    },
+    {
+      "id": "STD-105",
+      "module": "telemetry",
+      "fn": "sampling_decision",
+      "args": [
+        2,
+        false
+      ],
+      "expected": 2
+    },
+    {
+      "id": "STD-106",
+      "module": "telemetry",
+      "fn": "sampling_decision",
+      "args": [
+        3,
+        true
+      ],
+      "expected": 2
+    },
+    {
+      "id": "STD-107",
+      "module": "telemetry",
+      "fn": "sampling_decision",
+      "args": [
+        3,
+        false
+      ],
+      "expected": 0
+    },
+    {
+      "id": "STD-108",
+      "module": "telemetry",
+      "fn": "sampling_decision",
+      "args": [
+        0,
+        true
+      ],
+      "expected": 0
+    },
+    {
+      "id": "STD-109",
+      "module": "telemetry",
+      "fn": "decision_is_recording",
+      "args": [
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-110",
+      "module": "telemetry",
+      "fn": "decision_is_recording",
+      "args": [
+        1
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-111",
+      "module": "telemetry",
+      "fn": "decision_is_recording",
+      "args": [
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-112",
+      "module": "telemetry",
+      "fn": "decision_is_recording",
+      "args": [
+        3
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-113",
+      "module": "telemetry",
+      "fn": "decision_is_sampled",
+      "args": [
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-114",
+      "module": "telemetry",
+      "fn": "decision_is_sampled",
+      "args": [
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-115",
+      "module": "telemetry",
+      "fn": "decision_is_sampled",
+      "args": [
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-116",
+      "module": "telemetry",
+      "fn": "span_window_valid",
+      "args": [
+        0,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-117",
+      "module": "telemetry",
+      "fn": "span_window_valid",
+      "args": [
+        1,
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-118",
+      "module": "telemetry",
+      "fn": "span_window_valid",
+      "args": [
+        2,
+        1
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-119",
+      "module": "telemetry",
+      "fn": "span_window_valid",
+      "args": [
+        -1,
+        3
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-120",
+      "module": "telemetry",
+      "fn": "dormant_probe_admissible",
+      "args": [
+        3,
+        2,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-121",
+      "module": "telemetry",
+      "fn": "dormant_probe_admissible",
+      "args": [
+        3,
+        2,
+        false
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-122",
+      "module": "telemetry",
+      "fn": "dormant_probe_admissible",
+      "args": [
+        0,
+        1,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-123",
+      "module": "telemetry",
+      "fn": "dormant_probe_admissible",
+      "args": [
+        2,
+        3,
+        true
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-124",
+      "module": "telemetry",
+      "fn": "dormant_probe_admissible",
+      "args": [
+        3,
+        1,
+        true
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-125",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        0,
+        8,
+        2,
+        2
+      ],
+      "expected": true
+    },
+    {
+      "id": "STD-126",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        8,
+        8,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-127",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-128",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        0,
+        8,
+        3,
+        2
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-129",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        0,
+        65537,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-130",
+      "module": "telemetry",
+      "fn": "queue_admissible",
+      "args": [
+        -1,
+        8,
+        0,
+        0
+      ],
+      "expected": false
+    },
+    {
+      "id": "STD-131",
+      "module": "telemetry",
+      "fn": "drop_increment",
+      "args": [
+        0
+      ],
+      "expected": 1
+    },
+    {
+      "id": "STD-132",
+      "module": "telemetry",
+      "fn": "drop_increment",
+      "args": [
+        10
+      ],
+      "expected": 11
+    },
+    {
+      "id": "STD-133",
+      "module": "telemetry",
+      "fn": "drop_increment",
+      "args": [
+        2147483647
+      ],
+      "expected": 2147483647
+    },
+    {
+      "id": "STD-134",
+      "module": "telemetry",
+      "fn": "drop_increment",
+      "args": [
+        -1
+      ],
+      "expected": -1
+    }
+  ],
+  "backends": [
+    {
+      "backend": "java",
+      "guest": "NOT_EXECUTED",
+      "source_status": "candidate-implementation-in-draft"
+    },
+    {
+      "backend": "llvm",
+      "guest": "NOT_EXECUTED",
+      "source_status": "candidate-implementation-in-draft"
+    },
+    {
+      "backend": "net",
+      "guest": "NOT_EXECUTED",
+      "source_status": "candidate-implementation-in-draft"
+    },
+    {
+      "backend": "forge",
+      "guest": "NOT_EXECUTED",
+      "source_status": "candidate-implementation-in-draft"
+    },
+    {
+      "backend": "cranelift",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    },
+    {
+      "backend": "rs",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    },
+    {
+      "backend": "wasm",
+      "guest": "NOT_EXECUTED",
+      "source_status": "candidate-implementation-in-draft"
+    },
+    {
+      "backend": "js",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    },
+    {
+      "backend": "hdl",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    },
+    {
+      "backend": "atto",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    },
+    {
+      "backend": "realtime",
+      "guest": "NOT_EXECUTED",
+      "source_status": "not-audited"
+    }
+  ],
+  "evidence_rules": {
+    "required": "exact-head native compiler execution and independently verified runner steps, source SHA and vector results",
+    "source_only": "NOT_EXECUTED",
+    "unavailable": "UNSUPPORTED with explicit target reason",
+    "forbidden": "never treat queued, pending, skipped, model-only, empty steps or unsigned self-attestation as PASS",
+    "independent_library_sources": true
+  }
+}

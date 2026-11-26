@@ -1,0 +1,46 @@
+// Atto alloc/text_convert: owned UTF-8 decoding and textual conversions.
+// String.codepoints() creates a bounded owned scalar snapshot, so this MUST
+// NOT live in allocator-independent core. No borrowed pointer or slice escapes.
+define module text_convert as
+  pub fnc try_bool_from_string(borrow String value): Result<bool, String> {
+    if value == "true"; do return Ok(true); fi
+    if value == "false"; do return Ok(false); fi
+    return Err("expected lowercase true or false");
+  }
+
+  // Locale-independent ASCII decimal. Negative accumulation accepts i64::MIN
+  // and checks each step before multiplication. Explicit snapshot lifetime.
+  pub fnc try_int_from_string(borrow String value): Result<int, String> {
+    val points = value.codepoints();
+    val int count = points.size;
+    if count == 0 || count > 20; do
+      return Err("invalid signed decimal length");
+    fi
+    let int start = 0;
+    let bool negative = false;
+    if points.get(0) == 45; do
+      negative = true;
+      start = 1;
+    fi
+    if start == count; do return Err("missing decimal digits"); fi
+    if count - start > 19; do return Err("too many decimal digits"); fi
+    let int accumulator = 0;
+    for (let int index = start; index < count; index = index + 1) {
+      val int scalar = points.get(index);
+      if scalar < 48 || scalar > 57; do
+        return Err("invalid ASCII decimal digit");
+      fi
+      val int digit = scalar - 48;
+      if accumulator < -922337203685477580; do
+        return Err("signed decimal overflow");
+      fi
+      if accumulator == -922337203685477580; do
+        if negative && digit > 8; do return Err("signed decimal overflow"); fi
+        if !negative && digit > 7; do return Err("signed decimal overflow"); fi
+      fi
+      accumulator = accumulator * 10 - digit;
+    }
+    if negative; do return Ok(accumulator); fi
+    return Ok(-accumulator);
+  }
+end

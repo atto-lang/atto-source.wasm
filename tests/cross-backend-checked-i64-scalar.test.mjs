@@ -72,7 +72,7 @@ async function compileMain(t,expression,name){
     ? "// "+waveId+": candidate source-identical checked-i64 scalar program.\n"
       + "// Expected integer result 42; guest execution on each backend is unverified.\n"
       + "pub fnc main(): int { return "+expression+"; }\n"
-    : header+"define pub fnc main(): int { return "+expression+"; }\n";
+    : header+"pub fnc main(): int { return "+expression+"; }\n";
   if(waveId){
     assert.equal(createHash("sha256").update(guestSource,"utf8").digest("hex"),
       waveSourceSha256[waveId],"Wasm guest source bytes differ from shared Oreslang corpus");
@@ -138,7 +138,7 @@ test("int / int is not admitted as an i64 result",async t=>{
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
   t.after(()=>rm(dir,{recursive:true,force:true}));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return 7 / 2; }\n");
+  await writeFile(source,header+"pub fnc main(): int { return 7 / 2; }\n");
   await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
 });
 
@@ -213,3 +213,131 @@ test("Orestra-inspired receiver-bound overflow must not wrap",async t=>{
   if(!main)return;
   assert.throws(()=>main(),WebAssembly.RuntimeError);
 });
+
+
+// Shared scalar tuple profile, copied verbatim from conformance Git blob 193249523cf18ef725f4900c30f3925c5bf8ce4b.
+// This is LLVM-to-Wasm target parity, NOT a second independent source compiler.
+// Extend this existing guest harness rather than adding a host-language evaluator.
+const tupleCases=[
+  {
+    "id": "flat-three",
+    "source": "pub fnc main(): int { return (5, 3, 5) |> |(a, b, c)| -> a + b + c; }\n",
+    "expected": 13
+  },
+  {
+    "id": "order-weighted",
+    "source": "pub fnc main(): int { return (2, 7, 11) |> |(a, b, c)| -> 2*a + 3*b + 4*c; }\n",
+    "expected": 69
+  },
+  {
+    "id": "discard-middle",
+    "source": "pub fnc main(): int { return (5, 99, 8) |> |(a, _, c)| -> a + c; }\n",
+    "expected": 13
+  },
+  {
+    "id": "discard-first",
+    "source": "pub fnc main(): int { return (99, 8) |> |(_, b)| -> b + 3; }\n",
+    "expected": 11
+  },
+  {
+    "id": "discard-last",
+    "source": "pub fnc main(): int { return (6, 99) |> |(a, _)| -> a + 5; }\n",
+    "expected": 11
+  },
+  {
+    "id": "discard-all",
+    "source": "pub fnc main(): int { return (5, 8) |> |(_, _)| -> 19; }\n",
+    "expected": 19
+  },
+  {
+    "id": "singleton",
+    "source": "pub fnc main(): int { return (9,) |> |(a,)| -> a; }\n",
+    "expected": 9
+  },
+  {
+    "id": "empty",
+    "source": "pub fnc main(): int { return () |> |()| -> 7; }\n",
+    "expected": 7
+  },
+  {
+    "id": "typed-leaves",
+    "source": "pub fnc main(): int { return (5, 8) |> |(a: int, b: int)| -> a + b; }\n",
+    "expected": 13
+  },
+  {
+    "id": "parenthesized-stage",
+    "source": "pub fnc main(): int { return ((5, 8) |> |(a, b)| -> a + b) + 1; }\n",
+    "expected": 14
+  },
+  {
+    "id": "nested-scalar-stage",
+    "source": "pub fnc main(): int { return (5, 8) |> |(a, b)| -> ((a, 2) |> |(x, y)| -> x*y) + b; }\n",
+    "expected": 18
+  },
+  {
+    "id": "signed-values",
+    "source": "pub fnc main(): int { return (-5, 8, 12) |> |(a, b, c)| -> a + b + c; }\n",
+    "expected": 15
+  },
+  {
+    "id": "maximum-arity",
+    "source": "pub fnc main(): int { return (1, 2, 3, 4, 5, 6, 7, 8) |> |(a,b,c,d,e,f,g,h)| -> a+b+c+d+e+f+g+h; }\n",
+    "expected": 36
+  }
+];
+async function compileTupleGuest(t,sourceText,expectedDiagnostic){
+  if(unavailable(t))return null;
+  // Always require a binary pin for these new guest execution claims, even
+  // when other legacy scalar tests are run outside strict parity mode.
+  const pin=process.env.ORESLANG_LLVM_COMPILER_SHA256;
+  await verifyCompilerSha256(compiler,pin);
+  const dir=await mkdtemp(join(tmpdir(),"atto-wasm-tuple-"));
+  t.after(()=>rm(dir,{recursive:true,force:true}));
+  const source=join(dir,"main.atto"),output=join(dir,"main.wasm");
+  await writeFile(source,sourceText);
+  const options={compiler:resolve(compiler),compilerSha256:pin,source,output};
+  if(expectedDiagnostic){
+    await assert.rejects(()=>compileOresToWasm(options),error=>{
+      assert.ok(String(error.message).includes(expectedDiagnostic),
+        "wrong rejection reason: "+error.message);
+      return true;
+    });
+    await assert.rejects(()=>readFile(output),{code:"ENOENT"});
+    assert.equal(await readFile(source,"utf8"),sourceText);
+    return null;
+  }
+  await compileOresToWasm(options);
+  assert.equal(await readFile(source,"utf8"),sourceText);
+  const bytes=await readFile(output);
+  const module=new WebAssembly.Module(bytes);
+  assert.deepEqual(WebAssembly.Module.imports(module),[]);
+  const instance=await WebAssembly.instantiate(module,{});
+  assert.equal(typeof instance.exports.main,"function");
+  return instance.exports.main;
+}
+for(const fixture of tupleCases){
+  test("shared tuple wasm32 guest: "+fixture.id,async t=>{
+    const main=await compileTupleGuest(t,fixture.source);
+    if(main)assert.equal(main(),BigInt(fixture.expected));
+  });
+}
+for(const [name,expression,diagnostic] of [
+  ["duplicate","(1,2) |> |(a,a)| -> a","NATIVE_TUPLE_PATTERN_DUPLICATE_BINDING"],
+  ["arity","(1,2) |> |(a,b,c)| -> a","NATIVE_TUPLE_PATTERN_ARITY"],
+  ["discard-read","(1,2) |> |(a,_)| -> _","NATIVE_TUPLE_PATTERN_BODY"],
+  ["scalar","1 |> |(a,b)| -> a+b","NATIVE_INLINE_LAMBDA_UNSUPPORTED"],
+  ["tuple escape","(1,2)","native tuple literal unsupported"]
+]){
+  test("shared tuple wasm32 compiler rejection: "+name,async t=>{
+    await compileTupleGuest(t,"pub fnc main(): int { return "+expression+"; }\n",diagnostic);
+  });
+}
+for(const [name,expression] of [
+  ["first","(9223372036854775807+1,8) |> |(_,b)| -> b"],
+  ["last","(5,9223372036854775807+1) |> |(a,_)| -> a"]
+]){
+  test("shared tuple wasm32 discarded overflow: "+name,async t=>{
+    const main=await compileTupleGuest(t,"pub fnc main(): int { return "+expression+"; }\n");
+    if(main)assert.throws(()=>main(),WebAssembly.RuntimeError);
+  });
+}

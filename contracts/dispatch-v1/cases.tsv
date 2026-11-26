@@ -1,0 +1,6 @@
+case_id	file	oracle	category
+direct_call_42	direct_call_42.atto	exit:42	free_direct
+instance_call_42	instance_call_42.atto	exit:42	instance_slot
+static_qualified_42	static_qualified_42.atto	exit:42	qualified_static
+virtual_override_121020	virtual_override_121020.atto	stdout:121020	virtual_override
+wrong_arity_reject	wrong_arity_reject.atto	reject:no_artifact	negative_arity

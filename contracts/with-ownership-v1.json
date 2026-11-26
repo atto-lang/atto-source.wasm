@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "contract": "atto-with-ownership-v1",
+  "classification": "candidate-not-five-backend-verified",
+  "source_extension": ".atto",
+  "canonical_receiver": "self",
+  "implicit_return": false,
+  "backends": [
+    "java",
+    "llvm",
+    "wasm",
+    "forge",
+    "net"
+  ],
+  "contract_properties": [
+    "evaluate-receiver-once",
+    "evaluate-rhs-in-source-order",
+    "readonly-copy-preserves-original",
+    "rt-take-invalidates-old-owner",
+    "no-borrow-or-actor-state-copy",
+    "no-implicit-class-clone",
+    "fail-closed-unsupported-backends",
+    "full-aot-no-reflection"
+  ],
+  "cases": [
+    {
+      "id": "record-copy",
+      "fixture": "fixtures/with-ownership-v1/record-copy.atto",
+      "kind": "run",
+      "expected_java": {
+        "stdout": "34"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "class-self-copy",
+      "fixture": "fixtures/with-ownership-v1/class-self-copy.atto",
+      "kind": "run",
+      "expected_java": {
+        "stdout": "34"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "class-take",
+      "fixture": "fixtures/with-ownership-v1/class-take.atto",
+      "kind": "run",
+      "expected_java": {
+        "stdout": "42"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "record-use-after-take",
+      "fixture": "fixtures/with-ownership-v1/record-use-after-take.atto",
+      "kind": "compile_reject",
+      "expected_java": {
+        "diagnostic_contains": "moved"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "class-implicit-copy",
+      "fixture": "fixtures/with-ownership-v1/class-implicit-copy.atto",
+      "kind": "compile_reject",
+      "expected_java": {
+        "diagnostic_contains": "rt copy or rt take"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "class-borrow-copy",
+      "fixture": "fixtures/with-ownership-v1/class-borrow-copy.atto",
+      "kind": "compile_reject",
+      "expected_java": {
+        "diagnostic_contains": "borrow"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "record-effectful-rhs",
+      "fixture": "fixtures/with-ownership-v1/record-effectful-rhs.atto",
+      "kind": "compile_reject",
+      "expected_java": {
+        "diagnostic_contains": "effect-safe"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "class-this-spelling",
+      "fixture": "fixtures/with-ownership-v1/class-this-spelling.atto",
+      "kind": "compile_reject",
+      "expected_java": {
+        "diagnostic_contains": "unknown"
+      },
+      "unimplemented_backends": [
+        "llvm",
+        "wasm",
+        "forge",
+        "net"
+      ],
+      "unimplemented_diagnostic": "WITH_BACKEND_UNSUPPORTED"
+    },
+    {
+      "id": "contextual-with",
+      "fixture": "fixtures/with-ownership-v1/contextual-with.atto",
+      "kind": "run",
+      "expected_java": {
+        "stdout": "42"
+      },
+      "unimplemented_backends": [],
+      "unimplemented_diagnostic": null
+    },
+    {
+      "id": "trivia-inert",
+      "fixture": "fixtures/with-ownership-v1/trivia-inert.atto",
+      "kind": "run",
+      "expected_java": {
+        "stdout": "42"
+      },
+      "unimplemented_backends": [],
+      "unimplemented_diagnostic": null
+    }
+  ],
+  "evidence": {
+    "java": "separate-draft-pr-2832-subset-evidence-only",
+    "llvm": "NOT_EXECUTED",
+    "wasm": "NOT_EXECUTED",
+    "forge": "NOT_EXECUTED",
+    "net": "NOT_EXECUTED"
+  }
+}

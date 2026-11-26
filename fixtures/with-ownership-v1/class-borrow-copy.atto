@@ -1,0 +1,9 @@
+define class Point as
+    pub final int x: 3;
+end
+pub routine main(): void {
+    const Point original = new Point();
+    const borrowed = rt borrow original;
+    const Point next = rt copy borrowed with {x => 4};
+    return;
+}
