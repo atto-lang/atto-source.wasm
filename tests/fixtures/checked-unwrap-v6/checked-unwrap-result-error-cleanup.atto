@@ -1,0 +1,20 @@
+// expect-exit: 42
+// expect-stdout: cleanup
+// expect-stdout: called Result::unwrap() on an Err value
+fnc rejected(Error original): int throws(Error) {
+  defer || -> { stdio.println("cleanup"); };
+  val Result<int,Error> r = Err(original);
+  return r.unwrap();
+}
+pub fnc main(): int {
+  val Error original = Error("original");
+  val Result<int,Error> r = trap! rejected(original);
+  match r over
+    on Ok(v) -> { return 1; }
+    on Err(e) -> {
+      if e.is_same_instance(original) then return 2; fi
+      stdio.println(e.message);
+      return 42;
+    }
+  end
+}
