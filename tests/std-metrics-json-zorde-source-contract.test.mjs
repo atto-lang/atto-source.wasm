@@ -242,3 +242,17 @@ test("Zorde fixed prefix uses checked scalar reads instead of a temporary array"
   assert.ok(prefix.includes('Err("InvalidMagicOrVersion")'));
   // Source structure only: guest execution and allocation counts are separate.
 });
+
+test("portable scanner entrypoints and remainder expressions preserve compiler admission", () => {
+  const json = modules.json;
+  for (const method of ["read_value", "finished", "start_kind", "node_count", "length_in_scalars"])
+    assert.match(json, new RegExp("^    pub " + method + "\\(", "m"), "scanner entrypoint must be callable from its module");
+  for (const method of ["read_value", "finished", "start_kind"])
+    assert.match(json, new RegExp("^    pub " + method + "\\(mut self\\)", "m"), "scanner mutation must be explicit");
+  const zorde = modules.zorde;
+  const code = zorde.split("\n").map(line => line.replace(/\/\/.*$/, "")).join("\n");
+  assert.ok(!code.includes("%"), "noncanonical remainder operator");
+  for (const expr of ["remaining - (remaining / 128) * 128", "byte_value - (byte_value / 128) * 128", "zigzag - (zigzag / 2) * 2"])
+    assert.ok(code.includes(expr), "missing bounded nonnegative remainder: " + expr);
+  // No compiler admission or actual allocation evidence is implied.
+});
