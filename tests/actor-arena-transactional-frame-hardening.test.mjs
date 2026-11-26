@@ -90,3 +90,39 @@ test("captured WeakMap authority survives prototype mutation for handles and pin
   a.releaseLifetimePin(pin);
   assert.equal(a.pendingLifetimePins, 0);
 });
+
+
+test("actor admission ignores mutated freeze, integer and kind intrinsics", () => {
+  const freeze = Object.freeze, integer = Number.isSafeInteger, has = Set.prototype.has;
+  let arena, turn, pin, execution, frame, ticket;
+  try {
+    Object.freeze = () => { throw Error("untrusted freeze"); };
+    Number.isSafeInteger = () => true;
+    Set.prototype.has = () => true;
+    assert.throws(() => new ActorArena({actorId: -1, incarnation: 1}), /invalid actor arena owner/);
+    assert.throws(() => new ActorArena({actorId: 936, incarnation: 1, kind: "invalid"}), /invalid actor arena owner/);
+    arena = new ActorArena({actorId: 936, incarnation: 1});
+    turn = arena.beginTurn();
+    assert.throws(() => arena.allocPersistent(turn, 1.5), /invalid arena allocation length/);
+    pin = arena.pinLifetime(turn);
+    execution = arena.startStack(turn);
+    assert.throws(() => arena.pushStackFrame(turn, execution, 1.5), /invalid actor stack frame length/);
+    frame = arena.pushStackFrame(turn, execution, 4);
+    arena.writeStackFrame(turn, execution, frame, Uint8Array.of(1, 2, 3, 4));
+    ticket = arena.suspendStack(turn, execution);
+    arena.endTurn(turn);
+  } finally {
+    Object.freeze = freeze; Number.isSafeInteger = integer; Set.prototype.has = has;
+  }
+  assert.ok(Object.isFrozen(turn) && Object.isFrozen(pin) && Object.isFrozen(ticket));
+  const next = arena.beginTurn();
+  assert.equal(arena.resumeStack(next, ticket), execution);
+  assert.deepEqual([...arena.readStackFrame(next, execution, frame)], [1, 2, 3, 4]);
+  arena.popStackFrame(next, execution, frame);
+  arena.finishStack(next, execution);
+  assert.throws(() => arena.resumeStack(next, ticket), /foreign, stale or consumed/);
+  arena.endTurn(next);
+  arena.retire();
+  arena.releaseLifetimePin(pin);
+  assert.equal(arena.pendingLifetimePins, 0);
+});
