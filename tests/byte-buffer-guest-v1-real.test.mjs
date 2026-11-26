@@ -125,3 +125,16 @@ test('fresh logical allocation zeroes its region on repeated invocation',()=>{
   assert.equal(out.instance.exports.main(),1n);
   assert.deepEqual([...out.bytes.slice(0,8)],Array(8).fill(0));
 });
+
+
+test('signed i64 boundaries survive native Wasm return and unsigned-byte comparison',()=>{
+  const prefix='import module buffer from pkg "std.buffer";\npub fnc main(): int throws Error {\n  val mut b = buffer.ByteBuffer.allocate(1);\n  b.write_u8(0, 255);\n  return ';
+  const program=expr=>prefix+expr+';\n}\n';
+  const min=-9223372036854775808n,max=9223372036854775807n;
+  assert.equal(guest(program(String(min))).returned,min);
+  assert.equal(guest(program(String(max))).returned,max);
+  assert.equal(guest(program('b.read_u8(0) eq '+min+' ? '+max+' : '+min)).returned,min);
+  assert.equal(guest(program('b.read_u8(0) eq 255 ? '+max+' : '+min)).returned,max);
+  rejects(program('9223372036854775808'),'E_BUFFER_VALUE');
+  rejects(program('-9223372036854775809'),'E_BUFFER_VALUE');
+});
