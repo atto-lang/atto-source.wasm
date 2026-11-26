@@ -81,6 +81,40 @@ parentPort.on('message', request => {
     }
     throw Error('unsupported actor operation');
   } catch (error) {
+    // Only a synchronous, module-raised Wasm `unreachable` trap can be
+    // isolated at actor scope with the current fixed/zero-import ABI.
+    // Engine stack exhaustion, memory OOB, uncertain host failures, and
+    // asynchronous/foreign exceptions remain whole-carrier fatal.
+    // A guest cannot manufacture JS RuntimeError in this zero-import profile.
+    const recoverable = kind === 'send' &&
+      error instanceof WebAssembly.RuntimeError &&
+      error.message === 'unreachable';
+    const actor = recoverable ? actors.get(id) : null;
+    if (actor && actor.incarnation === incarnation) {
+      try {
+        // Revoke actor identity BEFORE scrubbing. Its logical host frame
+        // already unwound in withManagedActorTurn's finally path.
+        actors.delete(id);
+        if (actor.frames.stackExecutionCount !== 0 ||
+            actor.frames.stackBytesInUse !== 0 ||
+            actor.frames.pendingLifetimePins !== 0)
+          throw Error('trapped actor retains frame or lifetime leases');
+        // Private fixed-size guest instance memory cannot alias another
+        // actor's Wasm linear-memory object on this strict ABI.
+        new Uint8Array(actor.exports.memory.buffer).fill(0);
+        actor.frames.retire();
+        if (!actor.frames.retired) throw Error('actor fault retirement failed');
+        parentPort.postMessage({kind: 'actor_fault', id, incarnation, ticket,
+          code: 'WASM_UNREACHABLE_V1', result: null,
+          frame: {schemaVersion: 1, frameBytes: 16,
+            activeExecutions: 0, frameBytesInUse: 0, retired: true}});
+        return;
+      } catch (cleanupError) {
+        // Any uncertain physical cleanup must quarantine the entire carrier.
+        error = Error('actor fault isolation cleanup failed: ' +
+          String(cleanupError?.message || cleanupError).slice(0, 120));
+      }
+    }
     parentPort.postMessage({kind: 'fatal', id, incarnation, ticket,
       reason: String(error?.message || error).slice(0, 200)});
   }

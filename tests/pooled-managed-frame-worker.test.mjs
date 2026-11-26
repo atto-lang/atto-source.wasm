@@ -10,7 +10,8 @@ import {PooledWasmActors} from "../src/pooled-actor-host.mjs";
 
 // Actual Wasm execution compiled from independently authored LLVM IR.
 // Do not count this as a compiled .atto source actor/managed guest frame.
-function syntheticWasmActor(){
+function syntheticWasmActor({fault="none"}={}){
+  assert.ok(["none","unreachable","divide"].includes(fault));
   const dir=mkdtempSync(join(tmpdir(),"atto-host-frame-actor-"));
   try{
     const output=join(dir,"fixture.wasm");
@@ -21,8 +22,16 @@ function syntheticWasmActor(){
       'define void @oreslang_wasm_actor_init() { ret void }',
       'define i64 @oreslang_wasm_actor_on_message(i64 %n) {',
       'entry:',
+      ...(fault === "unreachable" ? [
+        '%fault = icmp eq i64 %n, -1',
+        'br i1 %fault, label %trap, label %live',
+        'trap:',
+        'unreachable',
+        'live:'
+      ] : []),
       '%old = load i64, ptr @value',
-      '%sum = add i64 %old, %n',
+      fault === "divide" ? '%sum = sdiv i64 42, %n' :
+        '%sum = add i64 %old, %n',
       'store i64 %sum, ptr @value',
       'ret i64 %sum',
       '}',
@@ -125,6 +134,143 @@ test("fabricated Worker ACK without any managed-frame witness is rejected",{
     };
     await assert.rejects(actor.send(1n),/invalid managed actor frame quiescence receipt/);
     assert.equal(pool.actorCount,0);
+  }finally{
+    Worker.prototype.postMessage=original;
+    await pool.close();
+  }
+});
+
+
+test("synchronous unreachable guest trap retires actor A but preserves B on same Worker",{
+  timeout:90000
+},async()=>{
+  const bytes=syntheticWasmActor({fault:"unreachable"});
+  const pool=new PooledWasmActors({workers:1,maxActors:3,timeoutMs:5000});
+  try{
+    const a=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const b=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    assert.equal(await a.send(7n),7n);
+    assert.equal(await b.send(4n),4n);
+    await assert.rejects(a.send(-1n),/WASM actor isolated fault: WASM_UNREACHABLE_V1/);
+    assert.equal(pool.isolatedGuestFaultCount,1);
+    assert.equal(pool.actorCount,1);
+    assert.equal(pool.activeWorkerCount,1,"same trusted carrier must remain alive");
+    await assert.rejects(a.send(1n),/actor not accepting messages/);
+    assert.equal(await b.send(5n),9n,"neighbor retains unmodified instance memory");
+    const restarted=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    assert.equal(await restarted.send(2n),2n,"fresh actor must not inherit dead state");
+    assert.equal(await b.send(1n),10n);
+    await restarted.stop();
+    await b.stop();
+    assert.equal(pool.actorCount,0);
+  }finally{await pool.close()}
+});
+
+test("unreachable actor fault denies pending DATA and STOP without killing live sibling",{
+  timeout:90000
+},async()=>{
+  const bytes=syntheticWasmActor({fault:"unreachable"});
+  const pool=new PooledWasmActors({workers:1,maxActors:3,mailboxCapacity:4});
+  try{
+    const a=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const b=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const failed=a.send(-1n);
+    const queued=a.send(3n);
+    const stopped=a.stop();
+    const settled=Promise.allSettled([failed,queued,stopped]);
+    assert.equal(await b.send(11n),11n);
+    const outcomes=await settled;
+    assert.equal(outcomes.length,3);
+    for(const value of outcomes){
+      assert.equal(value.status,"rejected");
+      assert.match(String(value.reason),/WASM actor isolated fault: WASM_UNREACHABLE_V1/);
+    }
+    assert.equal(pool.isolatedGuestFaultCount,1);
+    assert.equal(pool.activeWorkerCount,1);
+    assert.equal(pool.actorCount,1);
+    assert.equal(await b.send(2n),13n);
+    await b.stop();
+  }finally{await pool.close()}
+});
+
+test("other engine traps remain fail-closed carrier-wide until compiler stack containment",{
+  timeout:90000
+},async()=>{
+  const bytes=syntheticWasmActor({fault:"divide"});
+  const pool=new PooledWasmActors({workers:1,maxActors:3,timeoutMs:3000});
+  try{
+    const a=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const b=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const trapped=a.send(0n);
+    const sibling=b.send(1n);
+    const outcomes=await Promise.allSettled([trapped,sibling]);
+    assert.equal(outcomes[0].status,"rejected");
+    assert.equal(outcomes[1].status,"rejected",
+      "unclassified guest trap must not accidentally acknowledge sibling DATA");
+    assert.match(String(outcomes[0].reason),/WASM actor trap|deadline exceeded/);
+    assert.equal(pool.isolatedGuestFaultCount,0);
+    assert.equal(pool.activeWorkerCount,0);
+    assert.equal(pool.actorCount,0);
+  }finally{await pool.close()}
+});
+
+test("forged actor-local fault without verified retirement quarantines whole carrier",{
+  timeout:90000
+},async()=>{
+  const bytes=syntheticWasmActor({fault:"unreachable"});
+  const pool=new PooledWasmActors({workers:1,maxActors:2,timeoutMs:5000});
+  const original=Worker.prototype.postMessage;
+  try{
+    const a=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    const b=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    let injected=false;
+    Worker.prototype.postMessage=function(message,...rest){
+      if(!injected && message?.kind==="send"){
+        injected=true;
+        queueMicrotask(()=>this.emit("message",{
+          kind:"actor_fault", id:message.id,incarnation:message.incarnation,
+          ticket:message.ticket,result:null,code:"WASM_UNREACHABLE_V1",
+          frame:{schemaVersion:1,frameBytes:16,
+            activeExecutions:0,frameBytesInUse:0,retired:false}
+        }));
+        return;
+      }
+      return original.call(this,message,...rest);
+    };
+    await assert.rejects(a.send(-1n),/invalid actor-local fault retirement receipt/);
+    assert.equal(injected,true);
+    assert.equal(pool.isolatedGuestFaultCount,0);
+    assert.equal(pool.actorCount,0);
+    await assert.rejects(b.send(1n),/actor not accepting messages|actor pool retired/);
+  }finally{
+    Worker.prototype.postMessage=original;
+    await pool.close();
+  }
+});
+
+test("forged actor-local fault code never bypasses carrier integrity",{
+  timeout:90000
+},async()=>{
+  const bytes=syntheticWasmActor({fault:"unreachable"});
+  const pool=new PooledWasmActors({workers:1,maxActors:1,timeoutMs:5000});
+  const original=Worker.prototype.postMessage;
+  try{
+    const a=await pool.spawn(bytes,{trusted:true,expectedSha256:sha(bytes)});
+    Worker.prototype.postMessage=function(message,...rest){
+      if(message?.kind==="send"){
+        queueMicrotask(()=>this.emit("message",{
+          kind:"actor_fault",id:message.id,incarnation:message.incarnation,
+          ticket:message.ticket,result:null,code:"WASM_STACK_OVERFLOW",
+          frame:{schemaVersion:1,frameBytes:16,
+            activeExecutions:0,frameBytesInUse:0,retired:true}
+        }));
+        return;
+      }
+      return original.call(this,message,...rest);
+    };
+    await assert.rejects(a.send(-1n),/invalid actor-local fault retirement receipt/);
+    assert.equal(pool.isolatedGuestFaultCount,0);
+    assert.equal(pool.activeWorkerCount,0);
   }finally{
     Worker.prototype.postMessage=original;
     await pool.close();
