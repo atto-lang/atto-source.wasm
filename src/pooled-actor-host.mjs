@@ -1,5 +1,6 @@
 import {Worker} from 'node:worker_threads';
 import {createHash, randomBytes} from 'node:crypto';
+import {MonotonicIdentityV1} from './monotonic-identity-v1.mjs';
 import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
@@ -18,8 +19,8 @@ const bounded = (n, min, max, name) => {
 export class PooledWasmActors {
   #carriers = [];
   #actors = new Map();
-  #nextId = 0;
-  #nextTicket = 0;
+  #nextId = new MonotonicIdentityV1();
+  #nextTicket = new MonotonicIdentityV1();
   #isolatedGuestFaults = 0;
   #typedTerminalControls = 0;
   #closed = false;
@@ -95,8 +96,16 @@ export class PooledWasmActors {
   #enqueue(actor, kind, extra = {}) {
     if (this.#closed || actor.phase === 'retired')
       return Promise.reject(Error('actor pool retired'));
+    const ticket = this.#nextTicket.issue();
+    if (ticket === null) {
+      // No further Worker receipt can be correlated without reusing a ticket.
+      // Fence the pool and use its physical termination barrier; a failed
+      // termination receipt still pins unconfirmed actor storage.
+      const error = Error('actor operation identity exhausted');
+      return this.#shutdown(error).then(() => { throw error; });
+    }
     return new Promise((resolve, reject) => {
-      const op = {kind, ticket: ++this.#nextTicket, resolve, reject, ...extra};
+      const op = {kind, ticket, resolve, reject, ...extra};
       actor.pending.add(op);
       actor.queue.push(op);
       this.#markReady(actor);
@@ -398,7 +407,8 @@ export class PooledWasmActors {
       .some(e => e.name === 'oreslang_wasm_actor_frame_status' &&
         e.kind === 'function');
     assertScalarActorAbi(admitted.bytes, {checkedRecursionV1});
-    const id = ++this.#nextId;
+    const id = this.#nextId.issue();
+    if (id === null) throw Error('actor identity exhausted');
     const incarnation = randomBytes(16).toString('hex');
     const live = this.#carriers.filter(c => !c.dead);
     if (!live.length) throw Error('no live actor carriers');

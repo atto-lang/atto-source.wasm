@@ -599,3 +599,21 @@ test("abortable generation waiters free bounded slots and reject canceled ticket
     await pool.close();
   }
 });
+
+test("retired actor slots can be reused without restoring old authority", {timeout: 90000}, async () => {
+  const bytes = wasmFixture();
+  const pool = new PooledWasmActors({workers: 1, maxActors: 1, timeoutMs: 5000});
+  let old;
+  try {
+    for (let i = 0; i < 128; i++) {
+      const actor = await pool.spawn(bytes, {trusted: true, expectedSha256: digest(bytes)});
+      assert.equal(pool.actorCount, 1);
+      if (old) await assert.rejects(old.send(1n), /actor not accepting messages/);
+      assert.equal(await actor.send(7n), 7n);
+      await actor.stop();
+      assert.equal(pool.actorCount, 0);
+      old = actor;
+    }
+    assert.equal(pool.activeWorkerCount, 1);
+  } finally { await pool.close(); }
+});
