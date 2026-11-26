@@ -1,0 +1,40 @@
+name: LLVM wasm32 durable Counter guest proof
+on:
+  pull_request:
+    paths:
+      - 'scripts/verify-durable-counter-wasm.mjs'
+      - '.github/workflows/durable-counter-llvm-wasm.yml'
+permissions:
+  contents: read
+jobs:
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact public compiler source and build it
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          test -z "$(git status --porcelain)"
+          git rev-parse HEAD^{tree}
+          dir="$RUNNER_TEMP/atto-llvm"
+          git init "$dir"
+          GIT_TERMINAL_PROMPT=0 git -C "$dir" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.llvm.git 07c448eebf6544e0927814ff4c1b63f3ea24cc1b
+          git -C "$dir" checkout --detach FETCH_HEAD
+          git -C "$dir" fsck --full
+          test "$(git -C "$dir" rev-parse HEAD)" = 07c448eebf6544e0927814ff4c1b63f3ea24cc1b
+          test "$(git -C "$dir" rev-parse HEAD^{tree})" = ef8755dedd265791a49263cbe89a29e9f12a5e0e
+          test -z "$(git -C "$dir" status --porcelain)"
+          sudo apt-get update -qq
+          sudo apt-get install -y clang lld llvm-dev cmake ninja-build
+          cmake -G Ninja -S "$dir" -B "$dir/build" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DLLVM_DIR="$(llvm-config --cmakedir)"
+          cmake --build "$dir/build" --target oreslang-llvmc --parallel 2
+          export ATTO_LLVM_COMPILER="$dir/build/oreslang-llvmc"
+          export ATTO_LLVM_COMPILER_SHA256="$(sha256sum "$ATTO_LLVM_COMPILER" | cut -d' ' -f1)"
+          node scripts/verify-durable-counter-wasm.mjs
