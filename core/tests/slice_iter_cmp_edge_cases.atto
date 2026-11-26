@@ -53,5 +53,21 @@ pub fnc main(): int {
   if !cmp.lex_compare_int(values, 0, 5, values, 0, 2).is_none(); do return 35; fi
   if cmp.is_sorted_int(values, 0, 4, false); do return 36; fi
   if !cmp.is_sorted_int(values, 4, 0, false); do return 37; fi
+  // Exercise the actual minimum, not just -INT64_MAX.
+  let int minimum = -9223372036854775807 - 1;
+  let int maximum = 9223372036854775807;
+  if cmp.compare_int(minimum, maximum) != -1; do return 38; fi
+  if cmp.compare_int(maximum, minimum) != 1; do return 39; fi
+  if cmp.min_int(minimum, maximum) != minimum; do return 40; fi
+  if cmp.max_int(minimum, maximum) != maximum; do return 41; fi
+  if !slice.valid_range(maximum, 0, maximum); do return 42; fi
+  if slice.valid_range(maximum, 1, maximum); do return 43; fi
+  if slice.valid_range(minimum, 0, maximum); do return 44; fi
+  if slice.subslice_offset(maximum - 1, 1, maximum, 1, 0).unwrap_or(-1) != maximum; do return 45; fi
+  if !slice.subslice_offset(maximum - 1, 1, maximum, 1, 1).is_none(); do return 46; fi
+  if iter.next_index(maximum - 1, 1, 0, maximum).unwrap_or(-1) != maximum - 1; do return 47; fi
+  if !iter.next_index(maximum, 0, 0, maximum).is_none(); do return 48; fi
+  if iter.advance_cursor(maximum, maximum - 1, 1).unwrap_or(-1) != maximum; do return 49; fi
+  if !iter.advance_cursor(maximum, maximum, 1).is_none(); do return 50; fi
   return 0;
 }
