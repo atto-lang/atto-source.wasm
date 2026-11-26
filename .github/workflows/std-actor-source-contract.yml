@@ -1,0 +1,55 @@
+name: Atto std.actor source contracts (NO GUEST PASS)
+on:
+  pull_request:
+    paths:
+      - 'stdlib/actor/**'
+      - 'contracts/std-actor-v1/**'
+      - 'tests/actor-stdlib-source.test.mjs'
+      - 'tests/actor-future-source.test.mjs'
+      - 'tests/actor-namespace-source-contract.test.mjs'
+      - '.github/workflows/std-actor-source-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-contract-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout immutable source PR head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          submodules: false
+      - name: Verify exact source head and .atto blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git write-tree)" = "$(git rev-parse 'HEAD^{tree}')"
+          git diff --exit-code --quiet HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          for file in stdlib/actor/policy.atto stdlib/actor/future.atto stdlib/actor/guest_smoke.atto stdlib/actor/guest_edges.atto stdlib/actor/guest_namespace_only.atto; do
+            test -f "$file" && test ! -L "$file"
+            test "$(git hash-object --no-filters "$file")" = "$(git rev-parse "HEAD:$file")"
+          done
+          printf 'ATTO_STD_ACTOR_SOURCE_SHA=%s\n' "$EXPECTED_HEAD"
+          printf 'ATTO_STD_ACTOR_TREE_SHA=%s\n' "$(git rev-parse 'HEAD^{tree}')"
+      - name: Run source contract and namespace fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --version
+          node --test tests/actor-stdlib-source.test.mjs tests/actor-future-source.test.mjs tests/actor-namespace-source-contract.test.mjs
+      - name: Keep compiler and runtime parity UNVERIFIED
+        shell: bash
+        run: |
+          echo 'ATTO_STD_ACTOR=SOURCE_CONTRACT_ONLY'
+          echo 'ACTUAL_NATIVE_ATTO_GUEST=NOT_EXECUTED'
+          echo 'ACTOR_FUTURE_AND_SUPERVISOR_RUNTIME=NOT_VERIFIED'

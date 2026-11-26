@@ -1,0 +1,221 @@
+// Backend-owned Atto implementation: atto-source.wasm
+// Native Atto std/time: checked duration values and deterministic timer policy.
+// Host clock access, actual scheduler wakeups and cancellation are NOT emulated.
+// A caller-supplied clock_id is comparison metadata, not a security capability.
+// Valid range: signed 64-bit nanoseconds [0, 9223372036854775807].
+define module time as
+  define pub class Duration as
+    pub val int nanos;
+    pub constructor(int nanos) {
+      if nanos < 0; do rt fail("time.Duration: negative"); fi
+      self.nanos = nanos;
+    }
+    pub as_ns(): int { return self.nanos; }
+    pub as_ms_floor(): int { return self.nanos / 1000000; }
+    pub as_ms_ceil(): int {
+      let int whole = self.nanos / 1000000;
+      if Integer.rem(self.nanos, 1000000) == 0; do return whole; fi
+      return whole + 1;
+    }
+    pub is_zero(): bool { return self.nanos == 0; }
+    pub checked_add(Duration other): Result<Duration, String> {
+      if other.nanos > 9223372036854775807 - self.nanos; do
+        return Err("DurationOverflow");
+      fi
+      return Ok(new Duration(self.nanos + other.nanos));
+    }
+    pub checked_sub(Duration other): Result<Duration, String> {
+      if other.nanos > self.nanos; do return Err("DurationUnderflow"); fi
+      return Ok(new Duration(self.nanos - other.nanos));
+    }
+    pub checked_mul(int factor): Result<Duration, String> {
+      if factor < 0; do return Err("NegativeMultiplier"); fi
+      if factor != 0 && self.nanos > 9223372036854775807 / factor; do
+        return Err("DurationOverflow");
+      fi
+      return Ok(new Duration(self.nanos * factor));
+    }
+  end
+
+  pub fnc nanoseconds(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    return Ok(new Duration(amount));
+  }
+  pub fnc microseconds(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036854775; do return Err("DurationOverflow"); fi
+    return Ok(new Duration(amount * 1000));
+  }
+  pub fnc milliseconds(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036854; do return Err("DurationOverflow"); fi
+    return Ok(new Duration(amount * 1000000));
+  }
+  pub fnc seconds(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 9223372036; do return Err("DurationOverflow"); fi
+    return Ok(new Duration(amount * 1000000000));
+  }
+  pub fnc minutes(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 153722867; do return Err("DurationOverflow"); fi
+    return Ok(new Duration(amount * 60000000000));
+  }
+  pub fnc hours(int amount): Result<Duration, String> {
+    if amount < 0; do return Err("NegativeDuration"); fi
+    if amount > 2562047; do return Err("DurationOverflow"); fi
+    return Ok(new Duration(amount * 3600000000000));
+  }
+
+  // This is a monotonic sample; it is not a Unix timestamp.
+  // Trusted runtime code must establish real clock identity/provenance.
+  define pub class Instant as
+    pub val int clock_id;
+    pub val int ticks_ns;
+    pub constructor(int clock_id, int ticks_ns) {
+      if clock_id <= 0 || ticks_ns < 0; do
+        rt fail("time.Instant: invalid snapshot");
+      fi
+      self.clock_id = clock_id;
+      self.ticks_ns = ticks_ns;
+    }
+    pub duration_since(Instant earlier): Result<Duration, String> {
+      if self.clock_id != earlier.clock_id; do return Err("ClockDomainMismatch"); fi
+      if self.ticks_ns < earlier.ticks_ns; do return Err("ClockWentBackwards"); fi
+      return Ok(new Duration(self.ticks_ns - earlier.ticks_ns));
+    }
+    pub checked_add(Duration duration): Result<Instant, String> {
+      if duration.nanos > 9223372036854775807 - self.ticks_ns; do
+        return Err("InstantOverflow");
+      fi
+      return Ok(new Instant(self.clock_id, self.ticks_ns + duration.nanos));
+    }
+  end
+
+  // Module-qualified factory permits import module time from "std/time".
+  pub fnc instant(int clock_id, int ticks_ns): Instant {
+    return new Instant(clock_id, ticks_ns);
+  }
+
+  // Deterministic test clock: never a trusted OS/monotonic clock.
+  // Owns a local virtual clock domain and refuses backward motion.
+  define pub class ManualClock as
+    let int clock_id;
+    let mut int now_ns;
+
+    pub constructor(int clock_id, int initial_ns) {
+      if clock_id <= 0 || initial_ns < 0; do
+        rt fail("time.ManualClock: invalid origin");
+      fi
+      self.clock_id = clock_id;
+      self.now_ns = initial_ns;
+    }
+
+    pub now(): Instant {
+      return new Instant(self.clock_id, self.now_ns);
+    }
+
+    pub advance(mut self)(Duration delta): Result<Instant, String> {
+      if delta.nanos > 9223372036854775807 - self.now_ns; do
+        return Err("ClockRangeExhausted");
+      fi
+      self.now_ns = self.now_ns + delta.nanos;
+      return Ok(new Instant(self.clock_id, self.now_ns));
+    }
+  end
+
+  // A test clock never creates a trusted runtime-clock capability.
+  pub fnc manual_clock(int clock_id, int initial_ns): ManualClock {
+    return new ManualClock(clock_id, initial_ns);
+  }
+
+  define pub class Deadline as
+    pub val Instant due;
+    pub constructor(Instant due) { self.due = due; }
+    pub expired(Instant now): Result<bool, String> {
+      if now.clock_id != self.due.clock_id; do return Err("ClockDomainMismatch"); fi
+      return Ok(now.ticks_ns >= self.due.ticks_ns);
+    }
+    pub remaining(Instant now): Result<Duration, String> {
+      if now.clock_id != self.due.clock_id; do return Err("ClockDomainMismatch"); fi
+      if now.ticks_ns >= self.due.ticks_ns; do return Ok(new Duration(0)); fi
+      return Ok(new Duration(self.due.ticks_ns - now.ticks_ns));
+    }
+  end
+  pub fnc deadline_after(Instant now, Duration duration): Result<Deadline, String> {
+    if duration.nanos > 9223372036854775807 - now.ticks_ns; do
+      return Err("DeadlineOverflow");
+    fi
+    return Ok(new Deadline(new Instant(now.clock_id, now.ticks_ns + duration.nanos)));
+  }
+
+  // Timer is pollable state only: it does not register a scheduler wakeup.
+  define pub class Timer as
+    let Deadline deadline;
+    let mut bool armed = true;
+    let mut bool fired = false;
+    pub constructor(Deadline deadline) { self.deadline = deadline; }
+    pub poll(mut self)(Instant now): Result<bool, String> {
+      if !self.armed; do return Ok(false); fi
+      if now.clock_id != self.deadline.due.clock_id; do
+        return Err("ClockDomainMismatch");
+      fi
+      if now.ticks_ns < self.deadline.due.ticks_ns; do return Ok(false); fi
+      self.armed = false;
+      self.fired = true;
+      return Ok(true);
+    }
+    pub cancel(mut self)(): bool {
+      if !self.armed; do return false; fi
+      self.armed = false;
+      return true;
+    }
+    // Scheduler may inspect this only while armed.
+    pub next_due(): Result<Instant, String> {
+      if !self.armed; do return Err("TimerInactive"); fi
+      return Ok(self.deadline.due);
+    }
+    pub is_armed(): bool { return self.armed; }
+    pub did_fire(): bool { return self.fired; }
+  end
+  pub fnc one_shot(Deadline due): Timer { return new Timer(due); }
+
+  // Fixed-delay interval. Coalesces missed polls; no catch-up storm.
+  define pub class Interval as
+    let int clock_id;
+    let int period_ns;
+    let mut int next_ns;
+    let mut bool active = true;
+    pub constructor(Instant first, Duration period) {
+      if period.nanos <= 0; do rt fail("time.Interval: zero period"); fi
+      self.clock_id = first.clock_id;
+      self.period_ns = period.nanos;
+      self.next_ns = first.ticks_ns;
+    }
+    pub poll(mut self)(Instant now): Result<bool, String> {
+      if !self.active; do return Ok(false); fi
+      if now.clock_id != self.clock_id; do return Err("ClockDomainMismatch"); fi
+      if now.ticks_ns < self.next_ns; do return Ok(false); fi
+      if self.period_ns > 9223372036854775807 - now.ticks_ns; do
+        self.active = false;
+        return Err("IntervalRangeExhausted");
+      fi
+      self.next_ns = now.ticks_ns + self.period_ns;
+      return Ok(true);
+    }
+    pub cancel(mut self)(): bool {
+      if !self.active; do return false; fi
+      self.active = false;
+      return true;
+    }
+    // A cancelled/exhausted interval has no registered next deadline.
+    pub next_due(): Result<Instant, String> {
+      if !self.active; do return Err("IntervalInactive"); fi
+      return Ok(new Instant(self.clock_id, self.next_ns));
+    }
+    pub is_active(): bool { return self.active; }
+  end
+  pub fnc interval(Instant first, Duration period): Interval {
+    return new Interval(first, period);
+  }
+end

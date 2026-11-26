@@ -1,0 +1,33 @@
+// Atto hosted std FS text-size arithmetic: pure policy, not authorization.
+// The trusted host MUST validate handles, grants, roots, symlinks and quotas.
+// All sizes are UTF-8 BYTE counts, not String.length characters.
+// These helpers avoid integer overflow using checked subtraction.
+pub fnc fs_text_size_admissible(int payload_bytes, int file_limit, int available_bytes): bool {
+  if payload_bytes < 0 then return false; fi
+  if file_limit < 0 then return false; fi
+  if available_bytes < 0 then return false; fi
+  if payload_bytes > file_limit then return false; fi
+  return payload_bytes <= available_bytes;
+}
+
+// Validates a bounded range without computing offset+length (may overflow).
+pub fnc fs_text_range_admissible(int offset, int length, int file_bytes): bool {
+  if offset < 0 then return false; fi
+  if length < 0 then return false; fi
+  if file_bytes < 0 then return false; fi
+  if offset > file_bytes then return false; fi
+  return length <= file_bytes - offset;
+}
+
+// Replace old file content under a tenant-wide size limit. No mutation occurs.
+// Host must prove old_bytes and used_bytes are for the SAME tenant/file snapshot.
+pub fnc fs_text_replacement_admissible(int old_bytes, int new_bytes, int used_bytes, int total_limit): bool {
+  if old_bytes < 0 then return false; fi
+  if new_bytes < 0 then return false; fi
+  if used_bytes < 0 then return false; fi
+  if total_limit < 0 then return false; fi
+  if old_bytes > used_bytes then return false; fi
+  if used_bytes > total_limit then return false; fi
+  if new_bytes > total_limit then return false; fi
+  return new_bytes <= total_limit - (used_bytes - old_bytes);
+}

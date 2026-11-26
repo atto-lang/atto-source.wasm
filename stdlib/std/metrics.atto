@@ -1,0 +1,267 @@
+// atto-source.wasm backend-owned .atto stage for std/metrics.
+// This source is NOT registered/compiled by this backend until a real
+// compiler import/link/guest execution test proves it works. Do not
+// count source presence or another backend's CI as target parity.
+// std/metrics -- bounded, actor-owned in-memory metric aggregation.
+// Source-only policy; no host telemetry API, time, I/O or background tasks.
+// Mutation requires one owner (e.g. a collector actor). No shared-state claim.
+define module metrics as
+  pub fnc valid_name(String name): bool {
+    let points = name.codepoints();
+    if points.size < 1 || points.size > 128; do return false; fi
+    for (let int i = 0; i < points.size; i = i + 1) {
+      let int ch = points.get(i);
+      let bool letter = (ch >= 65 && ch <= 90) ||
+                        (ch >= 97 && ch <= 122);
+      let bool symbol = ch == 95 || ch == 58;
+      let bool digit = ch >= 48 && ch <= 57;
+      if !(letter || symbol || (i > 0 && digit)); do
+        return false;
+      fi
+    }
+    return true;
+  }
+
+  // Detached immutable counter observation for a later async collector.
+  pub define class CounterSnapshot as
+    let int sampled_value;
+    let int configured_limit;
+
+    pub constructor(int sampled_value, int configured_limit) {
+      self.sampled_value = sampled_value;
+      self.configured_limit = configured_limit;
+    }
+    pub value(): int { return self.sampled_value; }
+    pub limit(): int { return self.configured_limit; }
+  end
+
+  pub define class Counter as
+    let mut int current = 0;
+    let int ceiling;
+
+    pub constructor(int ceiling) {
+      if ceiling < 0 || ceiling > 2147483647; do
+        rt fail("metrics: invalid counter ceiling");
+      fi
+      self.ceiling = ceiling;
+    }
+
+    // False means rejected without mutation (negative or overflow).
+    pub add(mut self)(int amount): bool {
+      if amount < 0 || amount > self.ceiling - self.current; do
+        return false;
+      fi
+      self.current = self.current + amount;
+      return true;
+    }
+    pub increment(mut self)(): bool { return self.add(1); }
+    pub value(): int { return self.current; }
+    pub limit(): int { return self.ceiling; }
+    pub snapshot(): CounterSnapshot {
+      return new CounterSnapshot(self.current, self.ceiling);
+    }
+    pub reset(mut self)(): int {
+      let int previous = self.current;
+      self.current = 0;
+      return previous;
+    }
+  end
+
+  // Immutable copy of a gauge measurement, independent of later sets.
+  pub define class GaugeSnapshot as
+    let int sampled_value;
+    let int allowed_minimum;
+    let int allowed_maximum;
+
+    pub constructor(int sampled_value, int allowed_minimum,
+                    int allowed_maximum) {
+      self.sampled_value = sampled_value;
+      self.allowed_minimum = allowed_minimum;
+      self.allowed_maximum = allowed_maximum;
+    }
+    pub value(): int { return self.sampled_value; }
+    pub minimum(): int { return self.allowed_minimum; }
+    pub maximum(): int { return self.allowed_maximum; }
+  end
+
+  pub define class Gauge as
+    let int lower;
+    let int upper;
+    let mut int current;
+
+    pub constructor(int lower, int upper, int initial) {
+      if lower > upper || initial < lower || initial > upper; do
+        rt fail("metrics: invalid gauge bounds");
+      fi
+      self.lower = lower;
+      self.upper = upper;
+      self.current = initial;
+    }
+
+    // An explicit set avoids overflowing delta arithmetic.
+    pub set(mut self)(int value): bool {
+      if value < self.lower || value > self.upper; do return false; fi
+      self.current = value;
+      return true;
+    }
+    pub value(): int { return self.current; }
+    pub minimum(): int { return self.lower; }
+    pub maximum(): int { return self.upper; }
+    pub snapshot(): GaugeSnapshot {
+      return new GaugeSnapshot(self.current, self.lower, self.upper);
+    }
+  end
+
+  // A snapshot cannot mutate or borrow its originating histogram.
+  // Both arrays are copied once on capture; exporter work happens outside
+  // a critical section or owner actor turn.
+  pub define class HistogramSnapshot as
+    let Array<int> finite_bounds;
+    let Array<int> per_bucket;
+    let int accepted_samples;
+    let int accepted_sum;
+    let int rejected_samples;
+
+    // This public constructor MUST NOT retain borrowed/mutable caller arrays.
+    // Clone after validating lengths, bucket totals and numeric budgets.
+    // It is a dynamic safety fence in addition to (not instead of) static
+    // ownership/borrow checking at the compiler boundary.
+    constructor(Array<int> finite_bounds, Array<int> per_bucket,
+                    int accepted_samples, int accepted_sum, int rejected_samples) {
+      if finite_bounds.size > 64 ||
+         per_bucket.size != finite_bounds.size + 1 ||
+         accepted_samples < 0 || accepted_samples > 2147483647 ||
+         accepted_sum < 0 || accepted_sum > 2147483647 ||
+         rejected_samples < 0 || rejected_samples > 2147483647; do
+        rt fail("metrics: invalid snapshot counts");
+      fi
+      let mut Array<int> detached_bounds = new Array<int>();
+      let mut Array<int> detached_counts = new Array<int>();
+      let int total = 0;
+      for (let int i = 0; i < finite_bounds.size; i = i + 1) {
+        let int upper = finite_bounds.get(i);
+        if upper < 0 || (i > 0 && upper <= finite_bounds.get(i - 1)); do
+          rt fail("metrics: invalid snapshot bounds");
+        fi
+        detached_bounds.add(upper);
+      }
+      for (let int i = 0; i < per_bucket.size; i = i + 1) {
+        let int count = per_bucket.get(i);
+        if count < 0 || count > accepted_samples - total; do
+          rt fail("metrics: invalid snapshot bucket count");
+        fi
+        total = total + count;
+        detached_counts.add(count);
+      }
+      if total != accepted_samples; do
+        rt fail("metrics: snapshot bucket totals differ");
+      fi
+      self.finite_bounds = detached_bounds;
+      self.per_bucket = detached_counts;
+      self.accepted_samples = accepted_samples;
+      self.accepted_sum = accepted_sum;
+      self.rejected_samples = rejected_samples;
+    }
+    pub count(): int { return self.accepted_samples; }
+    pub sum(): int { return self.accepted_sum; }
+    pub rejected_count(): int { return self.rejected_samples; }
+    pub bucket_total(): int { return self.per_bucket.size; }
+    pub bucket_count(int index): Result<int, String> {
+      if index < 0 || index >= self.per_bucket.size; do
+        return Err("BucketOutOfRange");
+      fi
+      return Ok(self.per_bucket.get(index));
+    }
+    pub bucket_upper(int index): Result<int, String> {
+      if index < 0 || index >= self.finite_bounds.size; do
+        return Err("NoFiniteUpperBound");
+      fi
+      return Ok(self.finite_bounds.get(index));
+    }
+  end
+
+  pub define class Histogram as
+    let mut Array<int> thresholds = new Array<int>();
+    let mut Array<int> counts = new Array<int>();
+    let mut int samples = 0;
+    let mut int total = 0;
+    let mut int rejected = 0;
+
+    // Sorted, strictly increasing nonnegative *inclusive* upper bounds.
+    // Last bucket is +Inf; count and sum are bounded signed integers.
+    pub constructor(Array<int> bounds) {
+      if bounds.size > 64; do rt fail("metrics: too many buckets"); fi
+      for (let int i = 0; i < bounds.size; i = i + 1) {
+        let int value = bounds.get(i);
+        if value < 0 || (i > 0 && value <= bounds.get(i - 1)); do
+          rt fail("metrics: unsorted histogram bounds");
+        fi
+        self.thresholds.add(value);
+        self.counts.add(0);
+      }
+      self.counts.add(0);
+    }
+
+    // Fully preflighted before any histogram state changes.
+    pub observe(mut self)(int value): bool {
+      if value < 0 || self.samples == 2147483647 ||
+         value > 2147483647 - self.total; do
+        if self.rejected < 2147483647; do
+          self.rejected = self.rejected + 1;
+        fi
+        return false;
+      fi
+      let int bucket = self.thresholds.size;
+      for (let int i = 0; i < self.thresholds.size; i = i + 1) {
+        if value <= self.thresholds.get(i); do
+          bucket = i;
+          break;
+        fi
+      }
+      // All bucket counters <= samples, so no bucket can overflow first.
+      self.counts.set(bucket, self.counts.get(bucket) + 1);
+      self.samples = self.samples + 1;
+      self.total = self.total + value;
+      return true;
+    }
+
+    pub count(): int { return self.samples; }
+    pub sum(): int { return self.total; }
+    pub rejected_count(): int { return self.rejected; }
+    pub bucket_count(int index): Result<int, String> {
+      if index < 0 || index >= self.counts.size; do
+        return Err("BucketOutOfRange");
+      fi
+      return Ok(self.counts.get(index));
+    }
+    pub bucket_upper(int index): Result<int, String> {
+      if index < 0 || index >= self.thresholds.size; do
+        return Err("NoFiniteUpperBound");
+      fi
+      return Ok(self.thresholds.get(index));
+    }
+    pub bucket_total(): int { return self.counts.size; }
+    pub snapshot(): HistogramSnapshot {
+      let mut Array<int> copied_bounds = new Array<int>();
+      let mut Array<int> copied_counts = new Array<int>();
+      for (let int i = 0; i < self.thresholds.size; i = i + 1) {
+        copied_bounds.add(self.thresholds.get(i));
+      }
+      for (let int i = 0; i < self.counts.size; i = i + 1) {
+        copied_counts.add(self.counts.get(i));
+      }
+      return new HistogramSnapshot(copied_bounds, copied_counts,
+                                   self.samples, self.total, self.rejected);
+    }
+  end
+
+  pub fnc counter(int maximum): Counter {
+    return new Counter(maximum);
+  }
+  pub fnc gauge(int minimum, int maximum, int initial): Gauge {
+    return new Gauge(minimum, maximum, initial);
+  }
+  pub fnc histogram(Array<int> upper_bounds): Histogram {
+    return new Histogram(upper_bounds);
+  }
+end

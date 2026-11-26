@@ -1,6 +1,7 @@
 import {parentPort} from 'node:worker_threads';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
+import {ActorTaskLedger} from './actor-task-lifecycle.mjs';
 
 // Experimental trusted scalar actor carrier. One OS Worker owns MANY distinct
 // Wasm instances. Never accept raw host imports or cross-instance pointers.
@@ -38,7 +39,7 @@ parentPort.on('message', request => {
           e.oreslang_wasm_actor_teardown.length !== 0 ||
           !(e.memory instanceof WebAssembly.Memory))
         throw Error('invalid actor function arity or memory');
-      actors.set(id, {incarnation, exports: e});
+      actors.set(id, {incarnation, exports: e, tasks: new ActorTaskLedger()});
       if (e.oreslang_wasm_actor_init() !== undefined) throw Error('init must be void');
       parentPort.postMessage({kind: 'ack', id, incarnation, ticket, result: null});
       return;
@@ -57,6 +58,11 @@ parentPort.on('message', request => {
     if (kind === 'stop') {
       // Revoke the binding before guest teardown; failure is terminal for
       // this entire carrier, never a retry on partly retired state.
+      // A future Task continuation bridge must retire every admitted task
+      // before this actor's linear memory can be torn down or recycled.
+      actor.tasks.stop();
+      if (!actor.tasks.isQuiescent())
+        throw Error('actor task physical quiescence not proven');
       actors.delete(id);
       if (actor.exports.oreslang_wasm_actor_teardown() !== undefined)
         throw Error('teardown must be void');

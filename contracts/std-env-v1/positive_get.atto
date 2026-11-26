@@ -1,0 +1,16 @@
+// std/env v1 controlled-host positive fixture. NOT a self-contained CI pass.
+// Inject ATTO_ENV_EMPTY="", ATTO_ENV_FLAG="true"; omit ATTO_ENV_ABSENT.
+// Grant ENV scope ATTO_ENV_* and set a deny for ATTO_ENV_SECRET_KEY.
+// Expected return code is 42 after real guest execution.
+import module std_env from "std/env";
+pub fnc main(): int {
+  if std_env.has("ATTO_ENV_EMPTY") == false; do return 101; fi
+  if std_env.get("ATTO_ENV_EMPTY").is_none(); do return 102; fi
+  if std_env.get("ATTO_ENV_EMPTY").unwrap() != ""; do return 103; fi
+  if std_env.get_nonempty("ATTO_ENV_EMPTY").is_some(); do return 104; fi
+  if std_env.get_or("ATTO_ENV_ABSENT", "fallback") != "fallback"; do return 105; fi
+  if std_env.get_required("ATTO_ENV_ABSENT").is_ok(); do return 106; fi
+  if std_env.get_bool("ATTO_ENV_FLAG").unwrap() == false; do return 107; fi
+  if std_env.get_bool_or("ATTO_ENV_ABSENT", true).unwrap() == false; do return 108; fi
+  return 42;
+}

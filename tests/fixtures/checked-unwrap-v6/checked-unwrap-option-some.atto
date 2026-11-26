@@ -1,0 +1,9 @@
+// expect-exit: 42
+pub fnc main(): int {
+  val Option<int> x = Some(42);
+  val Result<int,Error> r = trap! x.unwrap();
+  match r over
+    on Ok(v) -> { return v; }
+    on Err(e) -> { return 1; }
+  end
+}

@@ -1,0 +1,9 @@
+// expect-exit: 42
+fnc accepted(): Result<int,Error> { return Ok(42); }
+pub fnc main(): int {
+  val Result<int,Error> r = trap! accepted().unwrap();
+  match r over
+    on Ok(v) -> { return v; }
+    on Err(e) -> { return 1; }
+  end
+}

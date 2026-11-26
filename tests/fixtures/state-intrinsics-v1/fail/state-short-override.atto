@@ -1,0 +1,6 @@
+// expect-error: E_STATE
+define state container Account as
+  state { let int balance: 0; }
+  pub state_w(): void { }
+end
+pub fnc main(): int { return 0; }

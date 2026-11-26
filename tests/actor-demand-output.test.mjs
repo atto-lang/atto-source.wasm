@@ -134,3 +134,34 @@ test('repeated close remains idempotent; reader lease cannot be forged',()=>{
   assert.equal(port.dispose(reader),true);
   assert.equal(io.outputAtEof(io.authority()),true);
 });
+
+
+test('private demand and ACK slots survive poisoned shared Array prototype',()=>{
+  const {port}=make();const reader=port.subscribe();port.request(reader,2);
+  const saved=[Array.prototype.indexOf,Array.prototype.some,Array.prototype.filter];
+  let offer,loan,blocked,forged,retained,ack,completed,disposed;
+  try {
+    Array.prototype.indexOf=()=>0;
+    Array.prototype.some=()=>false;
+    Array.prototype.filter=()=>[];
+    offer=port.tryOffer(Uint8Array.of(1,2));
+    loan=port.tryNext(reader);
+    blocked=port.tryNext(reader);
+    forged=port.ack(reader,999);
+    retained=port.retainedBytes;
+    ack=port.ack(reader,loan.ticket);
+    completed=port.complete();
+    disposed=port.dispose(reader);
+  } finally {
+    [Array.prototype.indexOf,Array.prototype.some,Array.prototype.filter]=saved;
+  }
+  assert.equal(offer,'accepted');
+  assert.deepEqual([...loan.value],[1,2]);
+  assert.equal(blocked.kind,'not-ready');
+  assert.equal(forged,false);
+  assert.equal(retained,2);
+  assert.equal(ack,true);
+  assert.equal(completed,true);
+  assert.equal(disposed,true);
+  assert.equal(port.retainedBytes,0);
+});

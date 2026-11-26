@@ -11,6 +11,10 @@ const intrinsicBuffer = Function.prototype.call.bind(
   Object.getOwnPropertyDescriptor(typedArrayPrototype, 'buffer').get);
 const resizable = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, 'resizable')?.get;
 const scrubBytes = Function.prototype.call.bind(Uint8Array.prototype.fill);
+const CountSlots = Uint32Array;
+const TicketSlots = Float64Array;
+const slotIndex = Function.prototype.call.bind(typedArrayPrototype.indexOf);
+const slotLength = Function.prototype.call.bind(Object.getOwnPropertyDescriptor(typedArrayPrototype,'length').get);
 
 function ownedSize(bytes) {
   if (!types.isUint8Array(bytes)) throw new TypeError('genuine Uint8Array required');
@@ -62,9 +66,9 @@ export class ActorDemandOutputPort {
     this.#capacity = capacity;
     this.#maxBytes = maxBytes;
     this.#maxDemand = maxDemand;
-    this.#byteSizes = new Array(capacity).fill(0);
-    this.#tickets = new Array(maxInFlight).fill(0);
-    this.#loanBytes = new Array(maxInFlight).fill(0);
+    this.#byteSizes = new CountSlots(capacity);
+    this.#tickets = new TicketSlots(maxInFlight);
+    this.#loanBytes = new CountSlots(maxInFlight);
     // Acquire the exclusive host lease only after all local allocations.
     this.#outputLease = io.acquireOutputLease(authority);
   }
@@ -115,7 +119,7 @@ export class ActorDemandOutputPort {
   tryNext(reader) {
     this.#check(reader);
     if (this.#cancelled) return {kind:'cancelled'};
-    const free = this.#tickets.indexOf(0);
+    const free = slotIndex(this.#tickets,0);
     if (free === -1) return {kind:'not-ready'};
     if (this.#queued === 0) return {kind:this.#completed?'complete':'not-ready'};
     if (this.#nextTicket >= Number.MAX_SAFE_INTEGER)
@@ -135,7 +139,7 @@ export class ActorDemandOutputPort {
   ack(reader, ticket) {
     this.#check(reader);
     if (!Number.isSafeInteger(ticket) || ticket < 1) return false;
-    const i = this.#tickets.indexOf(ticket);
+    const i = slotIndex(this.#tickets,ticket);
     if (i < 0) return false;
     this.#tickets[i] = 0;
     this.#retained -= this.#loanBytes[i];
@@ -172,7 +176,7 @@ export class ActorDemandOutputPort {
   }
   dispose(reader) {
     this.#check(reader);
-    if (!this.#completed || this.#queued !== 0 || this.#tickets.some(x=>x!==0))
+    if (!this.#completed || this.#queued !== 0 || this.inFlight!==0)
       throw new Error('cannot retire demand output before terminal quiescence');
     this.#io.releaseOutputLease(this.#authority,this.#outputLease);
     this.#outputLease = null;
@@ -181,5 +185,9 @@ export class ActorDemandOutputPort {
   get queued() {return this.#queued;}
   get retainedBytes() {return this.#retained;}
   get outstandingDemand() {return this.#credits;}
-  get inFlight() {return this.#tickets.filter(x=>x!==0).length;}
+  get inFlight() {
+    let count=0;
+    for(let i=0;i<slotLength(this.#tickets);i++) if(this.#tickets[i]!==0) count++;
+    return count;
+  }
 }

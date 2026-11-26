@@ -20,7 +20,10 @@ test('repeated physical generation is denied even across terminal acknowledgemen
   assert.equal(ledger.snapshot(first).phase,'stopped');
   assert.equal(ledger.snapshot(second).phase,'active');
   assert.throws(()=>ledger.receipt(ticket),/stale STOP receipt/);
-  assert.throws(()=>ledger.register({actorId:'same',incarnation:1}),/capacity/);
+  assert.throws(()=>ledger.register({actorId:'same',incarnation:1}),/duplicate physical/);
+  const third=ledger.register({actorId:'third',incarnation:1});
+  assert.equal(ledger.snapshot(third).phase,'active');
+  assert.throws(()=>ledger.register({actorId:'fourth',incarnation:1}),/capacity/);
 });
 
 test('byte-length limits reject Unicode aliases and malformed surrogate identities',()=>{
