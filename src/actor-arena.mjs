@@ -1,5 +1,5 @@
 import {types} from "node:util";
-import {copyPrivateBytes, copyPrivateBytesInto} from "./actor-frame-bytes.mjs";
+import {copyPrivateBytes, copyPrivateBytesInto, refreshPrivateMemoryView} from "./actor-frame-bytes.mjs";
 
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
@@ -177,8 +177,9 @@ export class ActorArena {
     }
     trustedApply(trustedMapForEach, this.#stackExecutions, [stack => {
       if (stack.memory !== null) {
-        scrub(ownedBytes(stack.memory));
+        scrub(this.#stackBytes(stack));
         stack.memory = null;
+        stack.byteView = null;
       }
     }]);
     trustedApply(trustedMapClear, this.#stackExecutions, []);
@@ -304,10 +305,16 @@ export class ActorArena {
     const memory = new trustedWasmMemory({initial: 1, maximum: 1});
     const execution = trustedFreeze({});
     trustedApply(trustedMapSet, this.#stackExecutions, [execution, {
-      memory, top: 0, frames: [], suspension: null, suspendedTurn: null
+      memory, byteView: refreshPrivateMemoryView(memory),
+      top: 0, frames: [], suspension: null, suspendedTurn: null
     }]);
     this.#activeStack = execution;
     return execution;
+  }
+
+  #stackBytes(stack) {
+    stack.byteView = refreshPrivateMemoryView(stack.memory, stack.byteView);
+    return stack.byteView;
   }
 
   #requireStack(turn, execution) {
@@ -332,7 +339,7 @@ export class ActorArena {
     }
     const frame = trustedFreeze({});
     const offset = stack.top;
-    scrub(ownedBytes(stack.memory), offset, offset + length);
+    scrub(this.#stackBytes(stack), offset, offset + length);
     trustedApply(trustedWeakMapSet, this.#stackFrames, [frame, {execution, offset, length}]);
     trustedApply(trustedArrayPush, stack.frames, [frame]);
     stack.top += length;
@@ -352,13 +359,13 @@ export class ActorArena {
 
   readStackFrame(turn, execution, frame) {
     const {stack, slot} = this.#topStackFrame(turn, execution, frame);
-    return copyPrivateBytes(ownedBytes(stack.memory), slot.offset, slot.length);
+    return copyPrivateBytes(this.#stackBytes(stack), slot.offset, slot.length);
   }
 
   // Caller-owned destination: no per-read allocation of a result buffer.
   readStackFrameInto(turn, execution, frame, destination) {
     const {stack, slot} = this.#topStackFrame(turn, execution, frame);
-    copyPrivateBytesInto(ownedBytes(stack.memory), slot.offset, slot.length, destination);
+    copyPrivateBytesInto(this.#stackBytes(stack), slot.offset, slot.length, destination);
   }
 
   writeStackFrame(turn, execution, frame, data) {
@@ -370,12 +377,12 @@ export class ActorArena {
     if (trustedIsSharedArrayBuffer(trustedApply(nativeBuffer, data, []))) {
       throw new TypeError("actor stack write rejects shared backing memory");
     }
-    trustedApply(trustedSet, ownedBytes(stack.memory), [data, slot.offset]);
+    trustedApply(trustedSet, this.#stackBytes(stack), [data, slot.offset]);
   }
 
   popStackFrame(turn, execution, frame) {
     const {stack, slot} = this.#topStackFrame(turn, execution, frame);
-    scrub(ownedBytes(stack.memory), slot.offset, slot.offset + slot.length);
+    scrub(this.#stackBytes(stack), slot.offset, slot.offset + slot.length);
     trustedApply(trustedArrayPop, stack.frames, []);
     stack.top = slot.offset;
     trustedApply(trustedWeakMapDelete, this.#stackFrames, [frame]);
@@ -412,12 +419,13 @@ export class ActorArena {
   }
 
   #clearStack(execution, stack) {
-    scrub(ownedBytes(stack.memory));
+    scrub(this.#stackBytes(stack));
     for (let i = 0; i < stack.frames.length; ++i) {
       trustedApply(trustedWeakMapDelete, this.#stackFrames, [stack.frames[i]]);
     }
     if (stack.suspension !== null) trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [stack.suspension]);
     stack.memory = null;
+    stack.byteView = null;
     stack.suspension = null;
     stack.suspendedTurn = null;
     trustedApply(trustedMapDelete, this.#stackExecutions, [execution]);
