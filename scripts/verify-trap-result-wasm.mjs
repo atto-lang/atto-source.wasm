@@ -6,13 +6,14 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {checkedUnwrapFixtures, verifyCheckedUnwrapFixture, verifyCheckedUnwrapExecution} from '../src/checked-unwrap-fixtures.mjs';
+import {checkedUnwrapRejections, verifyCheckedUnwrapRejection} from '../src/checked-unwrap-rejections.mjs';
 import {isRuntimeTrapWithPanicCode, guardHostImport} from '../src/trap-result-guest-outcome.mjs';
 
 const [compilerPath, samplePath, compilerSha, sampleBlob, mode] = process.argv.slice(2);
 const checkedUnwrap = mode === '--checked-unwrap-v6';
 if ((process.argv.length !== 6 && !(process.argv.length === 7 && checkedUnwrap)) || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
     !/^[a-f0-9]{40}$/.test(sampleBlob ?? '')) {
-  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1>');
+  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6]');
 }
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
@@ -117,18 +118,15 @@ if (checkedUnwrap) {
     verifyCheckedUnwrapExecution(id, result);
     guestCases.push({id, source_git_blob: blob, guest_sha256: sha256(output.wasm)});
   }
-  const negative = [
-    'pub fnc main(): int throws() { val Option<int> x = None; return x.unwrap(); }',
-    'pub fnc main(): int { val Option<int> x = None; return x.unwrap(42); }'
-  ];
-  for (const source of negative) {
+  const negative = [];
+  for (const [id, source] of checkedUnwrapRejections) {
     const output = compile(source);
-    assert.equal(output.ok, false, 'invalid checked unwrap compiled');
-    assert.ok(output.diagnostic?.trim(), 'missing compiler diagnostic');
+    verifyCheckedUnwrapRejection(id, output);
+    negative.push({id, diagnostic: output.diagnostic});
   }
   console.log(JSON.stringify({status:'PASS', profile:'checked-unwrap-v6-rust-candidate',
     evidence_kind:'real-compiler-wasm-guest-executed', compiler_sha256:compilerSha,
-    guest_cases:guestCases, guest_executions:guestCases.length, rejected_without_wasm:negative.length}));
+    guest_cases:guestCases, guest_executions:guestCases.length, rejected_without_wasm:negative}));
   process.exit(0);
 }
 
