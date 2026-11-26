@@ -18,7 +18,7 @@ for(const c of manifest.cases.filter(x=>/^(counted-|reject-counted-)/.test(x.id)
  assert.equal(createHash('sha1').update('blob '+raw.length+'\0').update(raw).digest('hex'),c.gitBlobSha1,c.id);
  cases.push({id:c.id,source:raw.toString('utf8'),positive:c.target.mode==='run'});
 }
-assert.equal(cases.length,16);assert.equal(cases.filter(x=>x.positive).length,9);
+assert.equal(cases.length,17);assert.equal(cases.filter(x=>x.positive).length,10);
 assert.ok(bytes.length>8&&bytes.length<=16*1024*1024);
 const profile=await mkdtemp(join(tmpdir(),'atto-worker-chrome-'));
 const routes=new Map([
@@ -59,12 +59,12 @@ try{
  const {result,lines}=await resultPromise;
  assert.equal(result.ok,true,result.error);
  assert.equal(result.worker,true);assert.match(result.agent,/Chrome\//);
- assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,16);assert.equal(result.runtimeControls,5);assert.equal(result.ordinaryDenials,16);
+ assert.equal(result.integrityNegative,true);assert.equal(result.reuse,true);assert.equal(result.cases,17);assert.equal(result.runtimeControls,6);assert.equal(result.ordinaryDenials,17);
  const passes=lines.filter(l=>l.startsWith('PASS counted-browser '));
  assert.equal(passes.length,result.cases);assert.equal(new Set(passes.map(l=>l.split(' ')[2])).size,result.cases);
  assert.ok(lines.includes('BROWSER_COMPILER '+head+' '+tree+' '+pin));
  for(const l of lines)console.log(l);
- console.log('REAL_COUNTED_BROWSER_WORKER_PASS '+result.cases+' source cases; 5 runtime controls; 16 ordinary denials; repeat and digest denial; '+result.agent);
+ console.log('REAL_COUNTED_BROWSER_WORKER_PASS '+result.cases+' source cases; 6 runtime controls; 17 ordinary denials; repeat and digest denial; '+result.agent);
 }finally{
  clearTimeout(timer);
  if(child?.pid&&process.platform!=='win32'){

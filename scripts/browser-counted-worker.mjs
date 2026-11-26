@@ -22,6 +22,7 @@ self.onmessage=async({data})=>{
   }
   const prefix='suspends fnc main(): int { val Channel<int> a = Channel.new<int>(1); ';
   const checks=[
+    ['writech a, 42; val Array[int] b = await select<int>(1) { when readch a: int n -> { return n; } }; return b[1]; }',10],
     ['val int count = 17; val Array[int] b = await select<int>(count) { when readch a: int n -> { return n; } }; return b[0]; }',8],
     ['writech a, 42; val Future<Array<int>> pending = select<int>(1) { when readch a: int n -> { return n; } }; val int x = 9223372036854775807 + 1; val Array[int] b = await pending; return b[0]; }',1],
     ['val Array[int] b = await select<int>(0) { when readch a: int n -> { return n; } }; return readch a; }',9],
@@ -33,6 +34,6 @@ self.onmessage=async({data})=>{
     let trapped=false;try{g.main()}catch(e){trapped=e instanceof WebAssembly.RuntimeError;}eq(trapped,true,'native Wasm trap');eq(g.panic_code.value,panic,'panic code');
   }
   const normal=c.compile('pub fnc main(): int { return 42; }');eq(normal.ok,true,'compiler reuse');eq(new WebAssembly.Instance(new WebAssembly.Module(normal.wasm),{}).exports.main(),42n,'normal control');
-  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:16,runtimeControls:5,ordinaryDenials:16});
+  self.postMessage({ok:true,worker:true,agent:navigator.userAgent,integrityNegative:true,reuse:true,cases:17,runtimeControls:6,ordinaryDenials:17});
  }catch(e){self.postMessage({ok:false,error:String(e?.stack??e)});}
 };
