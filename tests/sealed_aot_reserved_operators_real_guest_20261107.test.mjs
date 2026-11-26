@@ -10,17 +10,17 @@ import {join, isAbsolute} from 'node:path';
 // Canonical .atto bytes are shared with the LLVM native compiler. A host-only
 // SHA check is not compiler rejection or Wasm guest execution evidence.
 const cases = Object.freeze([
-  {id:'multiply-positive',expr:'7 * 6',token:null,
+  {id:'multiply-positive',expr:'7 * 6',token:null,expected:42n,
     blob:'b7134418f1b23e22e4865452716c9e465bbe7b0d'},
   {id:'percent-reject',expr:'7 % 3',token:'%',
     blob:'6fdf352a669dd7597ff7d27efbfd05b2290d1ec6'},
   {id:'caret-reject',expr:'7 ^ 3',token:'^',
     blob:'4d3a2470383d6bc4cb1be56e9221371b7bdbc6fa'},
-  {id:'double-caret-reject',expr:'7 ^^ 3',token:'^^',
+  {id:'double-caret-positive',expr:'7 ^^ 3',token:null,expected:4n,
     blob:'ab4d69393bb17e06a8c977bc81b7e206cfa00684'},
   {id:'nested-caret-reject',expr:'(2 ^ 3) * 4',token:'^',
     blob:'a830b33f301c69cdaec37466ee4e43480d8844d5'},
-  {id:'nested-double-caret-reject',expr:'(2 ^^ 3) + 4',token:'^^',
+  {id:'nested-double-caret-positive',expr:'(2 ^^ 3) + 4',token:null,expected:5n,
     blob:'7afaf2be676c97b16c3138845445705eef04cef0'},
 ]);
 const bytesFor = c => Buffer.from('pub fnc main(): int {\n  return '+c.expr+';\n}\n');
@@ -36,7 +36,7 @@ const required = envMode === '1';
 const semanticPolicy = /(?:noncanonical|removed|unsupported|forbidden|disallowed|not allowed)/i;
 const genericFailure = /(?:syntax error|parse error|unexpected (?:token|character)|unrecognized token|unsupported character|unresolved (?:identifier|symbol)|unknown (?:identifier|symbol)|internal error|stack overflow)/i;
 function matchesReservedOperatorDiagnostic(stderr, token) {
-  if (!['%', '^', '^^'].includes(token) || typeof stderr !== 'string'
+  if (!['%', '^'].includes(token) || typeof stderr !== 'string'
       || stderr.length < 1 || stderr.length > 65536 || genericFailure.test(stderr)) return false;
   return stderr.split(/\r?\n/).some(line => {
     if (!/^oreslang-llvmc:\s+/.test(line) || !/\boperator\b/i.test(line)
@@ -47,23 +47,26 @@ function matchesReservedOperatorDiagnostic(stderr, token) {
 }
 
 
-test('pinned .atto corpus includes an executable positive and five operator rejections (SOURCE ONLY)', () => {
+test('pinned .atto corpus includes three positives and three operator rejections (SOURCE ONLY)', () => {
   assert.equal(cases.length,6);
   assert.deepEqual(cases.map(c=>c.id),[
     'multiply-positive','percent-reject','caret-reject',
-    'double-caret-reject','nested-caret-reject','nested-double-caret-reject']);
+    'double-caret-positive','nested-caret-reject','nested-double-caret-positive']);
   const ids=new Set();
   for(const c of cases) {
     assert.ok(!ids.has(c.id)); ids.add(c.id);
     assert.match(c.blob,/^[0-9a-f]{40}$/);
     assert.equal(gitBlob(bytesFor(c)),c.blob,c.id);
-    assert.equal(c.token===null, c.id==='multiply-positive');
-    if(c.token!==null) assert.ok(c.expr.includes(c.token),c.id);
+    assert.equal(c.token===null, typeof c.expected==='bigint',c.id);
+    if(c.token!==null) {
+      assert.ok(['%', '^'].includes(c.token),c.id);
+      assert.ok(c.expr.includes(c.token) && !c.expr.includes('^^'),c.id);
+    }
   }
 });
 
 // Adversarial policy checks are source-only and never certify a native compiler.
-for (const op of ['%', '^', '^^']) {
+for (const op of ['%', '^']) {
   for (const policy of ['noncanonical', 'removed', 'unsupported', 'forbidden', 'disallowed', 'not allowed']) {
     test('diagnostic oracle: ' + op + ' same-line ' + policy, () => {
       assert.equal(matchesReservedOperatorDiagnostic(
@@ -94,12 +97,15 @@ for (const op of ['%', '^', '^^']) {
 test('diagnostic oracle: invalid symbol cannot be certified', () => {
   assert.equal(matchesReservedOperatorDiagnostic('oreslang-llvmc: removed + operator', '+'), false);
 });
+test('diagnostic oracle: integer double-caret is no longer a reserved operator', () => {
+  assert.equal(matchesReservedOperatorDiagnostic('oreslang-llvmc: unsupported ^^ operator', '^^'), false);
+});
 test('diagnostic oracle: oversized stderr cannot be certified', () => {
   assert.equal(matchesReservedOperatorDiagnostic(
     'oreslang-llvmc: removed % operator'.repeat(3000), '%'), false);
 });
 
-test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emitting a runnable 42 Wasm guest', {
+test('real pinned LLVM frontend rejects % and infix ^; integer ^^ emits runnable Wasm', {
   skip:!compilerPath&&!required, timeout:180000
 }, async () => {
   assert.ok(compilerPath, 'required pinned LLVM compiler absent; skipped execution is not evidence');
@@ -154,7 +160,7 @@ test('real pinned LLVM frontend must reject %, ^ and ^^ before IR, while emittin
         assert.deepEqual(release.manifest.requiredCapabilities,[]);
         const guest=await runIsolatedCoreGuest(release.wasm,{
           expectedSha256:built.wasmSha256,timeoutMs:5000});
-        assert.equal(guest.value,42n);
+        assert.equal(guest.value,c.expected,c.id);
         assert.equal(guest.admission.hostCapabilities,0);
       } else {
         const native=spawnSync(compiler,['--target=wasm32',input],{
