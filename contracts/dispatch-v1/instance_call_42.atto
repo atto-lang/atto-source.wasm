@@ -1,0 +1,11 @@
+define class Counter as
+  let int value = 40;
+  pub read(int delta): int {
+    return self.value + delta;
+  }
+end
+
+pub fnc main(): int {
+  let Counter c = new Counter();
+  return c.read(2);
+}

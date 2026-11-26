@@ -1,0 +1,47 @@
+// Wasm-owned, freestanding Atto memory layout policy.
+// Pure arithmetic only: no allocator, destructor, pointer or host access.
+// Invalid operations return -1 (or false). Size units are bytes.
+pub fnc is_power_of_two_alignment(int alignment): bool {
+  if alignment <= 0 then return false; fi
+  return (alignment & (alignment - 1)) == 0;
+}
+
+pub fnc align_up_checked(int size_bytes, int alignment): int {
+  if size_bytes < 0 then return -1; fi
+  if alignment <= 0 then return -1; fi
+  if (alignment & (alignment - 1)) != 0 then return -1; fi
+  val int remainder = size_bytes % alignment;
+  if remainder == 0 then return size_bytes; fi
+  val int padding = alignment - remainder;
+  if size_bytes > 9223372036854775807 - padding then return -1; fi
+  return size_bytes + padding;
+}
+
+pub fnc layout_stride(int element_bytes, int alignment): int {
+  if element_bytes < 0 then return -1; fi
+  if alignment <= 0 then return -1; fi
+  if (alignment & (alignment - 1)) != 0 then return -1; fi
+  val int remainder = element_bytes % alignment;
+  if remainder == 0 then return element_bytes; fi
+  val int padding = alignment - remainder;
+  if element_bytes > 9223372036854775807 - padding then return -1; fi
+  return element_bytes + padding;
+}
+
+pub fnc array_bytes_checked(int count, int stride_bytes, int budget_bytes): int {
+  if count < 0 then return -1; fi
+  if stride_bytes < 0 then return -1; fi
+  if budget_bytes < 0 then return -1; fi
+  if count == 0 then return 0; fi
+  if stride_bytes == 0 then return 0; fi
+  if count > budget_bytes / stride_bytes then return -1; fi
+  return count * stride_bytes;
+}
+
+pub fnc span_fits(int region_bytes, int offset_bytes, int span_bytes): bool {
+  if region_bytes < 0 then return false; fi
+  if offset_bytes < 0 then return false; fi
+  if span_bytes < 0 then return false; fi
+  if offset_bytes > region_bytes then return false; fi
+  return span_bytes <= region_bytes - offset_bytes;
+}

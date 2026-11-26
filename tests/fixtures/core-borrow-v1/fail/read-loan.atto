@@ -1,0 +1,9 @@
+// BCV1-006 read_loan fail: target AttoLang semantics, NOT_EXECUTED.
+// Expected compiler rejection E_BORROW with NO guest artifact.
+define class Meter as pub let int reading = 42; end
+pub fnc main(): int {
+  val mut m = new Meter();
+  val view = borrow! m;
+  m.reading = 3; // conflicting owner mutation while view is live
+  return view.reading;
+}

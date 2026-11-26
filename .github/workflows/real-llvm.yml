@@ -13,7 +13,7 @@ jobs:
   integration:
     # Credentialed build may execute only from the protected default branch.
     # Never dispatch private compiler source into arbitrary PR-controlled code.
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.ref_protected == true
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -33,7 +33,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Bind protected Wasm main checkout
       - name: Verify exact Wasm checkout and reviewed portable scalar source blobs
         shell: bash
         env:
@@ -82,6 +81,18 @@ jobs:
         run: |
           echo "ORESLANG_LLVM_COMPILER=$PWD/llvm-build/oreslang-llvmc" >> "$GITHUB_ENV"
           echo "ORESLANG_LLVM_COMPILER_SHA256=$(sha256sum llvm-build/oreslang-llvmc | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+      - name: Verify delegated pinned LLVM compiler rejects unsupported Option syntax
+        run: |
+          python3 scripts/check_option_pattern_contract.py --backend llvm \
+            --revision "$ORESLANG_LLVM_SOURCE_SHA" --report option-pattern-wasm-delegated.json \
+            -- "$ORESLANG_LLVM_COMPILER" '{source}'
+      - name: Preserve delegated LLVM admission report (not Wasm parity)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: option-pattern-wasm-delegated-admission
+          path: option-pattern-wasm-delegated.json
+          if-no-files-found: ignore
       - name: Run WebAssembly regression suite
         run: npm test
       - name: Execute genuine Oreslang-to-Wasm end-to-end gate

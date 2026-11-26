@@ -24,13 +24,17 @@ function validId(value) {
   return identifierEncoder.encode(value).length <= 128;
 }
 const validGeneration = value => Number.isSafeInteger(value) && value > 0;
+// Physical identities are non-recyclable; bound retained identity history.
+const MAX_TRACKED_PHYSICAL_IDENTITIES = 1_048_576;
 
 export class SupervisorStopLedger {
   #supervisor;
   #group;
   #capacity;
   #nextTurn = 1;
-  #children = new Map();
+  // Live admission is capacity-bounded; stopped tombstones are weakly held.
+  #children = new WeakMap();
+  #residentChildren = 0;
   #tickets = new WeakMap();
   #seenActors = new Set();
   #activeTicket = null;
@@ -47,11 +51,13 @@ export class SupervisorStopLedger {
   register({actorId, incarnation}) {
     if (!validId(actorId) || !validGeneration(incarnation))
       throw new TypeError("invalid physical actor identity/generation");
-    if (this.#children.size >= this.#capacity)
+    if (this.#residentChildren >= this.#capacity)
       throw Error("supervisor child capacity exhausted");
     const physicalKey = JSON.stringify([actorId, incarnation]);
     if (this.#seenActors.has(physicalKey))
       throw Error("duplicate physical actor generation");
+    if (this.#seenActors.size >= MAX_TRACKED_PHYSICAL_IDENTITIES)
+      throw Error("supervisor physical identity history exhausted");
     // No enumerable fields, getters or prototype-bearing methods expose
     // supervisor authority. Cloning/serializing never preserves identity.
     const child = Object.freeze(Object.create(null));
@@ -62,6 +68,7 @@ export class SupervisorStopLedger {
       actorId, incarnation, phase: "active", ticket: null,
       turnGeneration: 0, receipt: null, invoked: false
     });
+    this.#residentChildren++;
     return child;
   }
 
@@ -147,6 +154,9 @@ export class SupervisorStopLedger {
   }
 
   #finish(ticket, state) {
+    // Release one live slot only after confirmed/reconciled STOP. Keep a
+    // weak tombstone while the caller holds its opaque child authority.
+    this.#residentChildren--;
     state.phase = "stopped";
     state.receipt = "acknowledged";
     state.ticket = null;

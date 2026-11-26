@@ -34,3 +34,17 @@ test('malformed native byte admission fails before scanning untrusted lexical in
  assert.throws(()=>scan(Uint8Array.of(0xff)),/encoded|valid|UTF-8|encoding|decode|malformed|fatal/i);
  assert.throws(()=>scan('define actor X {}'),/immutable snapshot bytes/);
 });
+
+test('new elastic actor scheduling syntax fails closed before scalar Wasm delegate',()=>{
+  for (const source of [
+    '@actor_schedule(max_parallelism = pool_size)\nfnc main() {}',
+    '@ActorSchedule(max_parallelism=2) fnc main() {}',
+    'spawn Worker() with schedule(max_parallelism=2);'
+  ]) assert.throws(() => check(source), /actor scheduling unsupported/);
+  assert.doesNotThrow(() => check(
+    'fnc main() { let s = "@actor_schedule(max_parallelism = pool_size)"; }'));
+  assert.doesNotThrow(() => check(
+    '/* @actor_schedule(max_parallelism=2) */ fnc main() {}'));
+  assert.throws(() => check('// ignored\u0085@actor_schedule(max_parallelism=2)'),
+    /actor scheduling unsupported/);
+});

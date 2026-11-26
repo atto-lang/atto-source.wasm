@@ -27,3 +27,27 @@ test('source preflight refuses non-byte inputs and oversize inputs', () => {
   assert.doesNotThrow(() => rejectSourceTerminalControls(safe.buffer.slice(safe.byteOffset,safe.byteOffset+safe.byteLength)));
   assert.doesNotThrow(() => rejectSourceTerminalControls(new DataView(safe.buffer,safe.byteOffset,safe.byteLength)));
 });
+
+import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {compileOresToWasm} from '../scripts/compile-ores.mjs';
+import {compileSourceActorToWasm} from '../scripts/compile-source-actor.mjs';
+test('both bridges reject terminal controls before compiler invocation or publication', async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'atto-terminal-'));
+ try {
+  const source=join(dir,'case.atto'),compiler=join(dir,'compiler'),output=join(dir,'case.wasm'),sentinel=join(dir,'called');
+  await writeFile(compiler,'#!/bin/sh\necho invoked > '+JSON.stringify(sentinel)+'\nexit 1\n',{mode:0o700});
+  await writeFile(source,'pub fnc main():int{return 42;} // '+String.fromCharCode(27));
+  await assert.rejects(compileOresToWasm({compiler,source,output}),/SOURCE_TERMINAL_CONTROL/);
+  await assert.rejects(compileSourceActorToWasm({compiler,source}),/SOURCE_TERMINAL_CONTROL/);
+  await assert.rejects(readFile(sentinel),{code:'ENOENT'});
+  await assert.rejects(readFile(output),{code:'ENOENT'});
+ } finally {await rm(dir,{recursive:true,force:true});}
+});
+test('physical length cannot be spoofed; shared bytes rejected',()=>{
+ class FakeLength extends Uint8Array {get byteLength(){return 0;}}
+ assert.throws(()=>rejectSourceTerminalControls(new FakeLength([0x1b])),/SOURCE_TERMINAL_CONTROL/);
+ assert.throws(()=>rejectSourceTerminalControls(new FakeLength(1024*1024+1)),RangeError);
+ assert.throws(()=>rejectSourceTerminalControls(new Uint8Array(new SharedArrayBuffer(1))),TypeError);
+});

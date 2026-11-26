@@ -1,0 +1,37 @@
+// Target: std.fs File class / instance API, without FileStream.
+// NOT_EXECUTED: requires compiler-linked typed std.fs File and OpenOptions.
+// Tests nominal File overloads, shared cursor, borrowing and close lifecycle.
+import * as fs from "std.fs";
+
+// The argument is an existing std.fs.File instance, not a path or stream.
+pub susp fnc read_from_file(fs.File file): string {
+    return await fs.read_text(file);
+}
+
+pub susp fnc file_object_roundtrip(): int {
+    val options = fs.OpenOptions {
+        read: true,
+        write: true,
+        create: true,
+        truncate: true
+    };
+
+    // The std.fs.File class instance is returned by open().
+    val file = await fs.open("data/file_object.txt", options);
+
+    // Passing File directly, instead of FileStream:
+    await fs.write_text(file, "File instance example");
+    await file.seek(0);
+    val content = await read_from_file(file);
+
+    // Use the same File instance for raw bytes, at the same cursor.
+    await file.seek(0);
+    val raw = await fs.read_file(file);
+
+    // Helpers do not close or implicitly reopen the file.
+    await file.flush();
+    await file.close();
+
+    if content != "File instance example" then return 1; fi
+    return 42;
+}

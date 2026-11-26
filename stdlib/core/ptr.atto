@@ -1,0 +1,41 @@
+// Wasm-owned checked pointer-span arithmetic; NOT a raw-pointer API.
+// All offsets are byte offsets in an externally authenticated region.
+// This module cannot create Pointer<T>, borrow a place, or dereference memory.
+pub fnc checked_span_end(int region_bytes, int start_bytes, int length_bytes): int {
+  if region_bytes < 0 then return -1; fi
+  if start_bytes < 0 then return -1; fi
+  if length_bytes < 0 then return -1; fi
+  if start_bytes > region_bytes then return -1; fi
+  if length_bytes > region_bytes - start_bytes then return -1; fi
+  return start_bytes + length_bytes;
+}
+
+// Refuse a one-past-the-end indexed read. A zero-length region has no element.
+// Alignment is checked without arithmetic that can overflow signed i64.
+pub fnc checked_index_offset(int region_bytes, int base_bytes, int count, int index, int stride_bytes, int value_bytes, int alignment): int {
+  if region_bytes < 0 then return -1; fi
+  if base_bytes < 0 then return -1; fi
+  if count <= 0 then return -1; fi
+  if index < 0 then return -1; fi
+  if index >= count then return -1; fi
+  if stride_bytes <= 0 then return -1; fi
+  if value_bytes <= 0 then return -1; fi
+  if alignment <= 0 then return -1; fi
+  if (alignment & (alignment - 1)) != 0 then return -1; fi
+  if base_bytes % alignment != 0 then return -1; fi
+  if stride_bytes % alignment != 0 then return -1; fi
+  if base_bytes > region_bytes then return -1; fi
+  if value_bytes > region_bytes - base_bytes then return -1; fi
+  if index > (region_bytes - base_bytes - value_bytes) / stride_bytes then return -1; fi
+  return base_bytes + index * stride_bytes;
+}
+
+pub fnc can_split_span(int region_bytes, int start_bytes, int length_bytes, int at_bytes): bool {
+  if region_bytes < 0 then return false; fi
+  if start_bytes < 0 then return false; fi
+  if length_bytes < 0 then return false; fi
+  if at_bytes < 0 then return false; fi
+  if start_bytes > region_bytes then return false; fi
+  if length_bytes > region_bytes - start_bytes then return false; fi
+  return at_bytes <= length_bytes;
+}

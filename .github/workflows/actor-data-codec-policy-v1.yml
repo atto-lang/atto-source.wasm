@@ -1,0 +1,35 @@
+name: Actor DATA codec policy v1 (host only)
+on:
+  push:
+    branches: [draft/actor-data-codec-policy-v1-20261124]
+  pull_request:
+    paths:
+      - '**/*ActorDataCodecPolicyV1*'
+      - '**/*actor-data-codec-policy-v1*'
+      - '**/*actor_data_decode_budget_v1*'
+      - '.github/workflows/actor-data-codec-policy-v1.yml'
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify exact head and execute host tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          node --version
+          node --test tests/actor-data-codec-policy-v1.test.mjs
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'

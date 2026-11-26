@@ -1,0 +1,7 @@
+// expect-error: E_MOVED
+// Core ownership: an awaited affine ActorFuture cannot be reused.
+use namespace std.actor.future_negative_use_after_await;
+pub susp fnc reject_use_after_await(take! ActorFuture<int> receipt) -> int {
+  val int consumed = await receipt;
+  return receipt;
+}

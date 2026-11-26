@@ -35,6 +35,28 @@ test("scalar guest really compiles to Wasm and runs in a disposable worker", asy
   assert.equal(result.admission.hostCapabilities, 0);
   assert.match(result.admission.sha256, /^[a-f0-9]{64}$/);
 });
+test("zero-capability profile rejects unsupported scoped I/O options before worker publication", async () => {
+  const wasm = compile(simple);
+  for (const extra of [
+    {permissions: {net: ["api.example.com:443"]}},
+    {allowNet: ["api.example.com:443"]},
+    {allowRead: ["/workspace"]},
+    {allowRun: ["git"]},
+    {allowEnv: ["API_KEY"]},
+    {allowFfi: true},
+    {wasi: {inheritEnv: true}},
+    {imports: {env: {dangerous: () => 42}}},
+    {allowImport: ["/workspace"]}
+  ]) {
+    assert.throws(() => admitCoreGuest(wasm, extra),
+      /unsupported zero-capability guest option/);
+    await assert.rejects(runIsolatedCoreGuest(wasm, extra),
+      /unsupported zero-capability guest option/);
+  }
+  const result = await runIsolatedCoreGuest(wasm, {entry: "main", timeoutMs: 1000});
+  assert.equal(result.value, 42n);
+  assert.equal(result.admission.hostCapabilities, 0);
+});
 test("admission rejects incorrect expected content hash", async () => {
   const wasm = compile(simple);
   assert.throws(() => admitCoreGuest(wasm, {expectedSha256: "0".repeat(64)}), /SHA-256 mismatch/);
@@ -44,13 +66,14 @@ test("admission rejects unbounded linear memory", () => {
   const wasm = compile(simple, {maxMemory: false});
   assert.throws(() => admitCoreGuest(wasm), /memory requires fixed|bounded/);
 });
-test("admission rejects any host import", () => {
+test("admission rejects any host import", async () => {
   const wasm = compile('target triple = "wasm32-unknown-unknown"\n' +
     'declare i64 @forbidden()\n' +
     'define i64 @main() { %x = call i64 @forbidden()\n ret i64 %x }\n',
     {allowUndefined: true});
   assert.ok(WebAssembly.Module.imports(new WebAssembly.Module(wasm)).length > 0);
   assert.throws(() => admitCoreGuest(wasm), /host imports denied/);
+  await assert.rejects(runIsolatedCoreGuest(wasm), /host imports denied/);
 });
 test("unlowered actor routing imports remain denied for every self operation", () => {
   for (const method of ["forward", "forward_all", "forward_round_robin",
@@ -135,4 +158,24 @@ test("concurrent worker limit fails closed and is released only after terminatio
   // A subsequent valid guest must be admitted after all four terminations.
   const fresh = await runIsolatedCoreGuest(compile(simple), {timeoutMs: 15000});
   assert.equal(fresh.value, 42n);
+});
+
+test("checked guest trap is distinguishable from invalid guest admission", async () => {
+  const trapIr='target triple = "wasm32-unknown-unknown"\n' +
+    'declare void @llvm.trap()\n' +
+    'define i64 @main() { call void @llvm.trap()\n unreachable }\n';
+  const trapped=compile(trapIr,{optimize:"-O0"});
+  await assert.rejects(
+    runIsolatedCoreGuest(trapped),
+    /^Error: guest rejected or failed: wasm runtime trap: /,
+    "real WebAssembly.RuntimeError must be recognized as a guest trap"
+  );
+  const invalid=compile(simple,{maxMemory:false});
+  await assert.rejects(
+    runIsolatedCoreGuest(invalid),
+    error=>error instanceof Error &&
+      !/wasm runtime trap: /.test(error.message) &&
+      /memory requires fixed|bounded/.test(error.message),
+    "guest admission failure must not impersonate overflow trap"
+  );
 });

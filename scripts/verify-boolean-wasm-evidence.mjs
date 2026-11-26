@@ -20,6 +20,20 @@ export const BOOLEAN_CASES = Object.freeze([
   ['comparison-type', 'reject', 'equality operands require the same scalar type', '49d6d800fb043bdf06c224c8894ee997087b7ea5'],
   ['not-integer', 'reject', "logical '!' requires bool, got int", 'd3c8dd38ecf218f32b64df8acf785acdfe0309a4'],
 ]);
+export const BOOLEAN_SOURCE_SHA256 = Object.freeze({
+  "literal-not":"89fcfae8090444935b6c76b88980aa23dbb9d9181d4603eb2a0174ffb5427f53",
+  "typed-let":"1f4101658cc9fde8c49d15e2d7cd1ca5dfe8725d63071870ba21df71b89af18d",
+  "nested-call":"7be1d192cd3a3f18c063ec2857bd4e387269cf366f6885b3f37df173e86ceb41",
+  "bool-guarded-result":"6947ea9b6a9f76804a2dbe3da49f6a4bd3293f1385a00f008537eb90e6d29982",
+  "false-fallthrough":"fa6445d9274ce618e601c64c269e8eaeaaf46d502e0112de0cb9a9651c3028e0",
+  "else-branch":"adf572bfc6b808e27dba8b9e00af441bcad315ee2fc97f8bdc84b12afe805408",
+  "bool-as-int":"3582501a5e21e6b746101f67de9ecffd101fcc02e67fb6a3f92dc1e3c3ec97ae",
+  "truthy-int":"2b111759307d8cb8b8cf124b67c45a989cff3a5b5b19e7fd33a699acc37f3d62",
+  "bool-arithmetic":"9fb0a72431c54d29b26f9921716c1870640ddd15912aa9423a87a9a6a280f24f",
+  "comparison-type":"2892a52f9d3415af09284addeb84d69f5940e59b0acee106de1a52e3317bd099",
+  "not-integer":"7a5f492789a414c7603c7d254c7aba87593ac246723dab6e6c01808f66db4ea7"
+});
+const WASM_REPOSITORY_ID = 1419858954;
 const LLVM_HEAD = 'b83f540269a256e549cc9160b6b43bf37d33fb0f';
 const LLVM_TREE = '26e85b258061b206e4a145825df6dfe11065a499';
 const REFERENCE_BLOB = '80056fbf9d67e3fb37a052652398c2dc3796540b';
@@ -54,6 +68,7 @@ function assertStep(job, name) {
   assert.ok(positive(matches[0].number), name + ' lacks step number');
   assert.ok(matches[0].started_at && matches[0].completed_at,
     name + ' lacks timestamps');
+  return matches[0].number;
 }
 
 export function assessBooleanWasmEvidence({receipt, run, jobs, artifacts, expectedHead, expectedTree}) {
@@ -89,6 +104,8 @@ export function assessBooleanWasmEvidence({receipt, run, jobs, artifacts, expect
     seen.add(c.id);
     assert.equal(c.sourceGitBlob, blob, id + ' source blob changed');
     assert.match(c.sourceSha256 ?? '', hex64, id + ' lacks source hash');
+    assert.equal(c.sourceSha256, BOOLEAN_SOURCE_SHA256[id],
+      id + ' source SHA-256 does not match pinned fixture bytes');
     if (kind === 'execute') {
       assert.equal(c.kind, 'EXECUTED_WASM32_GUEST');
       assert.equal(c.expected, value);
@@ -105,7 +122,10 @@ export function assessBooleanWasmEvidence({receipt, run, jobs, artifacts, expect
     }
   }
   assert.equal(run.repository?.full_name, WASM_REPO);
-  assert.ok(positive(run.repository?.id), 'runner repository numeric ID missing');
+  assert.equal(run.repository?.id, WASM_REPOSITORY_ID,
+    'source repository numeric identity mismatch');
+  assert.equal(run.head_repository?.id, WASM_REPOSITORY_ID,
+    'workflow head repository numeric identity mismatch');
   assert.equal(run.head_sha, expectedHead);
   assert.equal(run.head_branch, 'main', 'credentialed gate must run on main only');
   assert.equal(run.event, 'workflow_dispatch');
@@ -113,13 +133,21 @@ export function assessBooleanWasmEvidence({receipt, run, jobs, artifacts, expect
   assert.equal(run.status, 'completed');
   assert.equal(run.conclusion, 'success');
   assert.ok(positive(run.id) && positive(run.run_attempt), 'missing run ID/attempt');
+  assert.ok(positive(run.workflow_id), 'missing GitHub workflow identity');
   assert.ok(typeof run.path === 'string' &&
     ['.github/workflows/real-llvm.yml', 'ores-truffle-oreslang/oreslang-source.wasm/.github/workflows/real-llvm.yml@refs/heads/main'].includes(run.path),
     'untrusted workflow identity/path');
   assert.ok(Array.isArray(jobs.jobs) && jobs.jobs.length === 1,
     'expected exactly one integration job');
   const job = requireRecord(jobs.jobs[0], 'integration job');
+  assert.ok(positive(job.id), 'missing executed job ID');
   assert.equal(job.run_id, run.id);
+  assert.equal(job.run_attempt, run.run_attempt,
+    'job belongs to a different workflow attempt');
+  assert.equal(job.head_sha, expectedHead, 'job checkout SHA differs from run');
+  assert.equal(job.head_branch, 'main', 'credentialed job must run on main');
+  assert.equal(job.workflow_name, run.name,
+    'job workflow identity differs from GitHub run');
   assert.equal(job.name, 'integration');
   assert.equal(job.status, 'completed');
   assert.equal(job.conclusion, 'success');
@@ -128,7 +156,21 @@ export function assessBooleanWasmEvidence({receipt, run, jobs, artifacts, expect
   assert.ok(job.started_at && job.completed_at, 'job lacks execution interval');
   assert.ok(Array.isArray(job.steps) && job.steps.length >= requiredSteps.length,
     'zero-step or incomplete workflow cannot prove execution');
-  for (const name of requiredSteps) assertStep(job, name);
+  const allNumbers = job.steps.map(s => s?.number);
+  assert.ok(allNumbers.every(positive), 'job has unnumbered steps');
+  assert.equal(new Set(allNumbers).size, job.steps.length,
+    'duplicate workflow step numbers');
+  for (let i = 1; i < allNumbers.length; i++) {
+    assert.ok(allNumbers[i] > allNumbers[i-1],
+      'GitHub step numbers out of execution order');
+  }
+  let lastRequiredNumber = 0;
+  for (const name of requiredSteps) {
+    const number = assertStep(job, name);
+    assert.ok(number > lastRequiredNumber,
+      'required verification steps executed out of order: ' + name);
+    lastRequiredNumber = number;
+  }
   assert.ok(Array.isArray(artifacts.artifacts) && artifacts.artifacts.length > 0,
     'receipt artifact missing');
   const name = 'boolean-wasm32-guest-evidence-' + run.id + '-' + run.run_attempt;

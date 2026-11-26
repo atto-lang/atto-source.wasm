@@ -1,0 +1,6 @@
+// Candidate NEGATIVE: wrapping in Result must not launder a loan to ownership.
+define module borrow_fixture as
+  pub fnc illegal_result(borrow Array<int> input): Result<Array<int>, int> {
+    return Ok(input);
+  }
+end

@@ -1,5 +1,7 @@
 # Wasmtime tenant Stores: native experimental v0
 
+**Canonical naming (2026-11-11): TenantVM** is the per-tenant runtime boundary. One Wasmtime Store/Instance per tenant is an experimental mechanism toward that goal; it does not alone prove full compiled multi-actor TenantVM security. See [TenantVM naming](TENANT_VM_NAMING_V1.md).
+
 ## Decision
 
 In the native `oreslang-source.wasm` host, a **tenant isolation domain**
