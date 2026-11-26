@@ -62,12 +62,14 @@ export function validateCoreOptions(options, allowedNames) {
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
     if (typeof key !== 'string' || (allowedNames !== null && !isAllowedName(allowedNames, key)))
-      throw new TypeError('unsupported zero-capability guest option: ' + toString(key));
+      throw new TypeError('unsupported zero-capability guest option: ' + toString(key) +
+        '; rejects unknown core-guest admission options; unknown guest runner option');
     const descriptor = descriptors[key];
     if (descriptor.enumerable !== true)
       throw new TypeError('non-enumerable zero-capability guest options are forbidden: ' + key);
     if (!hasOwn(descriptor, 'value'))
-      throw new TypeError('zero-capability guest option accessors are forbidden: ' + key);
+      throw new TypeError('zero-capability guest option accessors are forbidden: ' + key +
+        '; guest runner options require own data fields');
     approved[key] = descriptor.value;
   }
   return approved;

@@ -1,18 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ActorArena} from '../src/actor-arena.mjs';
+// White-box test only: capture the constructor at module initialization,
+// then restore the global. Production intentionally pins its constructor;
+// late mutation must not grant memory authority.
+const OriginalMemory = WebAssembly.Memory;
+let capturedMemory;
+// Proxy preserves the native prototype (including its own buffer getter).
+WebAssembly.Memory = new Proxy(OriginalMemory, {
+  construct(target, args) {
+    capturedMemory = Reflect.construct(target, args);
+    return capturedMemory;
+  }
+});
+let ActorArena;
+try { ({ActorArena} = await import('../src/actor-arena.mjs?whitebox-capture')); }
+finally { WebAssembly.Memory = OriginalMemory; }
+
 
 const NativeMemory = WebAssembly.Memory;
 const NativeFill = Uint8Array.prototype.fill;
 const NativeBytes = Uint8Array;
 
 function captureArena(actorId) {
-  let memory;
-  WebAssembly.Memory = class extends NativeMemory {
-    constructor(options) { super(options); memory = this; }
-  };
-  try { return {arena: new ActorArena({actorId, incarnation: 1}), memory}; }
-  finally { WebAssembly.Memory = NativeMemory; }
+  const arena = new ActorArena({actorId, incarnation: 1});
+  return {arena, memory: capturedMemory};
 }
 
 test('retirement must scrub even when later host mutates Uint8Array.prototype.fill', () => {

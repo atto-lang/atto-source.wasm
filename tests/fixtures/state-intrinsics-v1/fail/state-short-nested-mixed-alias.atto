@@ -1,0 +1,6 @@
+// expect-error: E_STATE_BORROW
+define state container Account as
+  state { let int balance: 0; }
+  pub bad(): void { state_w(|view| -> { view.balance = self.handle_state_ro(|s| -> s.balance); }); }
+end
+pub fnc main(): int { return 0; }
