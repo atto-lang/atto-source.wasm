@@ -1,0 +1,4 @@
+define class X as
+  pub method read():int{return 42;}
+end
+pub fnc main():int{return 0;}
