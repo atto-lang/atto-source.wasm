@@ -1,0 +1,8 @@
+// expect-error: E_STATE_BORROW
+define state container Account as
+    state { let int balance = 0; let int transactions = 0; }
+    pub snapshot(): Tuple[int, int] {
+        return state_ro(|s| -> { return (s.balance, other.transactions); });
+    }
+end
+pub fnc main(): int { return 0; }
