@@ -22,7 +22,7 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
     // Reserved compiler-owned stdlib identity, including legacy spellings.
     // Do not reject quoted text outside an import declaration.
     let normalized = path.split(String.fromCharCode(92)).join('/');
-    if (normalized.startsWith('std/') || normalized.startsWith('ores.std/')) {
+    if (normalized.startsWith('std/') || normalized.startsWith('ores.std/') || normalized.startsWith('atto.std/')) {
       const parts = [];
       for (const part of normalized.split('/')) {
         if (part === '' || part === '.') continue;
@@ -44,10 +44,12 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
       }
       normalized = parts.join('/');
     }
-    return ['ores.std/unsafe', 'std/unsafe', 'ores.std.unsafe',
-            'std.unsafe', 'ores.std:unsafe', 'std:unsafe'].some(root =>
-      normalized === root || normalized.startsWith(root + '/') ||
-      normalized.startsWith(root + '.'));
+    // Match exact namespace segments, not spelling-specific prefixes.
+    // Slash traversal was normalized above; colon/dot aliases now share
+    // the same reserved identity, including the canonical Atto namespace.
+    const segments = normalized.split(/[/.:]+/).filter(Boolean);
+    const offset = segments[0] === 'atto' || segments[0] === 'ores' ? 1 : 0;
+    return segments[offset] === 'std' && segments[offset + 1] === 'unsafe';
   };
   function quoted(quote) {
     const at = pos++;
