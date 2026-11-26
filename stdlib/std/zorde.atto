@@ -62,7 +62,7 @@ define module zorde as
       if needed > self.maximum - self.content.size; do return false; fi
       let int remaining = value;
       while remaining >= 128; do
-        self.content.add((remaining % 128) + 128);
+        self.content.add((remaining - (remaining / 128) * 128) + 128);
         remaining = remaining / 128;
       done
       self.content.add(remaining);
@@ -159,7 +159,7 @@ define module zorde as
           return Err("TruncatedVaruint");
         fi
         let int byte_value = self.content.get(self.position + i);
-        let int digit = byte_value % 128;
+        let int digit = byte_value - (byte_value / 128) * 128;
         if i == 4 && (digit > 7 || byte_value >= 128); do
           return Err("VaruintOverflow");
         fi
@@ -252,12 +252,20 @@ define module zorde as
     let checked = checked_reader(wire);
     if checked.is_err(); do return Err("InvalidWireByte"); fi
     let mut Reader r = checked.unwrap();
-    let prefix = r.read_bytes(5);
-    if prefix.is_err(); do return Err("TruncatedHeader"); fi
-    let Array<int> header = prefix.unwrap();
-    if header.get(0) != 90 || header.get(1) != 79 ||
-       header.get(2) != 82 || header.get(3) != 68 ||
-       header.get(4) != 1; do
+    // Fixed-size prefix: validate scalar bytes from the detached reader.
+    // No temporary header array, no exposed loan, no unchecked indexing.
+    let magic_z = r.read_byte();
+    let magic_o = r.read_byte();
+    let magic_r = r.read_byte();
+    let magic_d = r.read_byte();
+    let format_version = r.read_byte();
+    if magic_z.is_err() || magic_o.is_err() || magic_r.is_err() ||
+       magic_d.is_err() || format_version.is_err(); do
+      return Err("TruncatedHeader");
+    fi
+    if magic_z.unwrap() != 90 || magic_o.unwrap() != 79 ||
+       magic_r.unwrap() != 82 || magic_d.unwrap() != 68 ||
+       format_version.unwrap() != 1; do
       return Err("InvalidMagicOrVersion");
     fi
     let schema_result = r.read_varuint();
@@ -343,7 +351,7 @@ define module zorde as
       return Err("InvalidI31Payload");
     fi
     let int zigzag = value.unwrap();
-    if zigzag % 2 == 0; do return Ok(zigzag / 2); fi
+    if zigzag - (zigzag / 2) * 2 == 0; do return Ok(zigzag / 2); fi
     return Ok(-(zigzag / 2) - 1);
   }
 end
