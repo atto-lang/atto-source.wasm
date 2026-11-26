@@ -8,7 +8,7 @@
 // dropping on normal exits and exceptional/cancellation unwind.
 define module alloc_box as
   define pub class OwnedBox<T> as
-    let Option<T> slot = None;
+    let mut Option<T> slot = None;
   end
 
   // Explicit Copy-only factory; never aliases an unproven object graph.

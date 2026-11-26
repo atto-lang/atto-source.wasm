@@ -77,3 +77,28 @@ test('strict UTF-8 reference decoder vectors',()=>{
  for(const b of mustReject)assert.equal(dec(b),false);
  for(const b of mustAccept)assert.equal(dec(b),true);
 });
+
+test('owned collection storage and reassigned counters explicitly declare mutability',()=>{
+ const verify=(box,string,vec)=>{
+  assert.match(box,/^\s*let mut Option<T> slot = None;/m);
+  assert.doesNotMatch(box,/^\s*let Option<T> slot = None;/m);
+  for(const [name,count] of [['i',3],['count',1],['width',1]]) {
+   assert.equal([...string.matchAll(new RegExp('^\\s*let mut int '+name+' = [01];','gm'))].length,count);
+   assert.equal([...string.matchAll(new RegExp('^\\s*let int '+name+' = [01];','gm'))].length,0);
+  }
+  assert.match(vec,/^\s*let mut int capacity = current;/m);
+  assert.doesNotMatch(vec,/^\s*let int capacity = current;/m);
+ };
+ const values=[source('box'),source('string'),source('vec')];
+ verify(...values);
+ const sites=[[0,/let mut Option<T> slot = None;/g,0],
+  [1,/let mut int i = 0;/g,0],[1,/let mut int i = 0;/g,1],[1,/let mut int i = 0;/g,2],
+  [1,/let mut int count = 0;/g,0],[1,/let mut int width = 1;/g,0],
+  [2,/let mut int capacity = current;/g,0]];
+ for(const [file,pattern,index] of sites) {
+  const mutant=[...values], hit=[...mutant[file].matchAll(pattern)][index];
+  assert.ok(hit,'mutation anchor');
+  mutant[file]=mutant[file].slice(0,hit.index)+hit[0].replace('let mut ','let ')+mutant[file].slice(hit.index+hit[0].length);
+  assert.throws(()=>verify(...mutant));
+ }
+});

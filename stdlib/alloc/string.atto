@@ -21,7 +21,7 @@ define module alloc_string as
   }
 
   pub fnc valid_utf8(borrow Array<int> bytes) -> bool {
-    let int i = 0;
+    let mut int i = 0;
     let int n = bytes.size;
     while i < n do
       let int a = byte_at(bytes, i);
@@ -87,8 +87,8 @@ define module alloc_string as
     if !valid_utf8(bytes); do
       return None;
     fi
-    let int count = 0;
-    let int i = 0;
+    let mut int count = 0;
+    let mut int i = 0;
     while i < bytes.size do
       let int a = byte_at(bytes, i);
       count = count + 1;
@@ -168,7 +168,7 @@ define module alloc_string as
       return false;
     fi
     let int n = self.bytes.size;
-    let int width = 1;
+    let mut int width = 1;
     if scalar > 127; do
       width = 2;
     fi
@@ -182,7 +182,7 @@ define module alloc_string as
       return false;
     fi
     let mut Array<int> staged = new Array<int>();
-    let int i = 0;
+    let mut int i = 0;
     while i < n do
       staged.add(byte_at(self.bytes, i));
       i = i + 1;
