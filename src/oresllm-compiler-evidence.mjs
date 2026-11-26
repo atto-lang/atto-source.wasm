@@ -13,7 +13,9 @@ export function semanticCompilerRejection(error) {
   // EACCES, digest mismatch or timeout is infrastructure failure.
   const matched=/^command failed \([^\r\n)]*compiler-exact\): ([\s\S]+)$/i.exec(message);
   if (!matched) return false;
-  const diagnostics=matched[1];
+  // Some adapters serialize line breaks as literal backslash-n. Screen
+  // both representations before recognizing a diagnostic.
+  const diagnostics=matched[1].replace(/\\r\\n|\\n|\\r/g,'\n');
   if (/\b(?:ENOENT|EACCES|ETIMEDOUT|spawn|timed out|killed|not found|permission denied|no such file|segmentation fault|signal|out of memory|digest mismatch|sha-256 mismatch|exit 12[467]|exit 13[079]|exit 143)\b/i.test(diagnostics)) {
     return false;
   }
