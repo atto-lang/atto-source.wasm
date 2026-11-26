@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-// Candidate-only real Rust-compiled browser Wasm execution gate for canonical
-// exceptional bangs. DOES NOT fetch, publish or independently certify an
-// atto-source.rs compiler. The reviewed compiler bytes must be provided by
-// the caller and bound to an independently approved SHA-256.
+// Candidate-only real Rust-compiled browser Wasm separator execution gate.
+// Caller supplies exact-source-built candidate bytes and digest. This does
+// not independently approve an artifact or certify exceptional control.
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
-const guestRunner=fileURLToPath(new URL('./run-bounded-exception-bang-guest.mjs',import.meta.url));
+const guestRunner=fileURLToPath(new URL('./run-bounded-scalar-separator-guest.mjs',import.meta.url));
 
 const [compilerPath, expectedSha] = process.argv.slice(2);
 if(process.argv.length!==4 || !/^[a-f0-9]{64}$/.test(expectedSha??'')){
@@ -86,7 +85,7 @@ function runGuest(bytes){
   assert.ok(child.stdout.length>0 && child.stdout.length<=8192,
     'compiled guest receipt missing/oversized');
   const receipt=JSON.parse(child.stdout);
-  assert.equal(receipt.scope,'ISOLATED_COMPILED_GUEST','forged guest scope');
+  assert.equal(receipt.scope,'ISOLATED_SCALAR_SEPARATOR_GUEST','forged guest scope');
   assert.match(receipt.value,/^-?[0-9]+$/,'non-integer guest result');
   assert.ok(typeof receipt.stdout==='string'&&
     Buffer.byteLength(receipt.stdout,'utf8')<=4096,
