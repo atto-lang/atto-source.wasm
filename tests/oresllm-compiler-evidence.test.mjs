@@ -71,3 +71,11 @@ for(const [label,s] of [
 ]){
  test('not semantic proof '+label,()=>assert.equal(semanticCompilerRejection(s===null?s:new Error(s)),false));
 }
+
+test('escaped legacy line boundaries and real newlines deny infrastructure failure consistently',()=>{
+ for(const separator of ['\n','\r\n','\\n','\\r\\n','\\r']){
+   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'spawn EACCES')),false);
+   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'out of memory')),false);
+   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'exit 124')),false);
+ }
+});
