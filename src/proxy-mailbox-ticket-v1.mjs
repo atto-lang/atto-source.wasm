@@ -17,9 +17,10 @@ function boundedPositive(v) {
   return typeof v === 'bigint' && v > 0n && v <= (1n << 64n) - 1n;
 }
 function owns(target, id) {
-  return id.target_actor === target.actor && id.target_incarnation === target.incarnation;
+  return id.tenant === target.tenant && id.target_actor === target.actor && id.target_incarnation === target.incarnation;
 }
 export class HostProxyMailboxTicketsV1 {
+  #tenant;
   #actor;
   #incarnation;
   #capacity;
@@ -34,10 +35,11 @@ export class HostProxyMailboxTicketsV1 {
   #processed = 0;
   #failed = 0;
   #abandoned = 0;
-  constructor({actor, incarnation, capacity}) {
-    if (!boundedPositive(actor) || !boundedPositive(incarnation) ||
+  constructor({tenant, actor, incarnation, capacity}) {
+    if (!boundedPositive(tenant) || !boundedPositive(actor) || !boundedPositive(incarnation) ||
         !Number.isSafeInteger(capacity) || capacity < 1 || capacity > 4096)
       throw Error('E_PROXY_TICKET_TARGET');
+    this.#tenant = tenant;
     this.#actor = actor;
     this.#incarnation = incarnation;
     this.#capacity = capacity;
@@ -54,7 +56,7 @@ export class HostProxyMailboxTicketsV1 {
     let id;
     try { id = checked_proxy_receipt_identity_v1(route); i64(value); }
     catch { return Object.freeze({status: 'invalid', ticket: null}); }
-    if (!owns({actor: this.#actor, incarnation: this.#incarnation}, id))
+    if (!owns({tenant: this.#tenant, actor: this.#actor, incarnation: this.#incarnation}, id))
       return Object.freeze({status: 'stale', ticket: null});
     if (this.#closed || this.#fenced)
       return Object.freeze({status: 'closed', ticket: null});
