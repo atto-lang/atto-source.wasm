@@ -1,0 +1,37 @@
+// expect-exit: 0
+// expect-stdout: 42
+// expect-stdout: 2
+// expect-stdout: 42
+// expect-stdout: 0
+define state container Account as
+  state { let int balance: 0; let int transactions: 0; }
+  pub deposit(int amount): void {
+    state_w(|s| -> {
+      s.balance = s.balance + amount;
+      s.transactions = s.transactions + 1;
+    });
+  }
+  pub add(int amount): int {
+    return self.handle_state_w(|view| -> {
+      view.balance = view.balance + amount;
+      view.transactions = view.transactions + 1;
+      return view.balance;
+    });
+  }
+  pub read_balance(): int {
+    return state_ro(|s| -> s.balance);
+  }
+  pub read_transactions(): int {
+    return self.handle_state_ro(|view| -> { return view.transactions; });
+  }
+end
+pub fnc main(): int {
+  val a = new Account();
+  val b = new Account();
+  a.deposit(40);
+  stdio.println(a.add(2));
+  stdio.println(a.read_transactions());
+  stdio.println(a.read_balance());
+  stdio.println(b.read_balance());
+  return 0;
+}
