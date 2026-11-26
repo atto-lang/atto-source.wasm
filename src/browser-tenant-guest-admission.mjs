@@ -65,6 +65,24 @@ export function admit_browser_guest(input) {
     throw new Error('E_WASM_ACTOR_SIGNATURE');
   return {bytes:owned,module,imports:imports.map(x=>x.module+'.'+x.name),actors,actor_names:types,memory_pages:pages};
 }
+// Host-owned expected digest, never derived from the candidate by this API.
+// Snapshot before the asynchronous digest; compile only the checked bytes.
+// Return defensive byte copies rather than a mutable proof byte buffer.
+export async function admit_pinned_browser_guest(input, expectedSha256) {
+  if(typeof expectedSha256!=='string'||!/^[0-9a-f]{64}$/.test(expectedSha256))
+    throw new Error('E_PIN: invalid artifact pin');
+  const snapshot=snapshotGuestBytes(input,MAX_WASM_BYTES);
+  const digest=await crypto.subtle.digest('SHA-256',snapshot);
+  const actual=Array.from(new Uint8Array(digest),x=>x.toString(16).padStart(2,'0')).join('');
+  if(actual!==expectedSha256)throw new Error('E_PIN: stale artifact pin');
+  const admitted=admit_browser_guest(snapshot);
+  return Object.freeze({
+    sha256:actual, module:admitted.module,
+    imports:Object.freeze([...admitted.imports]), actors:admitted.actors,
+    actor_names:Object.freeze([...admitted.actor_names]), memory_pages:admitted.memory_pages,
+    get bytes(){return new Uint8Array(snapshot);}
+  });
+}
 export async function package_browser_guest(input) {
   const admitted=admit_browser_guest(input);
   const hash=await crypto.subtle.digest('SHA-256',admitted.bytes);
