@@ -456,8 +456,10 @@ test("concurrent close calls share one physical retirement barrier and exact set
     const second = supervisor.close();
     assert.strictEqual(first, second,
       "a second close cannot return success before first STOP has settled");
+    assert.equal(supervisor.status.retirementHold, true);
     await Promise.all([first, second]);
     assert.equal(supervisor.status.phase, "closed");
+    assert.equal(supervisor.status.retirementHold, false);
     assert.equal(pool.actorCount, 0);
     assert.equal(pool.activeWorkerCount, 1);
     await assert.rejects(old.send(1n), /STALE_ACTOR_GENERATION/);
@@ -502,6 +504,8 @@ test("failed STOP keeps a shared rejected close barrier and never reports retire
     assert.equal(sabotaged, true);
     assert.equal(supervisor.status.phase, "close-failed");
     assert.equal(supervisor.status.closed, true);
+    assert.equal(supervisor.status.retirementHold, true,
+      "a failed STOP must retain supervisor-owned retirement authority");
     assert.equal(pool.actorCount, 0);
     assert.equal(pool.activeWorkerCount, 0);
     await assert.rejects(handle.send(1n), /STALE_ACTOR_GENERATION/);
@@ -546,6 +550,7 @@ test("invalid internal CONTROL must retain raw actor until an acknowledged STOP"
     assert.equal(stopCalls, 1,
       "invalid CONTROL cannot discard raw resource before confirmed STOP");
     assert.equal(supervisor.status.phase, "closed");
+    assert.equal(supervisor.status.retirementHold, false);
   } finally {
     pool.spawn = original;
     await supervisor?.close();

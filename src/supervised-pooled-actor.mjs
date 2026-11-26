@@ -72,6 +72,9 @@ export class SupervisedPooledActor {
       restarts: this.#restarts,
       maxRestarts: this.#maxRestarts,
       closed: this.#closed,
+      // A revoked public handle is not physical retirement proof. Keep the
+      // failed STOP's raw authority pinned until verified cleanup.
+      retirementHold: this.#closed && (this.#raw !== null || this.#lateRaw !== null),
       hostContinuationTicketsPending: this.#tickets.pendingCount,
       guestContinuationResumeImplemented: false,
       lastControl: this.#lastControl
@@ -385,7 +388,8 @@ export class SupervisedPooledActor {
     const inFlight = this.#replacement;
     const raw = this.#raw;
     this.#current = null;
-    this.#raw = null;
+    // Keep the raw authority until the physical STOP barrier succeeds.
+    // A rejected STOP must not discard the last supervisor-owned hold.
     // The replacement's #spawnNext() independently checks #closed after
     // awaiting INIT and revokes any late actor. Do not close the shared pool
     // or affect unrelated actors on the same physical Worker.
@@ -402,6 +406,7 @@ export class SupervisedPooledActor {
         this.#phase = "close-failed";
         throw error;
       }
+      this.#raw = null;
     }
     this.#phase = "closed";
   }

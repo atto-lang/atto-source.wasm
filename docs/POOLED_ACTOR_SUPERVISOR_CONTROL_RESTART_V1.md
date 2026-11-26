@@ -84,3 +84,7 @@ This expands the suite to **12 cases: 11 host/synthetic-Wasm or host-mock cases 
 6. Physical OS/tenant sandbox isolation is not provided by Node Workers; do not treat this runtime-only work as an untrusted sandbox.
 
 Organization-wide GitHub provider admission incident [conformance #315](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/315) reports failed payments or a spending-limit block. The account billing owner must identify the precise condition, authorize its repair, then run a **source-free same-org canary with nonzero executed steps** before claiming that any of these workflows passed.
+
+### Supervisor close retirement hold
+
+`status.retirementHold` records that a closed supervisor still retains its raw current or late-restart actor authority. Public handles are revoked immediately. The raw hold is released only after the corresponding STOP succeeds; rejected STOP leaves the same rejected close barrier and conservative hold. The flag is a host ownership observation, not independent evidence of native reclamation or a new restart permission.
