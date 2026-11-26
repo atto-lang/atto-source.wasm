@@ -73,14 +73,29 @@ export async function runRefinementCases(bytes,pin,head,tree,log=console.log,typ
 }
 // A failure must not poison subsequent valid compilation, nor mutate the
 // caller's previous copied output, nor retain previous result bytes.
-const first=compiler.compile(pre+'\n'+main('42'));
-assert.equal(first.ok,true);
+// Keep the original default quantity-language controls. Typed corpora
+// must also prove reuse using their own admitted source profile.
+const initial=typedCases===null?['reuse-42',pre+'\n'+main('42'),42n]:
+  records.find(record=>typeof record[2]==='bigint');
+const rejected=typedCases===null?['reuse-missing',pre+'\n'+main('missing'),null]:
+  records.find(record=>typeof record[2]==='string'||record[2]===null);
+const subsequent=typedCases===null?['reuse-43',pre+'\n'+main('43'),43n]:
+  records.find(record=>typeof record[2]==='bigint'&&record[2]!==initial?.[2]);
+assert.ok(initial&&rejected&&subsequent,'reuse requires two distinct values and a diagnostic');
+const first=compiler.compile(initial[1]);
+assert.equal(first.ok,true,initial[0]+' reuse initial');
 const saved=await sha(first.wasm);
-assert.equal(compiler.compile(pre+'\n'+main('missing')).ok,false);
-const again=compiler.compile(pre+'\n'+main('43'));
-assert.equal(again.ok,true);
-assert.equal(await sha(first.wasm),saved);
-assert.equal(new WebAssembly.Instance(new WebAssembly.Module(again.wasm),{}).exports.main(),43n);
+assert.equal(new WebAssembly.Instance(new WebAssembly.Module(first.wasm),{}).exports.main(),initial[2],initial[0]);
+const bad=compiler.compile(rejected[1]);
+assert.equal(bad.ok,false,rejected[0]+' reuse failure');
+assert.equal(Object.hasOwn(bad,'wasm'),false,rejected[0]);
+assert.equal(Object.hasOwn(bad,'esm'),false,rejected[0]);
+assert.equal(bad.diagnostics.length,1,rejected[0]);
+if(rejected[2]!==null)assert.match(bad.diagnostics[0].message,new RegExp(rejected[2]+':'),rejected[0]);
+const again=compiler.compile(subsequent[1]);
+assert.equal(again.ok,true,subsequent[0]+' reuse subsequent');
+assert.equal(await sha(first.wasm),saved,'prior output immutable');
+assert.equal(new WebAssembly.Instance(new WebAssembly.Module(again.wasm),{}).exports.main(),subsequent[2],subsequent[0]);
 log('BROWSER_COMPILER '+head+' '+tree+' '+pin);
 log('BROWSER_REFINEMENT_VERIFIED '+records.length+' source cases plus reuse control');
 return { cases: records.length, reuse: true };
