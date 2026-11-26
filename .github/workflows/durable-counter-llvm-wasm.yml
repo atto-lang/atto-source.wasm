@@ -26,11 +26,11 @@ jobs:
           git rev-parse HEAD^{tree}
           dir="$RUNNER_TEMP/atto-llvm"
           git init "$dir"
-          GIT_TERMINAL_PROMPT=0 git -C "$dir" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.llvm.git 21706b5c79ca157d6ccacdc7e3298cc4d124e857
+          GIT_TERMINAL_PROMPT=0 git -C "$dir" -c credential.helper= fetch --depth=1 https://github.com/atto-lang/atto-source.llvm.git 6e99ebca842992014542ac91c09556f4d7f2e427
           git -C "$dir" checkout --detach FETCH_HEAD
           git -C "$dir" fsck --full
-          test "$(git -C "$dir" rev-parse HEAD)" = 21706b5c79ca157d6ccacdc7e3298cc4d124e857
-          test "$(git -C "$dir" rev-parse HEAD^{tree})" = c0bd1c1676bc9146422a5f4df442c34b0a47c640
+          test "$(git -C "$dir" rev-parse HEAD)" = 6e99ebca842992014542ac91c09556f4d7f2e427
+          test "$(git -C "$dir" rev-parse HEAD^{tree})" = 37a9a7c5b28cd99107587ed51f062cd7903acd94
           test -z "$(git -C "$dir" status --porcelain)"
           sudo apt-get update -qq
           sudo apt-get install -y clang lld llvm-dev cmake ninja-build
