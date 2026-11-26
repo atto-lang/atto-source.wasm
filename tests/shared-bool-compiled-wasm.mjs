@@ -19,6 +19,8 @@ const sha=b=>createHash('sha256').update(b).digest('hex');
 assert.equal(sha(await readFile(compiler)),compilerSha256);
 const fixture=await readFile(new URL('./fixtures/core-types-v1/bool-call-composition-positive.atto',import.meta.url));
 assert.equal(createHash('sha1').update(Buffer.from('blob '+fixture.length+'\0')).update(fixture).digest('hex'),'823fd7cf37b8303880057df2b3b436daf5cd08a8');
+const named=await readFile(new URL('./fixtures/core-types-v1/named-boolean-reductions.atto',import.meta.url));
+assert.equal(createHash('sha1').update(Buffer.from('blob '+named.length+'\0')).update(named).digest('hex'),'89d9b0dcc64218f787ababffd2e164b33ed9a18e');
 const browserRequired=process.env.ATTO_SHARED_BROWSER_REQUIRED??'0';
 assert.ok(['0','1'].includes(browserRequired),'invalid browser gate mode');
 const browser=process.env.ATTO_SHARED_BROWSER;
@@ -57,7 +59,8 @@ const dir=await mkdtemp(join(tmpdir(),'atto-shared-bool-'));
 try {
   for(const [name,bytes,expected] of [
     ['control',Buffer.from('pub fnc main():int { return 42; }'),42n],
-    ['shared',fixture,0n]
+    ['shared',fixture,0n],
+    ['named-reductions',named,43n]
   ]){
     const source=join(dir,name+'.atto'),output=join(dir,name+'.wasm');
     await writeFile(source,bytes,{flag:'wx'});

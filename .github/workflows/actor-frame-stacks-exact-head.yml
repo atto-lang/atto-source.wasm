@@ -4,6 +4,7 @@ on:
     paths:
       - 'src/actor-arena.mjs'
       - 'src/actor-frame-bytes.mjs'
+      - 'src/pinned-continuation-gate.mjs'
       - 'tests/actor-frame*.test.mjs'
       - 'tests/actor-arena.test.mjs'
       - '.github/workflows/actor-frame-stacks-exact-head.yml'
@@ -34,10 +35,10 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git log -1 --format='%H %T'
-          for file in src/actor-arena.mjs src/actor-frame-bytes.mjs tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs; do
+          for file in src/actor-arena.mjs src/actor-frame-bytes.mjs src/pinned-continuation-gate.mjs tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs; do
             test "$(git hash-object "$file")" = "$(git rev-parse "HEAD:$file")"
           done
-          node --test --test-reporter=tap tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs | tee "$RUNNER_TEMP/actor-frames.tap"
+          node --test --test-reporter=tap tests/actor-frame-event-loop-integration.test.mjs tests/actor-frame-bytes.test.mjs tests/actor-frame-stacks.test.mjs tests/actor-frame-stack-primordials.test.mjs tests/actor-arena.test.mjs | tee "$RUNNER_TEMP/actor-frames.tap"
           grep -Fx '# fail 0' "$RUNNER_TEMP/actor-frames.tap"
           grep -Fx '# skipped 0' "$RUNNER_TEMP/actor-frames.tap"
           grep -Eq '^# pass [1-9][0-9]*$' "$RUNNER_TEMP/actor-frames.tap"

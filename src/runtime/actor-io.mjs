@@ -106,6 +106,7 @@ export class ActorIoEnvelope {
   #authority;
   #input;
   #output;
+  #outputLease = null;
   #errors;
   #events;
   #inputClosed = false;
@@ -156,6 +157,7 @@ export class ActorIoEnvelope {
     this.#generation = nextGeneration;
     this.#input.clear();
     this.#output.clear();
+    this.#outputLease = null; // revoke all old generation leases
     this.#errors.clear();
     this.#events.clear();
     // A new actor generation gets fresh, open logical streams.
@@ -187,16 +189,56 @@ export class ActorIoEnvelope {
     this.#require(authority);
     return this.#inputClosed && this.#input.length === 0;
   }
+  /** Acquire exclusive output custody only for an open, empty queue. */
+  acquireOutputLease(authority) {
+    this.#require(authority);
+    if (this.#outputLease !== null || this.#output.length !== 0 || this.#outputClosed)
+      throw new Error("actor output lease unavailable or queue not empty or closed");
+    this.#outputLease = Object.freeze(Object.create(null));
+    return this.#outputLease;
+  }
+  #requireOutputLease(authority, lease) {
+    this.#require(authority);
+    if (this.#outputLease === null || lease !== this.#outputLease)
+      throw new Error("actor output lease missing, foreign or retired");
+  }
+  tryWriteOutputWithLease(authority, lease, bytes) {
+    this.#requireOutputLease(authority, lease);
+    return !this.#outputClosed && this.#output.tryPush(bytes);
+  }
+  readOutputWithLease(authority, lease) {
+    this.#requireOutputLease(authority, lease);
+    return this.#output.shift();
+  }
+  closeOutputWithLease(authority, lease) {
+    this.#requireOutputLease(authority, lease);
+    if (this.#outputClosed) return false;
+    this.#outputClosed = true;
+    return true;
+  }
+  releaseOutputLease(authority, lease) {
+    this.#requireOutputLease(authority, lease);
+    if (this.#output.length !== 0)
+      throw new Error("cannot release output lease with queued records");
+    this.#outputLease = null;
+    return true;
+  }
   tryWriteOutput(authority, bytes) {
     this.#require(authority);
+    if (this.#outputLease !== null)
+      throw new Error("actor output exclusively leased");
     return !this.#outputClosed && this.#output.tryPush(bytes);
   }
   readOutput(authority) {
     this.#require(authority);
+    if (this.#outputLease !== null)
+      throw new Error("actor output exclusively leased");
     return this.#output.shift();
   }
   closeOutput(authority) {
     this.#require(authority);
+    if (this.#outputLease !== null)
+      throw new Error("actor output exclusively leased");
     if (this.#outputClosed) return false;
     this.#outputClosed = true;
     return true;

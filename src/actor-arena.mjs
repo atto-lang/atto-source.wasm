@@ -293,6 +293,49 @@ export class ActorArena {
     trustedApply(trustedSet, this.#bytes(), [data, offset]);
   }
 
+  // Host-only primitive for prospective std.buffer OwnedBytes lowering.
+  // Calls are scoped to the current actor turn and issued private handles.
+  // No byte view or host pointer escapes; this is NOT .atto guest compilation.
+  readUnsigned(turn, handle, relativeOffset, width, endian) {
+    const slot = this.#slot(turn, handle);
+    if (width !== 1 && width !== 2 && width !== 4)
+      throw new RangeError("invalid unsigned byte width");
+    if (endian !== "le" && endian !== "be")
+      throw new TypeError("explicit byte order required");
+    if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0 ||
+        width > slot.length || relativeOffset > slot.length - width)
+      throw new RangeError("byte range out of bounds");
+    const bytes = this.#bytes();
+    let result = 0;
+    for (let i = 0; i < width; i++) {
+      const shift = 8 * (endian === "le" ? i : width - 1 - i);
+      result += bytes[slot.offset + relativeOffset + i] * 2 ** shift;
+    }
+    return result; // always integer <= 4294967295; no JS signed32 coercion
+  }
+
+  writeUnsigned(turn, handle, relativeOffset, width, value, endian) {
+    const slot = this.#slot(turn, handle);
+    if (width !== 1 && width !== 2 && width !== 4)
+      throw new RangeError("invalid unsigned byte width");
+    if (endian !== "le" && endian !== "be")
+      throw new TypeError("explicit byte order required");
+    if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0 ||
+        width > slot.length || relativeOffset > slot.length - width)
+      throw new RangeError("byte range out of bounds");
+    const max = 2 ** (8 * width) - 1;
+    if (!Number.isSafeInteger(value) || value < 0 || value > max)
+      throw new RangeError("unsigned byte value out of range");
+    // All validation is before the first byte store. No borrowing, I/O, or
+    // suspension; this owns the physical WebAssembly.Memory region.
+    const bytes = this.#bytes();
+    for (let i = 0; i < width; i++) {
+      const shift = 8 * (endian === "le" ? i : width - 1 - i);
+      bytes[slot.offset + relativeOffset + i] =
+        Math.floor(value / (2 ** shift)) % 256;
+    }
+  }
+
   // Host compiler/scheduler primitive. One private 64-KiB frame backing
   // per live logical execution (max eight per actor). Compiler lowering must
   // explicitly materialize locals/roots here; Wasm engine frames are separate.
