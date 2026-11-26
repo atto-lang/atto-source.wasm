@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,writeFile,readFile,stat,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,stat,rm,readdir,lstat,chmod} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,isAbsolute} from 'node:path';
 import {compileOresToWasm,readBoundedRegularFile} from '../scripts/compile-ores.mjs';
@@ -61,5 +61,19 @@ test('exact LLVM Boolean alias head to Wasm32 atomic release and isolated guest'
    }
    assert.equal(gitBlob(await readFile(input)),blob);
   }
- }finally{await rm(dir,{recursive:true,force:true})}
+ }finally{
+  // Atomic releases deliberately seal the published directory read-only.
+  // Restore owner write permission only in this test-owned temporary tree.
+  for(const name of await readdir(dir)){
+   if(!name.endsWith('.wasm.releases'))continue;
+   const root=join(dir,name);
+   if(!(await lstat(root)).isDirectory())continue;
+   for(const digest of await readdir(root)){
+    if(!/^[a-f0-9]{64}$/.test(digest))continue;
+    const release=join(root,digest);
+    if((await lstat(release)).isDirectory())await chmod(release,0o700);
+   }
+  }
+  await rm(dir,{recursive:true,force:true});
+ }
 });
