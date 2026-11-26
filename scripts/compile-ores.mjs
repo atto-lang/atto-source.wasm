@@ -7,6 +7,7 @@ import {spawnSync} from "node:child_process";
 import {types} from "node:util";
 import {snapshotGuestBytes} from "../src/snapshot-guest-bytes.mjs";
 import {rejectBidirectionalSourceControls} from "./source-bidi-admission.mjs";
+import {scalarAt,isSourceNameStart,sourceNameEnd} from "../src/source-unicode-identifiers.mjs";
 import {constants} from "node:fs";
 import {createHash} from "node:crypto";
 import {writeFile,mkdir,mkdtemp,rm,rename,realpath,stat,open} from "node:fs/promises";
@@ -41,7 +42,7 @@ export function assertScalarSourceHasNoImports(bytes){
    // A CR-only line ending is still a new source line. Otherwise an import
    // after \\r could be hidden from this pre-publication admission check.
    i+=2;
-   while(i<source.length&&!["\r","\n","\u2028","\u2029"].includes(source[i]))i++;
+   while(i<source.length&&!["\r","\n","\u0085","\u2028","\u2029"].includes(source[i]))i++;
    continue;
   }
   if(ch==="/"&&next==="*"){
@@ -69,9 +70,9 @@ export function assertScalarSourceHasNoImports(bytes){
    if(!closed)throw Error("unterminated Oreslang string or character literal");
    continue;
   }
-  if(/[A-Za-z_]/.test(ch)){
-   const begin=i++;
-   while(i<source.length&&/[A-Za-z0-9_]/.test(source[i]))i++;
+  if(isSourceNameStart(scalarAt(source,i))){
+   const begin=i;
+   i=sourceNameEnd(source,i);
    if(source.slice(begin,i)==="import")
     throw Error("source imports require verified complete Wasm module graph");
    continue;
@@ -146,7 +147,6 @@ function tupleV2Tokens(sourceBytes){
    throw new RangeError("WASM source preflight token budget exceeded");
   tokens.push(token);
  };
- const idStart=c=>/[A-Za-z_]/.test(c), idPart=c=>/[A-Za-z0-9_]/.test(c);
  for(let i=0;i<text.length;){
   const c=text[i];
   // U+0085 (NEL) is AttoLang whitespace and a //-comment boundary, but
@@ -177,8 +177,8 @@ function tupleV2Tokens(sourceBytes){
    if(!closed)throw Error("unterminated source literal at byte "+start);
    continue;
   }
-  if(idStart(c)){
-   const start=i++;while(i<text.length&&idPart(text[i]))i++;
+  if(isSourceNameStart(scalarAt(text,i))){
+   const start=i;i=sourceNameEnd(text,i);
    pushToken({text:text.slice(start,i),offset:start,id:true});continue;
   }
   pushToken({text:c,offset:i,id:false});i++;
