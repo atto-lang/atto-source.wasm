@@ -35,9 +35,9 @@ jobs:
           work="$(mktemp -d)"
           trap 'rm -rf -- "$work"' EXIT
           git init -q "$work/llvm"
-          git -C "$work/llvm" -c credential.helper= -c http.extraheader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.llvm.git e5c996b9a3f14835a502277e8f6063d0d6740236
-          test "$(git -C "$work/llvm" rev-parse FETCH_HEAD)" = e5c996b9a3f14835a502277e8f6063d0d6740236
-          test "$(git -C "$work/llvm" rev-parse 'FETCH_HEAD^{tree}')" = 4feee3b03dc2145c41d05f56fbbfcc8e00a009eb
+          git -C "$work/llvm" -c credential.helper= -c http.extraheader= fetch --no-tags --depth=1 https://github.com/atto-lang/atto-source.llvm.git cae50939ccfd63c17bdd96852a3166285da075b3
+          test "$(git -C "$work/llvm" rev-parse FETCH_HEAD)" = cae50939ccfd63c17bdd96852a3166285da075b3
+          test "$(git -C "$work/llvm" rev-parse 'FETCH_HEAD^{tree}')" = f433b41c117d1d550be82418062c0dbf50686d60
           git -C "$work/llvm" -c core.hooksPath=/dev/null checkout --detach FETCH_HEAD
           git -C "$work/llvm" fsck --strict --no-reflogs
           test -z "$(git -C "$work/llvm" status --porcelain)"

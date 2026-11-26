@@ -1,0 +1,12 @@
+pub fnc main(): int {
+  val bool a = Xor(true, false);
+  val bool b = And(true, false);
+  val bool c = Or(true, false);
+  val bool d = Xor([true, false]);
+  val bool e = And([true, false, true, true, true]);
+  val bool f = Or([true, false, true, false]);
+  return (a && !b && c && d && !e && f &&
+    And([]) && !Or([]) && !Xor([]) &&
+    And([true]) && !Or([false]) && Xor([true]) &&
+    Xor(true,true,true) && !Xor(true,true)) ? 43 : 7;
+}
