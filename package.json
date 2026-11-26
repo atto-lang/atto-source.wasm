@@ -18,6 +18,7 @@
     "test:macro-wasm32": "ORESLANG_MACRO_WASM_PARITY_REQUIRED=1 node --test tests/macro-scalar-wasm32-parity.test.mjs",
     "test:bool-wasm32": "ORESLANG_BOOL_WASM_PARITY_REQUIRED=1 node --test tests/boolean-source-parity-wasm32.test.mjs",
     "test:portable-bounds-wasm32": "ATTO_BOUNDS_WASM_PARITY_REQUIRED=1 node --test tests/portable-bounds-wasm32.test.mjs",
-    "test:std-time-jspi": "node --test tests/stdlib-time-jspi.test.mjs"
+    "test:std-time-jspi": "node --test tests/stdlib-time-jspi.test.mjs",
+    "test:formal-orders": "ORESLANG_FORMAL_ORDER_PARITY_REQUIRED=1 node --test tests/optional-formal-order-pinned-wasm.test.mjs"
   }
 }

@@ -1,0 +1,65 @@
+{
+  "schema": "attolang.wasm.optional-formal-order.v1",
+  "status": "TARGET_NOT_EXECUTED",
+  "llvm_compiler_source_head": "e8b3d4331e3d9738ab95a34c635d2210ea9b00fe",
+  "shared_spec_pr": "https://github.com/ores-truffle-oreslang/attolang-language-spec.md/pull/51",
+  "parity": "required scalar formals only; optional/defaulted/Option call ABI unimplemented",
+  "fixtures": [
+    {
+      "id": "typefirst",
+      "source": "fnc add(int x,int y):int{return x+y;}pub fnc main():int{return add(20,22);}",
+      "kind": "execute",
+      "expected_exit": 42,
+      "diagnostic": null,
+      "sha256": "12b674c328db292372984f281f6fbb9c83006a561b52df1cbdb6d97ae3405223"
+    },
+    {
+      "id": "namefirst",
+      "source": "fnc add(x:int,y:int):int{return x+y;}pub fnc main():int{return add(20,22);}",
+      "kind": "execute",
+      "expected_exit": 42,
+      "diagnostic": null,
+      "sha256": "7d24c97be3eb66e84d1263a06343ba1652351a4b214c6421275b04dbb012c53b"
+    },
+    {
+      "id": "mixed",
+      "source": "fnc add(int x,y:int):int{return x+y;}pub fnc main():int{return add(20,22);}",
+      "kind": "execute",
+      "expected_exit": 42,
+      "diagnostic": null,
+      "sha256": "7c3e021ba19fd281aa3044e6cf9e8bddd489ba27ebcde50491f2306db62a3da8"
+    },
+    {
+      "id": "namefirst_omittable",
+      "source": "fnc add(x?:int):int{return 42;}pub fnc main():int{return 42;}",
+      "kind": "reject",
+      "expected_exit": null,
+      "diagnostic": "E_OPTIONAL_FORMAL_ABI_UNSUPPORTED",
+      "sha256": "23a19deb23db55d820de5b52ee1f000a67529f81c7f0921f5486c60c2953d79e"
+    },
+    {
+      "id": "namefirst_required_option",
+      "source": "fnc add(x:int?):int{return 42;}pub fnc main():int{return 42;}",
+      "kind": "reject",
+      "expected_exit": null,
+      "diagnostic": "E_OPTION_TYPE_ABI_UNSUPPORTED",
+      "sha256": "eaf29f395aa6dd0f3b694b1b2b10d4ad581ba1be3fb338e8b5054586f08c64a0"
+    },
+    {
+      "id": "namefirst_default_without_marker",
+      "source": "fnc add(x:int=10):int{return x;}pub fnc main():int{return 42;}",
+      "kind": "reject",
+      "expected_exit": null,
+      "diagnostic": "E_PARAMETER_DEFAULT_REQUIRES_NAME_QUESTION",
+      "sha256": "3cc3c51620b9c691f0d5c713effce466ea3f17c0bec353571c3252752b69c93a"
+    },
+    {
+      "id": "namefirst_optional_option",
+      "source": "fnc add(x?:int?):int{return 42;}pub fnc main():int{return 42;}",
+      "kind": "reject",
+      "expected_exit": null,
+      "diagnostic": "E_OPTIONAL_FORMAL_ABI_UNSUPPORTED",
+      "sha256": "c179d20d3b59928b8d99703c951e3696e24e9cfdfcfbcf272081cd671c495179"
+    }
+  ]
+}
