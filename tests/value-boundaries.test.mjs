@@ -95,7 +95,13 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     assert.deepEqual(await readFile(output + '.provenance.json'), provenance,
       'precedence compile replaced add provenance');
     const originalEntries = (await readdir(dir)).sort();
-    assert.equal(Object.keys(cases).length, 46);
+    // The v1/v2 manifests deliberately share exactly one byte-identical ID.
+    // Assert the overlap rather than silently dropping a distinct fixture.
+    const sharedIds = Object.keys(taskV2Cases).filter(k => Object.hasOwn(sharedCases, k));
+    assert.deepEqual(sharedIds, ['gpu-cpu-gpu-nested']);
+    assert.equal(taskV2Cases[sharedIds[0]], sharedCases[sharedIds[0]]);
+    assert.equal(Object.keys(legacyCases).length, 20);
+    assert.equal(Object.keys(cases).length, 45);
     for (const [name, program] of Object.entries(cases)) {
       await writeFile(source, program);
       // Exercise both failure with no previous output and preservation of a
