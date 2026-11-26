@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {copyPrivateBytes, copyPrivateBytesInto} from "../src/actor-frame-bytes.mjs";
+import {copyPrivateBytes, copyPrivateBytesInto, refreshPrivateMemoryView} from "../src/actor-frame-bytes.mjs";
 
 test("private byte copies are independent and exact", () => {
   const source = Uint8Array.of(1, 42, 9, 3);
@@ -26,4 +26,20 @@ test("copy never invokes a caller-controlled typed-array species", () => {
   }});
   const copy = copyPrivateBytes(source, 0, 2);
   assert.deepEqual([...copy], [42, 9]);
+});
+
+test("fixed memory view is reused and refreshed after grow(0)", () => {
+  const memory = new WebAssembly.Memory({initial: 1, maximum: 1});
+  const first = refreshPrivateMemoryView(memory);
+  first[42] = 99;
+  assert.equal(refreshPrivateMemoryView(memory, first), first);
+  memory.grow(0);
+  assert.equal(first.byteLength, 0);
+  const next = refreshPrivateMemoryView(memory, first);
+  assert.notEqual(next, first);
+  assert.equal(next[42], 99);
+  assert.equal(refreshPrivateMemoryView(memory, next), next);
+  assert.notEqual(refreshPrivateMemoryView(memory, next.subarray(0, 8)), next);
+  const shared = new WebAssembly.Memory({initial: 1, maximum: 1, shared: true});
+  assert.throws(() => refreshPrivateMemoryView(shared), /shared backing/);
 });
