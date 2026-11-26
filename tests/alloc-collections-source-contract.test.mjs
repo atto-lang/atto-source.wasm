@@ -5,6 +5,14 @@ import {readFileSync} from 'node:fs';
 const source=(f)=>readFileSync(new URL('../stdlib/alloc/'+f+'.atto',import.meta.url),'utf8');
 const fixture=(f)=>readFileSync(new URL('./fixtures/alloc-collections-source/'+f+'.atto',import.meta.url),'utf8');
 
+// Ignore standalone comments; this guard is source inspection, not lexical proof.
+const sourceLines = text => text.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n');
+const forbiddenRaw = /unsafe|from_raw|transmute|raw_ptr/;
+test('standalone comments are not operations',()=>{
+ assert.doesNotMatch(sourceLines('// no unsafe pop or raw_ptr\nreturn None;'),forbiddenRaw);
+ for(const word of ['unsafe','from_raw','transmute','raw_ptr']) assert.match(sourceLines('// explanation\n'+word+'();'),forbiddenRaw);
+});
+
 test('Box requires explicit ownership transfer and forbids raw handle forging',()=>{
  const b=source('box');
  assert.match(b,/boxed<T>\(take! T value\)/);
@@ -14,7 +22,7 @@ test('Box requires explicit ownership transfer and forbids raw handle forging',(
  assert.match(b,/replace\(take! T next\)/);
  assert.match(b,/let Option<T> previous = take! self\.slot/);
  assert.match(b,/self\.slot = None/);
- assert.doesNotMatch(b,/unsafe|from_raw|transmute|raw_ptr/);
+ assert.doesNotMatch(sourceLines(b),forbiddenRaw);
 });
 test('Vec reserves actual ownership for consuming operation and Copy for reads',()=>{
  const v=source('vec');
@@ -23,7 +31,7 @@ test('Vec reserves actual ownership for consuming operation and Copy for reads',
  assert.match(v,/self\.values\.add\(copy! item\)/);
  assert.match(v,/index < 0 \|\| index >= self\.values\.size/);
  assert.match(v,/capacity > max_capacity - capacity/);
- assert.doesNotMatch(v,/unsafe|from_raw|transmute|raw_ptr/);
+ assert.doesNotMatch(sourceLines(v),forbiddenRaw);
 });
 test('String stages writes and admits only valid UTF-8 scalars',()=>{
  const s=source('string');
