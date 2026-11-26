@@ -16,8 +16,22 @@ let activeGuestWorkers = 0;
  */
 export async function runIsolatedCoreGuest(input, {
   expectedSha256, entry = "main", maxMemoryPages = 2,
-  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000
+  maxModuleBytes = 16 * 1024 * 1024, timeoutMs = 2000,
+  ioMode = "nio-only", guestNetworkIo = false, nioReactors = 0,
+  actorPhysicalTurns = 0, hardRealtime = false
 } = {}) {
+  // Do not silently discard unsupported execution options at this boundary.
+  // Validate before allocating a Worker, and forward the admitted profile.
+  if (ioMode !== "nio-only")
+    throw new TypeError("WASM runtime refuses legacy/blocking host I/O");
+  if (guestNetworkIo !== false)
+    throw new TypeError("WASM guest NIO is not implemented; host network I/O denied");
+  if (nioReactors !== 0)
+    throw new TypeError("WASM reactor threads are unsupported in core-wasm.i64-v1");
+  if (actorPhysicalTurns !== 0)
+    throw new TypeError("WASM physical source actor execution is unsupported");
+  if (hardRealtime !== false)
+    throw new TypeError("WASM hard-real-time scheduling is unsupported");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError("timeoutMs must be between 1 and 30000");
   }
@@ -70,7 +84,7 @@ export async function runIsolatedCoreGuest(input, {
           // environment from the trusted parent into the Wasm worker.
           execArgv: [],
           env: {},
-          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes}},
+          workerData: {bytes, options: {expectedSha256, entry, maxMemoryPages, maxModuleBytes, ioMode, guestNetworkIo, nioReactors, actorPhysicalTurns, hardRealtime}},
           resourceLimits: {maxOldGenerationSizeMb: 32, maxYoungGenerationSizeMb: 8}
         });
         timer = setTimeout(() => finish(new Error("guest execution deadline exceeded")), timeoutMs);
