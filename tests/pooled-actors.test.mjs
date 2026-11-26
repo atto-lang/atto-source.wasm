@@ -7,17 +7,32 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {PooledWasmActors} from '../src/pooled-actor-host.mjs';
 
-function compile({spin = false, invalidImport = false} = {}) {
+function compile({spin = false, stackOverflow = false, invalidImport = false} = {}) {
   const path = mkdtempSync(join(tmpdir(), 'ores-wasm-pool-'));
   const output = join(path, 'actor.wasm');
   const ir = [
     'target triple = "wasm32-unknown-unknown"',
     '@counter = internal global i64 0',
     ...(invalidImport ? ['declare i64 @forbidden()'] : []),
+    ...(stackOverflow ? [
+      // Keep the recursive call live at -O0; a real Wasm call stack trap,
+      // not a fabricated JS Error or merely a memory arena quota failure.
+      'define i64 @overflow_recurse(i64 %v) noinline {',
+      'entry:',
+      '%next = add i64 %v, 1',
+      '%r = call i64 @overflow_recurse(i64 %next)',
+      '%s = add i64 %r, 1',
+      'ret i64 %s',
+      '}'
+    ] : []),
     'define void @oreslang_wasm_actor_init() { ret void }',
     'define i64 @oreslang_wasm_actor_on_message(i64 %value) {',
     'entry:',
     ...(spin ? ['br label %spin', 'spin:', 'br label %spin'] :
+      stackOverflow ? [
+        '%result = call i64 @overflow_recurse(i64 %value)',
+        'ret i64 %result'
+      ] :
       invalidImport ? ['%x = call i64 @forbidden()', 'ret i64 %x'] : [
       '%old = load i64, ptr @counter',
       '%next = add i64 %old, %value',
@@ -91,6 +106,100 @@ test('noncooperating turn times out and kills its entire shared carrier', async 
   await pool.close();
 });
 
+
+test('real Wasm call-stack overflow exposes shared-carrier blast radius (NOT actor-only)', async () => {
+  const recursive = compile({stackOverflow: true}), good = compile();
+  const pool = new PooledWasmActors({workers: 2, maxActors: 4, timeoutMs: 7000, isolation: 'shared'});
+  try {
+    // Deterministic round-robin assignment: fatal and colocated share
+    // a carrier; healthy is assigned the other carrier.
+    const fatal = await pool.spawn(recursive,
+      {trusted: true, expectedSha256: pin(recursive)});
+    const healthy = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    const colocated = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await healthy.send(1n), 1n);
+    const overflowing = fatal.send(42n);
+    const acceptedColocated = colocated.send(1n);
+    await assert.rejects(overflowing, /WASM actor trap:.*stack/i);
+    await assert.rejects(acceptedColocated, /WASM actor trap:.*stack/i);
+    assert.equal(pool.activeWorkerCount, 1,
+      'a guest stack trap currently retires the entire affected carrier');
+    assert.equal(pool.actorCount, 1,
+      'colocated actor is collateral damage: NOT actor-only containment');
+    await assert.rejects(fatal.send(1n), /not accepting/);
+    await assert.rejects(colocated.send(1n), /not accepting/);
+    assert.equal(await healthy.send(2n), 3n,
+      'another carrier and its independent instance remain live');
+    const replacement = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await replacement.send(5n), 5n);
+    await healthy.stop();
+    await replacement.stop();
+  } finally {
+    await pool.close();
+  }
+});
+
+test('dedicated isolation fences physical stack traps to one actor and denies unsafe sharing', async () => {
+  const recursive = compile({stackOverflow: true});
+  const good = compile();
+  assert.throws(() => new PooledWasmActors({isolation: 'unsafe'}), /isolation mode/);
+  const pool = new PooledWasmActors({
+    workers: 2, maxActors: 12, timeoutMs: 7000, isolation: 'dedicated'
+  });
+  try {
+    assert.equal(pool.isolation, 'dedicated');
+    const fatal = await pool.spawn(recursive,
+      {trusted: true, expectedSha256: pin(recursive)});
+    const peer = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await peer.send(2n), 2n);
+    await assert.rejects(
+      pool.spawn(good, {trusted: true, expectedSha256: pin(good)}),
+      /no isolated actor carrier available/,
+      'a third actor must be rejected before obtaining any carrier authority');
+    await assert.rejects(fatal.send(1n), /WASM actor trap:.*stack/i);
+    assert.equal(pool.activeWorkerCount, 1,
+      'the physically faulted Worker is quarantined');
+    assert.equal(pool.actorCount, 1,
+      'the surviving actor cannot be a colocated victim');
+    assert.equal(await peer.send(3n), 5n,
+      'healthy actor retains private memory and keeps executing');
+    // Dedicated mode cannot silently fall back to multiplexing when the
+    // other physical Worker is gone.
+    await assert.rejects(
+      pool.spawn(good, {trusted: true, expectedSha256: pin(good)}),
+      /no isolated actor carrier available/);
+    await peer.stop();
+    const replacement = await pool.spawn(good,
+      {trusted: true, expectedSha256: pin(good)});
+    assert.equal(await replacement.send(9n), 9n,
+      'clean stop permits safe reuse of the surviving physical carrier');
+    await replacement.stop();
+  } finally {
+    await pool.close();
+  }
+});
+
+test('dedicated mode reserves the carrier during concurrent spawn and stop', async () => {
+  const wasm = compile();
+  const options = {trusted: true, expectedSha256: pin(wasm)};
+  const pool = new PooledWasmActors({workers: 1, maxActors: 4, isolation: 'dedicated'});
+  try {
+    const starting = pool.spawn(wasm, options);
+    await assert.rejects(pool.spawn(wasm, options), /no isolated actor carrier available/);
+    const actor = await starting;
+    assert.equal(await actor.send(42n), 42n);
+    const stopping = actor.stop();
+    await assert.rejects(pool.spawn(wasm, options), /no isolated actor carrier available/);
+    await stopping;
+    const replacement = await pool.spawn(wasm, options);
+    assert.equal(await replacement.send(1n), 1n, 'replacement must start with fresh memory');
+    await replacement.stop();
+  } finally {await pool.close();}
+});
 
 test('stop drains already admitted DATA before teardown and seals new admission', async () => {
   const wasm = compile();
@@ -251,4 +360,27 @@ test('single-threaded policy executes private actors on distinct workers without
     /unsupported WASM actor pool threading policy/);
   assert.throws(() => new PooledWasmActors({threadPolicy:2}),
     /unsupported WASM actor pool threading policy/);
+});
+
+test('unsupported elastic options are denied before allocating pooled Workers', async () => {
+  for (const key of [
+    'maxParallelism','max_parallelism','poolSize','pool_size','pool',
+    'affinity','threadAffinity','schedule','actorSchedule','actor_schedule',
+    'pinnedWorker','dedicatedWorker'
+  ]) {
+    assert.throws(
+      () => new PooledWasmActors({workers:1,[key]:1}),
+      /WASM elastic actor scheduling unsupported/,
+      'constructor key ' + key
+    );
+  }
+  const pool = new PooledWasmActors({workers:1});
+  try {
+    await assert.rejects(pool.spawn(new Uint8Array(0), {
+      expectedSha256:'0'.repeat(64),trusted:true,max_parallelism:2
+    }), /WASM elastic actor scheduling unsupported/);
+    assert.equal(pool.actorCount,0,'no forged source actor admitted');
+  } finally {
+    await pool.close();
+  }
 });

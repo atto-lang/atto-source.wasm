@@ -1,0 +1,39 @@
+// Atto hosted std HTTP response decisions: portable pure policy only.
+// This module performs NO DNS, TLS, socket I/O, redirects or host admission.
+// The transport must authenticate the response and enforce permissions.
+pub fnc http_status_valid(int status): bool {
+  if status < 100 then return false; fi
+  if status > 599 then return false; fi
+  return true;
+}
+
+pub fnc http_status_success(int status): bool {
+  if status < 200 then return false; fi
+  return status <= 299;
+}
+
+pub fnc http_status_redirect(int status): bool {
+  if status < 300 then return false; fi
+  return status <= 399;
+}
+
+pub fnc http_status_client_error(int status): bool {
+  if status < 400 then return false; fi
+  return status <= 499;
+}
+
+pub fnc http_status_server_error(int status): bool {
+  if status < 500 then return false; fi
+  return status <= 599;
+}
+
+// For GET only: a final response may carry a body except these status codes.
+// Actual response framing and body size still require the HTTP transport.
+pub fnc http_get_status_may_have_body(int status): bool {
+  if http_status_valid(status) == false then return false; fi
+  if status < 200 then return false; fi
+  if status == 204 then return false; fi
+  if status == 205 then return false; fi
+  if status == 304 then return false; fi
+  return true;
+}

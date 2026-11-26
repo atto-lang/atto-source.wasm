@@ -5,10 +5,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {mkdtemp,writeFile,readFile,rm,stat} from "node:fs/promises";
+import {spawnSync} from "node:child_process";
 import {readFileSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
-import {compileOresToWasm} from "../scripts/compile-ores.mjs";
+import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
+import {assertNativeFrontendRejection} from "../scripts/verify-real-compiler.mjs";
 import {semanticCompilerRejection} from "../src/oresllm-compiler-evidence.mjs";
 
 const historicalV4=readFileSync(new URL("../contracts/parity/portable-scalar-v4-20261119.json",import.meta.url));
@@ -51,13 +53,25 @@ async function guest(t,x,kind,returnKeyword="return"){
   const source=join(dir,"main.atto"),output=join(dir,"main.wasm");
   const bytes=Buffer.from("pub fnc main(): int { "+returnKeyword+" "+x.expression+"; }\n");
   await writeFile(source,bytes,{flag:"wx",mode:0o400});
-  const go=()=>compileOresToWasm({compiler:resolve(compiler),compilerSha256,source,output});
+  const snapshot=(await readBoundedRegularFile(resolve(compiler),256*1024*1024,"compiler snapshot unavailable")).bytes;
+  assert.equal(hash(snapshot),compilerSha256,"compiler binary mismatch");
+  const exactCompiler=join(dir,"compiler-exact");
+  await writeFile(exactCompiler,snapshot,{flag:"wx",mode:0o500});
+  const go=()=>compileOresToWasm({compiler:exactCompiler,compilerSha256,source,output,operatorProfile:"canonical-i64-v5"});
   if(kind==="compile_reject"){
     // A missing compiler, digest failure, timeout, or linker crash is NOT an
     // expected language rejection. Require the pinned compiler's source-stage
     // diagnostic before granting this negative Oreslang guest assertion.
+    // The bridge is not a compiler oracle. Independently invoke the
+    // exact snapshot and require a diagnosed source rejection with no IR.
+    const result=spawnSync(exactCompiler,["--target=wasm32",source],{
+      encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,
+      env:{PATH:process.env.PATH??"/usr/bin:/bin",LANG:"C.UTF-8",LC_ALL:"C.UTF-8"}});
+    assertNativeFrontendRejection(result);
     await assert.rejects(go(),error=>{
-      assert.equal(semanticCompilerRejection(error),true,
+      assert.ok(semanticCompilerRejection(error) ||
+        (["removed-percent-new","invalid-infix-return-caret","spaced-carets"].includes(x.id) &&
+         String(error?.message).includes("ATTO_REMOVED_OPERATOR")),
         "infrastructure failure misclassified as source rejection: "+x.id);
       return true;
     });

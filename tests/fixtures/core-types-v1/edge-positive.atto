@@ -1,0 +1,26 @@
+// Positive guest fixture: must link the actual core/types.atto, then exit 0.
+// Import support is a separate gate: parser-only acceptance is not a guest pass.
+import * as types from "../../../core/types.atto";
+
+fnc no_value() -> void { return; }
+
+pub fnc main() -> int {
+  no_value();
+  if types.int_value_bits() != 64 || types.byte_value_bits() != 8; do return 1; fi
+  if types.bool_value_bits() != 1; do return 2; fi
+  if types.int_min_value() != -9223372036854775807 - 1; do return 3; fi
+  if types.int_max_value() != 9223372036854775807; do return 4; fi
+
+  if !types.fits_i8(-128) || !types.fits_i8(127); do return 5; fi
+  if types.fits_i8(-129) || types.fits_i8(128); do return 6; fi
+  if !types.fits_i16(-32768) || types.fits_i16(32768); do return 7; fi
+  if !types.fits_i32(-2147483648) || types.fits_i32(2147483648); do return 8; fi
+  if !types.fits_i64(types.int_min_value()) || !types.fits_i64(types.int_max_value()); do return 9; fi
+
+  if !types.fits_u8(0) || !types.fits_u8(255); do return 10; fi
+  if types.fits_u8(-1) || types.fits_u8(256); do return 11; fi
+  if !types.fits_u16(65535) || types.fits_u16(65536); do return 12; fi
+  if !types.fits_u32(4294967295) || types.fits_u32(4294967296); do return 13; fi
+  if !types.fits_u64(types.int_max_value()) || types.fits_u64(-1); do return 14; fi
+  return 0;
+}

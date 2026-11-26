@@ -1,0 +1,22 @@
+// Wasm-local hosted std backpressure decisions. The runtime enforces admission.
+pub fnc stream_should_pause(int queued_bytes, int high_watermark): bool {
+  if queued_bytes < 0 then return true; fi
+  if high_watermark <= 0 then return true; fi
+  return queued_bytes >= high_watermark;
+}
+
+pub fnc stream_may_resume(int queued_bytes, int low_watermark, int high_watermark): bool {
+  if queued_bytes < 0 then return false; fi
+  if low_watermark < 0 then return false; fi
+  if high_watermark <= 0 then return false; fi
+  if low_watermark >= high_watermark then return false; fi
+  return queued_bytes <= low_watermark;
+}
+
+pub fnc stream_can_accept(int queued_bytes, int incoming_bytes, int hard_limit): bool {
+  if queued_bytes < 0 then return false; fi
+  if incoming_bytes < 0 then return false; fi
+  if hard_limit < 0 then return false; fi
+  if queued_bytes > hard_limit then return false; fi
+  return incoming_bytes <= hard_limit - queued_bytes;
+}

@@ -1,0 +1,33 @@
+name: Actor elastic policy v1 Wasm Worker fail-closed
+on:
+  pull_request:
+    paths:
+      - 'src/*actor*.mjs'
+      - 'src/worker-actor-client.mjs'
+      - 'src/pooled-actor-host.mjs'
+      - 'tests/*actor*.test.mjs'
+      - 'tests/pooled-actors.test.mjs'
+      - '.github/workflows/actor-elastic-failclosed-v1.yml'
+  push:
+    paths:
+      - 'src/*actor*.mjs'
+      - 'src/worker-actor-client.mjs'
+      - 'src/pooled-actor-host.mjs'
+      - 'tests/*actor*.test.mjs'
+      - 'tests/pooled-actors.test.mjs'
+      - '.github/workflows/actor-elastic-failclosed-v1.yml'
+permissions:
+  contents: read
+jobs:
+  host-policy-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Execute backend host fail-closed policy tests
+        run: node --test tests/actor-max-threads-preflight-lexical-20261105.test.mjs tests/pooled-actors.test.mjs
+      - name: Evidence boundary
+        run: echo 'SOURCE_FRONTEND_OR_HOST_ONLY; NOT backend guest elastic scheduling parity'

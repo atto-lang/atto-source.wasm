@@ -1,0 +1,8 @@
+// Unsupported until LLVM lowers typed actor-bound Topic.try_publish and Result ?.
+// The handle may come from an imported/actor-local scope: there is deliberately
+// no actor.group(...) or Topic<T> spelling in this negative source.
+pub fnc main(): void {
+  val String event = "pending";
+  val receipt = imported_topic.try_publish(share! event)?;
+  return;
+}

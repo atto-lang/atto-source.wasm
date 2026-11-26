@@ -1,0 +1,64 @@
+// Atto core/fmt v2: scalar formatter primitives only.
+// No String, Array, heap, I/O or guest-owned pointer manipulation.
+// To construct strings use alloc/text_fmt; to write without allocation,
+// callers can feed ASCII scalars into a separately borrowed output sink.
+// Compiler enforces loan lifetimes; this library cannot mint that authority.
+define module fmt as
+  pub fnc decimal_digit_count(int value): int {
+    let int remaining = value;
+    if remaining > 0; do remaining = -remaining; fi
+    let int count = 1;
+    while remaining <= -10; do
+      remaining = remaining / 10;
+      count = count + 1;
+    done
+    return count;
+  }
+
+  pub fnc decimal_ascii_from_right(int value, int position): Result<int, int> {
+    if position < 0 || position >= decimal_digit_count(value); do
+      return Err(7);
+    fi
+    let int remaining = value;
+    if remaining > 0; do remaining = -remaining; fi
+    for (let int index = 0; index < position; index = index + 1) {
+      remaining = remaining / 10;
+    }
+    val int quotient = remaining / 10;
+    // quotient*10 is in range even for i64::MIN. Avoid abs(i64::MIN).
+    val int digit = quotient * 10 - remaining;
+    return Ok(48 + digit);
+  }
+
+  pub fnc decimal_is_negative(int value): bool {
+    return value < 0;
+  }
+
+  pub fnc hex_ascii_nibble(int value): Result<int, int> {
+    if value < 0 || value > 15; do return Err(4); fi
+    if value < 10; do return Ok(48 + value); fi
+    return Ok(87 + value);
+  }
+
+  pub fnc bool_ascii_length(bool value): int {
+    if value; do return 4; fi
+    return 5;
+  }
+
+  pub fnc bool_ascii_at(bool value, int index): Result<int, int> {
+    if index < 0 || index >= bool_ascii_length(value); do
+      return Err(7);
+    fi
+    if value; do
+      if index == 0; do return Ok(116); fi
+      if index == 1; do return Ok(114); fi
+      if index == 2; do return Ok(117); fi
+      return Ok(101);
+    fi
+    if index == 0; do return Ok(102); fi
+    if index == 1; do return Ok(97); fi
+    if index == 2; do return Ok(108); fi
+    if index == 3; do return Ok(115); fi
+    return Ok(101);
+  }
+end

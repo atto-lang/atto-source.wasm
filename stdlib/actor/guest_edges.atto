@@ -1,0 +1,289 @@
+// Native Atto adversarial boundary corpus; no host emulation.
+// Actual execution is required to call this PASS. Failed guards return unique codes.
+use namespace std.actor.boundaries;
+import actor_mailbox_admissible,
+       actor_future_transition_valid,
+       actor_lifecycle_transition_valid,
+       actor_should_restart,
+       actor_restart_first,
+       actor_restart_end_exclusive,
+       actor_restart_budget_allows,
+       actor_next_generation,
+       actor_failure_notifies_supervisor,
+       actor_cancel_request_admissible,
+       actor_stop_request_admissible,
+       actor_stop_completion_admissible,
+       actor_restart_generation_admissible,
+       actor_supervisor_notice_admissible,
+       actor_reply_admissible from "./policy.atto";
+
+// expect-exit: 42
+pub fnc main(): int {
+  // empty mailbox with one slot
+  if (actor_mailbox_admissible(true, true, true, true, 0, 1)) == false then return 100; fi
+  // maximum bounded queue admits last slot
+  if (actor_mailbox_admissible(true, true, true, true, 65535, 65536)) == false then return 101; fi
+  // full at maximum is closed
+  if actor_mailbox_admissible(true, true, true, true, 65536, 65536) then return 102; fi
+  // zero-capacity cannot be used
+  if actor_mailbox_admissible(true, true, true, true, 0, 0) then return 103; fi
+  // maximum capacity enforced
+  if actor_mailbox_admissible(true, true, true, true, 0, 65537) then return 104; fi
+  // negative queue occupancy rejected
+  if actor_mailbox_admissible(true, true, true, true, -1, 1) then return 105; fi
+  // unauthorized DATA
+  if actor_mailbox_admissible(false, true, true, true, 0, 1) then return 106; fi
+  // not running
+  if actor_mailbox_admissible(true, false, true, true, 0, 1) then return 107; fi
+  // stale actor incarnation
+  if actor_mailbox_admissible(true, true, false, true, 0, 1) then return 108; fi
+  // not sendable
+  if actor_mailbox_admissible(true, true, true, false, 0, 1) then return 109; fi
+  // unique settlement 1
+  if (actor_future_transition_valid(0, 1)) == false then return 110; fi
+  // unique settlement 2
+  if (actor_future_transition_valid(0, 2)) == false then return 111; fi
+  // unique settlement 3
+  if (actor_future_transition_valid(0, 3)) == false then return 112; fi
+  // unique settlement 4
+  if (actor_future_transition_valid(0, 4)) == false then return 113; fi
+  // invalid future transition 0 to 0
+  if actor_future_transition_valid(0, 0) then return 114; fi
+  // invalid future transition 0 to 5
+  if actor_future_transition_valid(0, 5) then return 115; fi
+  // invalid future transition 1 to 2
+  if actor_future_transition_valid(1, 2) then return 116; fi
+  // invalid future transition 2 to 2
+  if actor_future_transition_valid(2, 2) then return 117; fi
+  // invalid future transition -1 to 1
+  if actor_future_transition_valid(-1, 1) then return 118; fi
+  // invalid future transition 4 to 0
+  if actor_future_transition_valid(4, 0) then return 119; fi
+  // invalid future transition 4 to 1
+  if actor_future_transition_valid(4, 1) then return 120; fi
+  // invalid future transition 3 to 1
+  if actor_future_transition_valid(3, 1) then return 121; fi
+  // allowed lifecycle 0 -> 1
+  if (actor_lifecycle_transition_valid(0, 1)) == false then return 122; fi
+  // allowed lifecycle 0 -> 3
+  if (actor_lifecycle_transition_valid(0, 3)) == false then return 123; fi
+  // allowed lifecycle 1 -> 2
+  if (actor_lifecycle_transition_valid(1, 2)) == false then return 124; fi
+  // allowed lifecycle 1 -> 3
+  if (actor_lifecycle_transition_valid(1, 3)) == false then return 125; fi
+  // allowed lifecycle 1 -> 5
+  if (actor_lifecycle_transition_valid(1, 5)) == false then return 126; fi
+  // allowed lifecycle 2 -> 3
+  if (actor_lifecycle_transition_valid(2, 3)) == false then return 127; fi
+  // allowed lifecycle 2 -> 5
+  if (actor_lifecycle_transition_valid(2, 5)) == false then return 128; fi
+  // allowed lifecycle 3 -> 4
+  if (actor_lifecycle_transition_valid(3, 4)) == false then return 129; fi
+  // allowed lifecycle 3 -> 5
+  if (actor_lifecycle_transition_valid(3, 5)) == false then return 130; fi
+  // invalid lifecycle 0 -> 2
+  if actor_lifecycle_transition_valid(0, 2) then return 131; fi
+  // invalid lifecycle 0 -> 4
+  if actor_lifecycle_transition_valid(0, 4) then return 132; fi
+  // invalid lifecycle 1 -> 4
+  if actor_lifecycle_transition_valid(1, 4) then return 133; fi
+  // invalid lifecycle 2 -> 1
+  if actor_lifecycle_transition_valid(2, 1) then return 134; fi
+  // invalid lifecycle 2 -> 4
+  if actor_lifecycle_transition_valid(2, 4) then return 135; fi
+  // invalid lifecycle 3 -> 2
+  if actor_lifecycle_transition_valid(3, 2) then return 136; fi
+  // invalid lifecycle 4 -> 1
+  if actor_lifecycle_transition_valid(4, 1) then return 137; fi
+  // invalid lifecycle 5 -> 2
+  if actor_lifecycle_transition_valid(5, 2) then return 138; fi
+  // invalid lifecycle 3 -> 3
+  if actor_lifecycle_transition_valid(3, 3) then return 139; fi
+  // invalid lifecycle -1 -> 1
+  if actor_lifecycle_transition_valid(-1, 1) then return 140; fi
+  // restart policy 1 normal=true
+  if (actor_should_restart(1, true)) == false then return 141; fi
+  // restart policy 1 normal=false
+  if (actor_should_restart(1, false)) == false then return 142; fi
+  // restart policy 2 normal=true
+  if actor_should_restart(2, true) then return 143; fi
+  // restart policy 2 normal=false
+  if (actor_should_restart(2, false)) == false then return 144; fi
+  // restart policy 3 normal=true
+  if actor_should_restart(3, true) then return 145; fi
+  // restart policy 3 normal=false
+  if actor_should_restart(3, false) then return 146; fi
+  // restart policy 0 normal=true
+  if actor_should_restart(0, true) then return 147; fi
+  // restart policy 4 normal=false
+  if actor_should_restart(4, false) then return 148; fi
+  // span begin strategy 1
+  if (actor_restart_first(1, 2, 4) == 2) == false then return 149; fi
+  // span end strategy 1
+  if (actor_restart_end_exclusive(1, 2, 4) == 3) == false then return 150; fi
+  // span begin strategy 2
+  if (actor_restart_first(2, 2, 4) == 0) == false then return 151; fi
+  // span end strategy 2
+  if (actor_restart_end_exclusive(2, 2, 4) == 4) == false then return 152; fi
+  // span begin strategy 3
+  if (actor_restart_first(3, 2, 4) == 2) == false then return 153; fi
+  // span end strategy 3
+  if (actor_restart_end_exclusive(3, 2, 4) == 4) == false then return 154; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(0, 2, 4) == -1) == false then return 155; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(0, 2, 4) == -1) == false then return 156; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(4, 2, 4) == -1) == false then return 157; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(4, 2, 4) == -1) == false then return 158; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(1, -1, 4) == -1) == false then return 159; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(1, -1, 4) == -1) == false then return 160; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(1, 4, 4) == -1) == false then return 161; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(1, 4, 4) == -1) == false then return 162; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(2, 0, 0) == -1) == false then return 163; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(2, 0, 0) == -1) == false then return 164; fi
+  // invalid restart first returns -1
+  if (actor_restart_first(3, 0, 4097) == -1) == false then return 165; fi
+  // invalid restart end returns -1
+  if (actor_restart_end_exclusive(3, 0, 4097) == -1) == false then return 166; fi
+  // bounded restart budget 0 + 1 of 0
+  if actor_restart_budget_allows(0, 1, 0) then return 167; fi
+  // bounded restart budget 0 + 1 of 1
+  if (actor_restart_budget_allows(0, 1, 1)) == false then return 168; fi
+  // bounded restart budget 3 + 2 of 4
+  if actor_restart_budget_allows(3, 2, 4) then return 169; fi
+  // bounded restart budget 2 + 2 of 4
+  if (actor_restart_budget_allows(2, 2, 4)) == false then return 170; fi
+  // bounded restart budget 0 + 4096 of 4096
+  if (actor_restart_budget_allows(0, 4096, 4096)) == false then return 171; fi
+  // bounded restart budget 1 + 4096 of 4096
+  if actor_restart_budget_allows(1, 4096, 4096) then return 172; fi
+  // bounded restart budget -1 + 1 of 10
+  if actor_restart_budget_allows(-1, 1, 10) then return 173; fi
+  // bounded restart budget 0 + -1 of 10
+  if actor_restart_budget_allows(0, -1, 10) then return 174; fi
+  // bounded restart budget 0 + 0 of 10
+  if actor_restart_budget_allows(0, 0, 10) then return 175; fi
+  // bounded restart budget 0 + 1 of -1
+  if actor_restart_budget_allows(0, 1, -1) then return 176; fi
+  // bounded restart budget 0 + 1 of 4097
+  if actor_restart_budget_allows(0, 1, 4097) then return 177; fi
+  // bounded restart budget 2147483647 + 1 of 4096
+  if actor_restart_budget_allows(2147483647, 1, 4096) then return 178; fi
+  // next generation -1
+  if (actor_next_generation(-1) == -1) == false then return 179; fi
+  // next generation 0
+  if (actor_next_generation(0) == -1) == false then return 180; fi
+  // next generation 1
+  if (actor_next_generation(1) == 2) == false then return 181; fi
+  // next generation 2147483646
+  if (actor_next_generation(2147483646) == 2147483647) == false then return 182; fi
+  // next generation 2147483647
+  if (actor_next_generation(2147483647) == -1) == false then return 183; fi
+  // supervisor failure classification 1
+  if actor_failure_notifies_supervisor(1, true) then return 184; fi
+  // supervisor failure classification 1
+  if (actor_failure_notifies_supervisor(1, false)) == false then return 185; fi
+  // supervisor failure classification 2
+  if actor_failure_notifies_supervisor(2, true) then return 186; fi
+  // supervisor failure classification 2
+  if (actor_failure_notifies_supervisor(2, false)) == false then return 187; fi
+  // supervisor failure classification 3
+  if (actor_failure_notifies_supervisor(3, true)) == false then return 188; fi
+  // supervisor failure classification 3
+  if (actor_failure_notifies_supervisor(3, false)) == false then return 189; fi
+  // supervisor failure classification 0
+  if actor_failure_notifies_supervisor(0, false) then return 190; fi
+  // supervisor failure classification 4
+  if actor_failure_notifies_supervisor(4, false) then return 191; fi
+  // cancel request state
+  if (actor_cancel_request_admissible(true, true, 0)) == false then return 192; fi
+  // cancel request state
+  if actor_cancel_request_admissible(true, true, 1) then return 193; fi
+  // cancel request state
+  if actor_cancel_request_admissible(false, true, 0) then return 194; fi
+  // cancel request state
+  if actor_cancel_request_admissible(true, false, 0) then return 195; fi
+  // cancel request state
+  if actor_cancel_request_admissible(true, true, -1) then return 196; fi
+  // stop request
+  if (actor_stop_request_admissible(true, true, 0)) == false then return 197; fi
+  // stop request
+  if (actor_stop_request_admissible(true, true, 1)) == false then return 198; fi
+  // stop request
+  if (actor_stop_request_admissible(true, true, 2)) == false then return 199; fi
+  // stop request
+  if actor_stop_request_admissible(true, true, 3) then return 200; fi
+  // stop request
+  if actor_stop_request_admissible(true, true, 4) then return 201; fi
+  // stop request
+  if actor_stop_request_admissible(true, true, 5) then return 202; fi
+  // stop request
+  if actor_stop_request_admissible(true, true, -1) then return 203; fi
+  // stop request
+  if actor_stop_request_admissible(false, true, 2) then return 204; fi
+  // stop request
+  if actor_stop_request_admissible(true, false, 2) then return 205; fi
+  // all certified resources returned
+  if (actor_stop_completion_admissible(3, true, true, true, true, true)) == false then return 206; fi
+  // running actor not retired
+  if actor_stop_completion_admissible(2, true, true, true, true, true) then return 207; fi
+  // DATA still open
+  if actor_stop_completion_admissible(3, false, true, true, true, true) then return 208; fi
+  // tasks live
+  if actor_stop_completion_admissible(3, true, false, true, true, true) then return 209; fi
+  // loans live
+  if actor_stop_completion_admissible(3, true, true, false, true, true) then return 210; fi
+  // outputs still open
+  if actor_stop_completion_admissible(3, true, true, true, false, true) then return 211; fi
+  // physical turn not retired
+  if actor_stop_completion_admissible(3, true, true, true, true, false) then return 212; fi
+  // generation 1 to 2
+  if (actor_restart_generation_admissible(true, true, true, 1, 2)) == false then return 213; fi
+  // last safe generation
+  if (actor_restart_generation_admissible(true, true, true, 2147483646, 2147483647)) == false then return 214; fi
+  // no supervisor CONTROL
+  if actor_restart_generation_admissible(false, true, true, 1, 2) then return 215; fi
+  // old not terminal
+  if actor_restart_generation_admissible(true, false, true, 1, 2) then return 216; fi
+  // old not quiescent
+  if actor_restart_generation_admissible(true, true, false, 1, 2) then return 217; fi
+  // ABA old generation reused
+  if actor_restart_generation_admissible(true, true, true, 1, 1) then return 218; fi
+  // generation skipped
+  if actor_restart_generation_admissible(true, true, true, 1, 3) then return 219; fi
+  // generation wrapped
+  if actor_restart_generation_admissible(true, true, true, 2147483647, 1) then return 220; fi
+  // panic always notifies
+  if (actor_supervisor_notice_admissible(true, true, true, 3, true)) == false then return 221; fi
+  // recovered throw no notification
+  if actor_supervisor_notice_admissible(true, true, true, 1, true) then return 222; fi
+  // unrecovered raise notifies
+  if (actor_supervisor_notice_admissible(true, true, true, 2, false)) == false then return 223; fi
+  // forged CONTROL
+  if actor_supervisor_notice_admissible(false, true, true, 3, false) then return 224; fi
+  // actor stale
+  if actor_supervisor_notice_admissible(true, false, true, 3, false) then return 225; fi
+  // parent stale
+  if actor_supervisor_notice_admissible(true, true, false, 3, false) then return 226; fi
+  // unknown kind rejected
+  if actor_supervisor_notice_admissible(true, true, true, 4, false) then return 227; fi
+  // authenticated pending request
+  if (actor_reply_admissible(true, true, true, true)) == false then return 228; fi
+  // unowned reply
+  if actor_reply_admissible(false, true, true, true) then return 229; fi
+  // stale incarnation
+  if actor_reply_admissible(true, false, true, true) then return 230; fi
+  // wrong request
+  if actor_reply_admissible(true, true, false, true) then return 231; fi
+  // settled request
+  if actor_reply_admissible(true, true, true, false) then return 232; fi
+  return 42;
+}

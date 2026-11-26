@@ -1,0 +1,51 @@
+// Backend-owned core policy candidate: wasm; NOT_EXECUTED by guest.
+// Core-owned scalar loan-admission preflight for tracked unique owner slots.
+// This is NOT a compiler borrow checker, a borrow token, a runtime lock, or
+// authority to access any resource. Compiler-issued loan provenance, CFG/NLL,
+// live place/field aliases, owner domain, unwind/drop, and Sendability MUST
+// still be verified before codegen. A boolean here grants no capability.
+// Enables identical bounds for native arena/handle loan diagnostic preflight.
+define module borrow_admission as
+  // Per-owner bounded witness states; 0..65535 live shared read loans.
+  // An exclusive write loan cannot coexist with any shared readers.
+  pub fnc valid_state(int readers, bool writer, bool owner_live): bool {
+    if readers < 0 || readers > 65535; do return false; fi
+    if writer && readers != 0; do return false; fi
+    if !owner_live && (readers != 0 || writer); do return false; fi
+    return true;
+  }
+
+  pub fnc may_read(int readers, bool writer, bool owner_live): bool {
+    return valid_state(readers, writer, owner_live) &&
+           owner_live && !writer && readers < 65535;
+  }
+
+  pub fnc may_write(int readers, bool writer, bool owner_live): bool {
+    return valid_state(readers, writer, owner_live) &&
+           owner_live && !writer && readers == 0;
+  }
+
+  // Moving, dropping and unique->frozen sharing must not race a loan.
+  // This is only one precondition, not a Sendable/freeze or drop proof.
+  pub fnc quiescent_owner(int readers, bool writer, bool owner_live): bool {
+    return valid_state(readers, writer, owner_live) &&
+           owner_live && readers == 0 && !writer;
+  }
+
+  pub fnc may_finish_read(int readers, bool writer, bool owner_live): bool {
+    return valid_state(readers, writer, owner_live) &&
+           owner_live && readers > 0 && !writer;
+  }
+
+  pub fnc may_finish_write(int readers, bool writer, bool owner_live): bool {
+    return valid_state(readers, writer, owner_live) &&
+           owner_live && readers == 0 && writer;
+  }
+
+  // Suspend/actor-turn boundaries require ended loans unless the compiler
+  // proves an explicit pinned frame / domain-safe lifetime. This conservative
+  // helper does not attempt to certify pinned frames or cross-actor transfer.
+  pub fnc quiescent_boundary(int readers, bool writer, bool owner_live): bool {
+    return quiescent_owner(readers, writer, owner_live);
+  }
+end

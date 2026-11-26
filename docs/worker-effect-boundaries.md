@@ -59,3 +59,32 @@ node --test tests/terminal-effect-notice.test.mjs
 The test runs a real Node `worker_threads` structured-clone round trip as well
 as negative notice validation. No Wasm guest, Rust compiler or JS transpiler
 is invoked here. Source-level browser conformance remains **UNSUPPORTED**.
+
+## Trusted terminal CONTROL snapshot hardening (2026-11-20)
+
+At the Worker receiver boundary, supervisor terminal-effect records must be
+validated as exact own data-descriptor snapshots before any actor identity,
+generation, effect or message is consulted. `Object.keys` alone is insufficient:
+it omits nonenumerable and symbol fields. Re-reading `record[field]` after a
+descriptor check is a TOCTOU defect because a Proxy can return a different
+value via its `get` trap. Sender and receiver now capture `Reflect.ownKeys`
+and own enumerable data-descriptor values once, and use only the immutable
+validated copy. Accessor, hidden, symbol, missing, unexpected and stale
+fields are rejected. The receiver still binds the *actual* trusted Worker
+object and one-shot actor generation; DATA envelopes and forged CONTROL
+types cannot impersonate terminal notices.
+
+Tests: `node --test tests/terminal-effect-notice.test.mjs
+tests/terminal-control-snapshot.test.mjs` includes Proxy read-trap noninterference,
+accessor denial, hidden/symbol authority rejection, DATA-vs-CONTROL separation
+and replay rejection. This is a **host-only transport security gate**, not
+compiled `.atto` actor messaging, supervisor guest unwinding, native AOT or
+untrusted TenantVM containment. The terminal notice adapter is still not
+wired to the shipped browser guest runtime or exposed as a guest import.
+
+Do not mix this transport adapter with `src/send-receipt.mjs` DATA delivery
+or `src/supervisor-stop-ledger.mjs` STOP authority; each has its own trusted
+physical binding and lifecycle. Atto Wasm PR #50 retains the canonical
+ActorArena frame/quiescence authority, and conformance #33/#40 own future
+source-compiled typed-actor and CONTROL/response obligations. Real guest
+execution and independent security review remain required for promotion.

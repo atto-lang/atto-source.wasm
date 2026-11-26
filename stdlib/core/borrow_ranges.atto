@@ -1,0 +1,44 @@
+// wasm-owned Atto core range/loan arithmetic policy.
+// A bool from this file is NEVER an authenticated borrow or move permit.
+// The typed compiler checker must prove region provenance, owner identity,
+// liveness, loan duration, Copy/Send/Sync, relocation and suspend boundaries.
+// No pointer dereference, runtime lock, actor transfer or allocator here.
+pub fnc range_fits(int region_bytes, int start_bytes, int length_bytes): bool {
+  if region_bytes < 0 || start_bytes < 0 || length_bytes < 0 then return false; fi
+  if start_bytes > region_bytes then return false; fi
+  return length_bytes <= region_bytes - start_bytes;
+}
+
+pub fnc ranges_overlap(int region_bytes, int left_start, int left_length,
+                       int right_start, int right_length): bool {
+  // Invalid bounds are conservatively OVERLAPPING, never an alias-free proof.
+  if !range_fits(region_bytes, left_start, left_length) then return true; fi
+  if !range_fits(region_bytes, right_start, right_length) then return true; fi
+  if left_length == 0 || right_length == 0 then return false; fi
+  if left_start <= right_start then return right_start - left_start < left_length; fi
+  return left_start - right_start < right_length;
+}
+
+pub fnc mutable_split_admissible(int region_bytes, int left_start, int left_length,
+                                 int right_start, int right_length): bool {
+  if !range_fits(region_bytes, left_start, left_length) then return false; fi
+  if !range_fits(region_bytes, right_start, right_length) then return false; fi
+  return !ranges_overlap(region_bytes, left_start, left_length, right_start, right_length);
+}
+
+pub fnc read_loan_slot_admissible(int active_readers, int max_readers,
+                                  bool writer_held, int queued_writers): bool {
+  if max_readers < 1 || max_readers > 1024 then return false; fi
+  if active_readers < 0 || active_readers >= max_readers then return false; fi
+  if writer_held || queued_writers != 0 then return false; fi
+  return true;
+}
+
+pub fnc write_loan_slot_admissible(int active_readers, bool writer_held): bool {
+  return active_readers == 0 && !writer_held;
+}
+
+pub fnc owner_move_slot_admissible(bool owner_live, int active_readers,
+                                   bool writer_held): bool {
+  return owner_live && active_readers == 0 && !writer_held;
+}

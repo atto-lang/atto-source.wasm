@@ -1,0 +1,16 @@
+// Candidate LLVM->wasm32 guest. Unverified: scalar bridge denies imports until
+// full compiler-owned core graph admission and actual guest linking exist.
+import module math from "atto.core/math";
+import module hash from "atto.core/hash";
+import module cell from "atto.core/cell";
+pub fnc main(): int {
+  if math.min_int(4, 9) != 4; do return 1; fi
+  if math.signum_int(-17) != -1; do return 2; fi
+  if hash.step_byte(17, 42) != 569; do return 3; fi
+  if hash.two_bytes(42, 7) != 17646; do return 4; fi
+  if hash.step_byte(-1, 1) != -1; do return 5; fi
+  if !cell.can_borrow_read(3, false); do return 6; fi
+  if cell.can_borrow_write(3, false); do return 7; fi
+  if cell.readers_after_acquire(65535, false) != -1; do return 8; fi
+  return 42;
+}

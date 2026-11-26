@@ -1,0 +1,13 @@
+// std/env v1: pure boolean parser guest fixture (no environment access).
+// Expected process exit status: 42, but only after real source imports/linking.
+import module std_env from "std/env";
+pub fnc main(): int {
+  if std_env.parse_bool("true").unwrap() == false; do return 101; fi
+  if std_env.parse_bool("1").unwrap() == false; do return 102; fi
+  if std_env.parse_bool("false").unwrap() == true; do return 103; fi
+  if std_env.parse_bool("0").unwrap() == true; do return 104; fi
+  if std_env.parse_bool("TRUE").is_ok(); do return 105; fi
+  if std_env.parse_bool("yes").is_ok(); do return 106; fi
+  if std_env.parse_bool("").is_ok(); do return 107; fi
+  return 42;
+}

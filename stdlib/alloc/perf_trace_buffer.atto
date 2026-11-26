@@ -1,0 +1,77 @@
+// wasm compiler-owned alloc-tier trace storage candidate.
+// One actor/worker owns each Buffer; no cross-owner mutable sharing.
+// No producer-side I/O, implicit locking, thread, runtime compiler or exporter.
+// Producer allocation may occur when enabled until capacity is reached;
+// real-time hard-latency guarantees require separate preallocation evidence.
+define module perf_trace_buffer as
+  // kind: 1=span, 2=counter, 3=gauge, 4=instant
+  pub define class Event as
+    pub val int kind;
+    pub val int trace_id;
+    pub val int span_id;
+    pub val int parent_span_id;
+    pub val int probe_id;
+    pub val int elapsed_ns;
+    pub val int value;
+  end
+
+  pub define class Buffer as
+    let mut Array<Event> events = new Array<Event>();
+    let int capacity;
+    let mut int dropped = 0;
+
+    pub constructor(int capacity) {
+      if capacity < 1 || capacity > 65536; do
+        rt fail("perf_trace_buffer: capacity must be 1..65536");
+      fi
+      self.capacity = capacity;
+    }
+
+    pub record(mut self)(bool enabled, int kind, int trace_id,
+                         int span_id, int parent_span_id,
+                         int probe_id, int elapsed_ns, int value) -> bool {
+      if !enabled; do
+        return false;
+      fi
+      if kind < 1 || kind > 4 || trace_id < 0 || span_id < 0
+        || parent_span_id < 0 || probe_id <= 0 || elapsed_ns < 0; do
+        return false;
+      fi
+      if self.events.size >= self.capacity; do
+        if self.dropped < 2147483647; do
+          self.dropped = self.dropped + 1;
+        fi
+        return false;
+      fi
+      self.events.add(new Event(kind, trace_id, span_id, parent_span_id,
+                                probe_id, elapsed_ns, value));
+      return true;
+    }
+
+    pub record_span(mut self)(bool enabled, int trace_id, int span_id,
+                              int parent_span_id, int probe_id,
+                              int elapsed_ns, int outcome) -> bool {
+      if !enabled; do
+        return false;
+      fi
+      return self.record(true, 1, trace_id, span_id, parent_span_id,
+                         probe_id, elapsed_ns, outcome);
+    }
+
+    pub count() -> int {
+      return self.events.size;
+    }
+
+    pub dropped_count() -> int {
+      return self.dropped;
+    }
+
+    pub at(int index) -> Event {
+      return self.events.get(index);
+    }
+  end
+
+  pub fnc buffer(int capacity) -> Buffer {
+    return new Buffer(capacity);
+  }
+end

@@ -1,0 +1,27 @@
+// Wasm-local Atto alloc policy. Does not allocate or mint owner handles.
+// -1 means invalid input or failure to fit under the inclusive limit.
+pub fnc next_capacity(int existing, int required, int limit): int {
+  if existing < 0 then return -1; fi
+  if required < 0 then return -1; fi
+  if limit < 0 then return -1; fi
+  if existing > limit then return -1; fi
+  if required > limit then return -1; fi
+  if required <= existing then return existing; fi
+  if existing == 0 then
+    if limit < 4 then return limit; fi
+    if required > 4 then return required; fi
+    return 4;
+  fi
+  if existing > limit - existing then return required; fi
+  val int doubled = existing + existing;
+  if doubled < required then return required; fi
+  return doubled;
+}
+
+pub fnc reservation_fits(int reserved, int additional, int limit): bool {
+  if reserved < 0 then return false; fi
+  if additional < 0 then return false; fi
+  if limit < 0 then return false; fi
+  if reserved > limit then return false; fi
+  return additional <= limit - reserved;
+}
