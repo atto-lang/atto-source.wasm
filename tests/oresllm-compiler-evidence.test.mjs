@@ -73,9 +73,8 @@ for(const [label,s] of [
 }
 
 test('escaped legacy line boundaries and real newlines deny infrastructure failure consistently',()=>{
- for(const separator of ['\n','\r\n','\\n','\\r\\n','\\r']){
-   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'spawn EACCES')),false);
-   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'out of memory')),false);
-   assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+'exit 124')),false);
+ for(const separator of ['\n','\r\n','\r','\\n','\\r\\n','\\r']){
+   for(const failure of ['spawn EACCES','out of memory','exit 124'])
+     assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token'+separator+failure)),false);
  }
 });
