@@ -1,0 +1,22 @@
+// Expected stdout: 121020. Base-typed call must retain the Child override.
+define class Base as
+  pub value(): int { return 1; }
+  pub static fnc fixed(): int { return 10; }
+end
+
+define class Child extends Base as
+  pub value(): int { return 2; }
+  pub static fnc fixed(): int { return 20; }
+end
+
+fnc invoke_base(Base target): int {
+  return target.value();
+}
+
+pub routine main(): void {
+  stdio.stdout.write(invoke_base(new Base()));
+  stdio.stdout.write(invoke_base(new Child()));
+  stdio.stdout.write(Base.fixed());
+  stdio.stdout.write(Child.fixed());
+  return;
+}

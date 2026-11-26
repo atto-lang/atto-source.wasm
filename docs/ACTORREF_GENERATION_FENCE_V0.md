@@ -17,6 +17,10 @@ an integer generation, a random incarnation and rights.
 
 `attenuate` can create send-only or stop-only descendant refs but cannot
 increase permissions. Revoking an ancestor transitively invalidates descendants.
+The host limits delegation chains to depth 64 and total grants to 4,096 per
+actor incarnation. Neither JS garbage collection nor revocation is treated as
+a synchronous grant quota refund; both depth and lifetime grant admission fail
+before minting the new reference.
 Ref validation always re-checks identity, generation, incarnation, permissions
 and current actor lifecycle before admitting work.
 

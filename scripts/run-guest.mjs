@@ -1,10 +1,12 @@
 import {readBoundedRegularFile} from "./compile-ores.mjs";
 import {isAbsolute} from "node:path";
 import {runIsolatedCoreGuest} from "../src/isolated-runner.mjs";
+import {parseThreadPolicyFlags} from "../src/runtime-thread-policy.mjs";
 
 try {
   const options = new Map();
-  for (const arg of process.argv.slice(2)) {
+  const policy = parseThreadPolicyFlags(process.argv.slice(2));
+  for (const arg of policy.remaining) {
     const match = /^--(wasm|sha256|timeout-ms)=(.+)$/.exec(arg);
     if (!match || options.has(match[1])) throw Error("unexpected or duplicate option: " + arg);
     options.set(match[1], match[2]);
@@ -25,7 +27,7 @@ try {
     "invalid or oversized guest Wasm file");
   if (bytes.length < 8) throw Error("invalid or oversized guest Wasm file");
   const {value, admission} = await runIsolatedCoreGuest(bytes, {
-    expectedSha256: pinnedSha256, timeoutMs
+    expectedSha256: pinnedSha256, timeoutMs, threadPolicy: policy.threadPolicy
   });
   console.log(JSON.stringify({value: value.toString(), resultType: "i64", admission}, null, 2));
 } catch (error) {

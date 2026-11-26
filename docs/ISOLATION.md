@@ -79,3 +79,29 @@ The parent also validates the complete worker-reported admission envelope
 budget and zero capabilities) before returning a successful result. These
 checks prevent accidental success from inconsistent internal metadata but
 do not turn the Node Worker API into an OS-level security boundary.
+
+
+## Portable browser preflight (new experimental host integration)
+
+`src/browser-core-preflight.mjs` exposes `preflightBrowserCoreGuest(wasmBytes,
+approvedSha256)`, a **browser ES-module** loader for the existing zero-import
+`core-wasm.i64-v1` profile. It uses Web Crypto to hash a private snapshot,
+the shared section/instruction/ABI scanners and `WebAssembly.compile`.
+Only modules exporting the exact `main:()->i64` and one private bounded
+two-page wasm32 `memory` are returned; imports or extra exports reject.
+The byte-snapshot helper now uses cross-realm native internal-slot checks,
+not `node:util`, so browser module workers can reuse its admission logic.
+
+This path deliberately **does not execute guest code**. Browser/Node
+`WebAssembly.compile` may use JIT or tiered compilation; portable `.wasm`
+is source-to-wasm32 AOT, **not native no-JIT AOT**. Caller-provided hashes
+are identity comparisons, not approvals. A production browser host must add
+independent artifact authorization, a dedicated Worker and independently
+confirmed termination/fuel or timeout accounting before invoking guest
+`main`. The same restriction applies to WebView-style desktop embeddings.
+
+The Node host tests exercise a real zero-import wasm32 `main` returning 42,
+cross-realm ArrayBuffer/DataView offset admission, SharedArrayBuffer rejection,
+invalid pins and proxy denial. This is **not** a browser-engine or OS-sandbox
+receipt. Java/LLVM source semantics, guest heap ownership and AoS/SoA lowering
+still require exact-source compiler and executable guest evidence.

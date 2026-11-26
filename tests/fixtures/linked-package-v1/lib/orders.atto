@@ -1,0 +1,6 @@
+use namespace sales;
+import module Math from "./math.atto";
+export pub module Orders;
+define module Orders as
+    pub fnc total(int x): int { return Math.double(x); }
+end

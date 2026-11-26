@@ -1,10 +1,15 @@
 import {types} from "node:util";
+import {copyPrivateBytes, copyPrivateBytesInto, refreshPrivateMemoryView} from "./actor-frame-bytes.mjs";
 
 // Host-only experimental actor-owned region. NOT attached to a guest module.
 // Every SHARED actor retains a private arena; ActorRef never grants heap access.
 // Guest source arena lowering and shared-domain regions are separate gates.
 const PAGE = 65536;
 const MAX_HANDLES = 4096;
+// Provisional host-runtime quotas, NOT a compiled guest stack ABI.
+const MAX_STACK_EXECUTIONS = 8;
+const MAX_STACK_FRAMES = 64;
+
 const kinds = new Set(["shared", "private", "untrusted"]);
 const typedArrayProto = Object.getPrototypeOf(Uint8Array.prototype);
 const nativeBuffer = Object.getOwnPropertyDescriptor(typedArrayProto, "buffer").get;
@@ -14,8 +19,22 @@ const nativeByteLength = Object.getOwnPropertyDescriptor(typedArrayProto, "byteL
 const trustedBytes = Uint8Array;
 const trustedApply = Reflect.apply;
 const trustedFill = Uint8Array.prototype.fill;
-const trustedSlice = Uint8Array.prototype.slice;
 const trustedSet = Uint8Array.prototype.set;
+const trustedArrayPush = Array.prototype.push;
+const trustedArrayPop = Array.prototype.pop;
+const trustedWasmMemory = WebAssembly.Memory;
+const trustedFreeze = Object.freeze;
+const trustedMap = Map;
+const trustedWeakMap = WeakMap;
+const trustedMapGet = Map.prototype.get;
+const trustedMapSet = Map.prototype.set;
+const trustedMapDelete = Map.prototype.delete;
+const trustedMapClear = Map.prototype.clear;
+const trustedMapForEach = Map.prototype.forEach;
+const trustedMapSize = Object.getOwnPropertyDescriptor(Map.prototype, "size").get;
+const trustedWeakMapGet = WeakMap.prototype.get;
+const trustedWeakMapSet = WeakMap.prototype.set;
+const trustedWeakMapDelete = WeakMap.prototype.delete;
 const trustedIsUint8Array = types.isUint8Array;
 const trustedIsSharedArrayBuffer = types.isSharedArrayBuffer;
 const trustedMemoryBuffer = Object.getOwnPropertyDescriptor(
@@ -26,6 +45,7 @@ const scrub = (bytes, start = 0, end = trustedApply(nativeByteLength, bytes, [])
 
 export class ActorArena {
   #memory;
+  #byteView = null;
   #actor;
   #incarnation;
   #turn = null;
@@ -34,6 +54,13 @@ export class ActorArena {
   // Issued lifetime-only leases keep the backing memory reachable until the
   // last async/FFI/IO owner acknowledges retirement. They grant no byte access.
   #lifetimePins = new WeakMap();
+  // Actor-owned, bounded managed frame stacks. A distinct, non-shared
+  // WebAssembly.Memory belongs to each logical execution. Never expose it.
+  // This does not replace the engine's native WebAssembly call stack.
+  #stackExecutions = new trustedMap();
+  #stackFrames = new trustedWeakMap();
+  #stackResumeTickets = new trustedWeakMap();
+  #activeStack = null;
   #pendingLifetimePins = 0;
   #persistentTop = 0;
   #scratchTop = 0;
@@ -50,7 +77,10 @@ export class ActorArena {
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
     // Never exported to guest code. JS GC still controls physical release.
-    this.#memory = new WebAssembly.Memory({initial: 2, maximum: 2});
+    this.#memory = new trustedWasmMemory({initial: 2, maximum: 2});
+    // One wrapper for the normal fixed-size fast path. Even memory.grow(0)
+    // can detach the old ArrayBuffer, so every access must verify its backing.
+    this.#byteView = ownedBytes(this.#memory);
   }
 
   get actorId() { return this.#actor; }
@@ -58,9 +88,29 @@ export class ActorArena {
   get retired() { return this.#closed; }
   get pendingLifetimePins() { return this.#pendingLifetimePins; }
 
+  get stackExecutionCount() { return trustedApply(trustedMapSize, this.#stackExecutions, []); }
+  get stackBytesInUse() {
+    let bytes = 0;
+    trustedApply(trustedMapForEach, this.#stackExecutions, [stack => { bytes += stack.top; }]);
+    return bytes;
+  }
+
+  #refreshBacking() {
+    // WebAssembly.Memory.grow(0) may detach the *existing* ArrayBuffer even
+    // when initial === maximum. A stale cached view silently has byteLength
+    // zero and can skip security scrubbing. The native descriptor cannot be
+    // replaced by later host monkeypatches. The common no-grow path creates
+    // no fresh typed-array wrapper.
+    const actual = trustedApply(trustedMemoryBuffer, this.#memory, []);
+    if (trustedApply(nativeBuffer, this.#byteView, []) !== actual) {
+      this.#byteView = new trustedBytes(actual);
+    }
+    return this.#byteView;
+  }
+
   #bytes() {
     if (this.#closed) throw new Error("actor arena retired");
-    return ownedBytes(this.#memory);
+    return this.#refreshBacking();
   }
 
   #requireTurn(token) {
@@ -80,6 +130,12 @@ export class ActorArena {
 
   endTurn(turn) {
     this.#requireTurn(turn);
+    // A logical call chain must explicitly suspend or finish before its
+    // physical carrier turn can be reissued to another actor.
+    if (this.#activeStack !== null) {
+      throw new Error("actor stack execution must suspend or finish before endTurn");
+    }
+
     scrub(this.#bytes(), PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
@@ -113,11 +169,23 @@ export class ActorArena {
   }
 
   #finishRetirement() {
-    if (this.#memory === null) return;
-    // This zeroes guest-visible bytes and severs the host reference. The JS
-    // engine, not Oreslang, decides when physical backing pages are reclaimed.
-    scrub(ownedBytes(this.#memory));
-    this.#memory = null;
+    // Scrub the live backing, even if grow(0) detached a cached view.
+    if (this.#memory !== null) {
+      scrub(this.#refreshBacking());
+      this.#byteView = null;
+      this.#memory = null;
+    }
+    trustedApply(trustedMapForEach, this.#stackExecutions, [stack => {
+      if (stack.memory !== null) {
+        scrub(this.#stackBytes(stack));
+        stack.memory = null;
+        stack.byteView = null;
+      }
+    }]);
+    trustedApply(trustedMapClear, this.#stackExecutions, []);
+    this.#stackFrames = new trustedWeakMap();
+    this.#stackResumeTickets = new trustedWeakMap();
+    this.#activeStack = null;
   }
 
   #alloc(turn, length, scratch) {
@@ -186,23 +254,203 @@ export class ActorArena {
     return entry;
   }
 
+  // A caller-owned destination avoids allocating a JS copy for each read.
+  // The arena never publishes its live backing view.
+  readInto(turn, handle, destination) {
+    const {offset, length} = this.#slot(turn, handle);
+    this.#requireExternalBytes(destination, length);
+    const src = this.#bytes();
+    // Copy directly, avoiding the temporary subarray wrapper of .set().
+    for (let i = 0; i < length; ++i) destination[i] = src[offset + i];
+  }
+
   read(turn, handle) {
     const {offset, length} = this.#slot(turn, handle);
-    return trustedApply(trustedSlice, this.#bytes(), [offset, offset + length]); // owned copy
+    return copyPrivateBytes(this.#bytes(), offset, length);
+  }
+
+  #requireExternalBytes(data, length) {
+    // Native internal slots prevent instance property overrides from
+    // changing precise length and shared-memory admission checks.
+    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
+      throw new TypeError("arena copy requires exact-size Uint8Array");
+    }
+    const backing = trustedApply(nativeBuffer, data, []);
+    if (trustedIsSharedArrayBuffer(backing)) {
+      throw new TypeError("arena copy rejects shared backing memory");
+    }
+    // A trusted host must not smuggle another view of this arena's backing
+    // into the copy API. This is not protection against arbitrary JS host
+    // code, but fences accidental self-alias and authority confusion.
+    if (backing === trustedApply(nativeBuffer, this.#bytes(), [])) {
+      throw new TypeError("arena copy rejects private backing alias");
+    }
   }
 
   write(turn, handle, data) {
     const {offset, length} = this.#slot(turn, handle);
-    // Native internal slots prevent instance property overrides from changing
-    // the exact-size and shared-memory admission checks.
-    if (!trustedIsUint8Array(data) || trustedApply(nativeByteLength, data, []) !== length) {
-      throw new TypeError("arena write requires exact-size Uint8Array");
+    this.#requireExternalBytes(data, length);
+    trustedApply(trustedSet, this.#bytes(), [data, offset]);
+  }
+
+  // Host compiler/scheduler primitive. One private 64-KiB frame backing
+  // per live logical execution (max eight per actor). Compiler lowering must
+  // explicitly materialize locals/roots here; Wasm engine frames are separate.
+  startStack(turn) {
+    this.#requireTurn(turn);
+    if (this.#activeStack !== null) throw new Error("actor stack already active");
+    if (trustedApply(trustedMapSize, this.#stackExecutions, []) >= MAX_STACK_EXECUTIONS) {
+      throw new RangeError("actor stack execution quota exhausted");
+    }
+    const memory = new trustedWasmMemory({initial: 1, maximum: 1});
+    const execution = trustedFreeze({});
+    trustedApply(trustedMapSet, this.#stackExecutions, [execution, {
+      memory, byteView: refreshPrivateMemoryView(memory),
+      top: 0, frames: [], suspension: null, suspendedTurn: null
+    }]);
+    this.#activeStack = execution;
+    return execution;
+  }
+
+  #stackBytes(stack) {
+    stack.byteView = refreshPrivateMemoryView(stack.memory, stack.byteView);
+    return stack.byteView;
+  }
+
+  #requireStack(turn, execution) {
+    this.#requireTurn(turn);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
+    if (!stack || this.#activeStack !== execution) {
+      throw new Error("active actor stack execution authority required");
+    }
+    return stack;
+  }
+
+  pushStackFrame(turn, execution, length) {
+    const stack = this.#requireStack(turn, execution);
+    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+      throw new RangeError("invalid actor stack frame length");
+    }
+    if (stack.frames.length >= MAX_STACK_FRAMES) {
+      throw new RangeError("actor stack frame quota exhausted");
+    }
+    if (length > PAGE - stack.top) {
+      throw new RangeError("actor stack byte quota exhausted");
+    }
+    const frame = trustedFreeze({});
+    const offset = stack.top;
+    scrub(this.#stackBytes(stack), offset, offset + length);
+    trustedApply(trustedWeakMapSet, this.#stackFrames, [frame, {execution, offset, length}]);
+    trustedApply(trustedArrayPush, stack.frames, [frame]);
+    stack.top += length;
+    return frame;
+  }
+
+  #topStackFrame(turn, execution, frame) {
+    const stack = this.#requireStack(turn, execution);
+    const slot = trustedApply(trustedWeakMapGet, this.#stackFrames, [frame]);
+    if (!slot || slot.execution !== execution ||
+        (stack.frames.length === 0 ||
+         stack.frames[stack.frames.length - 1] !== frame)) {
+      throw new Error("foreign, stale or non-top actor stack frame");
+    }
+    return {stack, slot};
+  }
+
+  readStackFrame(turn, execution, frame) {
+    const {stack, slot} = this.#topStackFrame(turn, execution, frame);
+    return copyPrivateBytes(this.#stackBytes(stack), slot.offset, slot.length);
+  }
+
+  // Caller-owned destination: no per-read allocation of a result buffer.
+  readStackFrameInto(turn, execution, frame, destination) {
+    const {stack, slot} = this.#topStackFrame(turn, execution, frame);
+    copyPrivateBytesInto(this.#stackBytes(stack), slot.offset, slot.length, destination);
+  }
+
+  writeStackFrame(turn, execution, frame, data) {
+    const {stack, slot} = this.#topStackFrame(turn, execution, frame);
+    if (!trustedIsUint8Array(data) ||
+        trustedApply(nativeByteLength, data, []) !== slot.length) {
+      throw new TypeError("actor stack write requires exact-size Uint8Array");
     }
     if (trustedIsSharedArrayBuffer(trustedApply(nativeBuffer, data, []))) {
-      throw new TypeError("arena write rejects shared backing memory");
+      throw new TypeError("actor stack write rejects shared backing memory");
     }
-    // Never return live memory views; callers cannot retain a raw alias.
-    trustedApply(trustedSet, this.#bytes(), [data, offset]);
+    trustedApply(trustedSet, this.#stackBytes(stack), [data, slot.offset]);
+  }
+
+  popStackFrame(turn, execution, frame) {
+    const {stack, slot} = this.#topStackFrame(turn, execution, frame);
+    scrub(this.#stackBytes(stack), slot.offset, slot.offset + slot.length);
+    trustedApply(trustedArrayPop, stack.frames, []);
+    stack.top = slot.offset;
+    trustedApply(trustedWeakMapDelete, this.#stackFrames, [frame]);
+  }
+
+  suspendStack(turn, execution) {
+    const stack = this.#requireStack(turn, execution);
+    const ticket = trustedFreeze({});
+    stack.suspension = ticket;
+    stack.suspendedTurn = turn;
+    trustedApply(trustedWeakMapSet, this.#stackResumeTickets, [ticket, execution]);
+    this.#activeStack = null;
+    return ticket;
+  }
+
+  resumeStack(turn, ticket) {
+    this.#requireTurn(turn);
+    if (this.#activeStack !== null) throw new Error("actor stack already active");
+    const execution = trustedApply(trustedWeakMapGet, this.#stackResumeTickets, [ticket]);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
+    if (!stack || stack.suspension !== ticket) {
+      throw new Error("foreign, stale or consumed actor stack resume ticket");
+    }
+    // A receipt must cross an actual physical carrier release. Refusal
+    // does not consume the receipt; a later admitted turn may resume it.
+    if (stack.suspendedTurn === turn) {
+      throw new Error("actor stack resume requires a new physical turn");
+    }
+    trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [ticket]);
+    stack.suspension = null;
+    stack.suspendedTurn = null;
+    this.#activeStack = execution;
+    return execution;
+  }
+
+  #clearStack(execution, stack) {
+    scrub(this.#stackBytes(stack));
+    for (let i = 0; i < stack.frames.length; ++i) {
+      trustedApply(trustedWeakMapDelete, this.#stackFrames, [stack.frames[i]]);
+    }
+    if (stack.suspension !== null) trustedApply(trustedWeakMapDelete, this.#stackResumeTickets, [stack.suspension]);
+    stack.memory = null;
+    stack.byteView = null;
+    stack.suspension = null;
+    stack.suspendedTurn = null;
+    trustedApply(trustedMapDelete, this.#stackExecutions, [execution]);
+    if (this.#activeStack === execution) this.#activeStack = null;
+  }
+
+  finishStack(turn, execution) {
+    const stack = this.#requireStack(turn, execution);
+    if (stack.frames.length !== 0) {
+      throw new Error("actor stack must unwind all frames before finish");
+    }
+    this.#clearStack(execution, stack);
+  }
+
+  cancelStack(turn, execution) {
+    this.#requireTurn(turn);
+    const stack = trustedApply(trustedMapGet, this.#stackExecutions, [execution]);
+    if (!stack) throw new Error("foreign or stale actor stack execution");
+    // A suspended sibling owns independent backing and may be canceled
+    // during another invocation's turn. Never clear that active invocation.
+    if (this.#activeStack !== execution && stack.suspension === null) {
+      throw new Error("actor stack cancellation requires active or suspended execution");
+    }
+    // Revoke only this execution's resume ticket and frame leases.
+    this.#clearStack(execution, stack);
   }
 
   retire() {

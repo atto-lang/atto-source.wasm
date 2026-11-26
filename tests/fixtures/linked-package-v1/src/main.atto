@@ -1,0 +1,3 @@
+use namespace web;
+import module Orders from "+lib/orders.atto";
+pub fnc main(): int { return Orders.total(21); }

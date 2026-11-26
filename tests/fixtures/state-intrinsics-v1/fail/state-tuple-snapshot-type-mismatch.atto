@@ -1,0 +1,8 @@
+// expect-error: E_TYPE
+define state container Account as
+    state { let int balance = 0; let bool ready = false; }
+    pub snapshot(): Tuple[int, int] {
+        return state_ro(|s| -> { return (s.balance, s.ready); });
+    }
+end
+pub fnc main(): int { return 0; }

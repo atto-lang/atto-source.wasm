@@ -45,3 +45,11 @@ test('both Wasm bridges reject bidi source before running a compiler', async () 
     await rm(dir, {recursive:true, force:true});
   }
 });
+
+test('bidi scan uses native byte slots and rejects shared and invalid UTF-8',()=>{
+ class FakeLength extends Uint8Array {get byteLength(){return 0;}}
+ assert.throws(()=>rejectBidirectionalSourceControls(new FakeLength(Buffer.from('/* '+String.fromCodePoint(0x202e)+' */'))),/bidirectional Unicode control/);
+ assert.throws(()=>rejectBidirectionalSourceControls(new FakeLength(1024*1024+1)),/maximum byte size/);
+ assert.throws(()=>rejectBidirectionalSourceControls(new Uint8Array(new SharedArrayBuffer(1))),TypeError);
+ assert.throws(()=>rejectBidirectionalSourceControls(Uint8Array.of(0xff)),TypeError);
+});

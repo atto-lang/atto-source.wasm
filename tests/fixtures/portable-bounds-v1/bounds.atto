@@ -1,0 +1,39 @@
+// Portable, allocation-free index/slice preflight.
+// Does not authorize host memory access or replace owner/generation checks.
+// All signed-int arithmetic is ordered to avoid overflowing before validation.
+
+pub fnc valid_index(int index, int length): bool {
+  if index < 0 || length <= 0; do
+    return false;
+  fi
+  return index < length;
+}
+
+pub fnc valid_slice(int offset, int count, int length): bool {
+  if offset < 0 || count < 0 || length < 0; do
+    return false;
+  fi
+  if offset > length; do
+    return false;
+  fi
+  // No offset + count: subtraction is safe after 0 <= offset <= length.
+  return count <= length - offset;
+}
+
+pub fnc valid_strided_slice(int offset, int stride, int count, int length): bool {
+  if stride <= 0 || count < 0; do
+    return false;
+  fi
+  if !valid_slice(offset, 0, length); do
+    return false;
+  fi
+  if count == 0; do
+    return true;
+  fi
+  if offset >= length; do
+    return false;
+  fi
+  // Last selected index is offset + stride * (count - 1).
+  // Compare by division instead: all operands now nonnegative, no overflow.
+  return count - 1 <= (length - 1 - offset) / stride;
+}

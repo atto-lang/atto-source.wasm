@@ -1,0 +1,32 @@
+name: Atto alloc source contracts (not guest execution)
+on:
+  push:
+    paths:
+      - 'stdlib/alloc/box.atto'
+      - 'stdlib/alloc/vec.atto'
+      - 'stdlib/alloc/string.atto'
+      - 'tests/alloc-collections-source-contract.test.mjs'
+      - 'tests/fixtures/alloc-collections-source/**'
+      - '.github/workflows/alloc-collections-source-only.yml'
+  pull_request:
+    paths:
+      - 'stdlib/alloc/box.atto'
+      - 'stdlib/alloc/vec.atto'
+      - 'stdlib/alloc/string.atto'
+      - 'tests/alloc-collections-source-contract.test.mjs'
+      - 'tests/fixtures/alloc-collections-source/**'
+      - '.github/workflows/alloc-collections-source-only.yml'
+permissions:
+  contents: read
+jobs:
+  source-contract-only-not-guest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Verify Node availability
+        run: node --version
+      - name: Check source-only alloc contracts
+        run: node --test tests/alloc-collections-source-contract.test.mjs

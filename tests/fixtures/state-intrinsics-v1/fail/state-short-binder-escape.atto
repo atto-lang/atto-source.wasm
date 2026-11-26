@@ -1,0 +1,6 @@
+// expect-error: E_ESCAPE
+define state container Account as
+  state { let int balance: 0; }
+  pub bad(): int { return state_w(|view| -> { return view; }); }
+end
+pub fnc main(): int { return 0; }

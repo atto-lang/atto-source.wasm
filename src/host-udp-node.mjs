@@ -1,0 +1,184 @@
+import {createSocket} from 'node:dgram';
+import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
+
+// Trusted Node host adapter ONLY. Not a Wasm/browser guest import; the embedding
+// host MUST provide its real, scoped permission engine as authorize().
+// All numeric endpoints are IPv4 loopback. No DNS, multicast or broadcast.
+export async function openNodeUdpLoopback({port=0, authorize, maxPackets=64, maxBytes=262144, maxPendingSends=64, maxPendingBytes=262144}={}) {
+  if (typeof authorize !== 'function') throw new TypeError('trusted authorize required');
+  const checkedAuthorize=(endpoint,operation)=>{
+    // A Promise, false result, or malformed policy outcome is not a grant.
+    // Trusted host authorization must be synchronous and fail closed.
+    const decision=authorize(endpoint,operation);
+    if(decision===false)throw new Error('UDP authorization denied');
+    if(decision!==undefined && decision!==true)
+      throw new TypeError('UDP authorization must be synchronous');
+  };
+  if (!Number.isInteger(port) || port<0 || port>65535) throw new RangeError('bind port');
+  if (!Number.isInteger(maxPackets) || maxPackets<1 || maxPackets>1024 ||
+      !Number.isInteger(maxBytes) || maxBytes<1 || maxBytes>4194304 ||
+      !Number.isInteger(maxPendingSends) || maxPendingSends<1 || maxPendingSends>1024 ||
+      !Number.isInteger(maxPendingBytes) || maxPendingBytes<1 || maxPendingBytes>4194304) throw new RangeError('queue quota');
+  checkedAuthorize('127.0.0.1:'+port, 'udp.bind');
+  const socket=createSocket({type:'udp4',reuseAddr:false});
+  try {
+    await new Promise((resolve,reject)=>{
+      const onError=error=>{socket.off('listening',onReady);reject(error)};
+      const onReady=()=>{socket.off('error',onError);resolve()};
+      socket.once('error',onError);
+      socket.once('listening',onReady);
+      try {socket.bind(port,'127.0.0.1')}catch(error){socket.off('error',onError);socket.off('listening',onReady);reject(error)}
+    });
+  } catch(error) { try { socket.close() }catch{} throw error }
+  const queue=[];
+  let queuedBytes=0, dropped=0, waiter=null, closed=false, terminalError=null, closePromise=null;
+  const pendingSends=new Set();
+  let pendingSendBytes=0;
+  const localPort=socket.address().port;
+  const requireLocal=operation=>{
+    if(closed) throw new Error('UDP socket closed');
+    if(terminalError) throw terminalError;
+    checkedAuthorize('127.0.0.1:'+port,operation);
+    // Host policy callbacks are trusted but may initiate teardown. A late
+    // return from one must never reopen a terminal socket operation.
+    if(closed) throw new Error('UDP socket closed');
+  };
+  const drop=()=>{if(dropped<2147483647)dropped++};
+  const handoff=(record, capacity)=>{
+    // A buffer retained in the host queue must not outlive the owned copy.
+    // Always scrub it, including on truncation or failed publication.
+    try {
+      if(record.bytes.length>capacity) throw new RangeError('UDP datagram truncated; discarded');
+      return Object.freeze({bytes:Uint8Array.from(record.bytes),source:Object.freeze({host:'127.0.0.1',port:record.port})});
+    } finally { record.bytes.fill(0); }
+  };
+  socket.on('message',(data,peer)=>{
+    if(closed)return;
+    if(peer.family!=='IPv4'||peer.address!=='127.0.0.1'||!Number.isInteger(peer.port)||peer.port<1){drop();return}
+    try{requireLocal('udp.recv_from');checkedAuthorize('127.0.0.1:'+peer.port,'udp.recv_from')}catch{drop();return}
+    if(closed){drop();return}
+    if(data.length>65507){drop();return}
+    const record={bytes:Buffer.from(data),port:peer.port};
+    if(waiter){const w=waiter;waiter=null;w.cleanup();try{w.resolve(handoff(record,w.capacity))}catch(error){w.reject(error)};return}
+    if(queue.length>=maxPackets||record.bytes.length>maxBytes-queuedBytes){drop();return}
+    queue.push(record);queuedBytes+=record.bytes.length;
+  });
+  socket.on('error',error=>{
+    terminalError=error;
+    if(waiter){const w=waiter;waiter=null;w.cleanup();w.reject(error)}
+  });
+  const close=()=>{
+    if(closePromise)return closePromise;
+    closed=true;
+    if(waiter){const w=waiter;waiter=null;w.cleanup();w.reject(new Error('UDP socket closed'))}
+    for(const entry of queue)entry.bytes.fill(0);
+    queue.length=0;queuedBytes=0;
+    for(const s of pendingSends)s.reject(new Error('UDP socket closed'));
+    pendingSends.clear();pendingSendBytes=0;
+    closePromise=new Promise(resolve=>socket.close(resolve));
+    return closePromise;
+  };
+  return Object.freeze({
+    local_port:()=>{requireLocal('udp.local_port');return localPort;},
+    stats:()=>{if(!closed)requireLocal('udp.stats');return Object.freeze({
+      queued_packets:queue.length,queued_bytes:queuedBytes,dropped_packets:dropped,
+      pending_send_packets:pendingSends.size,pending_send_bytes:pendingSendBytes
+    })},
+    async send_to(bytes,peerPort){
+      requireLocal('udp.send_to');
+      if(!Number.isInteger(peerPort)||peerPort<1||peerPort>65535)throw new RangeError('peer port');
+      // Permission must be checked before copying or inspecting guest packet storage.
+      checkedAuthorize('127.0.0.1:'+peerPort,'udp.send_to');
+      if(closed) throw new Error('UDP socket closed');
+      const detached=snapshotGuestBytes(bytes,65507);
+      // The host must never retain an unbounded number of outstanding sends
+      // or their detached buffers while the kernel is under backpressure.
+      if(pendingSends.size>=maxPendingSends ||
+          detached.length>maxPendingBytes-pendingSendBytes)
+        throw new RangeError('UDP pending send quota exceeded');
+      const snapshot=Buffer.from(detached);
+      return new Promise((resolve,reject)=>{
+        let settled=false;
+        const finish=(error)=>{
+          if(settled)return;
+          settled=true;pendingSends.delete(entry);pendingSendBytes-=snapshot.length;
+          if(error)reject(error);else resolve(snapshot.length);
+        };
+        const entry={reject:finish};
+        pendingSends.add(entry);pendingSendBytes+=snapshot.length;
+        try{socket.send(snapshot,peerPort,'127.0.0.1',finish)}catch(error){finish(error)}
+      });
+    },
+    // One iterator owns at most one receive watch. Explicit return() cancels
+    // pending recv_from immediately; native async generators cannot do this
+    // while awaiting I/O, and can otherwise strand an actor-owned socket.
+    recv_stream(capacity,{signal}={}){
+      if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
+      const receiver=this;
+      const aborter=new AbortController();
+      let done=false, reading=false;
+      const onAbort=()=>aborter.abort(signal.reason??new Error('UDP stream cancelled'));
+      if(signal){
+        if(signal.aborted)onAbort();
+        else signal.addEventListener('abort',onAbort,{once:true});
+      }
+      const finish=()=>{
+        if(done)return;
+        done=true;
+        signal?.removeEventListener('abort',onAbort);
+        if(!aborter.signal.aborted)aborter.abort(new Error('UDP stream iterator closed'));
+      };
+      return Object.freeze({
+        [Symbol.asyncIterator](){return this;},
+        async next(){
+          if(done)return {done:true,value:undefined};
+          if(reading)throw new Error('concurrent UDP stream.next is forbidden');
+          reading=true;
+          try{
+            const value=await receiver.recv_from(capacity,{signal:aborter.signal});
+            return done ? {done:true,value:undefined} : {done:false,value};
+          }catch(error){
+            if(done)return {done:true,value:undefined};
+            throw error;
+          }finally{reading=false;}
+        },
+        async return(){
+          finish();
+          return {done:true,value:undefined};
+        },
+        async throw(error){
+          finish();
+          throw error;
+        }
+      });
+    },
+    recv_from(capacity,{signal}={}){
+      requireLocal('udp.recv_from');
+      if(!Number.isInteger(capacity)||capacity<1||capacity>65507)throw new RangeError('recv capacity');
+      if(waiter)throw new Error('concurrent UDP recv not permitted');
+      if(signal?.aborted)return Promise.reject(signal.reason??new Error('aborted'));
+      if(queue.length){
+        const record=queue.shift();queuedBytes-=record.bytes.length;
+        // A packet admitted while a grant was active must be reauthorized at
+        // consumption. Revoking the source port must not leak queued bytes.
+        try {
+          checkedAuthorize('127.0.0.1:'+record.port,'udp.recv_from');
+          if(closed) throw new Error('UDP socket closed');
+          return Promise.resolve(handoff(record,capacity));
+        } catch(error) {
+          record.bytes.fill(0);
+          drop();
+          return Promise.reject(error);
+        }
+      }
+      return new Promise((resolve,reject)=>{
+        const w={resolve,reject,capacity,cleanup:()=>signal?.removeEventListener('abort',onAbort)};
+        const onAbort=()=>{if(waiter===w)waiter=null;w.cleanup();reject(signal.reason??new Error('aborted'))};
+        waiter=w;
+        signal?.addEventListener('abort',onAbort,{once:true});
+        if(signal?.aborted)onAbort();
+      });
+    },
+    close
+  });
+}

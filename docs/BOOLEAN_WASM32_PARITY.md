@@ -106,3 +106,21 @@ A Node Worker does not confer OS process isolation or strict native AOT.
 
 **Do not** export the private LLVM or Wasm source into another organization
 without the separate approved private-CI source-snapshot authorization.
+
+## Post-merge audit hardening
+
+The original [Boolean PR #410](https://github.com/ores-truffle-oreslang/oreslang-source.wasm/pull/410)
+was merged without a completed guest CI run. Its own evidence statuses stay
+`NOT_EXECUTED` for actual Wasm guests and `NOT_CERTIFIED` for backend parity.
+A merge commit is not equivalent to stepful execution or independent approval.
+
+The offline verifier now also binds every case's SHA-256 to **fixed bytes of
+the eleven checked-in `.atto` fixtures**, not just a 64-hex-shaped field. It
+rejects a different run attempt, repository numeric identity, workflow ID
+omission, job commit/branch mismatch, duplicate or disordered step numbers,
+and missing job identity. The tests independently hash on-disk fixture bytes
+to detect a pin/table drift; they do not need the LLVM binary or secrets.
+
+These checks only detect internal inconsistencies in operator-supplied JSON.
+They **cannot authenticate a synthetic GitHub API response**, authorize any
+private-source export, or replace source-built guest execution.

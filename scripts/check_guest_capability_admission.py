@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Exercise real bootstrap compiler frontends against shared Oreslang sources.
+
+No generated guest runs and no source copies leave this repository. This is
+compile-time admission only: reject != proof of runtime OS sandboxing.
+Java and WASM intentionally have no adapter and MUST NOT be marked green.
+"""
+import argparse
+import hashlib
+import json
+import os
+import signal
+import threading
+import time
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACT = ROOT / "contracts/guest-capability-admission.v1.json"
+COMMANDS = {
+    "llvm": lambda program, tool: [tool, str(program)],
+    "forge": lambda program, tool: [tool, "ir", str(program)],
+    "net": lambda program, tool: [tool, "run", "--project",
+                  "compiler/Ores.Net.Compiler/Ores.Net.Compiler.csproj",
+                  "-c", "Release", "--", "check", str(program)],
+}
+DEFAULTS = {"llvm": "build/oreslang-llvmc", "forge": "build/oresforge",
+            "net": "dotnet"}
+# Source-level diagnostic prefix from the REAL compiler. Build failures,
+# CLI usage failures, and shell errors must never count as deny evidence.
+REJECTION_PREFIXES = {
+    "llvm": "oreslang-llvmc:", "forge": "oresforge:", "net": "oresnet:",
+}
+# Deliberately avoid inheriting Actions tokens, CI secrets, SSH agents,
+# injected compilers, or private cloud credentials into tested subprocesses.
+MAX_DIAGNOSTIC_BYTES = 1024 * 1024
+
+TOOLCHAIN_ENV_KEYS = frozenset({
+    "PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "WINDIR", "COMSPEC",
+    "TEMP", "TMP", "TMPDIR", "DOTNET_ROOT", "DOTNET_CLI_HOME",
+    "DOTNET_NOLOGO", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE", "NUGET_PACKAGES",
+    "APPDATA", "LOCALAPPDATA", "LANG", "LC_ALL",
+})
+
+
+def sanitized_toolchain_environment():
+    return {key: value for key, value in os.environ.items()
+            if key.upper() in TOOLCHAIN_ENV_KEYS}
+
+
+CASES = ("scalar_arithmetic_14", "ambient_filesystem", "ambient_network",
+         "ambient_process", "ambient_host_interop", "unsupported_actor",
+         "unsupported_async", "unsupported_channel",
+         "unsupported_wire_serialization")
+CATEGORIES = ("scalar", "filesystem", "network", "process", "ffi",
+              "actors", "async", "channels", "serialization")
+EXPECTED_CASE_KEYS = frozenset({"id", "category", "source", "bootstrap"})
+SCALAR_CASE_KEYS = EXPECTED_CASE_KEYS | {"expected_output"}
+
+
+CASE_SHA256 = (
+    "061f49bda81fae44d8d96b04791a85bf3d115287b204a55812a60bae253ec784",
+    "c767dda0c5276f4b1a0438ee5f121606bc168aa9a33fd9956ee5ce160f26d83f",
+    "72a8cd8e83a0d3eaa7d4499b52083ac19194c3db24eb146e302c642e1d60eb68",
+    "3027b667e5aa3720e3d01b4095c4d93c0adb066ad5397eec97955bf491aa8121",
+    "329503b1dcf448f5f5c86e6443872fecf6db2b2017445b0c2bd05749c4688e96",
+    "fd95da702c0b0a2ea315b8975564ab34a5d73b085dfe056a0d048349bb69f8bc",
+    "dd67bdd566f1ca06a9d16c494584a6ab37daf3be7eaa0cb7ecc14872974d9056",
+    "9a172a9cea204792f3fdf1edcbc747f1c1356fb47756780910815d66559116a8",
+    "2320bc4bc38d33cc824225f3848255d0f8ce722ebf2026365bbf693cbc5d6e6b",
+)
+
+
+
+def load_cases():
+    # Treat the checked-in manifest as a security boundary, not generic JSON.
+    # JSON decoders normally permit duplicate keys and NaN/Infinity values.
+    with open(CONTRACT, "rb") as source:
+        raw = source.read(128 * 1024 + 1)
+    if len(raw) > 128 * 1024:
+        raise ValueError("guest admission contract exceeds size limit")
+
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate guest admission key: " + key)
+            result[key] = value
+        return result
+
+    def deny_constant(value):
+        raise ValueError("nonstandard guest admission number: " + value)
+
+    try:
+        doc = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_keys,
+                         parse_constant=deny_constant)
+    except UnicodeDecodeError as error:
+        raise ValueError("invalid guest admission encoding") from error
+    if (type(doc) is not dict or
+            set(doc) != {"schema_version", "contract", "proof_scope",
+                         "runnable_backends", "unimplemented_adapters", "cases"} or
+            type(doc.get("schema_version")) is not int or
+            doc.get("schema_version") != 1 or
+            doc.get("contract") != "oreslang-guest-admission-bootstrap-v1" or
+            doc.get("proof_scope") != "source-compiler-acceptance-or-rejection-only" or
+            doc.get("runnable_backends") != ["llvm", "net", "forge"] or
+            doc.get("unimplemented_adapters") != ["java", "wasm"]):
+        raise ValueError("unknown or weakened guest admission contract")
+    items = doc.get("cases")
+    if (not isinstance(items, list) or len(items) != len(CASES)
+            or not all(isinstance(item, dict) for item in items)
+            or tuple(item.get("id") for item in items) != CASES):
+        raise ValueError("incomplete guest admission case list")
+    for index, item in enumerate(items):
+        if (item.get("category") != CATEGORIES[index]
+                or set(item) != (SCALAR_CASE_KEYS if index == 0 else EXPECTED_CASE_KEYS)):
+            raise ValueError("guest capability category or case schema changed")
+    for item, expected_digest in zip(items, CASE_SHA256):
+        if not isinstance(item.get("source"), str) or (
+                hashlib.sha256(item["source"].encode("utf-8")).hexdigest()
+                != expected_digest):
+            raise ValueError("guest fixture bytes differ from reviewed source")
+    for item in items:
+        if (item.get("bootstrap") not in ("accept", "reject")
+                or not isinstance(item.get("source"), str)
+                or not item["source"].strip()
+                or item.get("category") is None):
+            raise ValueError("malformed guest source or expected admission")
+    if items[0].get("expected_output") != "14" or any(
+            item.get("bootstrap") != "reject" for item in items[1:]):
+        raise ValueError("bootstrap test expectations changed")
+    return items
+
+
+def bounded_compiler_output(captured, case, channel):
+    """Fail closed on oversized, non-UTF-8 or NUL-bearing diagnostics."""
+    if isinstance(captured, str):
+        try:
+            raw = captured.encode("utf-8", errors="strict")
+        except UnicodeError as exc:
+            raise RuntimeError(case + ": invalid compiler " + channel + " encoding") from exc
+    elif isinstance(captured, bytes):
+        raw = captured
+    else:
+        raise RuntimeError(case + ": invalid compiler " + channel + " type")
+    if len(raw) > MAX_DIAGNOSTIC_BYTES:
+        raise RuntimeError(case + ": compiler " + channel + " exceeds size limit")
+    try:
+        result = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(case + ": invalid compiler " + channel + " encoding") from exc
+    if "\x00" in result:
+        raise RuntimeError(case + ": compiler " + channel + " contains NUL")
+    return result
+
+
+def run_compiler_process(argv, *, cwd, timeout, env):
+    """Enforce the output limit *during* execution, not after disk writes.
+
+    Both pipes are drained concurrently with bounded buffers, so neither
+    stdout nor stderr can deadlock the compiler. Kill on overflow/timeout.
+    POSIX child processes share a fresh process group for cancellation.
+    """
+    process = subprocess.Popen(
+        argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, close_fds=True,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=(os.name == "posix"))
+    streams = [bytearray(), bytearray()]
+    overflow = threading.Event()
+    read_errors = []
+
+    def drain(pipe, dest):
+        try:
+            while True:
+                chunk = os.read(pipe.fileno(), 64 * 1024)
+                if not chunk:
+                    return
+                remaining = MAX_DIAGNOSTIC_BYTES + 1 - len(dest)
+                if len(chunk) > remaining:
+                    dest.extend(chunk[:remaining])
+                    overflow.set()
+                    return
+                dest.extend(chunk)
+                if len(dest) > MAX_DIAGNOSTIC_BYTES:
+                    overflow.set()
+                    return
+        except OSError as exc:
+            read_errors.append(exc)
+        finally:
+            pipe.close()
+
+    readers = [threading.Thread(target=drain, args=(pipe, dest), daemon=True)
+               for pipe, dest in zip((process.stdout, process.stderr), streams)]
+    for reader in readers:
+        reader.start()
+
+    def kill_subprocess_group():
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.poll() is None:
+            process.kill()
+
+    deadline = time.monotonic() + timeout
+    reason = None
+    try:
+        while True:
+            if overflow.is_set():
+                reason = "compiler output exceeds size limit"
+                break
+            if read_errors:
+                reason = "compiler output pipe read failed"
+                break
+            if process.poll() is not None and all(not t.is_alive() for t in readers):
+                break
+            if time.monotonic() >= deadline:
+                reason = "compiler unavailable or timed out"
+                break
+            time.sleep(min(0.01, max(0, deadline - time.monotonic())))
+        if reason is not None:
+            kill_subprocess_group()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired as exc:
+            kill_subprocess_group()
+            raise RuntimeError("compiler could not be reaped") from exc
+        for reader in readers:
+            reader.join(timeout=1)
+        if any(t.is_alive() for t in readers):
+            raise RuntimeError("compiler output streams did not close")
+        if reason is not None:
+            raise RuntimeError(reason)
+        return subprocess.CompletedProcess(argv, process.returncode,
+                                           bytes(streams[0]), bytes(streams[1]))
+    finally:
+        # Do not leave a compiler alive after Python-side failure.
+        if process.poll() is None:
+            kill_subprocess_group()
+            process.wait(timeout=3)
+
+
+
+def check(backend, tool=None, timeout=60):
+    cases = load_cases()
+    if backend not in COMMANDS:
+        raise ValueError("no executable source-compiler adapter: " + backend)
+    tool = tool or DEFAULTS[backend]
+    if not isinstance(tool, str) or not tool.strip():
+        raise ValueError("compiler path must be supplied")
+    if type(timeout) not in (int, float) or not 0 < timeout <= 300:
+        raise ValueError("compiler timeout must be between zero and 300 seconds")
+    results = []
+    with tempfile.TemporaryDirectory(prefix="ores-admission-") as directory:
+        for item in cases:
+            source = Path(directory) / (item["id"] + ".ores")
+            source.write_text(item["source"], encoding="utf-8")
+            argv = COMMANDS[backend](source, tool)
+            # Compiler *only*: LLVM IR output, Forge IR output, .NET 'check'.
+            # Never run arbitrary guest programs to test unsupported syntax.
+            try:
+                done = run_compiler_process(argv, cwd=ROOT, timeout=timeout,
+                                            env=sanitized_toolchain_environment())
+                stdout = bounded_compiler_output(done.stdout, item["id"], "stdout")
+                stderr = bounded_compiler_output(done.stderr, item["id"], "stderr")
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise RuntimeError(item["id"] + ": compiler unavailable or timed out") from exc
+            # Parser rejection is not the same as process termination or
+            # infrastructure failure. Never accept segfaults, signals, or
+            # unknown exit statuses as evidence of safe compiler admission.
+            if type(done.returncode) is not int or done.returncode not in (0, 1):
+                raise RuntimeError(item["id"] +
+                    ": compiler crashed or returned unknown status " +
+                    str(done.returncode))
+            accepted = done.returncode == 0
+            if not accepted and not stderr.strip().startswith(
+                    REJECTION_PREFIXES[backend]):
+                raise RuntimeError(item["id"] +
+                    ": non-compiler failure cannot prove capability rejection; " +
+                    "status=" + str(done.returncode) +
+                    " stderr=" + stderr[:400])
+            if not accepted and backend in ("llvm", "forge") and stdout.strip():
+                raise RuntimeError(item["id"] +
+                    ": rejected source emitted partial compiler IR")
+            expected_accept = item["bootstrap"] == "accept"
+            if accepted != expected_accept:
+                raise RuntimeError(item["id"] +
+                    ": expected " + item["bootstrap"] +
+                    ", compiler status " + str(done.returncode) +
+                    "; stdout=" + stdout[:400] +
+                    "; stderr=" + stderr[:400])
+            if accepted and (not stdout.strip() or
+                    (backend == "net" and "typed OresIR: OK" not in stdout)):
+                raise RuntimeError(item["id"] + ": empty/ambiguous compiler output")
+            results.append((item["id"], item["bootstrap"]))
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--backend", choices=["llvm","net","forge","java","wasm"],
+                        required=True)
+    parser.add_argument("--tool", default=None)
+    args = parser.parse_args()
+    try:
+        for name, state in check(args.backend, args.tool):
+            print("GUEST_ADMISSION_OK " + args.backend + " " + name + " " + state)
+    except (ValueError, OSError, RuntimeError) as exc:
+        print("GUEST_ADMISSION_NOT_VERIFIED: " + str(exc), file=sys.stderr)
+        return 1
+    print("GUEST_ADMISSION_CONTRACT_PASSED: compile-time subset ONLY")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

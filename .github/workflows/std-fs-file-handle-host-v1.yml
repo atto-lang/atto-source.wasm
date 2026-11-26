@@ -1,0 +1,49 @@
+name: Atto std.fs File handle port host-only exact head
+on:
+  push:
+    branches:
+      - "feat/hosted-async-io-tenant-vfs-v1-20261119"
+  pull_request:
+    paths:
+      - 'runtime/hosted-io-v1.mjs'
+      - 'runtime/fs-file-handle-port-v1.mjs'
+      - 'tests/hosted-fs-api-v1.test.mjs'
+      - 'tests/fs-file-handle-port-v1.test.mjs'
+      - '.github/workflows/std-fs-file-handle-host-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-file-port:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact source head, no persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact source commit and Git object evidence
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          git hash-object runtime/hosted-io-v1.mjs runtime/fs-file-handle-port-v1.mjs \
+            tests/hosted-fs-api-v1.test.mjs tests/fs-file-handle-port-v1.test.mjs
+      - name: Install Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Run real Node host-only FS and actor-scoped File tests
+        run: |
+          set -euo pipefail
+          node --version
+          node --test tests/hosted-fs-api-v1.test.mjs tests/fs-file-handle-port-v1.test.mjs
+      - name: Explicitly mark this as host-only evidence
+        run: |
+          echo "ATTO_FS_NODE_HOST_ONLY=PASS"
+          echo "ATTO_FS_COMPILED_GUEST=NOT_EXECUTED"
+          echo "ATTO_FS_NATIVE_FILE_ABI=NOT_LINKED"

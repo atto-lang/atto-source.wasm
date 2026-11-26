@@ -8,11 +8,11 @@ import {createHash} from 'node:crypto';
 import {mkdtemp, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join, isAbsolute} from 'node:path';
-import {readBoundedRegularFile} from './compile-ores.mjs';
+import {readBoundedRegularFile,rejectSourceTerminalControls} from './compile-ores.mjs';
+import {rejectBidirectionalSourceControls} from './source-bidi-admission.mjs';
 import {assertWasm32IrTarget} from './wasm32-ir-target.mjs';
 import {inspectWasmBytes} from './inspect-core-memory.mjs';
 import {assertScalarActorAbi} from './actor-scalar-abi.mjs';
-import {rejectBidirectionalSourceControls} from './source-bidi-admission.mjs';
 
 const MAX_SOURCE = 1024 * 1024;
 const MAX_COMPILER = 256 * 1024 * 1024;
@@ -48,7 +48,7 @@ export async function compileSourceActorToWasm({compiler, source, clang = proces
     readBoundedRegularFile(compiler, MAX_COMPILER, 'compiler exceeds 256MiB budget')
   ]);
   const sourceBytes = sourceRead.bytes, compilerBytes = compilerRead.bytes;
-  // Actor bridge must reject source formatting attacks before invoking LLVM.
+  rejectSourceTerminalControls(sourceBytes);
   rejectBidirectionalSourceControls(sourceBytes);
   const compilerSha256 = sha(compilerBytes), sourceSha256 = sha(sourceBytes);
   if (expectedCompilerSha256 !== undefined && expectedCompilerSha256 !== compilerSha256)

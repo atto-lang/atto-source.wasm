@@ -1,0 +1,5 @@
+fnc with(int value): int { return value; }
+pub routine main(): void {
+    stdio.stdout.write(with(42));
+    return;
+}
