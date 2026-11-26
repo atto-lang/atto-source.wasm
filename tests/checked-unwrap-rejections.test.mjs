@@ -14,6 +14,8 @@ for (const [id, source, code] of checkedUnwrapRejections) {
       {ok:false, diagnostic:code + '_EXTRA: wrong class'},
       {ok:false, diagnostic:''},
       {ok:false, diagnostic:code + ': '},
+      {ok:false, diagnostic:code + ':   '},
+      {ok:false, diagnostic:code + ': a\n'},
       {ok:false, diagnostic:code + ': a\nsecond diagnostic'},
       {ok:false, diagnostic:code + ': a', wasm:new Uint8Array()},
       {ok:false, diagnostic:code + ': ' + 'x'.repeat(16384)},
