@@ -44,7 +44,7 @@ let child,timer;
 try{
  server.listen(0,'127.0.0.1');await once(server,'listening');
  const url='http://127.0.0.1:'+server.address().port+'/';
- child=spawn(chrome,['--headless=new','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--user-data-dir='+profile,url],{stdio:['ignore','ignore','pipe']});
+ child=spawn(chrome,['--headless=new','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check','--user-data-dir='+profile,url],{stdio:['ignore','ignore','pipe'],detached:process.platform!=='win32'});
  let stderr='';child.stderr.on('data',x=>{stderr=(stderr+x).slice(-8000);});
  child.once('error',rejectResult);child.once('exit',(code,signal)=>rejectResult(Error('Chrome exited before receipt: '+code+'/'+signal+' '+stderr)));
  timer=setTimeout(()=>rejectResult(Error('browser Worker timed out: '+stderr)),90000);
@@ -59,7 +59,11 @@ try{
  console.log('REAL_BROWSER_WORKER_PASS '+result.cases+' source cases; reuse and digest denial; '+result.agent);
 }finally{
  clearTimeout(timer);
+ if(child?.pid&&process.platform!=='win32'){
+   // Kill the dedicated process group, including Chrome renderer children.
+   try{process.kill(-child.pid,'SIGKILL');}catch(e){if(e.code!=='ESRCH')throw e;}
+ }
  if(child&&child.exitCode===null&&child.signalCode===null){const exited=once(child,'exit').catch(()=>{});child.kill('SIGKILL');await exited;}
  server.closeAllConnections();await new Promise(resolve=>server.close(resolve));
- await rm(profile,{recursive:true,force:true});
+ await rm(profile,{recursive:true,force:true,maxRetries:8,retryDelay:100});
 }
