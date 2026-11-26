@@ -32,9 +32,9 @@ No supervisor observer exception or rejected async notification may block the Wo
 
 ## Tests and evidence levels
 
-`tests/supervised-pooled-actor-v1.test.mjs` contains **eight tests**: seven real Node/Clang **synthetic-LLVM-to-Wasm** host/Worker tests and one real source compiler-backed guest test that is skipped in a host-only lane.
+`tests/supervised-pooled-actor-v1.test.mjs` contains **twelve tests**: eleven host-level Node/Clang or controlled-pool model **synthetic-LLVM-to-Wasm** host/Worker tests and one real source compiler-backed guest test that is skipped in a host-only lane.
 
-The seven host tests exercise:
+The eleven host/model tests exercise:
 
 1. Typed terminal actor A failure, single budgeted automatic restart from generation 1 to 2, old-generation send/STOP rejection, B survival on the **same Worker**, and second failure exhausting the restart budget.
 2. Nonquota `unreachable` actor death revoking the old generation with no restart.
@@ -45,7 +45,7 @@ The seven host tests exercise:
 
 7. Manual STOP drains the full bounded 64-generation-waiter queue without restarting the actor or leaving unresolved promise leaks.
 
-The source-org workflow `.github/workflows/wasm-pooled-supervisor-control-v1.yml` runs Node 22 and Clang, requires seven host passes plus exactly one **skipped** real-compiler test, and produces an exact HEAD/tree/run-attempt artifact clearly marked `node_clang_synthetic_wasm_host_executed=true`, `atto_compiler_backed_guest_executed=false`. A step-less GitHub workflow cannot produce this evidence.
+The source-org workflow `.github/workflows/wasm-pooled-supervisor-control-v1.yml` runs Node 22 and Clang, requires eleven host/model passes plus exactly one **skipped** real-compiler test, and produces an exact HEAD/tree/run-attempt artifact clearly marked `node_clang_synthetic_wasm_host_executed=true`, `atto_compiler_backed_guest_executed=false`. A step-less GitHub workflow cannot produce this evidence.
 
 The separate mandatory real-guest gate is:
 
@@ -60,6 +60,20 @@ node --test tests/supervised-pooled-actor-v1.test.mjs
 
 or `npm run test:real-supervisor-guest` with the four `ORESLANG_LLVM_*` variables. It compiles **unchanged canonical .atto** actor blob `947781cddf09d8e3e08c51cff2b7d8960e2d4750` through the approved compiler and Clang, then exercises actual typed quota at the attempted 65th guest frame, independent B, one automatic fresh-generation restart, and stale generation rejection. Binary SHA alone cannot establish which source produced the executable; independent source/build-chain attestation is mandatory.
 
+## Lifecycle race hardening M3.1 — authored, not hosted execution
+
+The supervisor `close()` is now a single idempotent **retirement barrier**: every concurrent caller receives the exact same Promise, including the same failure if physical STOP is unconfirmed. A later call cannot report success merely because `#closed` is true. The supervisor holds raw actor authority if a CONTROL event is malformed, rather than dropping its last cleanup reference.
+
+`waitForGeneration(after, {signal})` accepts an actual host `AbortSignal`. Each of the at most 64 pending waiters is removed on abort or settled generation, explicit STOP, terminal fault, carrier retirement, or supervisor close; listeners are removed on every settlement. This is host observer cancellation, **not** guest continuation cancellation or compiler-backed suspension.
+
+Four additional tests assert:
+- Close Promise identity and successful retirement across concurrent callers
+- Forged/failed STOP causing one shared rejected close barrier, never premature success
+- Invalid internal CONTROL revoking the public handle while retaining a raw actor for explicit acknowledged STOP
+- Canceled 64-waiter budget freeing slots, listener cleanup, and STOP draining the replacement waiter
+
+This expands the suite to **12 cases: 11 host/synthetic-Wasm or host-mock cases plus 1 conditionally skipped real `.atto` compiler guest case**. The exact-head Node 22/Clang workflow asserts these totals; until it executes real steps, all are authored only and **not an executed pass**.
+
 ## Unverified follow-ons
 
 1. Full hosted exact-head Node/Clang suite after source-org Actions payment/spend-limit admission is restored.
@@ -70,3 +84,7 @@ or `npm run test:real-supervisor-guest` with the four `ORESLANG_LLVM_*` variable
 6. Physical OS/tenant sandbox isolation is not provided by Node Workers; do not treat this runtime-only work as an untrusted sandbox.
 
 Organization-wide GitHub provider admission incident [conformance #315](https://github.com/ores-truffle-oreslang/oreslang-platform-conformance/issues/315) reports failed payments or a spending-limit block. The account billing owner must identify the precise condition, authorize its repair, then run a **source-free same-org canary with nonzero executed steps** before claiming that any of these workflows passed.
+
+### Supervisor close retirement hold
+
+`status.retirementHold` records that a closed supervisor still retains its raw current or late-restart actor authority. Public handles are revoked immediately. The raw hold is released only after the corresponding STOP succeeds; rejected STOP leaves the same rejected close barrier and conservative hold. The flag is a host ownership observation, not independent evidence of native reclamation or a new restart permission.

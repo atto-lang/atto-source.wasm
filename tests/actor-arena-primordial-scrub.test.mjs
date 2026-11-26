@@ -1,22 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ActorArena} from '../src/actor-arena.mjs';
 
 const NativeMemory = WebAssembly.Memory;
 const NativeFill = Uint8Array.prototype.fill;
 const NativeBytes = Uint8Array;
 
-function captureArena(actorId) {
+async function captureArena(actorId) {
+  // The arena intentionally captures native constructors at module load.
+  // Load a fresh test-only module while observing construction; never expose
+  // memory from the production API or replace captured byte operations.
   let memory;
-  WebAssembly.Memory = class extends NativeMemory {
-    constructor(options) { super(options); memory = this; }
-  };
-  try { return {arena: new ActorArena({actorId, incarnation: 1}), memory}; }
-  finally { WebAssembly.Memory = NativeMemory; }
+  WebAssembly.Memory = new Proxy(NativeMemory, {
+    construct(target, args) { memory = Reflect.construct(target, args); return memory; }
+  });
+  try {
+    const {ActorArena} = await import('../src/actor-arena.mjs?scrub-test=' + actorId);
+    const arena = new ActorArena({actorId, incarnation: 1});
+    assert.ok(memory instanceof NativeMemory, 'test must observe actual arena memory');
+    return {arena, memory};
+  } finally { WebAssembly.Memory = NativeMemory; }
 }
 
-test('retirement must scrub even when later host mutates Uint8Array.prototype.fill', () => {
-  const {arena, memory} = captureArena(201);
+test('retirement must scrub even when later host mutates Uint8Array.prototype.fill', async () => {
+  const {arena, memory} = await captureArena(201);
   const turn = arena.beginTurn();
   const handle = arena.allocPersistent(turn, 4);
   arena.write(turn, handle, NativeBytes.from([7, 8, 9, 10]));
@@ -29,8 +35,8 @@ test('retirement must scrub even when later host mutates Uint8Array.prototype.fi
   assert.deepEqual([...new NativeBytes(memory.buffer).slice(0, 4)], [0, 0, 0, 0]);
 });
 
-test('last lifetime pin release must scrub after STOP even when host fill changes', () => {
-  const {arena, memory} = captureArena(202);
+test('last lifetime pin release must scrub after STOP even when host fill changes', async () => {
+  const {arena, memory} = await captureArena(202);
   const turn = arena.beginTurn();
   const handle = arena.allocPersistent(turn, 4);
   arena.write(turn, handle, NativeBytes.from([21, 22, 23, 24]));
@@ -45,8 +51,8 @@ test('last lifetime pin release must scrub after STOP even when host fill change
   assert.deepEqual([...new NativeBytes(memory.buffer).slice(0, 4)], [0, 0, 0, 0]);
 });
 
-test('scratch bytes must scrub before next turn under poisoned host fill', () => {
-  const {arena, memory} = captureArena(203);
+test('scratch bytes must scrub before next turn under poisoned host fill', async () => {
+  const {arena, memory} = await captureArena(203);
   const firstTurn = arena.beginTurn();
   const handle = arena.allocScratch(firstTurn, 4);
   arena.write(firstTurn, handle, NativeBytes.from([31, 32, 33, 34]));
@@ -57,8 +63,8 @@ test('scratch bytes must scrub before next turn under poisoned host fill', () =>
   arena.retire();
 });
 
-test('retirement uses native memory and byte-length slots after prototype corruption', () => {
-  const {arena, memory} = captureArena(204);
+test('retirement uses native memory and byte-length slots after prototype corruption', async () => {
+  const {arena, memory} = await captureArena(204);
   const actualBuffer = memory.buffer;
   const turn = arena.beginTurn();
   const handle = arena.allocPersistent(turn, 4);
@@ -81,8 +87,8 @@ test('retirement uses native memory and byte-length slots after prototype corrup
   assert.deepEqual([...new NativeBytes(actualBuffer).slice(0, 4)], [0, 0, 0, 0]);
 });
 
-test('read and write retain native byte operations under later host monkeypatches', () => {
-  const {arena} = captureArena(205);
+test('read and write retain native byte operations under later host monkeypatches', async () => {
+  const {arena} = await captureArena(205);
   const turn = arena.beginTurn();
   const handle = arena.allocPersistent(turn, 4);
   const supplied = NativeBytes.from([71, 72, 73, 74]);

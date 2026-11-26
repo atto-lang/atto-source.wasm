@@ -1,0 +1,21 @@
+// Negative admission fixture: source syntax describing a suspending
+// helper may not enter the v1 synchronous actor recursion Wasm ABI.
+// No guest suspension or continuation resumption is currently supported.
+suspends fnc deferred(int value): int {
+  return value;
+}
+
+fnc descend(int depth): int {
+  return depth == 0 ? 0 : 1 + descend(depth - 1);
+}
+
+define actor BoundedCounter as {
+  let total: int = 0;
+  pub fnc on_message(int depth): int {
+    return descend(depth);
+  }
+}
+
+pub fnc main(): int {
+  return 42;
+}
