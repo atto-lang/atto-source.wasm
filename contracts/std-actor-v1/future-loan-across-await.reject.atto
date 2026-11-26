@@ -1,0 +1,7 @@
+// expect-error: E_BORROW
+// Core ownership: a live borrow cannot cross consuming await.
+use namespace std.actor.future_negative_borrow_await;
+pub susp fnc reject_borrow_await(take! ActorFuture<int> receipt) -> int {
+  val loan = borrow! receipt;
+  return await receipt;
+}

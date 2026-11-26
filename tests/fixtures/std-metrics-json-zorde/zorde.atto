@@ -1,0 +1,174 @@
+import module zorde from "std/zorde";
+pub routine main(): void {
+  let mut Array<int> payload = new Array<int>();
+  payload.add(0);
+  payload.add(255);
+  let raw = zorde.encode_frame(7, 1, payload);
+  stdio.println(raw.is_ok());
+  let wire = raw.unwrap();
+  stdio.println(wire.size);
+  stdio.println(wire.get(5));
+  stdio.println(wire.get(6));
+  stdio.println(wire.get(7));
+  let decoded = zorde.decode_frame(wire);
+  stdio.println(decoded.is_ok());
+  let frame = decoded.unwrap();
+  stdio.println(frame.schema());
+  stdio.println(frame.version());
+  stdio.println(frame.length());
+  stdio.println(frame.bytes().get(1));
+  let mut Array<int> bad = frame.bytes();
+  stdio.println(zorde.decode_frame(bad).is_err());
+  let mut Array<int> prefix = new Array<int>();
+  prefix.add(90);
+  prefix.add(79);
+  let mut reader = zorde.reader(prefix);
+  stdio.println(reader.read_byte().unwrap());
+  stdio.println(reader.read_byte().unwrap());
+  let mut Array<int> overlong = new Array<int>();
+  overlong.add(128);
+  overlong.add(0);
+  let mut bad_varint = zorde.reader(overlong);
+  stdio.println(bad_varint.read_varuint().is_err());
+  stdio.println(bad_varint.remaining());
+  let mut Array<int> valid = new Array<int>();
+  valid.add(172);
+  valid.add(2);
+  let mut canonical = zorde.reader(valid);
+  stdio.println(canonical.read_varuint().unwrap());
+  stdio.println(canonical.remaining());
+  let mut Array<int> truncated = new Array<int>();
+  truncated.add(128);
+  let mut partial = zorde.reader(truncated);
+  stdio.println(partial.read_varuint().is_err());
+  stdio.println(partial.remaining());
+
+  // AOT typed codecs: schema ID and version must both match.
+  let bool_wire = zorde.encode_bool_frame(42, 2, true).unwrap();
+  stdio.println(zorde.decode_bool_frame(42, 2, bool_wire).unwrap());
+  let bool_mismatch = zorde.encode_bool_frame(42, 2, true).unwrap();
+  stdio.println(zorde.decode_bool_frame(42, 3, bool_mismatch).is_err());
+  let schema_mismatch = zorde.encode_bool_frame(42, 2, false).unwrap();
+  stdio.println(zorde.decode_bool_frame(43, 2, schema_mismatch).is_err());
+  let lower_i31 = zorde.encode_i31_frame(10, 4, -1073741824).unwrap();
+  stdio.println(zorde.decode_i31_frame(10, 4, lower_i31).unwrap());
+  let upper_i31 = zorde.encode_i31_frame(10, 4, 1073741823).unwrap();
+  stdio.println(zorde.decode_i31_frame(10, 4, upper_i31).unwrap());
+  stdio.println(zorde.encode_i31_frame(10, 4, -1073741825).is_err());
+  stdio.println(zorde.encode_i31_frame(10, 4, 1073741824).is_err());
+
+  // A truncated length-delimited read must leave its cursor unchanged.
+  let mut Array<int> short_input = new Array<int>();
+  short_input.add(4);
+  short_input.add(10);
+  short_input.add(20);
+  let mut incomplete = zorde.reader(short_input);
+  stdio.println(incomplete.read_length_delimited(10).is_err());
+  stdio.println(incomplete.remaining());
+  let mut Array<int> good_input = new Array<int>();
+  good_input.add(2);
+  good_input.add(10);
+  good_input.add(20);
+  let mut complete = zorde.reader(good_input);
+  let complete_payload = complete.read_length_delimited(2).unwrap();
+  stdio.println(complete_payload.get(1));
+  stdio.println(complete.remaining());
+  let mut Array<int> limited_bytes = new Array<int>();
+  limited_bytes.add(10);
+  limited_bytes.add(20);
+  let mut limited = zorde.writer(2);
+  stdio.println(limited.write_length_delimited(limited_bytes));
+  stdio.println(limited.size());
+
+  // Bad external octets must yield Err rather than a Reader constructor trap.
+  let valid_frame = zorde.encode_bool_frame(9, 1, true).unwrap();
+  let mut Array<int> invalid_frame = new Array<int>();
+  for (let int i = 0; i < valid_frame.size; i = i + 1) {
+    invalid_frame.add(valid_frame.get(i));
+  }
+  invalid_frame.set(invalid_frame.size - 1, 256);
+  stdio.println(zorde.decode_frame(invalid_frame).is_err());
+  let mut Array<int> invalid_bool_payload = new Array<int>();
+  invalid_bool_payload.add(2);
+  let invalid_bool_wire = zorde.encode_frame(42, 2, invalid_bool_payload).unwrap();
+  stdio.println(zorde.decode_bool_frame(42, 2, invalid_bool_wire).is_err());
+
+  let mut Array<int> wrong_byte = new Array<int>();
+  wrong_byte.add(-1);
+  stdio.println(zorde.checked_reader(wrong_byte).is_err());
+  let mut Array<int> upper_byte = new Array<int>();
+  upper_byte.add(256);
+  stdio.println(zorde.checked_reader(upper_byte).is_err());
+  stdio.println(zorde.checked_writer(0).is_err());
+  stdio.println(zorde.checked_writer(1048577).is_err());
+  stdio.println(zorde.checked_writer(16).is_ok());
+  let mut Array<int> one_byte = new Array<int>();
+  one_byte.add(255);
+  stdio.println(zorde.checked_reader(one_byte).is_ok());
+
+  // Wire framing must be exact: no extra octets, unsupported bootstrap
+  // versions, incorrect length fields or noncanonical schema varints.
+  let mut Array<int> trailing = new Array<int>();
+  for (let int i = 0; i < valid_frame.size; i = i + 1) {
+    trailing.add(valid_frame.get(i));
+  }
+  trailing.add(0);
+  stdio.println(zorde.decode_frame(trailing).is_err());
+
+  let mut Array<int> wrong_version = new Array<int>();
+  for (let int i = 0; i < valid_frame.size; i = i + 1) {
+    wrong_version.add(valid_frame.get(i));
+  }
+  wrong_version.set(4, 2);
+  stdio.println(zorde.decode_frame(wrong_version).is_err());
+
+  let mut Array<int> wrong_length = new Array<int>();
+  for (let int i = 0; i < valid_frame.size; i = i + 1) {
+    wrong_length.add(valid_frame.get(i));
+  }
+  wrong_length.set(7, 2);
+  stdio.println(zorde.decode_frame(wrong_length).is_err());
+
+  let mut Array<int> overlong_schema = new Array<int>();
+  overlong_schema.add(90);
+  overlong_schema.add(79);
+  overlong_schema.add(82);
+  overlong_schema.add(68);
+  overlong_schema.add(1);
+  overlong_schema.add(128);
+  overlong_schema.add(0);
+  overlong_schema.add(1);
+  overlong_schema.add(0);
+  stdio.println(zorde.decode_frame(overlong_schema).is_err());
+
+  let mut Array<int> empty_frame = new Array<int>();
+  empty_frame.add(90);
+  empty_frame.add(79);
+  empty_frame.add(82);
+  empty_frame.add(68);
+  empty_frame.add(1);
+  empty_frame.add(1);
+  empty_frame.add(1);
+  empty_frame.add(0);
+  stdio.println(zorde.decode_frame(empty_frame).is_ok());
+
+  // Canonical unsigned 31-bit wire limits: writer must not emit a
+  // representation its own reader cannot admit. Failure is atomic.
+  let mut varuint31 = zorde.writer(8);
+  stdio.println(varuint31.write_varuint(2147483647));
+  stdio.println(varuint31.size());
+  stdio.println(varuint31.write_varuint(2147483648));
+  stdio.println(varuint31.size());
+  let mut Array<int> illegal_octet = new Array<int>();
+  illegal_octet.add(256);
+  stdio.println(varuint31.write_bytes(illegal_octet));
+  stdio.println(varuint31.size());
+  let mut Array<int> empty_bytes = new Array<int>();
+  stdio.println(zorde.encode_frame(2147483648, 1, empty_bytes).is_err());
+  let mut Array<int> empty_bytes2 = new Array<int>();
+  stdio.println(zorde.encode_frame(1, 2147483648, empty_bytes2).is_err());
+  let mut Array<int> empty_bytes3 = new Array<int>();
+  stdio.println(zorde.encode_frame(2147483647, 2147483647, empty_bytes3).is_ok());
+  stdio.println(zorde.decode_frame_for(2147483648, 1, valid_frame).is_err());
+  return;
+}

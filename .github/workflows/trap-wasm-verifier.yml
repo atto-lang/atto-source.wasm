@@ -1,0 +1,37 @@
+name: Trap Wasm verifier fail-closed tests
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verifier:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact source identity
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse HEAD^{tree}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Validate actual verifier and fail-closed tests
+        run: |
+          node --check scripts/verify-trap-wasm.mjs
+          node --check scripts/verify-trap-wasm.test.mjs
+          node --test scripts/verify-trap-wasm.test.mjs
+          # Canonical Result profile remains separate from historical Option proof.
+          node --check scripts/verify-trap-result-wasm.mjs
+          node --check src/trap-result-guest-outcome.mjs
+          node --check tests/trap-result-verifier-v1.test.mjs
+          node --check tests/trap-result-guest-outcome.test.mjs
+          node --test tests/trap-result-verifier-v1.test.mjs tests/trap-result-guest-outcome.test.mjs

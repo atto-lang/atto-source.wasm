@@ -1,0 +1,217 @@
+{
+  "schema": "backend-local-atto-library-policy-v1",
+  "status": "proposed-cases-only; NOT_EXECUTED by native Atto compiler",
+  "notice": "No shared-source or identical-capacity-floor requirement across backend implementations",
+  "source_paths": [
+    "stdlib/core/byte_budget.atto",
+    "stdlib/alloc/capacity_plan.atto",
+    "stdlib/std/stream_watermarks.atto"
+  ],
+  "capacity_floor": 4,
+  "cases": [
+    {
+      "fn": "can_fit_bytes",
+      "args": [
+        3,
+        0,
+        3
+      ],
+      "expected": true
+    },
+    {
+      "fn": "can_fit_bytes",
+      "args": [
+        3,
+        1,
+        3
+      ],
+      "expected": false
+    },
+    {
+      "fn": "can_fit_bytes",
+      "args": [
+        -1,
+        1,
+        3
+      ],
+      "expected": false
+    },
+    {
+      "fn": "bytes_left",
+      "args": [
+        3,
+        10
+      ],
+      "expected": 7
+    },
+    {
+      "fn": "bytes_left",
+      "args": [
+        11,
+        10
+      ],
+      "expected": -1
+    },
+    {
+      "fn": "can_replace_bytes",
+      "args": [
+        10,
+        6,
+        8,
+        12
+      ],
+      "expected": true
+    },
+    {
+      "fn": "can_replace_bytes",
+      "args": [
+        10,
+        6,
+        9,
+        12
+      ],
+      "expected": false
+    },
+    {
+      "fn": "next_capacity",
+      "args": [
+        0,
+        1,
+        20
+      ],
+      "expected": 4
+    },
+    {
+      "fn": "next_capacity",
+      "args": [
+        2,
+        3,
+        10
+      ],
+      "expected": 4
+    },
+    {
+      "fn": "next_capacity",
+      "args": [
+        6,
+        19,
+        20
+      ],
+      "expected": 19
+    },
+    {
+      "fn": "next_capacity",
+      "args": [
+        8,
+        9,
+        10
+      ],
+      "expected": 9
+    },
+    {
+      "fn": "next_capacity",
+      "args": [
+        8,
+        11,
+        10
+      ],
+      "expected": -1
+    },
+    {
+      "fn": "reservation_fits",
+      "args": [
+        8,
+        2,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "fn": "reservation_fits",
+      "args": [
+        8,
+        3,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "fn": "stream_should_pause",
+      "args": [
+        9,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "fn": "stream_should_pause",
+      "args": [
+        10,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "fn": "stream_should_pause",
+      "args": [
+        0,
+        0
+      ],
+      "expected": true
+    },
+    {
+      "fn": "stream_may_resume",
+      "args": [
+        4,
+        4,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "fn": "stream_may_resume",
+      "args": [
+        5,
+        4,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "fn": "stream_may_resume",
+      "args": [
+        4,
+        10,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "fn": "stream_can_accept",
+      "args": [
+        8,
+        2,
+        10
+      ],
+      "expected": true
+    },
+    {
+      "fn": "stream_can_accept",
+      "args": [
+        8,
+        3,
+        10
+      ],
+      "expected": false
+    },
+    {
+      "fn": "stream_can_accept",
+      "args": [
+        -1,
+        1,
+        10
+      ],
+      "expected": false
+    }
+  ]
+}

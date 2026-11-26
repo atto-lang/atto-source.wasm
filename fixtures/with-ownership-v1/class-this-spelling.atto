@@ -1,0 +1,6 @@
+define class Point as
+    pub final int x: 3;
+    pub increment(): Point {
+        return rt copy this with {x => 4};
+    }
+end

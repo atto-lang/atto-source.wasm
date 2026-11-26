@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {spawnSync} from "node:child_process";
+import {readFileSync} from "node:fs";
 import {fileURLToPath} from "node:url";
 const path = fileURLToPath(new URL("../scripts/verify-real-compiler.mjs",import.meta.url));
 test("canonical shared .atto real-compiler guest has the reviewed exact bytes", async () => {
@@ -71,6 +72,45 @@ test("generator-v1 real-compiler gate requires the compiler-owned diagnostic", a
   }), /required compiler-owned gate/);
 });
 
+test("generator-v1 async and suspend gates require their dedicated compiler diagnostics", async () => {
+  const {assertGeneratorV1FrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  for (const diagnostic of [
+    "native async gen* requires scheduler-owned async iterator continuation lowering",
+    "native suspend gen* requires scheduler-owned async iterator continuation lowering"
+  ]) {
+    const diagnosed = {
+      status:1, signal:null, error:undefined, stdout:"",
+      stderr:"oreslang-llvmc: " + diagnostic
+    };
+    assert.equal(assertGeneratorV1FrontendRejection(diagnosed, diagnostic), true);
+    assert.throws(() => assertGeneratorV1FrontendRejection({
+      ...diagnosed,
+      stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+    }, diagnostic), /required compiler-owned gate/);
+  }
+});
+
+test("generator-v1 wasm32 gate requires backend capability diagnostic", async () => {
+  const {assertGeneratorV1WasmRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const expected =
+    "native generator v1 is not yet admitted for wasm32/Cortex-M targets";
+  const diagnosed = {
+    status:1, signal:null, error:undefined, stdout:"",
+    stderr:"oreslang-llvmc: " + expected
+  };
+  assert.equal(assertGeneratorV1WasmRejection(diagnosed), true);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stderr:"oreslang-llvmc: native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+  }), /required wasm32 compiler gate/);
+  assert.throws(() => assertGeneratorV1WasmRejection({
+    ...diagnosed,
+    stdout:"define i32 @fake() { ret i32 0 }"
+  }), /diagnosed error/);
+});
+
 test("inverted real-compiler gate requires native declaration rejection", async () => {
   const {assertInvertedFrontendRejection} =
     await import("../scripts/verify-real-compiler.mjs");
@@ -106,6 +146,51 @@ test("singleton real-compiler gate requires compiler-owned capability diagnostic
   assert.throws(() => assertSingletonFrontendRejection({
     ...diagnosed, stdout:"define i64 @fake() { ret i64 0 }"
   }), /diagnosed error/);
+});
+
+test("singleton LLVM diagnostic cannot be laundered through echoed source or split stderr lines", async () => {
+  const {assertSingletonFrontendRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const correct = "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require five-backend guest execution parity at byte 7";
+  const base = {status:1, signal:null, error:undefined, stdout:"", stderr:correct};
+  assert.equal(assertSingletonFrontendRejection(base), true);
+  for (const stderr of [
+    "oreslang-llvmc: syntax error at byte 7\n// ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
+    "oreslang-llvmc:\nORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity at byte 7",
+    "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: syntax error at byte 7\nthird-party: five-backend guest execution parity",
+    "warning: ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity\noreslang-llvmc: unexpected token at byte 7",
+    "oreslang-llvmc: syntax error for ORES-SINGLETON-UNSUPPORTED: five-backend guest execution parity",
+    "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: syntax error at byte 7\noreslang-llvmc: five-backend guest execution parity"
+  ]) {
+    assert.throws(() => assertSingletonFrontendRejection({...base, stderr}),
+      /required compiler-owned admission gate/);
+  }
+  assert.throws(() => assertSingletonFrontendRejection({...base, stdout:"(module)"}),
+    /diagnosed error/);
+});
+
+test("singleton Wasm bridge cannot treat generic command failure as source rejection", async () => {
+  const {assertSingletonBridgeRejection} =
+    await import("../scripts/verify-real-compiler.mjs");
+  const diagnostic = "oreslang-llvmc: ORES-SINGLETON-UNSUPPORTED: native singleton declarations require five-backend guest execution parity at byte 7";
+  const sourceFailure = Object.assign(new Error("command failed (/pinned/compiler): " + diagnostic), {
+    status:1, signal:null, stdout:"", stderr:diagnostic
+  });
+  assert.equal(assertSingletonBridgeRejection(sourceFailure), true);
+  for (const failure of [
+    Object.assign(new Error("unexpected Wasm compiler error"), {
+      status:1, signal:null, stdout:"", stderr:diagnostic
+    }),
+    Object.assign(new Error("command failed (/usr/bin/clang): linker unavailable"), {
+      status:1, signal:null, stdout:"", stderr:"ld.lld: missing object"
+    }),
+    Object.assign(new Error("command failed (/pinned/compiler): process crashed"), {
+      status:null, signal:"SIGSEGV", stdout:"", stderr:diagnostic
+    }),
+    Object.assign(new Error("command failed (/pinned/compiler): emitted partial IR"), {
+      status:1, signal:null, stdout:"define i64 @main() { ret i64 42 }", stderr:diagnostic
+    })
+  ]) assert.throws(() => assertSingletonBridgeRejection(failure));
 });
 
 test("select real-compiler gate requires LLVM capability diagnostic and no IR", async () => {

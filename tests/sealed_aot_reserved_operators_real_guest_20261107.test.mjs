@@ -151,7 +151,7 @@ test('real pinned LLVM frontend rejects % and infix ^; integer ^^ emits runnable
       if(c.token===null) {
         const built=await compileOresToWasm({compiler,
           compilerSha256:expectedDigest,source:input,output,
-          environment:'browser',publication:'atomic'});
+          environment:'browser',publication:'atomic',operatorProfile:'canonical-i64-v5'});
         assert.equal(built.sourceSha256,sha256(source));
         assert.equal(built.compilerSha256,expectedDigest);
         const release=await readAtomicRelease(output);
@@ -172,8 +172,8 @@ test('real pinned LLVM frontend rejects % and infix ^; integer ^^ emits runnable
           c.id+' rejected for wrong reason: '+diagnostic.slice(0,300));
         await assert.rejects(compileOresToWasm({compiler,
           compilerSha256:expectedDigest,source:input,output,
-          environment:'browser',publication:'atomic'}),
-          e => String(e?.message??e).includes(c.token),
+          environment:'browser',publication:'atomic',operatorProfile:'canonical-i64-v5'}),
+          e => String(e?.message??e).includes("ATTO_REMOVED_OPERATOR: '"+c.token+"'"),
           c.id+' bridge must preserve source operator rejection');
         await assert.rejects(stat(output),{code:'ENOENT'},'rejected source emitted Wasm');
         await assert.rejects(stat(output+'.current.json'),{code:'ENOENT'},

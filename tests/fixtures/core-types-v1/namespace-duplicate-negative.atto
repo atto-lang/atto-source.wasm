@@ -1,0 +1,4 @@
+// Duplicate namespace declarations must be rejected during parse.
+use namespace types;
+use namespace wrong;
+pub fnc main() -> int { return 0; }

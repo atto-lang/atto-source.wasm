@@ -1,0 +1,8 @@
+// BCV1-010 take fail: target AttoLang semantics, NOT_EXECUTED.
+// Expected compiler rejection E_MOVED with NO guest artifact.
+define class Parcel as pub let int value = 42; end
+pub fnc main(): int {
+  val first = new Parcel();
+  val second = take! first;
+  return first.value; // source owner invalidated
+}

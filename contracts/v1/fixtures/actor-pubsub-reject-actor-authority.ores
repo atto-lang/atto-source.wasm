@@ -1,0 +1,19 @@
+define actor BadAuthority as
+  receive(ActorMail<String> mail): void {
+    val group = actor.group("authority");
+    group.topic<String>("new-topic", "reliable", 4);
+    self.end();
+    return;
+  }
+end
+
+pub async routine main(): void {
+  val group = actor.group("authority");
+  val actorRef = spawn BadAuthority();
+  await actorRef.get_ready();
+  group.join(actorRef);
+  actorRef.send("run");
+  await actorRef.get_done();
+  group.close();
+  return;
+}

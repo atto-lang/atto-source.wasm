@@ -223,3 +223,75 @@ test('long modifier prefix cannot bypass unsupported scalar actor/enum gates',()
   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(
     'define '+Array(32).fill('pub').join(' ')+' enum UserColors as red end')));
 });
+
+test("Wasm HTTP actor alias and two-level concurrency reject before compilation", () => {
+  for (const source of [
+    "define serial http actor Endpoint as end",
+    "define http actor Endpoint as int requestConcurrency = 1; int messageConcurrency = 1; end",
+    "define http actor Endpoint as int requestConcurrency = 3; int messageConcurrency = 4; end",
+    "define pub serial http actor Endpoint as end",
+    "pub define http actor Endpoint as end",
+    "define pub shared http actor Endpoint as end",
+    "define " + Array(18).fill("pub").join(" ") + " serial http actor Endpoint as end"
+  ]) {
+    assert.throws(
+      () => rejectUnsupportedActorThreadSource(bytes(source)),
+      /HTTP_ACTOR_BACKEND_UNSUPPORTED: missing HTTP request\/message lifetime and physical shutdown lowering/,
+      source
+    );
+  }
+  for (const source of [
+    "fnc main():int{let http=42;return http;}",
+    "fnc main():int{return 42;} // define serial http actor Bad as end",
+    "fnc main():int{return 42;} /* define http actor Bad as end */",
+    "fnc main():int{let s=\"define http actor Fake as end\";return 42;}"
+  ]) assert.doesNotThrow(() => rejectUnsupportedActorThreadSource(bytes(source)), source);
+});
+
+test("HTTP actor cannot evade the Wasm preflight through comment gaps, modules or modifier amplification",()=>{
+ for(const source of [
+   "define http actor A as end",
+   "pub define http actor A as end",
+   "define /* gap */ serial /* gap */ http actor A as end",
+   "define\\n// gap\\nserial\\nhttp\\nactor A as end".replaceAll("\\n","\n"),
+   "define " + Array(128).fill("pub").join(" ") + " serial http actor A as end",
+   "define module Box as\\n define serial http actor A as end\\nend".replaceAll("\\n","\n"),
+   "define pub http /* nested /* block */ text */ actor A as end"
+ ]) {
+   assert.throws(()=>rejectUnsupportedActorThreadSource(bytes(source)),
+     /HTTP_ACTOR_BACKEND_UNSUPPORTED/,source);
+ }
+ for(const source of [
+   "/* define /* nested */ http actor A as end */ fnc main():int{return 7;}",
+   "fnc main():int{let a=`define http actor X`;return 7;}",
+   "define module words as fnc http_count():int{return 42;} end"
+ ]) {
+   assert.doesNotThrow(()=>rejectUnsupportedActorThreadSource(bytes(source)),source);
+ }
+});
+
+test("shared Rust/JS/.NET HTTP actor .atto fixture has exact Git blob and fails Wasm admission", () => {
+  const fixture = readFileSync(new URL("./fixtures/http-actor-unsupported.atto", import.meta.url));
+  const originalBlob = createHash("sha1")
+    .update("blob " + fixture.length + "\0").update(fixture).digest("hex");
+  assert.equal(originalBlob, "878b8a8f6efd126ef2a09a3b6da165000345becc");
+  assert.equal(fixture.byteLength, 94);
+  assert.throws(() => rejectUnsupportedActorThreadSource(fixture),
+    /HTTP_ACTOR_BACKEND_UNSUPPORTED/);
+});
+
+test("canonical byte-pinned HTTP actor .atto inputs fail closed in Wasm source bridge",()=>{
+ const entries=[
+   ["serial-1x1.atto","7564a770934d2374ec5166a353c2c9bb3c383bdf"],
+   ["explicit-1x1.atto","d2e5ebaffaaa26bfe6e117aaa8b36a6eb33937e1"],
+   ["unsupported-3x4.atto","6987e72d70ae509522f7e050a494c0aef721a653"]
+ ];
+ for(const [file,blobSha] of entries) {
+   const data=readFileSync(new URL("./fixtures/http-actor-v1/"+file,import.meta.url));
+   const observed=createHash("sha1")
+     .update("blob "+data.byteLength+"\0").update(data).digest("hex");
+   assert.equal(observed,blobSha,file+" changed from shared contract");
+   assert.throws(()=>rejectUnsupportedActorThreadSource(data),
+     /HTTP_ACTOR_BACKEND_UNSUPPORTED/,file);
+ }
+});

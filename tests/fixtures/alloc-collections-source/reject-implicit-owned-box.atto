@@ -1,0 +1,12 @@
+// TARGET NEGATIVE — must reject implicit borrow passed to a consuming generic.
+// Expect E_OWNERSHIP or a precise UNSUPPORTED diagnostic, never a compiled guest.
+// General typed consuming generic formal support is not yet backend-certified.
+import module alloc_box from "atto.alloc/box";
+define class Payload as
+  let int code = 9;
+end
+pub fnc main() -> int {
+  let live = new Payload();
+  let boxed = alloc_box.boxed<Payload>(live);  // forbidden: missing take!
+  return boxed.is_full() ? 1 : 0;
+}

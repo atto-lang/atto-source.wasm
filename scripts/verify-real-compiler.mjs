@@ -25,17 +25,35 @@ export function assertNativeFrontendRejection(frontend) {
   }
   return true;
 }
+/** A Wasm host rejection is valid only if the PINNED LLVM compiler
+ * emitted its own with-ownership capability diagnostic, not a host shim. */
+export function assertWithFrontendRejection(frontend) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes("WITH_BACKEND_UNSUPPORTED"))
+    throw Error("with ownership rejection did not come from compiler-owned LLVM gate");
+  return true;
+}
 export function assertTupleV2FrontendRejection(frontend, expectedDiagnostic) {
   assertNativeFrontendRejection(frontend);
   if (!String(frontend.stderr || "").includes(expectedDiagnostic))
     throw Error("tuple-v2 rejection did not come from the required compiler-owned gate");
   return true;
 }
-export function assertGeneratorV1FrontendRejection(frontend) {
+export function assertGeneratorV1FrontendRejection(
+  frontend,
+  expectedDiagnostic =
+    "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"
+) {
+  assertNativeFrontendRejection(frontend);
+  if (!String(frontend.stderr || "").includes(expectedDiagnostic))
+    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+  return true;
+}
+export function assertGeneratorV1WasmRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   if (!String(frontend.stderr || "").includes(
-      "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"))
-    throw Error("generator-v1 rejection did not come from the required compiler-owned gate");
+      "native generator v1 is not yet admitted for wasm32/Cortex-M targets"))
+    throw Error("generator-v1 rejection did not come from the required wasm32 compiler gate");
   return true;
 }
 export function assertInvertedFrontendRejection(frontend) {
@@ -57,10 +75,18 @@ export function assertSelectFrontendRejection(frontend) {
 export function assertSingletonFrontendRejection(frontend) {
   assertNativeFrontendRejection(frontend);
   const stderr = String(frontend.stderr || "");
-  if (!stderr.includes("ORES-SINGLETON-UNSUPPORTED") ||
-      !stderr.includes("five-backend guest execution parity"))
+  // Require the code and the semantic parity reason on the *same* native
+  // compiler diagnostic line. Echoed source, tool banners or unrelated
+  // stderr lines cannot spoof an independently issued compiler rejection.
+  if (!/^oreslang-llvmc:[ \t]+ORES-SINGLETON-UNSUPPORTED:[^\r\n]*five-backend guest execution parity(?:[ \t]+at byte [0-9]+)?[ \t]*$/m.test(stderr))
     throw Error("singleton rejection did not come from the required compiler-owned admission gate");
   return true;
+}
+/** Reject only an actual compiler process diagnostic from the Wasm bridge. */
+export function assertSingletonBridgeRejection(error) {
+  if (!(error instanceof Error) || !error.message.startsWith("command failed ("))
+    throw Error("singleton bridge rejection must be an executed native compiler failure");
+  return assertSingletonFrontendRejection(error);
 }
 export async function verifyRealCompiler({
   compiler = process.env.ORESLANG_LLVM_COMPILER,
@@ -121,6 +147,64 @@ export async function verifyRealCompiler({
     });
     if (forwardExecuted.value !== 47n || forwardExecuted.admission.hostCapabilities !== 0)
       throw Error("forward-call Oreslang guest produced incorrect result/capabilities");
+
+    // Dispatch-v1 canonical source bytes: actual LLVM frontend -> wasm32 ->
+    // zero-import isolated guest. Wasm engine compilation is still runtime JIT.
+    // The class case is a real compile/run admission test, not host JS modeling.
+    for (const caseName of ["direct_call_42", "instance_call_42"]) {
+      const dispatchSource = fileURLToPath(new URL(
+        "../contracts/dispatch-v1/"+caseName+".atto", import.meta.url));
+      const dispatchBytes = await readFile(dispatchSource);
+      const dispatchOutput = join(work, "dispatch-"+caseName+".wasm");
+      const dispatchPublished = await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256, source:dispatchSource,
+        output:dispatchOutput, environment:"browser", publication:"atomic"
+      });
+      const dispatchRelease = await readAtomicRelease(dispatchOutput);
+      if (dispatchPublished.sourceSha256 !== sha256(dispatchBytes) ||
+          dispatchPublished.compilerSha256 !== compilerSha256 ||
+          dispatchRelease.manifest.wasmSha256 !== dispatchPublished.wasmSha256 ||
+          sha256(dispatchRelease.wasm) !== dispatchPublished.wasmSha256)
+        throw Error("dispatch source/compiler/Wasm provenance mismatch: "+caseName);
+      const dispatchObserved = await runIsolatedCoreGuest(dispatchRelease.wasm,{
+        expectedSha256:dispatchPublished.wasmSha256,timeoutMs:5000
+      });
+      if (dispatchObserved.value !== 42n ||
+          dispatchObserved.admission.hostCapabilities !== 0 ||
+          dispatchObserved.admission.imports !== 0)
+        throw Error("compiled Atto dispatch did not return isolated 42: "+caseName);
+      console.log("DISPATCH_WASM_GUEST_PASS|case="+caseName+
+        "|llvm_source_head="+llvmSourceSha+
+        "|source_sha256="+dispatchPublished.sourceSha256+
+        "|wasm_sha256="+dispatchPublished.wasmSha256+
+        "|strict_no_jit=NOT_EXECUTED");
+    }
+
+    // Ensure unsupported or invalid shared source never publishes Wasm.
+    // A generic syntax rejection is NOT evidence of a validated arity rule.
+    for(const caseName of [
+      "static_qualified_42","virtual_override_121020","wrong_arity_reject"
+    ]) {
+      const invalidSource = fileURLToPath(new URL(
+        "../contracts/dispatch-v1/"+caseName+".atto",import.meta.url));
+      const rejectedOutput = join(work,"dispatch-reject-"+caseName+".wasm");
+      let rejected=false;
+      try {
+        await compileOresToWasm({
+          compiler:pinnedCompiler,compilerSha256,source:invalidSource,
+          output:rejectedOutput,environment:"browser",publication:"atomic"
+        });
+      } catch(error) {
+        if (!error || !String(error.message || error).trim())
+          throw Error("dispatch rejection lacked diagnostic for "+caseName);
+        rejected=true;
+      }
+      if (!rejected) throw Error("unimplemented dispatch was admitted: "+caseName);
+      try { await stat(rejectedOutput); throw Error("rejected dispatch published Wasm: "+caseName); }
+      catch(error) { if (error.code !== "ENOENT") throw error; }
+      console.log("DISPATCH_WASM_FAIL_CLOSED|case="+caseName+
+        "|wasm_artifact=NONE|virtual_static_parity=NOT_IMPLEMENTED");
+    }
 
     // A real compiler, not an IR test double, must support independently
     // sourced scalar fixtures. Negative and zero values catch i64 ABI/sign
@@ -235,6 +319,63 @@ export async function verifyRealCompiler({
       });
       assertNativeFrontendRejection(denied);
     }
+    // Six additional unchanged canonical Oreslang scalar programs from the
+    // cross-backend corpus. Unlike the inventory audit, each is compiled
+    // by the pinned *real* LLVM compiler and executed in the Wasm guest.
+    const portableRoot = fileURLToPath(new URL("../tests/portable-scalar/", import.meta.url));
+    const portableNames = [
+      "32-grouping-multiplication",
+      "33-subtraction-precedence",
+      "34-unary-plus-digit-separator",
+      "35-upper-bound-difference",
+      "36-lower-bound-cancellation",
+      "37-named-bitxor"
+    ];
+    const portableManifest = (await readFile(join(portableRoot,"oracles.tsv"),"utf8")).trimEnd().split("\n");
+    if (portableManifest.length !== portableNames.length)
+      throw Error("portable scalar manifest must contain exactly six cases");
+    const portableScalarFixtures = [];
+    for (let i=0;i<portableNames.length;i++) {
+      const name = portableNames[i];
+      const match = /^tests\/portable-scalar\/([0-9]{2}-[a-z0-9-]+\.ores)\|42\|([0-9a-f]{40})$/.exec(portableManifest[i]);
+      if (!match || match[1] !== name+".ores")
+        throw Error("unknown, duplicated or reordered portable scalar fixture");
+      const source = join(portableRoot,match[1]);
+      const bytes = (await readBoundedRegularFile(source,1048576,
+        "portable Oreslang guest source must be a bounded regular file")).bytes;
+      const gitBlob = createHash("sha1").update("blob "+bytes.length+"\0").update(bytes).digest("hex");
+      if (gitBlob !== match[2])
+        throw Error("portable Oreslang source is not the reviewed Git blob: "+name);
+      const pinnedSource = join(work,"portable-"+name+".ores");
+      await writeFile(pinnedSource,bytes,{flag:"wx",mode:0o400});
+      const output = join(work,"portable-"+name+".wasm");
+      const built = await compileOresToWasm({
+        compiler:pinnedCompiler,compilerSha256,source:pinnedSource,output,
+        environment:"browser",publication:"atomic"
+      });
+      const release = await readAtomicRelease(output);
+      if (built.sourceSha256 !== sha256(bytes) ||
+          built.compilerSha256 !== compilerSha256 ||
+          built.wasmSha256 !== sha256(release.wasm) ||
+          release.manifest?.wasmSha256 !== built.wasmSha256)
+        throw Error("portable Oreslang artifact source/compiler/Wasm identity mismatch: "+name);
+      const observed = await runIsolatedCoreGuest(release.wasm,{
+        expectedSha256:built.wasmSha256,timeoutMs:5000
+      });
+      if (observed.value !== 42n || observed.admission.imports !== 0 ||
+          observed.admission.hostCapabilities !== 0)
+        throw Error("portable Oreslang wasm guest result or zero-capability ABI mismatch: "+name);
+      const after = (await readBoundedRegularFile(source,1048576,
+        "portable source changed during guest execution")).bytes;
+      if (sha256(after)!==sha256(bytes))
+        throw Error("portable Oreslang source mutated during execution: "+name);
+      portableScalarFixtures.push(Object.freeze({
+        name,expected:"42",value:observed.value.toString(),
+        sourceGitBlob:gitBlob,sourceSha256:built.sourceSha256,wasmSha256:built.wasmSha256
+      }));
+    }
+    if (portableScalarFixtures.length!==6)
+      throw Error("no complete six-case portable Wasm guest execution");
 
     // Run precisely the same byte-identical signed-i64 scalar fixture sources
     // used by the independent .NET and Forge bootstrap parity gates.
@@ -349,20 +490,31 @@ export async function verifyRealCompiler({
       assertNativeFrontendRejection(frontendResult);
     }
 
-    for (const [name, body] of [
-      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n"],
-      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n"],
-      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n"]
+    for (const [name, body, expectedDiagnostic] of [
+      ["sync", "pub gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-min", "pub gen* values(): Iterator<int> { yield -9223372036854775808; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["sync-i64-max", "pub gen* values(): Iterator<int> { yield 9223372036854775807; return; }\n",
+        "native generator v1 is not yet admitted for wasm32/Cortex-M targets"],
+      ["async", "pub async gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native async gen* requires scheduler-owned async iterator continuation lowering"],
+      ["suspend", "pub suspend gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native suspend gen* requires scheduler-owned async iterator continuation lowering"],
+      ["legacy-fnc", "pub fnc gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-routine", "pub routine gen* values(): Iterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"],
+      ["legacy-async-fnc", "pub async fnc gen* values(): AsyncIterator<int> { yield 1; return; }\n",
+        "native generator v1 requires iterator-frame, ownership and LLVM continuation lowering"]
     ]) {
       const source = join(work, "generator-v1-" + name + ".ores");
       await writeFile(source, body, {flag:"wx"});
       const frontendResult = spawnSync(pinnedCompiler, ["--target=wasm32", source], {
         encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
       });
-      assertGeneratorV1FrontendRejection(frontendResult);
+      if (name.startsWith("sync")) assertGeneratorV1WasmRejection(frontendResult);
+      else assertGeneratorV1FrontendRejection(frontendResult, expectedDiagnostic);
       if (sha256((await readBoundedRegularFile(
         pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
       )).bytes) !== compilerSha256)
@@ -435,7 +587,10 @@ export async function verifyRealCompiler({
         environment:"browser", publication:"atomic"
       });
     } catch (error) {
-      if (!/command failed/i.test(String(error))) throw error;
+      // Do not count a failed clang/linker invocation, timeout, signal or
+      // generic bridge error as proof of compiler-owned singleton rejection.
+      // compileOresToWasm preserves the native process exit/stderr/stdout.
+      assertSingletonBridgeRejection(error);
       singletonBridgeRejected = true;
     }
     if (!singletonBridgeRejected)
@@ -602,6 +757,41 @@ export async function verifyRealCompiler({
       if (error.code !== "ENOENT") throw error;
     }
 
+    // No JavaScript shadow evaluator is allowed to mark 'with' supported.
+    // The pinned LLVM frontend must reject unchanged AttoLang source and
+    // the Wasm publisher must leave NO current release pointer behind.
+    const withSource = fileURLToPath(new URL(
+      "../contracts/with-ownership-v1/contextual-with-scalar.atto", import.meta.url));
+    const withFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", withSource],
+      {encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024}
+    );
+    assertWithFrontendRejection(withFrontend);
+    if (sha256((await readBoundedRegularFile(
+      pinnedCompiler, 256 * 1024 * 1024, "pinned compiler grew past byte budget"
+    )).bytes) !== compilerSha256)
+      throw Error("pinned LLVM compiler changed during with capability test");
+    const withOutput = join(work, "with-unsupported.wasm");
+    let withPublicationRejected = false;
+    try {
+      await compileOresToWasm({
+        compiler:pinnedCompiler, compilerSha256,
+        source:withSource, output:withOutput,
+        environment:"browser", publication:"atomic"
+      });
+    } catch (error) {
+      if (!/command failed/i.test(String(error))) throw error;
+      withPublicationRejected = true;
+    }
+    if (!withPublicationRejected)
+      throw Error("unsupported with source reached wasm32 artifact publication");
+    try {
+      await stat(withOutput + ".current.json");
+      throw Error("unsupported with produced a Wasm release pointer");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
     const tupleV2Cases = [
       {
         name:"tuple-explicit",
@@ -644,11 +834,13 @@ export async function verifyRealCompiler({
       forwardCallResult:forwardExecuted.value.toString(),
       scalarFixtures:Object.freeze(scalarResults),
       strictNamedIntegerBitXor:Object.freeze(signed64NamedResults),
+      portableScalarFixtures:Object.freeze(portableScalarFixtures),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,
       tupleV2Rejected:true,
+      withOwnershipRejected:true,
       invertedSourceRejected:true,
       singletonSourceRejected:true,
       singletonBridgeRejected:true,

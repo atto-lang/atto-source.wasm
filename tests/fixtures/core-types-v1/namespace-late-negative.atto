@@ -1,0 +1,4 @@
+// Namespace header after an import must be rejected, not reordered.
+import * as types from "../../../core/types.atto";
+use namespace late;
+pub fnc main() -> int { return 0; }

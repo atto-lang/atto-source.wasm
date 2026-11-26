@@ -1,0 +1,9 @@
+define class Answer as
+  pub static fnc value(): int {
+    return 42;
+  }
+end
+
+pub fnc main(): int {
+  return Answer.value();
+}

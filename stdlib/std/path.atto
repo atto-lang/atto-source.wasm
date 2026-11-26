@@ -1,0 +1,56 @@
+// Wasm-owned native Atto std/path pure-policy predicates (no OS path handles).
+// Lexical checks NEVER grant filesystem authority or symlink confinement.
+pub fnc is_separator(int scalar, bool windows): bool {
+  return scalar == 47 || (windows && scalar == 92);
+}
+
+pub fnc is_ascii_letter(int scalar): bool {
+  return (scalar >= 65 && scalar <= 90) || (scalar >= 97 && scalar <= 122);
+}
+
+pub fnc is_safe_scalar(int scalar, bool windows): bool {
+  if scalar < 32 || scalar == 127 || scalar > 1114111 then return false; fi
+  if scalar >= 55296 && scalar <= 57343 then return false; fi
+  if scalar == 47 || (windows && scalar == 92) then return false; fi
+  if windows && !((scalar >= 65 && scalar <= 90) ||
+      (scalar >= 97 && scalar <= 122) || (scalar >= 48 && scalar <= 57) ||
+      scalar == 46 || scalar == 45 || scalar == 95) then return false; fi
+  return true;
+}
+
+// 0 ordinary, 1 dot, 2 dotdot, -1 length-invalid; caller checks characters.
+pub fnc component_kind(int length, int first, int second): int {
+  if length < 1 || length > 255 then return -1; fi
+  if length == 1 && first == 46 then return 1; fi
+  if length == 2 && first == 46 && second == 46 then return 2; fi
+  return 0;
+}
+
+pub fnc advance_relative_depth(int depth, int component): int {
+  if depth < 0 || depth > 256 then return -1; fi
+  if component == 1 then return depth; fi
+  if component == 2 && depth == 0 then return -1; fi
+  if component == 2 then return depth - 1; fi
+  if component != 0 || depth == 256 then return -1; fi
+  return depth + 1;
+}
+
+pub fnc is_windows_drive_prefix(int first, int second): bool {
+  return ((first >= 65 && first <= 90) ||
+          (first >= 97 && first <= 122)) && second == 58;
+}
+
+pub fnc relative_join_budget_admissible(int left_scalars, int right_scalars,
+    int left_components, int right_components): bool {
+  if left_scalars < 1 || left_scalars > 4096 then return false; fi
+  if right_scalars < 1 || right_scalars > 4096 then return false; fi
+  if left_components < 0 || right_components < 0 then return false; fi
+  if left_components > 256 || right_components > 256 then return false; fi
+  if left_scalars > 4095 - right_scalars then return false; fi
+  return left_components <= 256 - right_components;
+}
+
+pub fnc extension_offset_admissible(int filename_scalars, int dot_index): bool {
+  if filename_scalars < 3 || filename_scalars > 255 then return false; fi
+  return dot_index >= 1 && dot_index < filename_scalars - 1;
+}
