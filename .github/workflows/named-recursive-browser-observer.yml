@@ -1,0 +1,30 @@
+name: Named recursive browser observer controls
+on:
+  pull_request:
+    paths:
+      - 'scripts/named-recursive-browser-*.mjs'
+      - 'tests/named-recursive-browser-observer.test.mjs'
+      - 'package.json'
+      - '.github/workflows/named-recursive-browser-observer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  observer-controls:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact-head synthetic observer controls (not compiler evidence)
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          node --version
+          node --test tests/named-recursive-browser-observer.test.mjs
+          test -z "$(git status --porcelain --untracked-files=all)"
