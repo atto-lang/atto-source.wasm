@@ -1,0 +1,37 @@
+// Compiled guest regression for pure std.fs byte I/O policy.
+// Expected exit 42; any failure returns its own distinct positive exit code.
+// This fixture has NO filesystem effects and does not certify std.fs admission.
+pub fnc main(): int {
+  if fs_io_next_chunk(0, 4, 9) != 0 then return 1; fi
+  if fs_io_next_chunk(-1, 4, 9) != 0 then return 2; fi
+  if fs_io_next_chunk(10, 0, 9) != 0 then return 3; fi
+  if fs_io_next_chunk(10, 4, -1) != 0 then return 4; fi
+  if fs_io_next_chunk(10, 4, 8) != 4 then return 5; fi
+  if fs_io_next_chunk(2, 4, 8) != 2 then return 6; fi
+  if fs_io_next_chunk(10, 9, 3) != 3 then return 7; fi
+  if fs_io_next_chunk(9223372036854775807, 7, 5) != 5 then return 8; fi
+  if fs_io_write_step_valid(0, 1, 1, 1) == false then return 9; fi
+  if fs_io_write_step_valid(4, 3, 2, 7) == false then return 10; fi
+  if fs_io_write_step_valid(4, 4, 2, 7) then return 11; fi
+  if fs_io_write_step_valid(-1, 1, 1, 10) then return 12; fi
+  if fs_io_write_step_valid(0, 0, 0, 10) then return 13; fi
+  if fs_io_write_step_valid(0, 2, 0, 10) then return 14; fi
+  if fs_io_write_step_valid(0, 2, 3, 10) then return 15; fi
+  if fs_io_write_step_valid(0, 1, -1, 10) then return 16; fi
+  if fs_io_write_step_valid(9223372036854775807, 1, 1, 9223372036854775807) then return 17; fi
+  if fs_io_read_completion_valid(10, 0) == false then return 18; fi
+  if fs_io_read_completion_valid(10, 10) == false then return 19; fi
+  if fs_io_read_completion_valid(10, 11) then return 20; fi
+  if fs_io_read_completion_valid(0, 0) then return 21; fi
+  if fs_io_read_completion_valid(5, -1) then return 22; fi
+  if fs_io_append_fits_budget(4, 7, 3, 7, 10) == false then return 23; fi
+  if fs_io_append_fits_budget(4, 7, 4, 7, 10) then return 24; fi
+  if fs_io_append_fits_budget(2, 2, 0, 2, 2) == false then return 25; fi
+  if fs_io_append_fits_budget(2, 2, 1, 2, 3) then return 26; fi
+  if fs_io_append_fits_budget(4, 3, 1, 9, 9) then return 27; fi
+  if fs_io_append_fits_budget(4, 10, 1, 9, 9) then return 28; fi
+  if fs_io_append_fits_budget(-1, 0, 0, 9, 9) then return 29; fi
+  if fs_io_append_fits_budget(1, 1, 9223372036854775807, 9223372036854775807, 9223372036854775807) then return 30; fi
+  if fs_io_append_fits_budget(0, 0, 9223372036854775807, 9223372036854775807, 9223372036854775807) == false then return 31; fi
+  return 42;
+}

@@ -1,0 +1,52 @@
+// Compiler-local Atto std.fs byte I/O policy. atto-source.wasm. Not a host permission grant.
+// All units are BYTES. This pure module performs no file I/O or path resolution.
+// The broker must enforce independent READ/WRITE authority, rooted descriptor
+// resolution, actor incarnation, cancellation, quotas and race-safe cleanup.
+// In particular, a valid preflight is NOT authorization to open or write.
+// Local min helper keeps the compiler entrypoint in a flat guard dialect.
+pub fnc fs_io_min_positive(int left, int right): int {
+  if left <= right then return left; fi
+  return right;
+}
+
+pub fnc fs_io_next_chunk(int remaining_bytes, int primitive_limit_bytes, int operation_budget_bytes): int {
+  if remaining_bytes <= 0 then return 0; fi
+  if primitive_limit_bytes <= 0 then return 0; fi
+  if operation_budget_bytes <= 0 then return 0; fi
+  return fs_io_min_positive(fs_io_min_positive(remaining_bytes, primitive_limit_bytes), operation_budget_bytes);
+}
+
+// Only a confirmed positive partial write may advance the guest cursor.
+// No implicit retry after cancellation, ambiguous completion or a failed write.
+pub fnc fs_io_write_step_valid(int offset, int requested_bytes, int completed_bytes, int file_limit_bytes): bool {
+  if offset < 0 then return false; fi
+  if requested_bytes <= 0 then return false; fi
+  if completed_bytes <= 0 then return false; fi
+  if completed_bytes > requested_bytes then return false; fi
+  if file_limit_bytes < 0 then return false; fi
+  if offset > file_limit_bytes then return false; fi
+  return requested_bytes <= file_limit_bytes - offset;
+}
+
+// Zero means EOF for a successful read, not write progress.
+// Host must distinguish EOF from an error, timeout or cancellation.
+pub fnc fs_io_read_completion_valid(int requested_bytes, int completed_bytes): bool {
+  if requested_bytes <= 0 then return false; fi
+  if completed_bytes < 0 then return false; fi
+  return completed_bytes <= requested_bytes;
+}
+
+// Append preflight with checked subtraction, never addition that can overflow.
+// Host must snapshot sizes atomically and recheck before any side effect.
+pub fnc fs_io_append_fits_budget(int file_bytes, int tenant_used_bytes, int append_bytes, int file_limit_bytes, int tenant_limit_bytes): bool {
+  if file_bytes < 0 then return false; fi
+  if tenant_used_bytes < 0 then return false; fi
+  if append_bytes < 0 then return false; fi
+  if file_limit_bytes < 0 then return false; fi
+  if tenant_limit_bytes < 0 then return false; fi
+  if file_bytes > file_limit_bytes then return false; fi
+  if file_bytes > tenant_used_bytes then return false; fi
+  if tenant_used_bytes > tenant_limit_bytes then return false; fi
+  if append_bytes > file_limit_bytes - file_bytes then return false; fi
+  return append_bytes <= tenant_limit_bytes - tenant_used_bytes;
+}

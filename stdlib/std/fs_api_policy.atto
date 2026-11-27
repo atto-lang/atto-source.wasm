@@ -1,0 +1,79 @@
+// Independent atto-source.wasm implementation. See atto-spec #117.
+// Pure Atto std.fs API preflights (compiler-owned source, no host I/O).
+// Never treat a returned bool as capability or path authority.
+pub fnc fs_mode_has_access(bool read, bool write, bool append): bool {
+  if read then return true; fi
+  if write then return true; fi
+  return append;
+}
+pub fnc fs_mode_can_mutate(bool write, bool append): bool {
+  if write then return true; fi
+  return append;
+}
+pub fnc fs_mode_truncate_valid(bool write, bool append, bool truncate): bool {
+  if truncate == false then return true; fi
+  if write == false then return false; fi
+  if append then return false; fi
+  return true;
+}
+pub fnc fs_mode_create_valid(bool write, bool append, bool create, bool create_new): bool {
+  if create then return fs_mode_can_mutate(write, append); fi
+  if create_new then return fs_mode_can_mutate(write, append); fi
+  return true;
+}
+pub fnc fs_mode_create_new_truncate_valid(bool create_new, bool truncate): bool {
+  if create_new == false then return true; fi
+  return truncate == false;
+}
+pub fnc fs_open_options_valid(bool read, bool write, bool append, bool create, bool create_new, bool truncate): bool {
+  if fs_mode_has_access(read, write, append) == false then return false; fi
+  if fs_mode_truncate_valid(write, append, truncate) == false then return false; fi
+  if fs_mode_create_valid(write, append, create, create_new) == false then return false; fi
+  if fs_mode_create_new_truncate_valid(create_new, truncate) == false then return false; fi
+  return true;
+}
+pub fnc fs_handle_lifetime_valid(int current_actor, int handle_actor, int current_generation, int handle_generation, bool closed): bool {
+  if closed then return false; fi
+  if current_actor <= 0 then return false; fi
+  if handle_actor <= 0 then return false; fi
+  if current_generation <= 0 then return false; fi
+  if handle_generation <= 0 then return false; fi
+  if current_actor != handle_actor then return false; fi
+  return current_generation == handle_generation;
+}
+pub fnc fs_read_range_valid(int offset, int requested, int size): bool {
+  if offset < 0 then return false; fi
+  if requested < 0 then return false; fi
+  if size < 0 then return false; fi
+  if offset > size then return false; fi
+  return requested <= size - offset;
+}
+pub fnc fs_copy_fits_budget(int source_bytes, int destination_bytes, int tenant_used, int file_limit, int tenant_limit): bool {
+  if source_bytes < 0 then return false; fi
+  if destination_bytes < 0 then return false; fi
+  // copy_file uses create-new: nonempty destinations are not overwrite targets.
+  // A zero-byte existing target still requires a separate host existence check.
+  if destination_bytes != 0 then return false; fi
+  if tenant_used < 0 then return false; fi
+  if file_limit < 0 then return false; fi
+  if tenant_limit < 0 then return false; fi
+  if destination_bytes > tenant_used then return false; fi
+  if source_bytes > file_limit then return false; fi
+  if tenant_used > tenant_limit then return false; fi
+  return source_bytes <= tenant_limit - tenant_used;
+}
+pub fnc fs_dir_quota_valid(int current_dirs, int new_dirs, int max_dirs): bool {
+  if current_dirs < 0 then return false; fi
+  if new_dirs < 0 then return false; fi
+  if max_dirs < 0 then return false; fi
+  if current_dirs > max_dirs then return false; fi
+  return new_dirs <= max_dirs - current_dirs;
+}
+pub fnc fs_recursive_remove_admissible(bool write_granted, bool remove_granted, bool recursive_granted, int entry_count, int max_entries): bool {
+  if write_granted == false then return false; fi
+  if remove_granted == false then return false; fi
+  if recursive_granted == false then return false; fi
+  if entry_count < 0 then return false; fi
+  if max_entries < 0 then return false; fi
+  return entry_count <= max_entries;
+}
