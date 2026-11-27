@@ -48,3 +48,23 @@ test('new elastic actor scheduling syntax fails closed before scalar Wasm delega
   assert.throws(() => check('// ignored\u0085@actor_schedule(max_parallelism=2)'),
     /actor scheduling unsupported/);
 });
+
+test('standalone imported actor spawn cannot bypass scalar admission via grouped options',()=>{
+ for(const source of [
+  'const ActorRef a = await spawn MyActor() with { schedule { max_parallelism = 2; affinity = sticky; } resources { heap_size = 64 * 1024 * 1024; stack_size = 64 * 1024; mailbox_capacity = 1024; } init { name = "worker-1"; seed = 42; } };',
+  'spawn Worker() with {};',
+  'spawn Worker() with { init { seed = 42; } };',
+  'spawn Worker() with { resources { stack_size = 65536; } };',
+  'await /* nested /* comment */ ok */ spawn pkg.Worker<int>() with { schedule { affinity = sticky; } };',
+  'spawn Worker(make_arg(42)) with {};',
+  'spawn Worker();',
+  '// ignored\u0085spawn Worker() with {};'
+ ]) assert.throws(()=>check(source),/actor spawn options and guest actor execution require typed lowering/);
+ for(const source of [
+  'fnc main() { let spawn = 42; }',
+  'process.spawn("child");',
+  'fnc spawn(int n) { return n; }',
+  'fnc main() { let s = "spawn Worker() with {}"; }',
+  '/* spawn Worker() with { init { seed = 42; } }; */ fnc main() {}'
+ ]) assert.doesNotThrow(()=>check(source));
+});
