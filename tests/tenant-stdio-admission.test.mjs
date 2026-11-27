@@ -18,15 +18,15 @@ test('generation and descriptor identity; cancelled head advances while sink gat
  assert.deepEqual(out,['123','Y']);await other.seal();
 });
 test('bounded ready receipts and exact retirement ignore late readiness',async()=>{
- const entered=gate(),release=gate();
- const q=new TenantStdioAdmission(async()=>{entered.open();await release.promise;},1,4,2,4);
+ const entered=gate(),release=gate(),second=gate();let writes=0;
+ const q=new TenantStdioAdmission(async()=>{if(++writes===1){entered.open();await release.promise;}else second.open();},1,4,2,4);
  const a=q.admit(1,1,'a').ticket;await tick();await entered.promise;
  const b=q.admit(1,1,'b').ticket;assert.equal(q.admit(1,2,'c').code,'WAITER_QUOTA');
  q.retire(1,1);await tick();assert.equal(q.retainedReceipts,0);
  assert.equal(q.takeReady(1,1,a).code,'STALE');assert.equal(q.takeReady(1,1,b).code,'STALE');
  const c=q.admit(1,2,'c').ticket;q.retire(1,1);
  assert.equal(q.takeReady(1,2,c).pending,true);release.open();
- await new Promise(r=>setTimeout(r,10));assert.equal(q.takeReady(1,2,c).ok,true);
+ await second.promise;assert.equal(q.takeReady(1,2,c).ok,true);
  assert.equal((await q.seal()).ok,true);
 });
 test('abort terminal admission and prevent new writes',async()=>{
@@ -35,5 +35,6 @@ test('abort terminal admission and prevent new writes',async()=>{
  assert.equal(q.takeReady(1,1,a).ok,true);
  const b=q.admit(1,1,'b').ticket;assert.equal(q.abort(),true);await tick();
  assert.equal(q.takeReady(1,1,b).code,'ABORTED');assert.equal(q.admit(1,2,'c').code,'CLOSED');
- release.open();assert.equal((await q.seal()).code,'ABORTED');
+ assert.equal(q.accounting.acceptedBytes,1);assert.equal((await q.seal()).code,'ABORTED');
+ release.open();await q.quiescence;assert.equal(q.accounting.acceptedBytes,0);
 });

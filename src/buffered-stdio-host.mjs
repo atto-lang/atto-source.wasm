@@ -15,7 +15,7 @@ function receipt() {
 export class BufferedStdioHost {
   #sink; #maxRecords; #maxBytes; #maxWaiters; #maxPendingBytes;
   #queue=[]; #waiting=[]; #active=null; #bytes=0; #pendingBytes=0;
-  #scheduled=false; #running=false; #sealed=false; #failure=null; #closed=receipt();
+  #scheduled=false; #running=false; #sealed=false; #failure=null; #closed=receipt(); #quiescent=receipt();
   constructor(sink, maxRecords=1024, maxBytes=4194304, maxWaiters=64, maxPendingBytes=1048576) {
     if (typeof sink !== 'function') throw new TypeError('trusted sink function required');
     this.#sink=sink;
@@ -28,6 +28,8 @@ export class BufferedStdioHost {
     return Object.freeze({acceptedRecords:this.#queue.length+Number(this.#active!==null),
       acceptedBytes:this.#bytes, pendingRecords:this.#waiting.length,pendingBytes:this.#pendingBytes});
   }
+  // Logical terminal receipt and physical sink exit are separate witnesses.
+  get quiescence(){return this.#quiescent.promise;}
   #fits(e) {
     return this.#queue.length+Number(this.#active!==null)<this.#maxRecords &&
       e.bytes<=this.#maxBytes-this.#bytes;
@@ -85,16 +87,22 @@ export class BufferedStdioHost {
     try {
       for(let i=0;i<32&&this.#queue.length&&!this.#failure;i++) {
         const e=this.#queue.shift();this.#active=e;
+        let sinkFailed=false;
         try {await this.#sink(e.text);}
-        catch {this.abort('SINK_FAILURE');return;}
-        if(this.#active!==e)return; // terminal abort won, no late success
-        this.#active=null;this.#bytes-=e.bytes;this.#finish(e,OK);this.#promote();
+        catch {sinkFailed=true;this.abort('SINK_FAILURE');}
+        // Keep physical payload charge until the sink actually settles,
+        // even when its logical delivery receipt has already failed.
+        this.#active=null;this.#bytes-=e.bytes;
+        if(this.#failure||sinkFailed)return;
+        this.#finish(e,OK);this.#promote();
       }
     } finally {this.#running=false;this.#finishClose();this.#schedule();}
   }
   #finishClose() {
-    if(this.#sealed&&!this.#active&&!this.#queue.length)
+    if(this.#sealed&&!this.#active&&!this.#queue.length) {
       this.#closed.resolve(this.#failure??OK);
+      this.#quiescent.resolve(OK); // physical exit only, not delivery success
+    }
   }
   seal() {
     if(!this.#sealed) {
@@ -112,7 +120,9 @@ export class BufferedStdioHost {
     for(const e of this.#waiting)this.#reject(e,this.#failure);
     for(const e of this.#queue)this.#finish(e,this.#failure);
     if(this.#active)this.#finish(this.#active,this.#failure);
-    this.#waiting=[];this.#queue=[];this.#active=null;
-    this.#pendingBytes=0;this.#bytes=0;this.#finishClose();return true;
+    this.#waiting=[];this.#queue=[];
+    this.#pendingBytes=0;this.#bytes=this.#active?.bytes??0;
+    this.#closed.resolve(this.#failure);
+    this.#finishClose();return true;
   }
 }

@@ -53,6 +53,7 @@ export class TenantStdioAdmission {
   }
   get retainedReceipts(){return this.#entries.size;}
   get accounting(){return this.#channel.accounting;}
+  get quiescence(){return this.#channel.quiescence;}
   seal(){this.#sealed=true;return this.#channel.seal();}
   abort(){this.#sealed=true;return this.#channel.abort();}
 }
