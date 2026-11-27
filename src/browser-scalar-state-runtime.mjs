@@ -28,6 +28,7 @@ export function createStateRuntime({
   let nextContainerId = 0;
   let nextTicketId = 0;
   let retired = false;
+  let terminalOutcome = null;
   const containers = new Map(); // private pointer -> host-owned generation
   const active = new Map(); // opaque i64 ticket -> host-authenticated authority
   // Telemetry is non-authoritative: an observer must not interrupt a
@@ -48,7 +49,10 @@ export function createStateRuntime({
       notifying = false;
     }
   };
-  const isPtr = ptr => Number.isInteger(ptr) && ptr >= 0 && ptr % 8 === 0;
+  // The preview ABI accepts nonnegative signed-i32 addresses only.
+  // Full unsigned memory32 addressing needs a separate ABI decision.
+  const isPtr = ptr => Number.isInteger(ptr) && ptr >= 0 &&
+    ptr <= 0x7fffffff && ptr % 8 === 0;
 
   function register(ptr) {
     assertNotNotifying();
@@ -117,6 +121,7 @@ export function createStateRuntime({
     assertNotNotifying();
     if (!isPtr(ptr) || !containers.has(ptr)) fail('unknown state container');
     const meta = containers.get(ptr);
+    if (meta.retired) return;
     meta.retired = true;
     emit({kind:'retire',containerId:meta.containerId});
   }
@@ -130,7 +135,10 @@ export function createStateRuntime({
   /** Successful physical completion cannot silently abandon a live ticket. */
   function complete() {
     assertNotNotifying();
+    if (terminalOutcome === 'abort') fail('guest execution already aborted');
+    if (terminalOutcome === 'complete') return;
     if (active.size) fail('guest returned with unreleased state tickets');
+    terminalOutcome = 'complete';
     retired = true;
     for (const meta of containers.values()) meta.retired = true;
     emit({kind:'complete'});
@@ -139,6 +147,8 @@ export function createStateRuntime({
   /** Only invoke AFTER a synchronous guest turn has physically unwound. */
   function abort() {
     assertNotNotifying();
+    if (terminalOutcome !== null) return;
+    terminalOutcome = 'abort';
     retired = true;
     active.clear();
     for (const meta of containers.values()) {
