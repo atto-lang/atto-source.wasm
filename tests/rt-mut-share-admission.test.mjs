@@ -85,3 +85,10 @@ test("mixed diagnostics and spoofed trailing errors are never ownership proof", 
     ...evidence, stderr:evidence.stderr + "\n"
   }), true);
 });
+
+test("single compiler-owned source location is allowed, trailing diagnostics are not",()=>{
+  const stderr=denial+" [file: case-0.ores]\n";
+  assert.equal(assertNativeMutShareDenial({...evidence,stderr}),true);
+  for(const extra of [" [file: ../case.ores]"," [file: case.ores] error: unrelated"," [file: case.ores]\nerror: unrelated"," [file: case.ores] [file: other.ores]"])
+    assert.throws(()=>assertNativeMutShareDenial({...evidence,stderr:denial+extra}));
+});
