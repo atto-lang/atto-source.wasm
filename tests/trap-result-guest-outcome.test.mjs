@@ -23,6 +23,10 @@ test('actual Wasm unreachable trap with matching panic code is classified', () =
   assert.equal(isRuntimeTrapWithPanicCode(error, 1), true);
   assert.equal(isRuntimeTrapWithPanicCode(error, 0), false);
   assert.equal(isRuntimeTrapWithPanicCode(error, '1'), false);
+  assert.equal(isRuntimeTrapWithPanicCode(error, 7), false);
+  assert.equal(isRuntimeTrapWithPanicCode(error, 7, 7), true);
+  assert.equal(isRuntimeTrapWithPanicCode(error, 1, 7), false);
+  assert.equal(isRuntimeTrapWithPanicCode(error, 9, 9), false);
 });
 
 test('host callback faults cannot impersonate a checked-overflow guest trap', () => {
@@ -67,6 +71,7 @@ test('Wasm host-import RuntimeError cannot impersonate an overflow panic', () =>
     assert.ok(caught instanceof HostImportFault);
     assert.notEqual(caught, hostileError);
     assert.equal(isRuntimeTrapWithPanicCode(caught, 1), false);
+    assert.equal(isRuntimeTrapWithPanicCode(caught, 7, 7), false);
     assert.equal(caught.message, 'host import failed: print_i64');
   }
 });

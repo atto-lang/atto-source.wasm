@@ -3,8 +3,8 @@
  * Only a native WebAssembly trap with panic_code=1 can demonstrate checked
  * overflow bypassing the canonical trap-to-Result boundary.
  */
-export function isRuntimeTrapWithPanicCode(error, panicCode) {
-  return error instanceof WebAssembly.RuntimeError && panicCode === 1;
+export function isRuntimeTrapWithPanicCode(error, panicCode, expectedCode = 1) {
+  return (expectedCode === 1 || expectedCode === 7) && error instanceof WebAssembly.RuntimeError && panicCode === expectedCode;
 }
 
 /**

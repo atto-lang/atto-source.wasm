@@ -1,0 +1,19 @@
+fnc optional(bool present): Option<int> {
+  if present do return Some(42); fi
+  return None;
+}
+fnc outcome(bool present): Result<int, String> {
+  if present do return Ok(42); fi
+  return Err("original");
+}
+pub fnc main(): int {
+  val Result<int, Error> a = trap! optional(false).unwrap();
+  val Result<int, Error> b = trap! outcome(false).unwrap();
+  val Result<int, Error> c = trap! optional(true).unwrap();
+  val Result<int, Error> d = trap outcome(true).unwrap();
+  val Result<Option<int>, Error> e = trap! optional(false);
+  val Result<int, Error> f = trap! (trap! optional(false).unwrap());
+  guard a.is_err(), b.is_err(), c.is_ok(), d.is_ok(), e.is_ok(), f.is_err() { return 1; }
+  guard c.unwrap() eq 42, d.unwrap() eq 42, e.unwrap().is_none() { return 2; }
+  return 42;
+}

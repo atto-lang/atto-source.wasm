@@ -10,10 +10,12 @@ import {checkedUnwrapRejections, verifyCheckedUnwrapRejection} from '../src/chec
 import {isRuntimeTrapWithPanicCode, guardHostImport} from '../src/trap-result-guest-outcome.mjs';
 
 const [compilerPath, samplePath, compilerSha, sampleBlob, mode] = process.argv.slice(2);
-const checkedUnwrap = mode === '--checked-unwrap-v6';
-if ((process.argv.length !== 6 && !(process.argv.length === 7 && checkedUnwrap)) || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
+const canonicalStdout = mode === '--canonical-stdout-v1';
+const fullV6 = mode === '--checked-unwrap-v6-full';
+const checkedUnwrap = mode === '--checked-unwrap-v6' || fullV6;
+if ((process.argv.length !== 6 && !(process.argv.length === 7 && (checkedUnwrap || canonicalStdout))) || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
     !/^[a-f0-9]{40}$/.test(sampleBlob ?? '')) {
-  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6]');
+  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6|--checked-unwrap-v6-full|--canonical-stdout-v1]');
 }
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
@@ -100,9 +102,57 @@ function run(guest) {
     const panic = instance.exports.panic_code.value;
     return {
       ok: false, error: String(error), panic, stdout,
-      runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic)
+      runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic),
+      runtimeExpectPanic: isRuntimeTrapWithPanicCode(error, panic, 7)
     };
   }
+}
+
+// Separate versioned stdout corpus; never rewrite historical v6 source bytes.
+if (canonicalStdout) {
+  const cases = [
+  {
+    "id": "stdio-direct.atto",
+    "blob": "fcb8c1b56322b1b068007513cd60791504de5918",
+    "stdout": "AB",
+    "source": "pub fnc main(): int {\n  stdio.out.write(\"A\");\n  stdio.out.write(\"B\");\n  return 42;\n}\n"
+  },
+  {
+    "id": "process-direct.atto",
+    "blob": "0d4a07d1c1ccf6c9f1083816a3740091a8467641",
+    "stdout": "AB",
+    "source": "pub fnc main(): int {\n  process.stdout.write(\"A\");\n  process.stdout.write(\"B\");\n  return 42;\n}\n"
+  },
+  {
+    "id": "mixed-defer.atto",
+    "blob": "7d1868164d3263bb8158c590a7ad0c36e069bb56",
+    "stdout": "CBA",
+    "source": "pub fnc main(): int {\n  defer stdio.out.write(\"A\");\n  defer process.stdout.write(\"B\");\n  stdio.out.write(\"C\");\n  return 42;\n}\n"
+  },
+  {
+    "id": "mixed-trapped-task.atto",
+    "blob": "5b122c0396240cee7d0be125f952655560b1e78d",
+    "stdout": "ED",
+    "source": "pub fnc main(): int {\n  let int count = 0;\n  val Option<int> missing = None;\n  val Result<int, Error> failure = trap! sync task<int> {\n    count = count + 2;\n    defer stdio.out.write(\"D\");\n    defer process.stdout.write(\"E\");\n    val int value = missing.unwrap();\n    count = count + 100;\n    return value;\n  };\n  guard failure.is_err(), count eq 2 { return 1; }\n  return count + 40;\n}\n"
+  }
+];
+  const outcomes=[];
+  for(const fixture of cases){
+    assert.equal(gitBlob(encoder.encode(fixture.source)),fixture.blob,'canonical stdout source pin');
+    try {
+      const output=compile(fixture.source);
+      assert.ok(output.ok,'compiler rejected: '+output.diagnostic);
+      const result=run(output.wasm);
+      assert.equal(result.ok,true);
+      assert.equal(result.panic,0);
+      assert.equal(result.value,42n);
+      assert.equal(result.stdout,fixture.stdout);
+      outcomes.push({id:fixture.id,source_git_blob:fixture.blob,guest_sha256:sha256(output.wasm),status:'PASS'});
+    } catch(error) { outcomes.push({id:fixture.id,source_git_blob:fixture.blob,status:'FAIL',diagnostic:String(error)}); }
+  }
+  const passed=outcomes.filter(x=>x.status==='PASS').length;
+  console.log(JSON.stringify({profile:'canonical-stdout-v1',status:passed===cases.length?'PASS':'FAIL',compiler_sha256:compilerSha,guest_cases:outcomes,verified_guest_executions:passed}));
+  process.exit(passed===cases.length?0:1);
 }
 
 // Optional candidate gate runs only the pinned checked-unwrap fixtures.
@@ -123,6 +173,67 @@ if (checkedUnwrap) {
     const output = compile(source);
     verifyCheckedUnwrapRejection(id, output);
     negative.push({id, diagnostic: output.diagnostic});
+  }
+  if(fullV6){
+    const remaining=[{"path":"checked-unwrap.atto","git_blob_sha1":"90c6166041963d1f466bc51f105c66a0a7be15ac","expected":{"result":42}},{"path":"inline-task-failure.atto","git_blob_sha1":"446624a894788834550ac7a13a7a76ea5d06444c","expected":{"result":42,"stdout":"D"}},{"path":"short-circuit.atto","git_blob_sha1":"d24442cf7daf1dd86876b418f0cb9e793cbb23c2","expected":{"result":42,"stdout":"RR"}},{"path":"terminal-expect.atto","git_blob_sha1":"864e6b34fe46de9c260a7e537f3f008caa7c8b79","expected":{"runtime_failure":"uncaught_guest_panic"}}];
+    const outcomes=[];
+    for(const fixture of remaining){
+      const bytes=readFileSync(fileURLToPath(new URL('../tests/fixtures/checked-unwrap-v6/'+fixture.path,import.meta.url)));
+      assert.equal(gitBlob(bytes),fixture.git_blob_sha1,'canonical fixture identity');
+      try{
+        const output=compile(decoder.decode(bytes));
+        if(!output.ok){outcomes.push({id:fixture.path,status:'COMPILE_REJECTED',diagnostic:output.diagnostic});continue;}
+        const result=run(output.wasm);
+        if(fixture.expected.runtime_failure){
+          assert.ok(!result.ok && result.runtimeExpectPanic && result.panic===7,'terminal expect must produce dedicated guest panic_code=7');
+        }else{
+          assert.equal(result.ok,true);
+          assert.equal(result.panic,0);
+          assert.equal(result.value,BigInt(fixture.expected.result));
+          assert.equal(result.stdout,fixture.expected.stdout??'');
+        }
+        outcomes.push({id:fixture.path,status:'PASS',guest_sha256:sha256(output.wasm)});
+      }catch(error){outcomes.push({id:fixture.path,status:'EXECUTION_FAILED',diagnostic:String(error)});}
+    }
+    // Separate adversarial task controls: do not inflate the pinned corpus count.
+    const taskControls=[];
+    for(const [id,source,value,stdout,diagnostic] of [
+      ['task-success-lifo','pub fnc main(): int { let int n=0; val Option<int> x=Some(2); val Result<int, Error> r=trap! sync task<int> { n=n+2; defer stdio.out.write("A"); defer process.stdout.write("B"); val int y=x.unwrap(); n=n+38; return y; }; return n+r.unwrap(); }',42n,'BA',null],
+      ['task-failure-before-registration','pub fnc main(): int { let int n=0; val Option<int> x=None; val Result<int, Error> r=trap! sync task<int> { n=n+2; defer stdio.out.write("A"); val int y=x.unwrap(); defer process.stdout.write("B"); return y; }; guard r.is_err(), n eq 2 { return 1; } return n+40; }',42n,'A',null],
+      ['task-local-scope','pub fnc main(): int { val int n=40; val int r=sync task<int> { val int n=2; return n; }; return n+r; }',42n,'',null],
+      ['task-immutable-capture','pub fnc main(): int { val int n=40; return sync task<int> { n=n+2; return n; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-wrong-return','pub fnc main(): int { return sync task<int> { return true; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-no-return','pub fnc main(): int { return sync task<int> { val int n=42; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-nested','pub fnc main(): int { return sync task<int> { return sync task<int> { return 42; }; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-capability-shadow','pub fnc main(): int { val int process=1; return sync task<int> { defer process.stdout.write("A"); return 42; }; }',null,null,/^E_IO_SHADOW:/]
+    ]){
+      try{
+        const built=compile(source);
+        if(diagnostic){assert.equal(built.ok,false,'unexpected guest artifact');assert.match(built.diagnostic,diagnostic);}
+        else{assert.ok(built.ok,built.diagnostic);const actual=run(built.wasm);assert.equal(actual.ok,true);assert.equal(actual.panic,0);assert.equal(actual.value,value);assert.equal(actual.stdout,stdout);}
+        taskControls.push({id,status:'PASS'});
+      }catch(error){taskControls.push({id,status:'FAIL',diagnostic:String(error)});}
+    }
+    const controls=[];
+    for(const [id,source,expected] of [
+      ['expect-some','pub fnc main(): int { val Option<int> x = Some(42); return x.expect("not reached"); }',42n],
+      ['expect-wrong-arity','pub fnc main(): int { val Option<int> x = None; return x.expect(); }',null],
+      ['expect-wrong-message','pub fnc main(): int { val Option<int> x = None; return x.expect(42); }',null],
+      ['stdout-canonical','pub fnc main(): int { stdio.out.write("A"); process.stdout.write("B"); return 42; }',42n],
+      ['stdout-wrong-type','pub fnc main(): int { stdio.out.write(42); return 42; }',null]
+    ]){
+      try{
+        const output=compile(source);
+        if(expected===null){assert.equal(output.ok,false);assert.match(output.diagnostic,/E_ARITY|E_TYPE/);}
+        else{assert.ok(output.ok,output.diagnostic);const result=run(output.wasm);assert.equal(result.ok,true);assert.equal(result.panic,0);assert.equal(result.value,expected);assert.equal(result.stdout,id==='stdout-canonical'?'AB':'');}
+        controls.push({id,status:'PASS'});
+      }catch(error){controls.push({id,status:'FAIL',diagnostic:String(error)});}
+    }
+    const controlPass=controls.every(x=>x.status==='PASS')&&taskControls.every(x=>x.status==='PASS');
+    const passed=outcomes.filter(x=>x.status==='PASS').length;
+    console.log(JSON.stringify({status:passed===remaining.length&&controlPass?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,controls,task_controls:taskControls,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
+    if(passed!==remaining.length||!controlPass)process.exitCode=1;
+    process.exit();
   }
   console.log(JSON.stringify({status:'PASS', profile:'checked-unwrap-v6-rust-candidate',
     evidence_kind:'real-compiler-wasm-guest-executed', compiler_sha256:compilerSha,

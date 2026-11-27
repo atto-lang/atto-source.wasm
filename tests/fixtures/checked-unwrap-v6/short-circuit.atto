@@ -1,0 +1,16 @@
+fnc rhs(): bool {
+  stdio.stdout.write("R");
+  val Option<bool> missing = None;
+  return missing.unwrap();
+}
+fnc conjunction(bool run): bool { return run && rhs(); }
+fnc disjunction(bool skip): bool { return skip || rhs(); }
+pub fnc main(): int {
+  val Result<bool, Error> a = trap! conjunction(false);
+  val Result<bool, Error> b = trap! disjunction(true);
+  val Result<bool, Error> c = trap! conjunction(true);
+  val Result<bool, Error> d = trap! disjunction(false);
+  guard a.is_ok(), b.is_ok(), c.is_err(), d.is_err() { return 1; }
+  guard !a.unwrap(), b.unwrap() { return 2; }
+  return 42;
+}
