@@ -1,0 +1,88 @@
+// Wasm backend-owned Atto TCP stream policy.
+// Pure deterministic rules; browser WebAssembly has NO raw TCP authority.
+// Only an explicitly granted trusted host adapter may supply TCP primitives.
+
+// std.net.tcp_policy guest scalar contract v1.
+// TCP is an ordered BYTE STREAM: no message boundaries, TLS, or text encoding.
+// These functions do not open sockets. A host TCP adapter must enforce grants,
+// actor/task affine handles, timeouts, quota reservation and final retirement.
+// No hidden allocation, blocking calls, JIT, or GC are needed by these helpers.
+
+// Local bind accepts ephemeral port 0; a remote destination never does.
+pub fnc tcp_local_port_valid(int port): bool {
+  if port < 0 then return false; fi
+  return port <= 65535;
+}
+
+pub fnc tcp_remote_port_valid(int port): bool {
+  if port <= 0 then return false; fi
+  return port <= 65535;
+}
+
+// One operation has an explicit 64 KiB ceiling, independent of socket buffers.
+pub fnc tcp_io_request_valid(int byte_count): bool {
+  if byte_count < 1 then return false; fi
+  return byte_count <= 65536;
+}
+
+pub fnc tcp_next_chunk(int remaining, int available_credit, int operation_limit): int {
+  if tcp_io_request_valid(operation_limit) == false then return 0; fi
+  if remaining <= 0 then return 0; fi
+  if available_credit <= 0 then return 0; fi
+  let n: int = operation_limit;
+  if n > remaining then n = remaining; fi
+  if n > available_credit then n = available_credit; fi
+  return n;
+}
+
+// Per-owner pending output has a bounded high watermark (up to 16 MiB).
+// Admission MUST be followed by atomic host reservation (TOCTOU is unsafe).
+pub fnc tcp_can_enqueue_write(int write_length, int queued_bytes, int high_watermark): bool {
+  if high_watermark <= 0 || high_watermark > 16777216 then return false; fi
+  if queued_bytes < 0 || queued_bytes > high_watermark then return false; fi
+  if tcp_io_request_valid(write_length) == false then return false; fi
+  return write_length <= (high_watermark - queued_bytes);
+}
+
+
+// Preflight only: runtime must reserve both quotas atomically with socket work.
+pub fnc tcp_accept_can_admit(int active, int pending, int max_active, int max_pending): bool {
+  if max_active < 1 || max_active > 65536 then return false; fi
+  if max_pending < 1 || max_pending > 65536 then return false; fi
+  if active < 0 || pending < 0 then return false; fi
+  if active >= max_active then return false; fi
+  return pending < max_pending;
+}
+
+// Readiness outcome: -1 invalid, 0 pending/would-block, 1 data,
+// 2 clean EOF, 3 cancelled before kernel consumption.
+// EOF is not the same as a zero-byte nonblocking read. A connection may
+// be read-half-closed while write-half remains available.
+pub fnc tcp_read_state(int bytes_read, bool eof, bool cancelled): int {
+  if bytes_read < 0 || bytes_read > 65536 then return -1; fi
+  if eof then
+    if bytes_read != 0 || cancelled then return -1; fi
+    return 2;
+  fi
+  if cancelled then
+    if bytes_read != 0 then return -1; fi
+    return 3;
+  fi
+  if bytes_read > 0 then return 1; fi
+  return 0;
+}
+
+// Partial writes are normal; the runtime owns progress and the buffer until
+// completion. Never claim a partial write was rolled back by cancellation.
+pub fnc tcp_write_progress_valid(int requested, int committed): bool {
+  if requested < 0 || requested > 65536 then return false; fi
+  if committed < 0 then return false; fi
+  return committed <= requested;
+}
+
+// Half-close is a one-time write-side transition, not full FD release.
+// Physical close and generation retirement remain host responsibilities.
+pub fnc tcp_write_half_close_allowed(bool write_open, bool close_started): bool {
+  if close_started then return false; fi
+  return write_open;
+}
