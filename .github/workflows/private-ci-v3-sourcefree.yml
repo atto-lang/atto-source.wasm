@@ -1,0 +1,24 @@
+name: Private CI v3 publisher source-free
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  v3-publisher-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind tests to exact source revision
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet --exit-code
+      - name: Run source-free V3 publisher regression suite
+        run: python3 scripts/test-publish-private-ci-source-v3.py
