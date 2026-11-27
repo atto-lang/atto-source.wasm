@@ -1,0 +1,1 @@
+pub fnc main(): int { const x = 40; set x++; return x; }
