@@ -101,7 +101,7 @@ export function rejectUnsupportedActorThreadSource(snapshot) {
     // Ordinary property calls (process.spawn(...)), identifiers and inert
     // source text remain outside this actor-keyword admission gate.
     if (tokens[i] === "spawn" && tokens[i-1] !== "." &&
-        tokens[i+1] && /^[A-Za-z_][A-Za-z_0-9]*$/.test(tokens[i+1]))
+        tokens[i+1] && (/^[\p{ID_Start}_]/u.test(tokens[i+1]) || /^[\uD800-\uDBFF]/.test(tokens[i+1])))
       throw Error("WASM source actor scheduling unsupported: actor spawn options and guest actor execution require typed lowering");
     // A spawn-time policy must not be dropped by a scalar-only delegate.
     if (tokens[i] === "with" && tokens[i+1] === "schedule" && tokens[i+2] === "(")
