@@ -136,7 +136,7 @@ if (checkedUnwrap) {
         if(!output.ok){outcomes.push({id:fixture.path,status:'COMPILE_REJECTED',diagnostic:output.diagnostic});continue;}
         const result=run(output.wasm);
         if(fixture.expected.runtime_failure){
-          assert.ok(!result.ok && result.runtimeTrapWithPanicCode && result.panic>0,'terminal expect must produce actual guest panic');
+          assert.ok(!result.ok && result.runtimeTrapWithPanicCode && result.panic===7,'terminal expect must produce dedicated guest panic_code=7');
         }else{
           assert.equal(result.ok,true);
           assert.equal(result.panic,0);
@@ -146,9 +146,25 @@ if (checkedUnwrap) {
         outcomes.push({id:fixture.path,status:'PASS',guest_sha256:sha256(output.wasm)});
       }catch(error){outcomes.push({id:fixture.path,status:'EXECUTION_FAILED',diagnostic:String(error)});}
     }
+    const controls=[];
+    for(const [id,source,expected] of [
+      ['expect-some','pub fnc main(): int { val Option<int> x = Some(42); return x.expect("not reached"); }',42n],
+      ['expect-wrong-arity','pub fnc main(): int { val Option<int> x = None; return x.expect(); }',null],
+      ['expect-wrong-message','pub fnc main(): int { val Option<int> x = None; return x.expect(42); }',null],
+      ['stdout-canonical','pub fnc main(): int { stdio.out.write("A"); process.stdout.write("B"); return 42; }',42n],
+      ['stdout-wrong-type','pub fnc main(): int { stdio.out.write(42); return 42; }',null]
+    ]){
+      try{
+        const output=compile(source);
+        if(expected===null){assert.equal(output.ok,false);assert.match(output.diagnostic,/E_ARITY|E_TYPE/);}
+        else{assert.ok(output.ok,output.diagnostic);const result=run(output.wasm);assert.equal(result.ok,true);assert.equal(result.panic,0);assert.equal(result.value,expected);assert.equal(result.stdout,id==='stdout-canonical'?'AB':'');}
+        controls.push({id,status:'PASS'});
+      }catch(error){controls.push({id,status:'FAIL',diagnostic:String(error)});}
+    }
+    const controlPass=controls.every(x=>x.status==='PASS');
     const passed=outcomes.filter(x=>x.status==='PASS').length;
-    console.log(JSON.stringify({status:passed===remaining.length?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
-    if(passed!==remaining.length)process.exitCode=1;
+    console.log(JSON.stringify({status:passed===remaining.length&&controlPass?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,controls,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
+    if(passed!==remaining.length||!controlPass)process.exitCode=1;
     process.exit();
   }
   console.log(JSON.stringify({status:'PASS', profile:'checked-unwrap-v6-rust-candidate',
