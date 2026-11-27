@@ -8,10 +8,10 @@ import {createCompiler,verifyCompilerBytes} from '../src/canonical-browser-compi
 
 // Delegated target proof through the Wasm repository's real browser compiler ABI.
 // Does not claim an independent Wasm frontend or a refreshed vendored artifact.
-const compilerHead='818db8621425af970f4e668da7ce9d8cfacd200c';
-const compilerTree='ff1e6456f4ece0646675f63a775d50d7c9117f59';
-const fixtureHead='c60198196873889fdb4f64e37f65e882e49d97ea';
-const fixtureTree='02408897b5eb20da6d592206afb828da7c1a2b7e';
+const compilerHead='c2ff8e8369e398eee018db1a1c1f45f27bcda428';
+const compilerTree='910e12faf393e3503f5913cfb289066ffa7214c4';
+const fixtureHead='c196a575dc5249f57c013013d384ad0b8b02309c';
+const fixtureTree='bac51327d3fc9c53afd0c0bead885f3e9c5240ae';
 const required=process.env.ATTO_STRUCT_BROWSER_REQUIRED==='1';
 function exact(root,head,tree){
   assert.ok(root&&isAbsolute(root),'absolute authorized checkout required');
