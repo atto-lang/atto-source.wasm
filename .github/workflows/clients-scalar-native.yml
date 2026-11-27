@@ -1,0 +1,63 @@
+# Real, opt-in, compiler-backed Wasm parity lane.
+# Never use host-only npm checks as evidence of Oreslang compilation.
+name: Oreslang client scalar native Wasm guests
+on:
+  pull_request:
+    paths:
+      - 'tests/fixtures/clients-scalar-v1/**'
+      - 'scripts/run-client-scalar-native.mjs'
+      - 'scripts/compile-ores.mjs'
+      - 'scripts/run-guest.mjs'
+      - '.github/workflows/clients-scalar-native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-source-native-wasm:
+    # Private compiler provenance stays on an independently approved runner.
+    # Fork PRs cannot execute untrusted code on the privileged runner.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on:
+      group: oreslang-trusted-native
+      labels: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+    env:
+      ORESLANG_LLVM_COMPILER: /opt/oreslang-approved/oreslang-llvmc
+      ORESLANG_LLVM_COMPILER_SHA256: ${{ vars.ORESLANG_LLVM_COMPILER_SHA256 }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact source head and Git tree
+        shell: bash
+        env:
+          EXPECTED: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED"
+          git diff --quiet
+          git rev-parse 'HEAD^{tree}'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Verify approved private compiler provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$ORESLANG_LLVM_COMPILER_SHA256"
+          [[ "$ORESLANG_LLVM_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test -f "$ORESLANG_LLVM_COMPILER"
+          test -x "$ORESLANG_LLVM_COMPILER"
+          test ! -L "$ORESLANG_LLVM_COMPILER"
+          printf '%s  %s\n' "$ORESLANG_LLVM_COMPILER_SHA256" "$ORESLANG_LLVM_COMPILER" | sha256sum --check --status
+          command -v clang
+          command -v node
+      - name: Execute real Oreslang compiler and isolated Wasm client scalar guests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-client-scalar-native.mjs
+      - name: Scope boundary
+        run: |
+          echo 'Only the nine source-identical scalar cases; not SDK, JSON, network or module parity.'
