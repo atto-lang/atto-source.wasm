@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
+import {mkdtemp,readFile,writeFile,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -203,6 +204,6 @@ test("shared source-i64 numeric controls execute in real compiler -> wasm32 gues
       assert.equal(safeResult.admission.hostCapabilities,0);
     }
   } finally {
-    await rm(dir,{recursive:true,force:true});
+    await cleanupRealCompilerWorkspace(dir);
   }
 });

@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,writeFile,readFile,stat,rm} from 'node:fs/promises';
+import {mkdtemp,writeFile,readFile,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {compileOresToWasm} from '../scripts/compile-ores.mjs';
@@ -104,7 +105,7 @@ async function admission(t){
 }
 async function scratch(t,source){
   const dir=await mkdtemp(join(tmpdir(),'atto-wasm-negative-'));
-  t.after(()=>rm(dir,{recursive:true,force:true}));
+  t.after(()=>cleanupRealCompilerWorkspace(dir));
   const input=join(dir,'source.atto'),output=join(dir,'rejected-or-valid.wasm');
   await writeFile(input,source,{flag:'wx',mode:0o600});
   return {input,output};

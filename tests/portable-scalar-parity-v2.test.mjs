@@ -1,7 +1,9 @@
+import {assertNativeRemovedPercent} from '../scripts/assert-native-percent-denial.mjs';
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp, readFile, writeFile, stat, rm} from "node:fs/promises";
+import {mkdtemp, readFile, writeFile, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, isAbsolute} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -101,19 +103,32 @@ test("real compiler to bounded Wasm guest executes portable scalar source and re
       const source=join(dir,item.id+".ores");
       const output=join(dir,item.id+".wasm");
       await writeFile(source,sourceFor(item.expression),{flag:"wx",mode:0o400});
-      await assert.rejects(
-        compileOresToWasm({
-          compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"
-        }),
-        error=>/oreslang-llvmc:/.test(String(error?.message||"")),
-        item.id+" must be rejected by the actual language compiler, not a bridge error"
-      );
+      // The bridge now rejects removed percent before invoking the compiler.
+      // Prove both independent denials; a bridge error alone never qualifies.
+      if (item.id === "removed-percent") {
+        await assertNativeRemovedPercent({compiler,compilerSha256,source,work:dir});
+        await assert.rejects(
+          compileOresToWasm({compiler,compilerSha256,source,output,
+            environment:"browser",publication:"atomic"}),
+          e=>/^ATTO_REMOVED_OPERATOR: '%' is not an AttoLang source operator at offset [0-9]+$/.test(e.message),
+          item.id+" must also be rejected by the bridge");
+      } else {
+        await assert.rejects(
+          compileOresToWasm({
+            compiler,compilerSha256,source,output,environment:"browser",publication:"atomic"
+          }),
+          error=>/oreslang-llvmc:/.test(String(error?.message||"")),
+          item.id+" must be rejected by the actual language compiler, not a bridge error"
+        );
+      }
+      await assert.rejects(stat(output),{code:"ENOENT"},
+        item.id+" rejection must not publish standalone Wasm");
       await assert.rejects(stat(output+".current.json"),{code:"ENOENT"},
         item.id+" rejection must not publish a release pointer");
       completed++;
     }
     assert.equal(completed,14,"a partial matrix cannot be a green parity result");
   }finally{
-    await rm(dir,{recursive:true,force:true});
+    await cleanupRealCompilerWorkspace(dir);
   }
 });
