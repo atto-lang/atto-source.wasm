@@ -1,0 +1,21 @@
+// atto-source.wasm: candidate Atto guest fixture; NOT_EXECUTED until module import,
+// Option/int support and guest execution are verified on this exact commit.
+import module error from "atto.core/error";
+pub fnc main(): int {
+  if !error.is_known_core_code(0); do return 1; fi
+  if !error.is_known_core_code(3090); do return 2; fi
+  if error.is_known_core_code(3091); do return 3; fi
+  if error.code_group(4003).unwrap_or(-1) != 4000; do return 4; fi
+  if error.code_group(9014).unwrap_or(-1) != 9000; do return 5; fi
+  if !error.code_group(3091).is_none(); do return 6; fi
+  if !error.is_bounds_code(1008); do return 7; fi
+  if error.is_bounds_code(1009); do return 8; fi
+  if !error.is_retry_advisory_code(4003); do return 9; fi
+  if error.is_retry_advisory_code(4004); do return 10; fi
+  if !error.is_actor_api_code(2012); do return 11; fi
+  if error.is_actor_api_code(1009); do return 12; fi
+  if !error.valid_message_length(0, 0); do return 13; fi
+  if error.valid_message_length(-1, 0); do return 14; fi
+  if error.valid_message_length(1025, 1024); do return 15; fi
+  return 42;
+}
