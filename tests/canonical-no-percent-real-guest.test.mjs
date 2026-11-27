@@ -1,3 +1,4 @@
+import {assertNativeRemovedPercent} from '../scripts/assert-native-percent-denial.mjs';
 import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -62,13 +63,14 @@ test('actual LLVM -> wasm32 source rejects legacy % and executes unchanged multi
         assert.equal(actual.value,42n);
         assert.equal(actual.admission.hostCapabilities,0);
       }else{
+        await assertNativeRemovedPercent({compiler:resolve(compiler),compilerSha256,source:input,work:dir});
         await assert.rejects(
           ()=>compileOresToWasm({
             compiler:resolve(compiler),compilerSha256,source:input,output,
             environment:'browser',publication:'atomic'
           }),
-          /noncanonical '%' source operator/,
-          id+' must be rejected by the real compiler for the RIGHT reason'
+          e=>/^ATTO_REMOVED_OPERATOR: '%' is not an AttoLang source operator at offset [0-9]+$/.test(e.message),
+          id+' must be rejected by the bridge independently of native denial'
         );
         await assert.rejects(()=>readFile(output),{code:'ENOENT'},
           id+' published a Wasm artifact after source rejection');
