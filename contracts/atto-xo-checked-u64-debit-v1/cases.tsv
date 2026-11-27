@@ -1,0 +1,12 @@
+normal|3150|u64|1025|3|75|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(1025,3,75)+0; }
+above-i64|9223372036854775808|u64|9223372036854775807|1|1|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(9223372036854775807,1,1)+0; }
+full-max|18446744073709551615|u64|18446744073709551614|1|1|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(18446744073709551614,1,1)+0; }
+precision-edge|9007199254740993|u64|9007199254740992|1|1|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(9007199254740992,1,1)+0; }
+zero-debit|0|u64|18446744073709551615|0|0|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(18446744073709551615,0,0)+0; }
+uint-alias|18446744073709551615|uint|18446744073709551615|1|0|+|0|pub fnc debit(uint price,uint shares,uint fee): uint { return price*shares+fee; } pub fnc main(): uint { return debit(18446744073709551615,1,0)+0; }
+product-overflow|overflow|u64|9223372036854775808|2|0|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(9223372036854775808,2,0)+0; }
+fee-overflow|overflow|u64|18446744073709551615|1|1|+|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(18446744073709551615,1,1)+0; }
+overflow-cancel|overflow|u64|18446744073709551615|1|1|-|1|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(18446744073709551615,1,1)-1; }
+overflow-dead-result|overflow|u64|9223372036854775808|2|0|*|0|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(9223372036854775808,2,0)*0; }
+unsigned-underflow|overflow|u64|1|1|0|-|2|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(1,1,0)-2; }
+consumer-overflow|overflow|u64|18446744073709551615|1|0|+|1|pub fnc debit(u64 price,u64 shares,u64 fee): u64 { return price*shares+fee; } pub fnc main(): u64 { return debit(18446744073709551615,1,0)+1; }
