@@ -174,3 +174,18 @@ export function createStateRuntime({
     observerFailureCount: () => observerFailures,
   });
 }
+
+// Own the complete synchronous turn, including instantiation/start and
+// terminal validation. Abort only after the callback has unwound. A rejected
+// completion is not a retryable guest return at this outer execution boundary.
+export function runScalarStateTurn(runtime, run) {
+  try {
+    const value = run();
+    if (typeof value !== 'bigint') fail('guest main must return i64');
+    runtime.complete();
+    return value;
+  } catch (error) {
+    runtime.abort();
+    throw error;
+  }
+}
