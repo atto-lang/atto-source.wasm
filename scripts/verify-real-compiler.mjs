@@ -217,6 +217,13 @@ export async function verifyRealCompiler({
       {name:"negative-result",expected:-5n},
       {name:"zero-result",expected:0n},
       {name:"class-scalar-constructor",expected:40n},
+      // Actual LLVM -> Clang wasm32 -> Node guest dispatch of foo/0 + foo/1.
+      // Requires the companion native inline self implementation.
+      {name:"class-inline-self-arity",expected:42n},
+      {name:"class-inline-self-empty-void",expected:42n},
+      {name:"class-inline-self-void-dispatch",expected:42n},
+      {name:"class-inline-self-mtd",expected:42n},
+      {name:"class-inline-self-mtd-end",expected:42n},
       // Byte-identical to the shared value-pipeline conformance source.
       // This is scalar LLVM->wasm32 execution, not tagged Option/Result.
       {name:"value-pipe-scalar",expected:7n}
@@ -469,6 +476,64 @@ export async function verifyRealCompiler({
       });
       assertNativeFrontendRejection(frontendResult);
     }
+
+    // A declaration-only 'self' and implicit 'self' are one foo/0
+    // selector. A real compiler must reject the duplicate *before* emitting
+    // LLVM IR, not have the bridge or Wasm validator reject the artifact.
+    const duplicateSelf = fileURLToPath(
+      new URL("../examples/class-inline-self-duplicate.ores", import.meta.url));
+    const duplicateFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", duplicateSelf], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(duplicateFrontend);
+    if (!duplicateFrontend.stderr.includes("duplicate native method name/arity"))
+      throw Error("native inline self duplicate lacked name/arity collision diagnostic");
+
+    // Formatter-inserted 'mtd' is optional and does not create a distinct
+    // receiver/overload slot. Verify compiler rejection (no IR), not merely
+    // a wasm32 linking or host-admission error.
+    const mtdCollision = fileURLToPath(
+      new URL("../examples/class-inline-self-mtd-duplicate.ores", import.meta.url));
+    const mtdFrontend = spawnSync(
+      pinnedCompiler, ["--target=wasm32", mtdCollision], {
+        encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+      });
+    assertNativeFrontendRejection(mtdFrontend);
+    if (!mtdFrontend.stderr.includes("duplicate native method name/arity"))
+      throw Error("native mtd duplicate did not reject the same name/value-arity slot");
+
+    // The only explicit instance introducer is mtd. A literal callable
+    // named method() is legal, but the old method name() prefix is not.
+    const canonicalSource = fileURLToPath(new URL("../examples/class-contextual-mtd.atto", import.meta.url));
+    const canonicalOutput = join(work,"class-contextual-mtd.wasm");
+    const canonicalSha = sha256(await readFile(canonicalSource));
+    const canonicalBuilt = await compileOresToWasm({
+      compiler:pinnedCompiler,compilerSha256,source:canonicalSource,output:canonicalOutput,
+      environment:"browser",publication:"atomic"
+    });
+    const canonicalVerified = await readAtomicRelease(canonicalOutput);
+    if (canonicalBuilt.sourceSha256 !== canonicalSha ||
+        canonicalBuilt.compilerSha256 !== compilerSha256 ||
+        canonicalBuilt.wasmSha256 !== sha256(canonicalVerified.wasm) ||
+        canonicalVerified.manifest?.wasmSha256 !== canonicalBuilt.wasmSha256)
+      throw Error("contextual mtd fixture provenance mismatch");
+    const canonicalGuest = await runIsolatedCoreGuest(canonicalVerified.wasm,{
+      expectedSha256:canonicalBuilt.wasmSha256,timeoutMs:5000
+    });
+    if (canonicalGuest.value !== 42n || canonicalGuest.admission.imports !== 0 ||
+        canonicalGuest.admission.hostCapabilities !== 0)
+      throw Error("contextual mtd fixture returned incorrect result or capabilities");
+    scalarResults.push(Object.freeze({name:"class-contextual-mtd",value:canonicalGuest.value.toString(),
+      wasmSha256:canonicalBuilt.wasmSha256,sourceSha256:canonicalBuilt.sourceSha256}));
+
+    const obsoleteMethod = fileURLToPath(new URL("../examples/class-obsolete-method-reject.atto", import.meta.url));
+    const obsoleteFrontend = spawnSync(pinnedCompiler, ["--target=wasm32", obsoleteMethod], {
+      encoding:"utf8", timeout:30000, maxBuffer:4*1024*1024
+    });
+    assertNativeFrontendRejection(obsoleteFrontend);
+    if (!obsoleteFrontend.stderr.includes("obsolete method introducer"))
+      throw Error("obsolete method marker did not fail at the compiler-owned syntax gate");
 
     // Source ownership syntax is pointerless. These cases must be rejected by
     // the pinned real LLVM frontend itself, never by the Wasm linker/bridge.
@@ -836,6 +901,7 @@ export async function verifyRealCompiler({
       strictNamedIntegerBitXor:Object.freeze(signed64NamedResults),
       portableScalarFixtures:Object.freeze(portableScalarFixtures),
       sharedScalarSuiteSha256, sharedScalarFixtures:Object.freeze(sharedScalarResults),
+      obsoleteMethodIntroducerRejected:true,
       negativeSourceRejected:true,
       unsupportedPipelineRejected:true,
       generatorV1Rejected:true,

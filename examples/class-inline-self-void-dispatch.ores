@@ -1,0 +1,15 @@
+// Real compiler + wasm32 execution: both method spellings must be callable.
+// Unlike the private declaration-only X1/X2 fixture, this exercises dispatch.
+define class X1 as
+  pub foo():void {}
+end
+define class X2 as
+  pub foo(self):void {}
+end
+pub fnc main():int {
+  let X1 x1=new X1();
+  let X2 x2=new X2();
+  x1.foo();
+  x2.foo();
+  return 42;
+}

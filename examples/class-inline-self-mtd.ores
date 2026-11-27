@@ -1,0 +1,9 @@
+// Optional mtd marker must not affect receiver erasure or overload slots.
+define class X as
+  pub mtd read(self):int{return 42;}
+  pub read(self,int n):int{return n;}
+end
+pub fnc main():int {
+  let X x=new X();
+  return x.read()+x.read(0);
+}

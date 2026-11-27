@@ -1,0 +1,11 @@
+// Native LLVM-source compiler -> Wasm32; implicit and explicit receivers
+// occupy exactly one hidden ABI slot, with user arities 0 and 1.
+pub define class Box as
+  let int value=20;
+  pub read():int{return self.value;}
+  pub read(self,int n):int{return self.value+n;}
+end
+pub fnc main():int{
+  let Box box=new Box();
+  return box.read()+box.read(2);
+}

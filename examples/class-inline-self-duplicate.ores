@@ -1,0 +1,5 @@
+define class Box as
+  pub read():int{return 20;}
+  pub read(self):int{return 22;}
+end
+pub fnc main():int{return 42;}
