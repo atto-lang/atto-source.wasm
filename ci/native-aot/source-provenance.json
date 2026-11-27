@@ -5,7 +5,7 @@
     "commit": "78b2a80203a3e0a977c4e75479b6c5c672904c42",
     "pull_request": 403
   },
-  "scope": "12 exact Git blobs from upstream Wasm PR #403 migrated into atto-source.wasm; limited native Wasmtime AOT guest tests, NOT compiler-generated AttoLang source or production sandbox",
+  "scope": "Historical original native Wasmtime seed retained; current hardened snapshot includes explicit Rust host-import denial test. Scalar Atto compiler bridge is Node-only and requires a pinned, executed native compiler for any positive result.",
   "source_blobs": {
     "aot-host/profile.rs": "3162e92ba188eb631c0cf816a79f8f1a77431040",
     "aot-host/io.rs": "2d50da4348c0993b46adc7ed10b0e601ecd3faa2",
@@ -22,7 +22,8 @@
   },
   "current_snapshot": {
     "base_commit": "879b4d9246e107e993cb60e6375426f2c5ca5c19",
-    "notes": "Exactly pinned current-main native AOT source objects; historic original blobs retained separately and never claimed to equal newer content."
+    "notes": "Exactly pinned current-main native AOT source objects; historic original blobs retained separately and never claimed to equal newer content.",
+    "reconciled_parent_head": "441b26f1ed5eca84b3a39080373650166346d251"
   },
   "current_source_blobs": {
     "aot-host/profile.rs": "3162e92ba188eb631c0cf816a79f8f1a77431040",
@@ -31,11 +32,18 @@
     "aot-host/precompile/Cargo.toml": "e78d158dbaa16ab7c49ad283892fc3efa993f0c5",
     "aot-host/precompile/src/main.rs": "56237da2a028a4e4167ae04834c733064aacd677",
     "aot-host/precompile/src/publish.rs": "da6f62bf44a4d01b3ec212164d3c5edfe32e5d72",
-    "aot-host/precompile/src/wasm_admission.rs": "d59cdb98e3ed1d876401ace8187a3c9d350761b0",
+    "aot-host/precompile/src/wasm_admission.rs": "e1d9bfcf174f3138e667408c4b1471b23e6f55b1",
     "aot-host/run/Cargo.lock": "fcddd613671074d026c8380f03356c05bc44258b",
     "aot-host/run/Cargo.toml": "a6645a1c204c362639ac65c81c55bdbe5e500f55",
     "aot-host/run/build.rs": "c42898a5a161e9c81a5c5f3dfd0b1dd310b6dfdf",
     "aot-host/run/src/main.rs": "30cf1b1bddf715a6a06a6e463e9aac71b4649b24",
     "aot-host/run/src/tenant_isolation.rs": "2264a125703243fd4e7fb1515d298c00668b0e96"
+  },
+  "local_test_extensions": {
+    "aot-host/precompile/src/wasm_admission.rs": {
+      "upstream_sha": "22f4721a90e2be33ebac935efd7dec9e180253eb",
+      "current_sha": "e1d9bfcf174f3138e667408c4b1471b23e6f55b1",
+      "purpose": "Rust regression: deny imported actor guest modules before scalar Wasmtime native codegen"
+    }
   }
 }

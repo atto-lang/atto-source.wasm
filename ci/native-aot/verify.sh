@@ -4,6 +4,7 @@ cd "$(dirname "$0")/../.."
 repo="$PWD"
 node ci/native-aot/verify-provenance.mjs
 node --test tests/native-aot-provenance.test.mjs
+node --test tests/scalar-bridge-negatives.test.mjs
 cargo test --locked --manifest-path aot-host/precompile/Cargo.toml
 cargo test --locked --manifest-path aot-host/run/Cargo.toml
 cargo build --locked --manifest-path aot-host/precompile/Cargo.toml

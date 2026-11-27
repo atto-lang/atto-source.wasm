@@ -1,0 +1,4 @@
+// Scalar-only closed-world smoke; actor-host imports are NOT supported by this Wasmtime profile.
+pub fnc main(): int {
+  return 7;
+}

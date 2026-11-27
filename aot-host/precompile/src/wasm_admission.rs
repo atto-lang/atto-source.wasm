@@ -195,6 +195,13 @@ mod tests{
   assert!(validate_scalar_module(&wasm).is_err());
  }
 
+ #[test]
+ fn actor_host_import_must_be_rejected_not_reinterpreted_as_scalar(){
+  // Imported functions must be rejected before Wasmtime scalar native codegen.
+  let imported=[0,97,115,109,1,0,0,0,
+                2,9,1,3,101,110,118,1,102,0,0];
+  assert!(validate_scalar_module(&imported).is_err());
+ }
 }
 
 
