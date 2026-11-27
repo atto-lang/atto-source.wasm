@@ -1,7 +1,7 @@
 // Opt-in trusted-compiler scalar state profile. No change to general tenant
 // admission: state imports are not authorization for arbitrary Wasm bytes.
 import {createCompiler, verifyCompilerBytes} from './canonical-browser-compiler.mjs';
-import {createStateRuntime} from './browser-scalar-state-runtime.mjs';
+import {createStateRuntime,runScalarStateTurn} from './browser-scalar-state-runtime.mjs';
 import {fixed_memory_pages, actor_names} from './wasm-profile.mjs';
 import {assertCoreI64Entry} from '../scripts/core-i64-abi.mjs';
 
@@ -32,17 +32,18 @@ export async function runVerifiedScalarStateSource({compilerBytes, compilerSha25
     stdout+=s;
   }
   try {
-    instance=new WebAssembly.Instance(module,{atto:{...runtime.imports,
-      print_i64:n=>write(String(n)),print_bool:n=>write(n?'true':'false'),
-      print_newline:()=>write('\n')}});
-    const value=instance.exports.main();
-    if(typeof value!=='bigint')throw new Error('E_ABI: i64 expected');
-    runtime.complete();
+    const value=runScalarStateTurn(runtime,()=>{
+      instance=new WebAssembly.Instance(module,{atto:{...runtime.imports,
+        print_i64:n=>write(String(n)),print_bool:n=>write(n?'true':'false'),
+        print_newline:()=>write('\n')}});
+      const value=instance.exports.main();
+      if(typeof value!=='bigint')throw new Error('E_ABI: i64 expected');
+      return value;
+    });
     return {ok:true,phase:'guest',value:String(value),stdout,state:runtime.snapshot(),events};
   } catch(error) {
     // Physical synchronous unwind has occurred. Retire entire execution;
     // never pretend to recover or roll back writes after a fatal guest trap.
-    runtime.abort();
     return {ok:false,phase:'guest',panic:instance?.exports.panic_code?.value??null,
       message:String(error?.message??error),stdout,state:runtime.snapshot(),events};
   }
