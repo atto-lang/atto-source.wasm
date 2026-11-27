@@ -1,6 +1,13 @@
 > **AI agent instructions (organization-wide):** Before working on code, issues, or pull requests, read and follow the [organization `AGENTS.md`](https://github.com/atto-lang/.github/blob/main/AGENTS.md), including its **merge-first stealth-development policy**. Honor any repository-local `AGENTS.md`, explicit holds, and GitHub-enforced rules.
 
 # atto-source.wasm
+## VM isolate execution architecture
+
+A tenant-scoped `OresVM` worker host now assigns separate handles, quotas and shutdown tracking around the existing disposable-worker `runIsolatedCoreGuest`. Node Workers are **not** an OS-level security sandbox.
+
+See [the shared tenant IsolateVM contract](docs/VM_ISOLATE_CONTRACT.md) for lifecycle, V8 lessons, resource retirement, restrictions and remaining acceptance gates.
+
+
 
 WebAssembly backend and worker-based runtime for AttoLang in browsers and server environments. The dotnet runtime will also use wasm to achieve TenantVM isolation.
 
