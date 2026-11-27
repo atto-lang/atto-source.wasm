@@ -1,0 +1,24 @@
+// LLVM-local AOT arena-retirement policy. No allocation, locks or OS calls.
+// The runtime supplies authenticated counters. These functions never mint a lease.
+pub fnc arena_quiescent(int active_turns, int loans, int continuations,
+                        int io_leases, int producer_admissions) -> bool {
+  if active_turns < 0 || loans < 0 || continuations < 0 then return false; fi
+  if io_leases < 0 || producer_admissions < 0 then return false; fi
+  return active_turns == 0 && loans == 0 && continuations == 0 &&
+         io_leases == 0 && producer_admissions == 0;
+}
+
+pub fnc arena_can_free(bool admission_sealed, bool drops_complete,
+                       int active_turns, int loans, int continuations,
+                       int io_leases, int producer_admissions) -> bool {
+  if admission_sealed == false || drops_complete == false then return false; fi
+  return arena_quiescent(active_turns, loans, continuations,
+                         io_leases, producer_admissions);
+}
+
+// Never permit generation wrap or ABA reuse of a stale arena identity.
+pub fnc arena_next_generation(int generation, int maximum) -> int {
+  if generation < 1 || maximum < 2 then return -1; fi
+  if generation >= maximum then return -1; fi
+  return generation + 1;
+}

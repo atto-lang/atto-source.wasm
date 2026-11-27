@@ -24,6 +24,12 @@ const trustedArrayPush = Array.prototype.push;
 const trustedArrayPop = Array.prototype.pop;
 const trustedWasmMemory = WebAssembly.Memory;
 const trustedFreeze = Object.freeze;
+const trustedSetPrototypeOf = Object.setPrototypeOf;
+const trustedSafeInteger = Number.isSafeInteger;
+const trustedSetHas = Set.prototype.has;
+const trustedWeakMapHas = WeakMap.prototype.has;
+// Dense private lists with no inherited numeric setters or species callbacks.
+const privateList = () => trustedSetPrototypeOf([], null);
 const trustedMap = Map;
 const trustedWeakMap = WeakMap;
 const trustedMapGet = Map.prototype.get;
@@ -58,11 +64,11 @@ export class ActorArena {
   #actor;
   #incarnation;
   #turn = null;
-  #handles = new WeakMap();
-  #scratch = new WeakMap();
+  #handles = new trustedWeakMap();
+  #scratch = new trustedWeakMap();
   // Issued lifetime-only leases keep the backing memory reachable until the
   // last async/FFI/IO owner acknowledges retirement. They grant no byte access.
-  #lifetimePins = new WeakMap();
+  #lifetimePins = new trustedWeakMap();
   // Actor-owned, bounded managed frame stacks. A distinct, non-shared
   // WebAssembly.Memory belongs to each logical execution. Never expose it.
   // This does not replace the engine's native WebAssembly call stack.
@@ -75,13 +81,13 @@ export class ActorArena {
   #scratchTop = 0;
   #persistentCount = 0;
   #scratchCount = 0;
-  #freePersistent = [];
+  #freePersistent = privateList();
   #closed = false;
 
   constructor({actorId, incarnation, kind = "shared"} = {}) {
-    if (!Number.isSafeInteger(actorId) || actorId <= 0 ||
-        !Number.isSafeInteger(incarnation) || incarnation <= 0 ||
-        !kinds.has(kind)) throw new TypeError("invalid actor arena owner");
+    if (!trustedSafeInteger(actorId) || actorId <= 0 ||
+        !trustedSafeInteger(incarnation) || incarnation <= 0 ||
+        !trustedApply(trustedSetHas, kinds, [kind])) throw new TypeError("invalid actor arena owner");
     this.#actor = actorId;
     this.#incarnation = incarnation;
     // Fixed, bounded linear memory; one 64-KiB persistent and one scratch page.
@@ -132,7 +138,7 @@ export class ActorArena {
   beginTurn() {
     this.#bytes();
     if (this.#turn !== null) throw new Error("actor already admitted");
-    const turn = Object.freeze({});
+    const turn = trustedFreeze({});
     this.#turn = turn;
     return turn;
   }
@@ -148,7 +154,7 @@ export class ActorArena {
     scrub(this.#bytes(), PAGE, PAGE + this.#scratchTop);
     this.#scratchTop = 0;
     this.#scratchCount = 0;
-    this.#scratch = new WeakMap();
+    this.#scratch = new trustedWeakMap();
     this.#turn = null;
   }
 
@@ -159,18 +165,18 @@ export class ActorArena {
     if (this.#pendingLifetimePins >= MAX_HANDLES) {
       throw new RangeError("actor arena lifetime pin quota exhausted");
     }
-    const pin = Object.freeze({});
-    this.#lifetimePins.set(pin, true);
+    const pin = trustedFreeze({});
+    trustedApply(trustedWeakMapSet, this.#lifetimePins, [pin, true]);
     ++this.#pendingLifetimePins;
     return pin;
   }
 
   releaseLifetimePin(pin) {
-    if (!this.#lifetimePins.has(pin)) {
+    if (!trustedApply(trustedWeakMapHas, this.#lifetimePins, [pin])) {
       throw new Error("foreign or unissued actor arena lifetime pin");
     }
-    if (!this.#lifetimePins.get(pin)) return; // idempotent release
-    this.#lifetimePins.set(pin, false);
+    if (!trustedApply(trustedWeakMapGet, this.#lifetimePins, [pin])) return; // idempotent release
+    trustedApply(trustedWeakMapSet, this.#lifetimePins, [pin, false]);
     --this.#pendingLifetimePins;
     if (this.#closed && this.#pendingLifetimePins === 0) {
       this.#finishRetirement();
@@ -199,39 +205,50 @@ export class ActorArena {
 
   #alloc(turn, length, scratch) {
     this.#requireTurn(turn);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!trustedSafeInteger(length) || length <= 0 || length > PAGE)
       throw new RangeError("invalid arena allocation length");
-    }
-    if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES) {
+    if ((scratch ? this.#scratchCount : this.#persistentCount) >= MAX_HANDLES)
       throw new RangeError("actor arena handle quota exhausted");
-    }
-    let offset;
+    let offset, freeIndex = -1, replacement = null;
     if (scratch) {
       if (length > PAGE - this.#scratchTop) throw new RangeError("actor arena quota exhausted");
       offset = PAGE + this.#scratchTop;
-      this.#scratchTop += length;
-      ++this.#scratchCount;
     } else {
-      // First-fit over bounded free segments. Removed persistent handles cannot
-      // regain authority, even when their bytes are reused at the same offset.
-      const index = this.#freePersistent.findIndex(segment => segment.length >= length);
-      if (index !== -1) {
-        const segment = this.#freePersistent[index];
+      for (let i = 0; i < this.#freePersistent.length; ++i) {
+        if (this.#freePersistent[i].length >= length) { freeIndex = i; break; }
+      }
+      if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
         offset = segment.offset;
-        segment.offset += length;
-        segment.length -= length;
-        if (segment.length === 0) this.#freePersistent.splice(index, 1);
+        // Prepare removal before any state publication. Array.splice would
+        // consult mutable constructor/species even if the method is captured.
+        if (segment.length === length) {
+          replacement = privateList();
+          for (let i = 0; i < this.#freePersistent.length; ++i)
+            if (i !== freeIndex) replacement[replacement.length] = this.#freePersistent[i];
+        }
       } else {
         if (length > PAGE - this.#persistentTop) throw new RangeError("actor arena quota exhausted");
         offset = this.#persistentTop;
-        this.#persistentTop += length;
       }
+    }
+    const handle = trustedFreeze({});
+    const slot = {offset, length};
+    scrub(this.#bytes(), offset, offset + length);
+    trustedApply(trustedWeakMapSet, scratch ? this.#scratch : this.#handles, [handle, slot]);
+    // Commit only after preparation, zeroing and opaque registration succeed.
+    if (scratch) {
+      this.#scratchTop += length;
+      ++this.#scratchCount;
+    } else {
+      if (replacement !== null) this.#freePersistent = replacement;
+      else if (freeIndex !== -1) {
+        const segment = this.#freePersistent[freeIndex];
+        segment.offset += length;
+        segment.length -= length;
+      } else this.#persistentTop += length;
       ++this.#persistentCount;
     }
-    const handle = Object.freeze({});
-    const slot = {offset, length};
-    (scratch ? this.#scratch : this.#handles).set(handle, slot);
-    scrub(this.#bytes(), offset, offset + length);
     return handle;
   }
 
@@ -240,25 +257,34 @@ export class ActorArena {
 
   dropPersistent(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle);
+    const entry = trustedApply(trustedWeakMapGet, this.#handles, [handle]);
     if (!entry) throw new Error("foreign, stale or scratch arena handle");
-    scrub(this.#bytes(), entry.offset, entry.offset + entry.length);
-    this.#handles.delete(handle);
-    --this.#persistentCount;
-    this.#freePersistent.push({...entry});
-    this.#freePersistent.sort((a, b) => a.offset - b.offset);
-    const coalesced = [];
-    for (const segment of this.#freePersistent) {
-      const prior = coalesced[coalesced.length - 1];
-      if (prior && prior.offset + prior.length === segment.offset) prior.length += segment.length;
-      else coalesced.push(segment);
+    // Existing segments are sorted and disjoint. Build a fresh coalesced
+    // list using only own dense indexes; never invoke sort/splice/species.
+    const planned = privateList();
+    const append = segment => {
+      const prior = planned.length === 0 ? null : planned[planned.length - 1];
+      if (prior !== null && prior.offset + prior.length === segment.offset)
+        prior.length += segment.length;
+      else planned[planned.length] = {offset: segment.offset, length: segment.length};
+    };
+    let inserted = false;
+    for (let i = 0; i < this.#freePersistent.length; ++i) {
+      const segment = this.#freePersistent[i];
+      if (!inserted && entry.offset < segment.offset) { append(entry); inserted = true; }
+      append(segment);
     }
-    this.#freePersistent = coalesced;
+    if (!inserted) append(entry);
+    scrub(this.#bytes(), entry.offset, entry.offset + entry.length);
+    trustedApply(trustedWeakMapDelete, this.#handles, [handle]);
+    --this.#persistentCount;
+    this.#freePersistent = planned;
   }
 
   #slot(turn, handle) {
     this.#requireTurn(turn);
-    const entry = this.#handles.get(handle) ?? this.#scratch.get(handle);
+    const entry = trustedApply(trustedWeakMapGet, this.#handles, [handle]) ??
+      trustedApply(trustedWeakMapGet, this.#scratch, [handle]);
     if (!entry) throw new Error("foreign or stale arena handle");
     return entry;
   }
@@ -326,7 +352,7 @@ export class ActorArena {
       throw new RangeError("invalid unsigned byte width");
     if (endian !== "le" && endian !== "be")
       throw new TypeError("explicit byte order required");
-    if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0 ||
+    if (!trustedSafeInteger(relativeOffset) || relativeOffset < 0 ||
         width > slot.length || relativeOffset > slot.length - width)
       throw new RangeError("byte range out of bounds");
     const bytes = this.#bytes();
@@ -344,11 +370,11 @@ export class ActorArena {
       throw new RangeError("invalid unsigned byte width");
     if (endian !== "le" && endian !== "be")
       throw new TypeError("explicit byte order required");
-    if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0 ||
+    if (!trustedSafeInteger(relativeOffset) || relativeOffset < 0 ||
         width > slot.length || relativeOffset > slot.length - width)
       throw new RangeError("byte range out of bounds");
     const max = 2 ** (8 * width) - 1;
-    if (!Number.isSafeInteger(value) || value < 0 || value > max)
+    if (!trustedSafeInteger(value) || value < 0 || value > max)
       throw new RangeError("unsigned byte value out of range");
     // All validation is before the first byte store. No borrowing, I/O, or
     // suspension; this owns the physical WebAssembly.Memory region.
@@ -395,7 +421,7 @@ export class ActorArena {
 
   pushStackFrame(turn, execution, length) {
     const stack = this.#requireStack(turn, execution);
-    if (!Number.isSafeInteger(length) || length <= 0 || length > PAGE) {
+    if (!trustedSafeInteger(length) || length <= 0 || length > PAGE) {
       throw new RangeError("invalid actor stack frame length");
     }
     if (stack.frames.length >= MAX_STACK_FRAMES) {
@@ -530,10 +556,10 @@ export class ActorArena {
     // Logical retirement fences all future guest operations before waiting
     // for external owners. Physical guest-byte scrubbing follows the last pin.
     this.#closed = true;
-    this.#handles = new WeakMap();
-    this.#scratch = new WeakMap();
+    this.#handles = new trustedWeakMap();
+    this.#scratch = new trustedWeakMap();
     this.#persistentCount = this.#scratchCount = 0;
-    this.#freePersistent = [];
+    this.#freePersistent = privateList();
     if (this.#pendingLifetimePins === 0) this.#finishRetirement();
   }
 }
