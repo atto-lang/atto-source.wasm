@@ -1,0 +1,1 @@
+pub fnc main(): int { let x = 20; set x += 2; set x -= 1; set x *= 2; return x; }
