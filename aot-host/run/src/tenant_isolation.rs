@@ -33,6 +33,10 @@ pub struct TenantHandle {
     identity: Arc<()>,
 }
 
+/// Canonical AttoLang opaque per-tenant-generation handle.
+/// Existing TenantHandle remains valid; this alias is NOT a new sandbox.
+pub type TenantVMHandle = TenantHandle;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
     Running,
@@ -130,6 +134,12 @@ impl TenantRegistry {
             memory_limit_bytes,
             initial_fuel,
         })
+    }
+
+    /// Canonical admission spelling for the existing bounded Wasmtime
+    /// Store/Instance prototype. This is NOT a compiled actor VM proof.
+    pub fn admit_tenant_vm(&mut self, id: &str) -> Result<TenantVMHandle, Failure> {
+        self.admit(id)
     }
 
     pub fn admit(&mut self, id: &str) -> Result<TenantHandle, Failure> {
@@ -265,6 +275,13 @@ impl TenantRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tenant_vm_alias_preserves_host_admission_signature() {
+        let _admit: fn(&mut TenantRegistry, &str) -> Result<TenantVMHandle, Failure> =
+            TenantRegistry::admit_tenant_vm;
+        // Type/signature check only; this is not untrusted guest execution.
+    }
 
     #[test]
     fn tenant_ids_are_ascii_bounded_and_never_paths() {
