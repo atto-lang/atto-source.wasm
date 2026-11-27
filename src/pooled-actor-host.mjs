@@ -3,6 +3,7 @@ import {createHash, randomBytes} from 'node:crypto';
 import {snapshotGuestBytes} from './snapshot-guest-bytes.mjs';
 import {inspectWasmBytes} from '../scripts/inspect-core-memory.mjs';
 import {assertScalarActorAbi} from '../scripts/actor-scalar-abi.mjs';
+import {validManagedFrameReceipt} from './pooled-actor-frame-turn.mjs';
 
 const I64_MIN = -(1n << 63n), I64_MAX = (1n << 63n) - 1n;
 // Experimental worker host supports fixed workers (1..4), actor-local
@@ -139,6 +140,8 @@ export class PooledWasmActors {
           message.result < I64_MIN || message.result > I64_MAX)) ||
         (op.kind !== 'send' && message.result !== null))
       return void this.#retireCarrier(carrier, Error('invalid actor result ABI'));
+    if (!validManagedFrameReceipt(message.frame, op.kind === 'stop'))
+      return void this.#retireCarrier(carrier, Error('invalid managed actor frame receipt'));
     clearTimeout(carrier.timer);
     carrier.timer = null;
     carrier.active = null;
