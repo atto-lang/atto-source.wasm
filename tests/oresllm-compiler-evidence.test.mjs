@@ -43,8 +43,8 @@ for(const s of [
 }
 test('real multiline native compiler syntax diagnostics remain semantic rejects',()=>{
  assert.equal(semanticCompilerRejection(new Error(
-   'command failed (/tmp/compiler-exact): invalid token at byte 13\\n' +
-   '  at parser line 1\\n')),true);
+   'command failed (/tmp/compiler-exact): invalid token at byte 13\n' +
+   '  at parser line 1\n')),true);
 });
 test('late-line infrastructure failure cannot be laundered by first-line syntax',()=>{
  assert.equal(semanticCompilerRejection(new Error(
@@ -83,5 +83,14 @@ test('typed arithmetic bool denial from compiler-exact is semantic',()=>{
   'command failed (/tmp/compiler-exact): '+diagnostic+'\ntransport failure'
  ]) {
   assert.equal(semanticCompilerRejection(new Error(s)),false,s);
+ }
+});
+
+test('serialized diagnostic with escaped line separators is not raw stderr',()=>{
+ assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): invalid token\\n  at parser line 1')),false);
+});
+test('actual multiline effect diagnostics cannot hide infrastructure failure',()=>{
+ for(const tail of ['spawn EACCES','out of memory','exit 124']) {
+  assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): async modifier forbidden\n'+tail)),false);
  }
 });
