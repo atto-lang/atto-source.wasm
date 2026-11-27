@@ -3,6 +3,7 @@ import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {runVerifiedScalarStateSource} from '../src/browser-scalar-state-guest.mjs';
+import {assertStateTrace} from './state-trace-oracle.mjs';
 const compilerPath=process.env.ATTO_STATE_COMPILER_WASM;
 const digest=process.env.ATTO_STATE_COMPILER_SHA256;
 const path=(p)=>new URL('./fixtures/state-intrinsics-v1/'+p,import.meta.url);
@@ -13,20 +14,16 @@ const run=async source=>{
   return runVerifiedScalarStateSource({compilerBytes,compilerSha256:digest,compilerLength:compilerBytes.length,source});
 };
 test('three exact positive guest fixtures through real browser compiler',async()=>{
-  for(const [p,expected,leases] of [
-    ['state-short-intrinsics.atto','42\n2\n42\n0\n',null],
-    ['state-owned-tuple-snapshot.atto','42\n1\n50\n2\n0\n0\n',5],
-    ['state-write-expressions.atto','42\n43\nfalse\n43\n',3]
+  for(const [p,expected,containers,claims] of [
+    ['state-short-intrinsics.atto','42\n2\n42\n0\n',2,[[1,1],[1,1],[1,0],[1,0],[2,0]]],
+    ['state-owned-tuple-snapshot.atto','42\n1\n50\n2\n0\n0\n',2,[[1,1],[1,0],[1,1],[1,0],[2,0]]],
+    ['state-write-expressions.atto','42\n43\nfalse\n43\n',1,[[1,1],[1,1],[1,1]]]
   ]){
     const result=await run(await readFile(path('pass/'+p),'utf8'));
     assert.equal(result.ok,true,JSON.stringify(result));
     assert.equal(result.stdout,expected);
-    assert.equal(result.state.active,0);
-    assert.equal(result.state.quiescent,true);
-    const enter=result.events.filter(e=>e.kind==='enter');
-    const leave=result.events.filter(e=>e.kind==='leave');
-    assert.equal(enter.length,leave.length);
-    if(leases!==null)assert.equal(enter.length,leases);
+    assert.equal(result.value,'0');
+    assertStateTrace(result,{claims,containers,terminal:'complete'});
   }
 });
 test('seven exact negatives fail in compiler without guest execution',async()=>{
@@ -47,8 +44,7 @@ test('checked integer overflow unwinds and retires the outstanding write ticket'
   pub fnc main(): int { val c = new Counter(); return c.increment(); }`;
   const r=await run(source);
   assert.equal(r.ok,false,JSON.stringify(r));assert.equal(r.phase,'guest');
-  assert.equal(r.panic,1);assert.equal(r.state.active,0);assert.equal(r.state.quiescent,true);
-  assert.equal(r.events.filter(x=>x.kind==='enter').length,1);
-  assert.equal(r.events.filter(x=>x.kind==='abort').length,1);
+  assert.equal(r.panic,1);
+  assertStateTrace(r,{claims:[[1,1]],containers:1,terminal:'abort',outstanding:1});
   assert.equal(r.stdout,'');
 });
