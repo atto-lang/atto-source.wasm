@@ -1,0 +1,18 @@
+// TARGET: compile the native backend, execute a guest returning 42.
+// Source presence / host interpretation does NOT qualify as a guest pass.
+fnc option_read(borrow Option<int> value): bool {
+  return value.is_some();
+}
+fnc result_read(borrow Result<int, int> value): bool {
+  return value.is_ok();
+}
+pub fnc main(): int {
+  val Option<int> left = Some(40);
+  val Result<int, int> right = Ok(2);
+  if option_read(borrow! left) then
+    if result_read(borrow! right) then
+      return left.unwrap() + right.unwrap();
+    fi
+  fi
+  return 1;
+}

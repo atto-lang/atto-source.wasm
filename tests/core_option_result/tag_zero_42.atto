@@ -1,0 +1,21 @@
+// Expected compiled guest exit: 42. Tags, not payload bits, are authoritative.
+// Some(0) != None and Ok(0) != Err(0), regardless of target representation.
+fnc has_none(Option<int> x): bool {
+  return match x over
+    on Some(_) -> false,
+    on None -> true,
+  end;
+}
+fnc has_error(Result<int, int> x): bool {
+  return match x over
+    on Ok(_) -> false,
+    on Err(_) -> true,
+  end;
+}
+pub fnc main(): int {
+  if has_none(Some(0)); do return 1; fi
+  if !has_none(None); do return 2; fi
+  if has_error(Ok(0)); do return 3; fi
+  if !has_error(Err(0)); do return 4; fi
+  return 42;
+}

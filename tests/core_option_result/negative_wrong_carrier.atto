@@ -1,0 +1,6 @@
+// Must be rejected with no executable guest artifact.
+// Option/Result are nominal: Err(int) cannot satisfy Option<int>.
+fnc wrong(): Option<int> {
+  return Err(4);
+}
+pub fnc main(): int { return 0; }

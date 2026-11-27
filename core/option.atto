@@ -1,0 +1,61 @@
+// Wasm workers: never synthesize guest ADTs in JavaScript. Validate wasm32 guest artifacts, memory ownership and boundary ABI.
+// Freestanding AttoLang Option adapters. Backend-owned source candidate.
+// Option<T>/Some/None remain compiler-provided nominal sum values.
+// No heap, OS, actor, host Optional, runtime reflection or implicit clone.
+define module option as
+  // Loan-only tag queries: no access or move of an affine payload.
+  // This is a compiler admission target, not proof that borrow generics lower.
+  pub fnc is_some_borrowed<T>(borrow Option<T> value): bool {
+    return value.is_some();
+  }
+
+  pub fnc is_none_borrowed<T>(borrow Option<T> value): bool {
+    return value.is_none();
+  }
+
+  pub fnc flatten<T>(Option<Option<T>> value): Option<T> {
+    return match value over
+      on Some(inner) -> inner,
+      on None -> None,
+    end;
+  }
+
+  pub fnc map<T, U>(Option<T> value, Fnc<U(T)> transform): Option<U> {
+    return match value over
+      on Some(item) -> Some(transform(item)),
+      on None -> None,
+    end;
+  }
+
+  pub fnc and_then<T, U>(Option<T> value, Fnc<Option<U>(T)> bind): Option<U> {
+    return match value over
+      on Some(item) -> bind(item),
+      on None -> None,
+    end;
+  }
+
+  pub fnc or_else<T>(Option<T> value, Fnc<Option<T>()> recover): Option<T> {
+    return match value over
+      on Some(item) -> Some(item),
+      on None -> recover(),
+    end;
+  }
+
+  // Eager error is a value evaluated at the call site.
+  pub fnc to_result<T, E>(Option<T> value, E error): Result<T, E> {
+    return match value over
+      on Some(item) -> Ok(item),
+      on None -> Err(error),
+    end;
+  }
+
+  pub fnc transpose<T, E>(Option<Result<T, E>> value): Result<Option<T>, E> {
+    return match value over
+      on Some(inner) -> match inner over
+        on Ok(item) -> Ok(Some(item)),
+        on Err(error) -> Err(error),
+      end,
+      on None -> Ok(None),
+    end;
+  }
+end

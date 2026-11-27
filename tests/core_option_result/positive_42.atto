@@ -1,0 +1,29 @@
+// Behavioral oracle only; requires real compiled guest execution.
+// Expected return value: 42. This fixture tests nominal sum matching.
+fnc optional_value(bool enabled): Option<int> {
+  if !enabled; do return None; fi
+  return Some(40);
+}
+fnc checked_value(int input): Result<int, int> {
+  if input < 0; do return Err(-1); fi
+  return Ok(input);
+}
+pub fnc main(): int {
+  // Exercise inactive alternatives as well as the successful nested match.
+  let int missing = match optional_value(false) over
+    on None -> 20,
+    on Some(_) -> 0,
+  end;
+  let int rejected = match checked_value(-1) over
+    on Err(code) -> 22 + code + 1,
+    on Ok(_) -> 0,
+  end;
+  if missing + rejected != 42; do return 3; fi
+  return match optional_value(true) over
+    on None -> 1,
+    on Some(value) -> match checked_value(2) over
+      on Err(_) -> 2,
+      on Ok(extra) -> value + extra,
+    end,
+  end;
+}
