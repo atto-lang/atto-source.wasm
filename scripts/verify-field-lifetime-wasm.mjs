@@ -6,7 +6,7 @@ import {readFileSync,lstatSync,realpathSync} from 'node:fs';
 import {resolve,sep} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {requireNativeDiagnostic,readBrowserDiagnostic} from './field-lifetime-diagnostics.mjs';
+import {requireNativeDiagnostic,readBrowserDiagnostic,requireBrowserCompileStatus,requireBrowserDiagnostic} from './field-lifetime-diagnostics.mjs';
 const [compilerPath, compilerSha, profilePath, fixtureRoot] = process.argv.slice(2);
 assert.equal(process.argv.length, 6, 'usage: verify-field-lifetime-wasm.mjs compiler.wasm sha256 profile.json source-root');
 assert.match(compilerSha, /^[a-f0-9]{64}$/);
@@ -66,7 +66,7 @@ function compile(source) {
   const ptr = api.input_ptr();
   assert.ok(ptr >= 0 && ptr + data.length <= mem.length, 'invalid input bounds');
   mem.set(data, ptr);
-  if (api.compile(data.length) !== 0) {
+  if (requireBrowserCompileStatus(api.compile(data.length)) === 1) {
     assert.equal(api.result_length(), 0, 'compiler emitted output after failure');
     const errorMemory = new Uint8Array(api.memory.buffer);
     const offset = api.error_ptr();
@@ -123,7 +123,7 @@ for(const c of profile.cases){
   nativeCompare(path,c.expected,result);
   if(c.expected.decision==='REJECT'){
     assert.equal(result.ok,false,c.source_path+' unexpectedly compiled');
-    assert.equal(result.diagnostic.split(':')[0],c.expected.reference_diagnostic,c.source_path+' diagnostic');
+    requireBrowserDiagnostic(result.diagnostic,c.expected.reference_diagnostic);
     assert.equal(api.result_length(),0,'rejection leaked artifact');
     rejected++;
   }else{

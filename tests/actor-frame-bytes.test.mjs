@@ -47,3 +47,32 @@ test("fixed memory view is reused and refreshed after grow(0)", () => {
   const shared = new WebAssembly.Memory({initial: 1, maximum: 1, shared: true});
   assert.throws(() => refreshPrivateMemoryView(shared), /shared backing/);
 });
+
+test("refreshing one actor-private memory does not disturb a second memory", () => {
+  const first = new WebAssembly.Memory({initial: 1, maximum: 1});
+  const second = new WebAssembly.Memory({initial: 1, maximum: 1});
+  const oldFirst = refreshPrivateMemoryView(first);
+  const liveSecond = refreshPrivateMemoryView(second);
+  oldFirst.set([1, 2, 3, 4], 65532);
+  liveSecond.set([9, 8, 7, 6], 65532);
+  const snapshot = copyPrivateBytes(oldFirst, 65532, 4);
+  first.grow(0);
+  assert.equal(oldFirst.byteLength, 0);
+  assert.throws(() => copyPrivateBytes(oldFirst, 0, 1), /range/);
+  const currentFirst = refreshPrivateMemoryView(first, oldFirst);
+  assert.deepEqual([...copyPrivateBytes(currentFirst, 65532, 4)], [1, 2, 3, 4]);
+  assert.equal(refreshPrivateMemoryView(second, liveSecond), liveSecond);
+  currentFirst.fill(0, 65532);
+  assert.deepEqual([...snapshot], [1, 2, 3, 4]);
+  assert.deepEqual([...copyPrivateBytes(liveSecond, 65532, 4)], [9, 8, 7, 6]);
+});
+test("copy respects nonzero source and destination view offsets", () => {
+  const source = Uint8Array.of(99, 1, 2, 3, 88);
+  const destination = Uint8Array.of(77, 0, 0, 66);
+  copyPrivateBytesInto(source.subarray(1, 4), 1, 2, destination.subarray(1, 3));
+  assert.deepEqual([...destination], [77, 2, 3, 66]);
+  assert.deepEqual([...source], [99, 1, 2, 3, 88]);
+  const unchanged = [...destination];
+  assert.throws(() => copyPrivateBytesInto(source.subarray(1, 4), 2, 2, destination.subarray(1, 3)), /range/);
+  assert.deepEqual([...destination], unchanged);
+});

@@ -26,3 +26,18 @@ export function readBrowserDiagnostic(memory, offset) {
   assert.ok(end < limit && end > offset, 'empty, oversized or unterminated diagnostic');
   return decoder.decode(memory.subarray(offset, end));
 }
+
+/** Browser compiler ABI v2 has exactly two normal return statuses. */
+export function requireBrowserCompileStatus(status) {
+  assert.ok(status === 0 || status === 1, 'unexpected browser compiler status');
+  return status;
+}
+
+/** Diagnostic.render() emits one CODE: message for the canonical fixtures. */
+export function requireBrowserDiagnostic(diagnostic, expectedCode) {
+  assert.match(expectedCode, /^E_[A-Z0-9_]+$/);
+  assert.equal(typeof diagnostic, 'string');
+  const match = /^(E_[A-Z0-9_]+): ([^\r\n]+)$/.exec(diagnostic);
+  assert.ok(match && match[0] === diagnostic && match[2].trim().length > 0, 'invalid browser diagnostic format');
+  assert.equal(match[1], expectedCode, 'browser diagnostic code mismatch');
+}

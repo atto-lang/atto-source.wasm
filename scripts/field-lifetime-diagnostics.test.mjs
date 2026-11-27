@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {requireNativeDiagnostic,readBrowserDiagnostic} from './field-lifetime-diagnostics.mjs';
+import {requireNativeDiagnostic,readBrowserDiagnostic,requireBrowserCompileStatus,requireBrowserDiagnostic} from './field-lifetime-diagnostics.mjs';
 const path='/tmp/fixture.atto';
 const bytes=s=>new TextEncoder().encode(s);
 test('exact native diagnostic accepted',()=>requireNativeDiagnostic(bytes(path+': 1:42: E_BORROW: active loan\n'),path,'E_BORROW'));
@@ -26,4 +26,14 @@ test('browser scan bounded and requires terminator',()=>{
   assert.throws(()=>readBrowserDiagnostic(memory,0));
   assert.throws(()=>readBrowserDiagnostic(bytes('unterminated'),0));
   assert.throws(()=>readBrowserDiagnostic(Uint8Array.of(255,0),0));
+});
+
+test('browser compiler accepts only normal ABI v2 statuses',()=>{
+  for(const status of [0,1]) assert.equal(requireBrowserCompileStatus(status),status);
+  for(const status of [-1,2,255,NaN,Infinity,0.5,'1',null,undefined]) assert.throws(()=>requireBrowserCompileStatus(status));
+});
+test('browser diagnostic requires exact code and a single nonempty message',()=>{
+  requireBrowserDiagnostic('E_BORROW: active loan','E_BORROW');
+  requireBrowserDiagnostic('E_BORROW: nested: field loan','E_BORROW');
+  for(const diagnostic of ['E_BORROW','E_BORROW:', 'E_BORROW: ', 'E_BORROW: loan\n','E_BORROW: loan\r\nE_TYPE: second','E_SYNTAX: nested E_BORROW: loan','E_BORROWED: loan',' E_BORROW: loan','E_BORROW: \t',null]) assert.throws(()=>requireBrowserDiagnostic(diagnostic,'E_BORROW'));
 });
