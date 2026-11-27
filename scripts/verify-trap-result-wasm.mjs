@@ -102,7 +102,8 @@ function run(guest) {
     const panic = instance.exports.panic_code.value;
     return {
       ok: false, error: String(error), panic, stdout,
-      runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic)
+      runtimeTrapWithPanicCode: isRuntimeTrapWithPanicCode(error, panic),
+      runtimeExpectPanic: isRuntimeTrapWithPanicCode(error, panic, 7)
     };
   }
 }
@@ -184,7 +185,7 @@ if (checkedUnwrap) {
         if(!output.ok){outcomes.push({id:fixture.path,status:'COMPILE_REJECTED',diagnostic:output.diagnostic});continue;}
         const result=run(output.wasm);
         if(fixture.expected.runtime_failure){
-          assert.ok(!result.ok && result.runtimeTrapWithPanicCode && result.panic===7,'terminal expect must produce dedicated guest panic_code=7');
+          assert.ok(!result.ok && result.runtimeExpectPanic && result.panic===7,'terminal expect must produce dedicated guest panic_code=7');
         }else{
           assert.equal(result.ok,true);
           assert.equal(result.panic,0);
