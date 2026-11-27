@@ -50,3 +50,87 @@ test('throwing terminal observer cannot change final outcome or notify twice', (
     assert.equal(rt.quiescent(0), true);
   }
 });
+
+test('deterministic multi-container contention, retirement and replay differential', () => {
+  let seed = 12345;
+  const rand = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
+  let operations = 0, denials = 0;
+  for (let batch = 0; batch < 32; batch++) {
+    const rt = createStateRuntime({maxContainers: 4, maxTickets: 8});
+    const model = Array.from({length: 4}, () => ({retired: false, tickets: []}));
+    for (let k = 0; k < 4; k++) rt.imports.state_register(k * 8);
+    const active = () => model.reduce((sum, m) => sum + m.tickets.length, 0);
+    for (let n = 0; n < 256; n++) {
+      const k = (rand() >>> 24) % 4, m = model[k], op = (rand() >>> 16) % 8;
+      if (op <= 3) {
+        const mode = op % 2;
+        const allow = !m.retired && active() < 8 &&
+          !m.tickets.some(t => t.mode === 1) && !(mode === 1 && m.tickets.length);
+        if (allow) m.tickets.push({ticket: rt.imports.state_enter(k * 8, mode), mode});
+        else {
+          assert.throws(() => rt.imports.state_enter(k * 8, mode), /E_STATE_RUNTIME/);
+          denials++;
+        }
+      } else if (op <= 5 && m.tickets.length) {
+        const t = m.tickets.pop();
+        rt.imports.state_leave(t.ticket);
+        assert.throws(() => rt.imports.state_leave(t.ticket), /replayed/);
+        denials++;
+      } else if (op === 6 && n > 180) {
+        rt.beginRetire(k * 8);
+        m.retired = true;
+      } else {
+        assert.equal(rt.quiescent(k * 8), m.retired && m.tickets.length === 0);
+      }
+      assert.equal(rt.snapshot().active, active());
+      operations++;
+    }
+    if (batch % 2) {
+      rt.abort();
+      assert.throws(() => rt.complete(), /aborted/);
+    } else {
+      for (const m of model) for (const t of m.tickets) rt.imports.state_leave(t.ticket);
+      rt.complete();
+    }
+    assert.equal(rt.snapshot().quiescent, true);
+    assert.equal(rt.snapshot().active, 0);
+    for (let k = 0; k < 4; k++) assert.equal(rt.quiescent(k * 8), true);
+  }
+  assert.equal(operations, 8192);
+  assert.equal(denials > 0, true);
+});
+
+test('capacity exhaustion and retirement preserve ticket authority across incarnations', () => {
+  for (const terminal of ['complete', 'abort']) {
+    const events = [];
+    const rt = createStateRuntime({maxContainers:2,maxTickets:2,onEvent:e=>events.push(e.kind)});
+    const other = createStateRuntime({maxContainers:1,maxTickets:1});
+    const {state_register:reg,state_enter:enter,state_leave:leave}=rt.imports;
+    reg(0); reg(8); other.imports.state_register(0);
+    const a=enter(0,0), b=enter(8,1), foreign=other.imports.state_enter(0,1);
+    const before=rt.snapshot(), eventCount=events.length;
+    assert.throws(()=>reg(16),/container admission capacity/);
+    assert.throws(()=>enter(0,0),/admission capacity/);
+    assert.throws(()=>leave(foreign),/replayed/);
+    assert.throws(()=>other.imports.state_leave(a),/replayed/);
+    assert.throws(()=>rt.complete(),/unreleased/);
+    assert.deepEqual(rt.snapshot(),before);
+    assert.equal(events.length,eventCount);
+    leave(a);
+    rt.beginRetire(8);
+    assert.throws(()=>enter(8,0),/retired/);
+    const next=enter(0,1);
+    assert.equal(next,b+1n); // rejected admissions do not mint tickets
+    assert.throws(()=>leave(a),/replayed/);
+    assert.equal(rt.quiescent(8),false);
+    if(terminal==='complete'){leave(b);leave(next);}
+    rt[terminal]();
+    assert.equal(rt.snapshot().active,0);
+    assert.equal(rt.quiescent(0),true);
+    assert.equal(rt.quiescent(8),true);
+    assert.equal(other.snapshot().active,1);
+    other.imports.state_leave(foreign);
+    other.complete();
+    assert.equal(other.snapshot().quiescent,true);
+  }
+});
