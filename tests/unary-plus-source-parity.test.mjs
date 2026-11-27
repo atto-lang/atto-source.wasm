@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp,readFile,writeFile,rm,stat} from "node:fs/promises";
+import {mkdtemp,readFile,writeFile,stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {compileOresToWasm,readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -90,5 +91,5 @@ test("real LLVM source unary plus executes in core wasm32 without type launderin
       await assert.rejects(stat(output),{code:"ENOENT"},
         "no standalone Wasm artifact for rejected guest");
     }
-  } finally { await rm(dir,{recursive:true,force:true}); }
+  } finally { await cleanupRealCompilerWorkspace(dir); }
 });
