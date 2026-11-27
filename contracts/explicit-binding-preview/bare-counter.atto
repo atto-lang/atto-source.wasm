@@ -1,0 +1,1 @@
+pub fnc main(): int { for let i = 0; i < 10; i++ {} return 42; }
