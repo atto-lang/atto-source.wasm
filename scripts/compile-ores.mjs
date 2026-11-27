@@ -192,13 +192,30 @@ function tupleV2Tokens(sourceBytes){
  * remains responsible for full grammar and type checking. A bridge-only
  * rejection is never evidence of native compiler semantic parity.
  */
-export function rejectRetiredSourceOperators(sourceBytes){
+export function rejectRetiredSourceOperators(sourceBytes,operatorProfile="legacy"){
+ if(!["legacy","canonical-i64-v5"].includes(operatorProfile))
+  throw Error("unknown source operator profile");
  const tokens=tupleV2Tokens(sourceBytes);
+ const canonical=operatorProfile==="canonical-i64-v5";
+ const raw=canonical?new TextDecoder("utf-8",{fatal:true}).decode(sourceBytes):"";
  for(let i=0;i<tokens.length;i++){
   const token=tokens[i];
   if(token.id || (token.text!=="%" && token.text!=="^"))continue;
   const isDouble=token.text==="^" && tokens[i+1]?.text==="^" &&
     !tokens[i+1]?.id && tokens[i+1].offset===token.offset+1;
+  // Only the explicit canonical profile delegates adjacent binary XOR.
+  // Reject triple carets and the unapproved compound spelling.
+  if(canonical && isDouble &&
+     !(tokens[i+2]?.offset===token.offset+2 &&
+       ["^","="].includes(tokens[i+2]?.text))) { i++; continue; }
+  if(canonical && !isDouble && token.text==="^"){
+   const previous=tokens[i-1];
+   // The tokenizer omits literals and comments. Inspect the raw gap so
+   // a hidden literal cannot turn an infix caret into a statement boundary.
+   if(previous && ["{",";"].includes(previous.text) &&
+      /^[\s\u0085]*$/u.test(raw.slice(previous.offset+1,token.offset)) &&
+      tokens[i+1]?.text!=="^") continue;
+  }
   const glyph=isDouble?"^^":token.text;
   throw Error("ATTO_REMOVED_OPERATOR: '"+glyph+
     "' is not an AttoLang source operator at offset "+token.offset);
@@ -586,7 +603,7 @@ function run(command,args,{input,cwd}={}){
  }
  return output.stdout||"";
 }
-export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation}){
+export async function compileOresToWasm({compiler,source,output,exportName="main",clang=process.env.CLANG||"clang",compilerSha256,environment,publication="legacy",wasmLinker,checkedOverflowOperation,operatorProfile="legacy"}){
  absolute(compiler,"compiler");
  absolute(source,"source");
  absolute(output,"output");
@@ -662,7 +679,12 @@ export async function compileOresToWasm({compiler,source,output,exportName="main
  rejectUnsupportedActorThreadSource(sourceBytes);
  // Do not delegate retired operators to an old pinned compiler that might
  // still accept them. This is preflight only, not native rejection evidence.
- rejectRetiredSourceOperators(sourceBytes);
+ if(!["legacy","canonical-i64-v5"].includes(operatorProfile))
+  throw Error("unknown source operator profile");
+ if(operatorProfile==="canonical-i64-v5" &&
+    (typeof compilerSha256!=="string" || !/^[a-f0-9]{64}$/.test(compilerSha256)))
+  throw Error("canonical-i64-v5 requires an exact compiler SHA-256 pin");
+ rejectRetiredSourceOperators(sourceBytes,operatorProfile);
  // Fail before compiler execution or artifact staging if this Wasm backend
  // does not own the requested aggregate ABI yet.
  rejectUnsupportedDurableM0Source(sourceBytes);
