@@ -178,7 +178,14 @@ export function createStateRuntime({
 // Own the complete synchronous turn, including instantiation/start and
 // terminal validation. Abort only after the callback has unwound. A rejected
 // completion is not a retryable guest return at this outer execution boundary.
+const runningTurns = new WeakSet();
 export function runScalarStateTurn(runtime, run) {
+  // Do not abort a surrounding live turn merely because a nested caller
+  // attempts to claim its execution boundary.
+  if (runningTurns.has(runtime)) fail('nested synchronous state turn');
+  const before = runtime.snapshot();
+  if (before.retired || before.active) fail('state turn requires fresh authority');
+  runningTurns.add(runtime);
   try {
     const value = run();
     if (typeof value !== 'bigint') fail('guest main must return i64');
@@ -187,5 +194,7 @@ export function runScalarStateTurn(runtime, run) {
   } catch (error) {
     runtime.abort();
     throw error;
+  } finally {
+    runningTurns.delete(runtime);
   }
 }
