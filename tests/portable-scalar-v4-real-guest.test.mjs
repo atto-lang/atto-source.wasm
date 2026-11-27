@@ -67,12 +67,22 @@ async function guest(t,x,kind,returnKeyword="return"){
     const result=spawnSync(exactCompiler,["--target=wasm32",source],{
       encoding:"utf8",timeout:30000,maxBuffer:4*1024*1024,
       env:{PATH:process.env.PATH??"/usr/bin:/bin",LANG:"C.UTF-8",LC_ALL:"C.UTF-8"}});
-    assertNativeFrontendRejection(result);
+    // Keep source and bridge failures independently visible. A compiler that
+    // incorrectly admits a negative case must not gain a passing receipt just
+    // because the bridge rejects the same source.
+    try {
+      assertNativeFrontendRejection(result);
+    } catch (error) {
+      assert.fail(x.id + ": " + error.message +
+        "; exit=" + String(result.status) + "; signal=" + String(result.signal) +
+        "; stdoutBytes=" + Buffer.byteLength(result.stdout || "") +
+        "; stderr=" + String(result.stderr || "").slice(0, 1024));
+    }
     await assert.rejects(go(),error=>{
       assert.ok(semanticCompilerRejection(error) ||
         (["removed-percent-new","invalid-infix-return-caret","spaced-carets"].includes(x.id) &&
          String(error?.message).includes("ATTO_REMOVED_OPERATOR")),
-        "infrastructure failure misclassified as source rejection: "+x.id);
+        "unrecognized bridge rejection (not parity): "+x.id+"; "+String(error?.message || error).slice(0,1024));
       return true;
     });
     await assert.rejects(stat(output),{code:"ENOENT"},"rejected source must not publish an artifact");
