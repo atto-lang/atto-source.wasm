@@ -1,0 +1,5 @@
+pub fnc main(): int {
+  val Option<int> missing = None;
+  val Result<int, Error> ignored = trap! missing.expect("explicit panic control");
+  return 101;
+}

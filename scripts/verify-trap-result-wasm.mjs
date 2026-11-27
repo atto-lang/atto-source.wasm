@@ -10,10 +10,11 @@ import {checkedUnwrapRejections, verifyCheckedUnwrapRejection} from '../src/chec
 import {isRuntimeTrapWithPanicCode, guardHostImport} from '../src/trap-result-guest-outcome.mjs';
 
 const [compilerPath, samplePath, compilerSha, sampleBlob, mode] = process.argv.slice(2);
-const checkedUnwrap = mode === '--checked-unwrap-v6';
+const fullV6 = mode === '--checked-unwrap-v6-full';
+const checkedUnwrap = mode === '--checked-unwrap-v6' || fullV6;
 if ((process.argv.length !== 6 && !(process.argv.length === 7 && checkedUnwrap)) || !/^[a-f0-9]{64}$/.test(compilerSha ?? '') ||
     !/^[a-f0-9]{40}$/.test(sampleBlob ?? '')) {
-  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6]');
+  throw new Error('Usage: node scripts/verify-trap-result-wasm.mjs <compiler.wasm> <result.atto> <compiler_sha256> <sample_git_blob_sha1> [--checked-unwrap-v6|--checked-unwrap-v6-full]');
 }
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const gitBlob = bytes => createHash('sha1').update('blob ' + bytes.length + '\0').update(bytes).digest('hex');
@@ -123,6 +124,32 @@ if (checkedUnwrap) {
     const output = compile(source);
     verifyCheckedUnwrapRejection(id, output);
     negative.push({id, diagnostic: output.diagnostic});
+  }
+  if(fullV6){
+    const remaining=[{"path":"checked-unwrap.atto","git_blob_sha1":"90c6166041963d1f466bc51f105c66a0a7be15ac","expected":{"result":42}},{"path":"inline-task-failure.atto","git_blob_sha1":"446624a894788834550ac7a13a7a76ea5d06444c","expected":{"result":42,"stdout":"D"}},{"path":"short-circuit.atto","git_blob_sha1":"d24442cf7daf1dd86876b418f0cb9e793cbb23c2","expected":{"result":42,"stdout":"RR"}},{"path":"terminal-expect.atto","git_blob_sha1":"864e6b34fe46de9c260a7e537f3f008caa7c8b79","expected":{"runtime_failure":"uncaught_guest_panic"}}];
+    const outcomes=[];
+    for(const fixture of remaining){
+      const bytes=readFileSync(fileURLToPath(new URL('../tests/fixtures/checked-unwrap-v6/'+fixture.path,import.meta.url)));
+      assert.equal(gitBlob(bytes),fixture.git_blob_sha1,'canonical fixture identity');
+      try{
+        const output=compile(decoder.decode(bytes));
+        if(!output.ok){outcomes.push({id:fixture.path,status:'COMPILE_REJECTED',diagnostic:output.diagnostic});continue;}
+        const result=run(output.wasm);
+        if(fixture.expected.runtime_failure){
+          assert.ok(!result.ok && result.runtimeTrapWithPanicCode && result.panic>0,'terminal expect must produce actual guest panic');
+        }else{
+          assert.equal(result.ok,true);
+          assert.equal(result.panic,0);
+          assert.equal(result.value,BigInt(fixture.expected.result));
+          assert.equal(result.stdout,fixture.expected.stdout??'');
+        }
+        outcomes.push({id:fixture.path,status:'PASS',guest_sha256:sha256(output.wasm)});
+      }catch(error){outcomes.push({id:fixture.path,status:'EXECUTION_FAILED',diagnostic:String(error)});}
+    }
+    const passed=outcomes.filter(x=>x.status==='PASS').length;
+    console.log(JSON.stringify({status:passed===remaining.length?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
+    if(passed!==remaining.length)process.exitCode=1;
+    process.exit();
   }
   console.log(JSON.stringify({status:'PASS', profile:'checked-unwrap-v6-rust-candidate',
     evidence_kind:'real-compiler-wasm-guest-executed', compiler_sha256:compilerSha,

@@ -1,0 +1,13 @@
+pub fnc main(): int {
+  let int count = 0;
+  val Option<int> missing = None;
+  val Result<int, Error> failure = trap! sync task<int> {
+    count = count + 2;
+    defer stdio.stdout.write("D");
+    val int value = missing.unwrap();
+    count = count + 100;
+    return value;
+  };
+  guard failure.is_err(), count eq 2 { return 1; }
+  return count + 40;
+}
