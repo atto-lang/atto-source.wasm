@@ -132,6 +132,15 @@ const negative=[
   ['pub fnc main(): int { throw! 7; }','E_TYPE'],
   ['pub fnc main(): int { raise! "untyped"; }','E_TYPE']
 ];
+// Exercise the approved compiler artifact itself, not a host regex that
+// could conceal a compiler accepting invalid guest syntax.
+for(const keyword of ['trap!','throw!','raise!','panic!','copy!','copy!!',
+  'take!','move!','borrow!','share!','pin!','drop!','pipe!','rpipe!','stop!','expand!']){
+  for(const tail of ['value','(42)','/*comment*/ value','','\u00a0value']){
+    negative.push(['pub fnc main(): int { return '+keyword+tail+'; }',
+      'E_BANG_KEYWORD_WHITESPACE']);
+  }
+}
 for(const [sample,code] of negative){
   const rejected=compile(sample);
   assert.equal(rejected.ok,false,'unverified guest effect compiled: '+sample);
