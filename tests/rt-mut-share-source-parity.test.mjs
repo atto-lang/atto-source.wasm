@@ -58,7 +58,7 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
           compiler, compilerSha256, source, output,
           environment: "browser", publication: "atomic"
         }),
-        /^wasm heap loan\/transfer lowering unsupported at byte [0-9]+$/
+        error => error instanceof Error && /^wasm heap loan\/transfer lowering unsupported at byte [0-9]+$/.test(error.message)
       );
       const result = spawnSync(stagedCompiler,
         ["--tree-shake","--tree-shake-root=main","--target=wasm32",source],
