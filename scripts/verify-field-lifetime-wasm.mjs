@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync,lstatSync,realpathSync} from 'node:fs';
 import {resolve,sep} from 'node:path';
+import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 const [compilerPath, compilerSha, profilePath, fixtureRoot] = process.argv.slice(2);
 assert.equal(process.argv.length, 6, 'usage: verify-field-lifetime-wasm.mjs compiler.wasm sha256 profile.json source-root');
@@ -17,6 +18,33 @@ const readBounded = (path, max) => {
   assert.equal(bytes.length,stat.size,'input drift');
   return bytes;
 };
+// Optional native compiler differential. Require an explicit exact digest
+// when enabled; never infer a trusted executable from PATH.
+const nativePath = process.env.ATTOC;
+const nativeDigest = process.env.ATTOC_SHA256;
+assert.equal(Boolean(nativePath), Boolean(nativeDigest), 'native path and digest must be supplied together');
+if (nativePath) {
+  assert.match(nativeDigest, /^[a-f0-9]{64}$/);
+  assert.equal(realpathSync(nativePath), nativePath, 'native compiler must be a canonical absolute path');
+  assert.equal(sha256(readBounded(nativePath, 128*1024*1024)), nativeDigest, 'unreviewed native compiler digest');
+}
+let nativeCompared = 0;
+function nativeCompare(path, expected, browser) {
+  if (!nativePath) return;
+  const r = spawnSync(nativePath, [path], {timeout: 30000, maxBuffer: 4*1024*1024, shell: false});
+  assert.ifError(r.error);
+  assert.equal(r.signal, null, 'native compiler terminated by signal');
+  if (expected.decision === 'REJECT') {
+    assert.equal(r.status, 1, 'native compiler did not return normal source rejection');
+    assert.equal(r.stdout.length, 0, 'native rejection leaked artifact');
+    const diagnostic = decoder.decode(r.stderr);
+    assert.ok(diagnostic.includes(': '+expected.reference_diagnostic+': '), 'native diagnostic mismatch: '+diagnostic);
+  } else {
+    assert.equal(r.status, 0, 'native compiler failed: '+decoder.decode(r.stderr));
+    assert.deepEqual(new Uint8Array(r.stdout), browser.wasm, 'native/browser guest byte mismatch');
+  }
+  nativeCompared++;
+}
 const profileBytes = readBounded(profilePath, 65536);
 assert.equal(gitBlob(profileBytes), '700b115960724cf09e598569d24ea5bfe217e96e', 'unreviewed profile bytes');
 const profile = JSON.parse(profileBytes);
@@ -96,6 +124,7 @@ for(const c of profile.cases){
   const bytes=readBounded(path,65536);
   assert.equal(gitBlob(bytes),c.blob_sha,'fixture bytes changed');
   const result=compile(decoder.decode(bytes));
+  nativeCompare(path,c.expected,result);
   if(c.expected.decision==='REJECT'){
     assert.equal(result.ok,false,c.source_path+' unexpectedly compiled');
     assert.equal(result.diagnostic.split(':')[0],c.expected.reference_diagnostic,c.source_path+' diagnostic');
@@ -113,4 +142,5 @@ for(const c of profile.cases){
   }
 }
 assert.equal(accepted,8);assert.equal(rejected,11);
-console.log('FIELD_WASM_INTEGRATION '+JSON.stringify({accepted,rejected,compiler_sha256:compilerSha,profile_blob:gitBlob(profileBytes),independent_compiler:false,actor_runtime_certified:false}));
+assert.equal(nativeCompared,nativePath?19:0);
+console.log('FIELD_WASM_INTEGRATION '+JSON.stringify({accepted,rejected,compiler_sha256:compilerSha,profile_blob:gitBlob(profileBytes),native_compared:nativeCompared,native_compiler_sha256:nativeDigest??null,independent_compiler:false,actor_runtime_certified:false}));
