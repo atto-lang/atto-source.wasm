@@ -2,28 +2,39 @@
 // physical engine memory release. Guest code must never receive these tokens.
 const MAX = (1n << 64n) - 1n;
 const dims = 4;
-const valid = c => Array.isArray(c) && c.length === dims &&
-  c.every(x => typeof x === "bigint" && x > 0n && x <= MAX);
+const checkedCharge = c => {
+  if (!Array.isArray(c) || c.length !== dims) return null;
+  const copy = [];
+  for (let i=0;i<dims;i++) {
+    if (!Object.hasOwn(c,i)) return null;
+    const x=c[i];
+    if (typeof x !== "bigint" || x <= 0n || x > MAX) return null;
+    copy.push(x);
+  }
+  return copy;
+};
 const deny = code => { throw new Error(code); };
 export class ActorSpawnQuotaGate {
   #limit; #used = [0n,0n,0n,0n]; #entries; #receives; #generation = 0n;
   constructor(limit, slots, receives) {
-    if (!valid(limit) || !Number.isSafeInteger(slots) || slots < 1 ||
+    const limits=checkedCharge(limit);
+    if (!limits || !Number.isSafeInteger(slots) || slots < 1 ||
         !Number.isSafeInteger(receives) || receives < 1 || slots * receives > 65536)
       deny("E_SPAWN_POLICY");
-    this.#limit = [...limit];
+    this.#limit = limits;
     this.#entries = Array(slots).fill(null);
     this.#receives = receives;
   }
   get usage() { return [...this.#used]; }
   reserve(charge) {
-    if (!valid(charge) || charge.some((x,i) => x > this.#limit[i]-this.#used[i]))
+    const requested=checkedCharge(charge);
+    if (!requested || requested.some((x,i) => x > this.#limit[i]-this.#used[i]))
       deny("E_SPAWN_QUOTA");
     const slot = this.#entries.indexOf(null);
     if (slot < 0) deny("E_SPAWN_FULL");
     if (this.#generation === MAX) deny("E_SPAWN_GENERATION");
     const p = Object.freeze({generation: this.#generation+1n});
-    const entry = {p, charge: [...charge], phase: "init", initStarted: false,
+    const entry = {p, charge: requested, phase: "init", initStarted: false,
       init: null, receives: Array(this.#receives).fill(null)};
     this.#entries[slot] = entry;
     for (let i=0;i<dims;i++) this.#used[i]+=entry.charge[i];
