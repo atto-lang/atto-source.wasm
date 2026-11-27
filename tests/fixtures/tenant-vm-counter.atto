@@ -1,0 +1,13 @@
+// Narrow compiler-generated WASM actor ABI, one instance per actor.
+// The privileged host spawns actors; source-level spawn/send lowering is
+// deliberately out of scope until the real compiler supports those paths.
+define actor Counter as {
+  let total: int = 0;
+  pub fnc on_message(int increment): int {
+    total = total + increment;
+    return total;
+  }
+}
+pub fnc main(): int {
+  return 42;
+}
