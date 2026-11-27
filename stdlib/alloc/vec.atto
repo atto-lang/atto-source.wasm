@@ -67,7 +67,7 @@ define module alloc_vec as
     if needed <= current; do
       return Some(current);
     fi
-    let int capacity = current;
+    let mut int capacity = current;
     if capacity < 4; do
       capacity = 4;
     fi

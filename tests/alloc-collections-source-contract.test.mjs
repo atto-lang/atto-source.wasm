@@ -5,6 +5,14 @@ import {readFileSync} from 'node:fs';
 const source=(f)=>readFileSync(new URL('../stdlib/alloc/'+f+'.atto',import.meta.url),'utf8');
 const fixture=(f)=>readFileSync(new URL('./fixtures/alloc-collections-source/'+f+'.atto',import.meta.url),'utf8');
 
+// Ignore standalone comments; this guard is source inspection, not lexical proof.
+const sourceLines = text => text.split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n');
+const forbiddenRaw = /unsafe|from_raw|transmute|raw_ptr/;
+test('standalone comments are not operations',()=>{
+ assert.doesNotMatch(sourceLines('// no unsafe pop or raw_ptr\nreturn None;'),forbiddenRaw);
+ for(const word of ['unsafe','from_raw','transmute','raw_ptr']) assert.match(sourceLines('// explanation\n'+word+'();'),forbiddenRaw);
+});
+
 test('Box requires explicit ownership transfer and forbids raw handle forging',()=>{
  const b=source('box');
  assert.match(b,/boxed<T>\(take! T value\)/);
@@ -14,7 +22,7 @@ test('Box requires explicit ownership transfer and forbids raw handle forging',(
  assert.match(b,/replace\(take! T next\)/);
  assert.match(b,/let Option<T> previous = take! self\.slot/);
  assert.match(b,/self\.slot = None/);
- assert.doesNotMatch(b,/unsafe|from_raw|transmute|raw_ptr/);
+ assert.doesNotMatch(sourceLines(b),forbiddenRaw);
 });
 test('Vec reserves actual ownership for consuming operation and Copy for reads',()=>{
  const v=source('vec');
@@ -23,7 +31,7 @@ test('Vec reserves actual ownership for consuming operation and Copy for reads',
  assert.match(v,/self\.values\.add\(copy! item\)/);
  assert.match(v,/index < 0 \|\| index >= self\.values\.size/);
  assert.match(v,/capacity > max_capacity - capacity/);
- assert.doesNotMatch(v,/unsafe|from_raw|transmute|raw_ptr/);
+ assert.doesNotMatch(sourceLines(v),forbiddenRaw);
 });
 test('String stages writes and admits only valid UTF-8 scalars',()=>{
  const s=source('string');
@@ -76,4 +84,29 @@ test('strict UTF-8 reference decoder vectors',()=>{
  const dec=(b)=>{try{new TextDecoder('utf-8',{fatal:true}).decode(Uint8Array.from(b));return true}catch{return false}};
  for(const b of mustReject)assert.equal(dec(b),false);
  for(const b of mustAccept)assert.equal(dec(b),true);
+});
+
+test('owned collection storage and reassigned counters explicitly declare mutability',()=>{
+ const verify=(box,string,vec)=>{
+  assert.match(box,/^\s*let mut Option<T> slot = None;/m);
+  assert.doesNotMatch(box,/^\s*let Option<T> slot = None;/m);
+  for(const [name,count] of [['i',3],['count',1],['width',1]]) {
+   assert.equal([...string.matchAll(new RegExp('^\\s*let mut int '+name+' = [01];','gm'))].length,count);
+   assert.equal([...string.matchAll(new RegExp('^\\s*let int '+name+' = [01];','gm'))].length,0);
+  }
+  assert.match(vec,/^\s*let mut int capacity = current;/m);
+  assert.doesNotMatch(vec,/^\s*let int capacity = current;/m);
+ };
+ const values=[source('box'),source('string'),source('vec')];
+ verify(...values);
+ const sites=[[0,/let mut Option<T> slot = None;/g,0],
+  [1,/let mut int i = 0;/g,0],[1,/let mut int i = 0;/g,1],[1,/let mut int i = 0;/g,2],
+  [1,/let mut int count = 0;/g,0],[1,/let mut int width = 1;/g,0],
+  [2,/let mut int capacity = current;/g,0]];
+ for(const [file,pattern,index] of sites) {
+  const mutant=[...values], hit=[...mutant[file].matchAll(pattern)][index];
+  assert.ok(hit,'mutation anchor');
+  mutant[file]=mutant[file].slice(0,hit.index)+hit[0].replace('let mut ','let ')+mutant[file].slice(hit.index+hit[0].length);
+  assert.throws(()=>verify(...mutant));
+ }
 });
