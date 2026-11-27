@@ -37,6 +37,9 @@ test("exact uint64 arithmetic, independent limits and 100000 rollback cycles",()
     assert.throws(()=>g.reserve(c),/QUOTA/);
   }
   assert.throws(()=>g.reserve([1,1,1,1]),/QUOTA/);
+  assert.throws(()=>g.reserve([1n,,1n,1n]),/QUOTA/);
+  assert.throws(()=>new ActorSpawnQuotaGate(Array(4),1,1),/POLICY/);
+  assert.deepEqual(g.usage,zero);
   const max=Array(4).fill((1n<<64n)-1n);
   const big=new ActorSpawnQuotaGate(max,2,1);
   const p=big.reserve(max);
