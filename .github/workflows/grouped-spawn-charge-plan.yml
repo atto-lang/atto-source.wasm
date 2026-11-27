@@ -1,0 +1,28 @@
+name: Wasm worker host grouped spawn charge plan (host only)
+on:
+  pull_request:
+    paths:
+      - 'src/actor-spawn-charge-plan.mjs'
+      - 'tests/actor-spawn-charge-plan.test.mjs'
+      - '.github/workflows/grouped-spawn-charge-plan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  charge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify head and run host charge tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          printf 'head=%s tree=%s\n' "$EXPECTED_HEAD" "$(git rev-parse HEAD^{tree})"
+          node --version
+          node --test tests/actor-spawn-charge-plan.test.mjs
