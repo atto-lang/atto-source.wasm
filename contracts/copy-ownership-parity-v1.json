@@ -1,0 +1,217 @@
+{
+  "schema": "atto-copy-ownership-parity-v1",
+  "status": "TARGET_NOT_EXECUTED",
+  "spec": "https://github.com/atto-lang/atto-spec/pull/251",
+  "backendProfiles": [
+    {
+      "repo": "atto-lang/atto-source.java",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.rs",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.llvm",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.net",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.wasm",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.js",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.forge",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.cranelift",
+      "status": "NOT_EXECUTED",
+      "execution": "compiler emitted guest and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.atto",
+      "status": "NOT_EXECUTED",
+      "execution": "self-hosted compiler output and execution"
+    },
+    {
+      "repo": "atto-lang/atto-source.hdl",
+      "status": "NOT_EXECUTED",
+      "execution": "bounded synthesizable RTL or explicit unsupported diagnostic"
+    },
+    {
+      "repo": "atto-lang/atto-source.realtime",
+      "status": "NOT_EXECUTED",
+      "execution": "bounded RT AOT or explicit unsupported diagnostic"
+    }
+  ],
+  "diagnostics": "Canonical target codes; existing backend equivalents require documented semantic phase and mapping, never blanket parse failure.",
+  "cases": [
+    {
+      "id": "take-scalar",
+      "source": "pub fnc main(): int { val x = 42; val y = take! x; return y; }\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "move-scalar",
+      "source": "pub fnc main(): int { val x = 42; val y = move! x; return y; }\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "move-use-after-transfer",
+      "source": "pub fnc main(): int { val x = 42; val y = move! x; return x; }\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_MOVED"
+      }
+    },
+    {
+      "id": "move-missing-separator",
+      "source": "pub fnc main(): int { val x = 42; return move!x; }\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_BANG_KEYWORD_WHITESPACE"
+      }
+    },
+    {
+      "id": "move-bare-identifier",
+      "source": "pub fnc main(): int { val move = 42; return move; }\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "shallow-flat-independent",
+      "source": "define class Flat as pub let int value = 42; end\npub fnc main(): int {\n    let mut Flat a = new Flat();\n    let mut Flat b = copy! a;\n    b.value = 99;\n    return a.value;\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "deep-no-opt-in",
+      "source": "define class Flat as pub let int value = 42; end\npub fnc main(): int {\n    let mut Flat a = new Flat();\n    val b = copy!! a;\n    return b.value;\n}\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_OPT_IN_REQUIRED"
+      }
+    },
+    {
+      "id": "deep-flat-opt-in",
+      "source": "define class Flat implements DeepCopyable<Flat> as pub let int value = 42; end\npub fnc main(): int {\n    let mut Flat a = new Flat();\n    let mut Flat b = copy!! a;\n    b.value = 99;\n    return a.value;\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "deep-wrong-self",
+      "source": "define class Other as end\n define class Wrong implements DeepCopyable<Other> as end\npub fnc main(): int { return 42; }\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_OPT_IN_REQUIRED"
+      }
+    },
+    {
+      "id": "deep-nested-no-opt-in",
+      "source": "define class Child as pub let int n = 42; end\ndefine class Parent implements DeepCopyable<Parent> as pub val Array<Child> items = new Array<Child>(); end\npub fnc main(): int { val a = new Parent(); val b = copy!! a; return 42; }\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_OPT_IN_REQUIRED"
+      }
+    },
+    {
+      "id": "shallow-lexical-release",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        val b = copy! a;\n        if b.scores.get(0) != 10 do return 0; fi\n    }\n    a.scores.set(0, 42);\n    return a.scores.get(0);\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "shallow-independent-field",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        let mut Person b = copy! a;\n        b.age = 17;\n        return a.age + b.age;\n    }\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "shallow-original-write",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        val b = copy! a;\n        a.scores.set(0, 42);\n        return b.scores.get(0);\n    }\n}\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_READONLY"
+      }
+    },
+    {
+      "id": "shallow-copy-write",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        let mut Person b = copy! a;\n        b.scores.set(0, 42);\n        return a.scores.get(0);\n    }\n}\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_READONLY"
+      }
+    },
+    {
+      "id": "shallow-nested-overlap",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        val b = copy! a;\n        block { val c = copy! a; stdio.println(c.scores.get(0)); }\n        a.scores.set(0, 42);\n        return b.scores.get(0);\n    }\n}\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_READONLY"
+      }
+    },
+    {
+      "id": "shallow-source-move",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        val b = copy! a;\n        val c = move! a;\n        return b.scores.get(0);\n    }\n}\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_LOAN"
+      }
+    },
+    {
+      "id": "shallow-replace-whole-field",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    block {\n        let mut Person b = copy! a;\n        b.scores = new Array<int>();\n        b.scores.add(32);\n        return a.scores.get(0) + b.scores.get(0);\n    }\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    },
+    {
+      "id": "shallow-escape",
+      "source": "define class Person as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\nfnc escape(Person a): Person { block { val b = copy! a; return b; } }\npub fnc main(): int { return 42; }\n",
+      "expect": {
+        "kind": "semantic_reject",
+        "diagnostic": "E_COPY_LOAN_ESCAPE"
+      }
+    },
+    {
+      "id": "deep-nested-detach",
+      "source": "define class Person implements DeepCopyable<Person> as\n    pub let int age = 25;\n    pub let Array<int> scores = new Array<int>();\nend\npub fnc main(): int {\n    let mut Person a = new Person();\n    a.scores.add(10);\n    let mut Person b = copy!! a;\n    b.scores.set(0, 99);\n    return a.scores.get(0) + 32;\n}\n",
+      "expect": {
+        "kind": "execute",
+        "value": 42
+      }
+    }
+  ]
+}
