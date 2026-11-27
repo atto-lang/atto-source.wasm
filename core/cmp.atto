@@ -1,0 +1,106 @@
+// Pure ordering, safe at signed-int endpoints (no left-right subtraction).
+// compare_* returns -1, 0, or 1; not a numeric difference. All routines
+// preserve deterministic ordering with no I/O or allocator dependency.
+define module cmp as
+  pub fnc compare_int(int left, int right): int {
+    if left < right; do
+      return -1;
+    fi
+    if left > right; do
+      return 1;
+    fi
+    return 0;
+  }
+
+  pub fnc compare_bool(bool left, bool right): int {
+    if left == right; do
+      return 0;
+    fi
+    if !left; do
+      return -1;
+    fi
+    return 1;
+  }
+
+  pub fnc min_int(int left, int right): int {
+    if left <= right; do
+      return left;
+    fi
+    return right;
+  }
+
+  pub fnc max_int(int left, int right): int {
+    if left >= right; do
+      return left;
+    fi
+    return right;
+  }
+
+  // Inverted bounds are not silently normalized.
+  pub fnc clamp_int(int value, int lower, int upper): Option<int> {
+    if lower > upper; do
+      return None;
+    fi
+    if value < lower; do
+      return Some(lower);
+    fi
+    if value > upper; do
+      return Some(upper);
+    fi
+    return Some(value);
+  }
+
+  pub fnc valid_range(int offset, int count, int total): bool {
+    if offset < 0 || count < 0 || total < 0; do
+      return false;
+    fi
+    if offset > total; do
+      return false;
+    fi
+    return count <= total - offset;
+  }
+
+  // None means invalid range; Some(0) means equal.
+  // A prefix compares before a longer sequence.
+  pub fnc lex_compare_int(Array<int> left, int left_offset, int left_count,
+                          Array<int> right, int right_offset,
+                          int right_count): Option<int> {
+    if !valid_range(left_offset, left_count, left.size) ||
+       !valid_range(right_offset, right_count, right.size); do
+      return None;
+    fi
+    let int common = left_count;
+    if right_count < common; do
+      common = right_count;
+    fi
+    for (let int i = 0; i < common; i = i + 1) {
+      let int order = compare_int(left.get(left_offset + i),
+                                  right.get(right_offset + i));
+      if order != 0; do
+        return Some(order);
+      fi
+    }
+    return Some(compare_int(left_count, right_count));
+  }
+
+  pub fnc is_sorted_int(Array<int> values, int offset,
+                        int count, bool descending): bool {
+    if !valid_range(offset, count, values.size); do
+      return false;
+    fi
+    for (let int i = 1; i < count; i = i + 1) {
+      let int previous = values.get(offset + i - 1);
+      let int current = values.get(offset + i);
+      if descending; do
+        if previous < current; do
+          return false;
+        fi
+      else
+        if previous > current; do
+          return false;
+        fi
+      fi
+    }
+    return true;
+  }
+end

@@ -1,0 +1,122 @@
+// Allocation-free iteration algorithms for already-owned Array<int>.
+// Cursor positions are values. No iterator may retain a dangling loan.
+// Callbacks are synchronous, in input order; no suspension is performed.
+define module iter as
+  pub fnc valid_range(int start, int count, int total): bool {
+    if start < 0 || count < 0 || total < 0; do
+      return false;
+    fi
+    if start > total; do
+      return false;
+    fi
+    return count <= total - start;
+  }
+
+  // consumed counts elements already visited; None means exhausted or
+  // invalid. The returned index is absolute within the original array.
+  pub fnc next_index(int start, int count, int consumed,
+                     int total): Option<int> {
+    if !valid_range(start, count, total) ||
+       consumed < 0 || consumed >= count; do
+      return None;
+    fi
+    return Some(start + consumed);
+  }
+
+  pub fnc next_back_index(int start, int count, int consumed,
+                          int total): Option<int> {
+    if !valid_range(start, count, total) ||
+       consumed < 0 || consumed >= count; do
+      return None;
+    fi
+    return Some(start + (count - 1 - consumed));
+  }
+
+  // Cursor may equal count to represent the end; no wraparound.
+  pub fnc advance_cursor(int count, int cursor,
+                         int steps): Option<int> {
+    if count < 0 || cursor < 0 || steps < 0 || cursor > count; do
+      return None;
+    fi
+    if steps > count - cursor; do
+      return None;
+    fi
+    return Some(cursor + steps);
+  }
+
+  pub fnc nth_int(Array<int> values, int start, int count,
+                  int nth): Option<int> {
+    if !valid_range(start, count, values.size) ||
+       nth < 0 || nth >= count; do
+      return None;
+    fi
+    return Some(values.get(start + nth));
+  }
+
+  // Invalid ranges yield None, rather than silently producing the seed.
+  pub fnc fold_int(Array<int> values, int start, int count,
+                   int seed, Fnc<int(int,int)> combine): Option<int> {
+    if !valid_range(start, count, values.size); do
+      return None;
+    fi
+    let int accumulated = seed;
+    for (let int i = 0; i < count; i = i + 1) {
+      accumulated = combine(accumulated, values.get(start + i));
+    }
+    return Some(accumulated);
+  }
+
+  pub fnc any_int(Array<int> values, int start, int count,
+                  Fnc<bool(int)> predicate): Option<bool> {
+    if !valid_range(start, count, values.size); do
+      return None;
+    fi
+    for (let int i = 0; i < count; i = i + 1) {
+      if predicate(values.get(start + i)); do
+        return Some(true);
+      fi
+    }
+    return Some(false);
+  }
+
+  pub fnc all_int(Array<int> values, int start, int count,
+                  Fnc<bool(int)> predicate): Option<bool> {
+    if !valid_range(start, count, values.size); do
+      return None;
+    fi
+    for (let int i = 0; i < count; i = i + 1) {
+      if !predicate(values.get(start + i)); do
+        return Some(false);
+      fi
+    }
+    return Some(true);
+  }
+
+  // Returns a relative index, matching core/slice.find_int.
+  pub fnc find_if_int(Array<int> values, int start, int count,
+                      Fnc<bool(int)> predicate): Option<int> {
+    if !valid_range(start, count, values.size); do
+      return None;
+    fi
+    for (let int i = 0; i < count; i = i + 1) {
+      if predicate(values.get(start + i)); do
+        return Some(i);
+      fi
+    }
+    return None;
+  }
+
+  pub fnc count_if_int(Array<int> values, int start, int count,
+                       Fnc<bool(int)> predicate): Option<int> {
+    if !valid_range(start, count, values.size); do
+      return None;
+    fi
+    let int found = 0;
+    for (let int i = 0; i < count; i = i + 1) {
+      if predicate(values.get(start + i)); do
+        found = found + 1;
+      fi
+    }
+    return Some(found);
+  }
+end

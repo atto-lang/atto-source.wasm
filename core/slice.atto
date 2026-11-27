@@ -1,0 +1,152 @@
+// Freestanding slice algorithms over an existing integer array.
+// An (offset, count) pair is a checked logical view, NOT a lifetime-
+// bearing Slice<T> reference or an authorization to access foreign memory.
+// The array owner retains ownership. No copies or heap allocations here.
+define module slice as
+  // Check without evaluating offset + count, which could overflow.
+  pub fnc valid_range(int offset, int count, int total): bool {
+    if offset < 0 || count < 0 || total < 0; do
+      return false;
+    fi
+    if offset > total; do
+      return false;
+    fi
+    return count <= total - offset;
+  }
+
+  pub fnc valid_index(int index, int count): bool {
+    return index >= 0 && count >= 0 && index < count;
+  }
+
+  pub fnc is_empty(int count): bool {
+    return count == 0;
+  }
+
+  pub fnc can_split_at(int count, int middle): bool {
+    return count >= 0 && middle >= 0 && middle <= count;
+  }
+
+  pub fnc subslice_offset(int offset, int count, int total,
+                          int relative_offset, int relative_count): Option<int> {
+    if !valid_range(offset, count, total); do
+      return None;
+    fi
+    if !valid_range(relative_offset, relative_count, count); do
+      return None;
+    fi
+    return Some(offset + relative_offset);
+  }
+
+  // Option distinguishes an absent element (including an invalid span)
+  // from the integer zero. Returned integers are independent values.
+  pub fnc get_int(Array<int> values, int offset, int count,
+                  int index): Option<int> {
+    if !valid_range(offset, count, values.size); do
+      return None;
+    fi
+    if !valid_index(index, count); do
+      return None;
+    fi
+    return Some(values.get(offset + index));
+  }
+
+  pub fnc first_int(Array<int> values, int offset,
+                    int count): Option<int> {
+    return get_int(values, offset, count, 0);
+  }
+
+  pub fnc last_int(Array<int> values, int offset,
+                   int count): Option<int> {
+    if count <= 0; do
+      return None;
+    fi
+    return get_int(values, offset, count, count - 1);
+  }
+
+  // Returns the first relative index, not the absolute array index.
+  pub fnc find_int(Array<int> values, int offset, int count,
+                   int needle): Option<int> {
+    if !valid_range(offset, count, values.size); do
+      return None;
+    fi
+    for (let int i = 0; i < count; i = i + 1) {
+      if values.get(offset + i) == needle; do
+        return Some(i);
+      fi
+    }
+    return None;
+  }
+
+  pub fnc contains_int(Array<int> values, int offset,
+                       int count, int needle): bool {
+    return find_int(values, offset, count, needle).is_some();
+  }
+
+  pub fnc count_int(Array<int> values, int offset,
+                    int count, int needle): Option<int> {
+    if !valid_range(offset, count, values.size); do
+      return None;
+    fi
+    let int found = 0;
+    for (let int i = 0; i < count; i = i + 1) {
+      if values.get(offset + i) == needle; do
+        found = found + 1;
+      fi
+    }
+    return Some(found);
+  }
+
+  pub fnc equal_int(Array<int> left, int left_offset, int left_count,
+                    Array<int> right, int right_offset, int right_count): bool {
+    if !valid_range(left_offset, left_count, left.size) ||
+       !valid_range(right_offset, right_count, right.size); do
+      return false;
+    fi
+    if left_count != right_count; do
+      return false;
+    fi
+    for (let int i = 0; i < left_count; i = i + 1) {
+      if left.get(left_offset + i) != right.get(right_offset + i); do
+        return false;
+      fi
+    }
+    return true;
+  }
+
+  pub fnc starts_with_int(Array<int> values, int offset, int count,
+                          Array<int> prefix, int prefix_offset,
+                          int prefix_count): bool {
+    if !valid_range(offset, count, values.size) ||
+       !valid_range(prefix_offset, prefix_count, prefix.size); do
+      return false;
+    fi
+    if prefix_count > count; do
+      return false;
+    fi
+    for (let int i = 0; i < prefix_count; i = i + 1) {
+      if values.get(offset + i) != prefix.get(prefix_offset + i); do
+        return false;
+      fi
+    }
+    return true;
+  }
+
+  pub fnc ends_with_int(Array<int> values, int offset, int count,
+                        Array<int> suffix, int suffix_offset,
+                        int suffix_count): bool {
+    if !valid_range(offset, count, values.size) ||
+       !valid_range(suffix_offset, suffix_count, suffix.size); do
+      return false;
+    fi
+    if suffix_count > count; do
+      return false;
+    fi
+    let int tail = offset + (count - suffix_count);
+    for (let int i = 0; i < suffix_count; i = i + 1) {
+      if values.get(tail + i) != suffix.get(suffix_offset + i); do
+        return false;
+      fi
+    }
+    return true;
+  }
+end
