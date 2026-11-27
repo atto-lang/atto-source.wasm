@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp, readFile, writeFile, stat, rm} from "node:fs/promises";
+import {mkdtemp, readFile, writeFile, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, isAbsolute} from "node:path";
 import {compileOresToWasm, readBoundedRegularFile} from "../scripts/compile-ores.mjs";
@@ -89,6 +90,6 @@ test("real compiler to bounded Wasm guest executes portable scalar source and re
     }
     assert.equal(completed,22,"a partial matrix cannot be a green parity result");
   }finally{
-    await rm(dir,{recursive:true,force:true});
+    await cleanupRealCompilerWorkspace(dir);
   }
 });
