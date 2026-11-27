@@ -242,15 +242,10 @@ define module metrics as
     }
     pub bucket_total(): int { return self.counts.size; }
     pub snapshot(): HistogramSnapshot {
-      let mut Array<int> copied_bounds = new Array<int>();
-      let mut Array<int> copied_counts = new Array<int>();
-      for (let int i = 0; i < self.thresholds.size; i = i + 1) {
-        copied_bounds.add(self.thresholds.get(i));
-      }
-      for (let int i = 0; i < self.counts.size; i = i + 1) {
-        copied_counts.add(self.counts.get(i));
-      }
-      return new HistogramSnapshot(copied_bounds, copied_counts,
+      // The validating constructor detaches both arrays itself.
+      // Do not allocate and fill a second pair of temporary arrays.
+      // Compiler admission must preserve the read-only input loan.
+      return new HistogramSnapshot(self.thresholds, self.counts,
                                    self.samples, self.total, self.rejected);
     }
   end

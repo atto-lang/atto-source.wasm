@@ -63,7 +63,7 @@ test("Metrics counters and histograms explicitly reject unsafe updates", () => {
     "self.samples == 2147483647", "2147483647 - self.total",
     "self.rejected < 2147483647", "bounds.size > 64",
     "value <= bounds.get(i - 1)", "bucket_count",
-    "CounterSnapshot", "GaugeSnapshot", "HistogramSnapshot", "copied_counts",
+    "CounterSnapshot", "GaugeSnapshot", "HistogramSnapshot",
     "detached_bounds.add(upper)", "detached_counts.add(count)",
     "snapshot bucket totals differ",
   ]) assert.ok(m.includes(invariant), "metrics safeguard missing: " + invariant);
@@ -196,4 +196,63 @@ test("three identical Atto guest fixtures have pinned nonempty 127-line goldens"
     outputs += expected;
   }
   assert.equal(outputs,127);
+});
+
+test("histogram snapshot has one explicit detachment boundary (source only)", () => {
+  const m = modules.metrics;
+  const start = m.indexOf("pub snapshot(): HistogramSnapshot");
+  assert.ok(start >= 0);
+  const snapshot = m.slice(start, m.indexOf("  pub fnc counter(", start));
+  assert.ok(snapshot.includes("new HistogramSnapshot(self.thresholds, self.counts,"));
+  assert.ok(!snapshot.includes("new Array<int>()"));
+  assert.ok(m.includes("self.finite_bounds = detached_bounds;"));
+  assert.ok(m.includes("self.per_bucket = detached_counts;"));
+  // Compiler ownership and actual allocation counts are separate guest gates.
+});
+
+test("JSON only allocates decoded string scratch for object keys (source only)", () => {
+  const j = modules.json;
+  const start = j.indexOf("read_string(mut self)(bool capture)");
+  const end = j.indexOf("keys_equal(", start);
+  assert.ok(start >= 0 && end > start);
+  const reader = j.slice(start, end);
+  assert.ok(reader.includes("if capture; do self.decoded = new Array<int>(); fi"));
+  assert.equal((reader.match(/new Array<int>\(\)/g) || []).length, 1);
+  for (const line of reader.split("\n").filter(l => l.includes("self.decoded.add(")))
+    assert.ok(line.includes("if capture; do"), "value string must not capture");
+  assert.ok(j.includes("keys.add(detached)"), "key storage must stay independent");
+  assert.ok(j.includes("read_string(false)"));
+  assert.ok(j.includes("read_string(true)"));
+});
+
+test("Zorde fixed prefix uses checked scalar reads instead of a temporary array", () => {
+  const z = modules.zorde;
+  const start = z.indexOf("pub fnc decode_frame(Array<int> wire)");
+  const end = z.indexOf("let schema_result = r.read_varuint()", start);
+  assert.ok(start >= 0 && end > start);
+  const prefix = z.slice(start, end);
+  assert.equal((prefix.match(/r\.read_byte\(\)/g) || []).length, 5);
+  assert.ok(!prefix.includes("read_bytes(5)"));
+  assert.ok(prefix.includes("checked_reader(wire)"));
+  for (const [name, byte] of [["magic_z",90],["magic_o",79],["magic_r",82],["magic_d",68],["format_version",1]]) {
+    assert.ok(prefix.includes(name + ".is_err()"));
+    assert.ok(prefix.includes(name + ".unwrap() != " + byte));
+  }
+  assert.ok(prefix.includes('Err("TruncatedHeader")'));
+  assert.ok(prefix.includes('Err("InvalidMagicOrVersion")'));
+  // Source structure only: guest execution and allocation counts are separate.
+});
+
+test("portable scanner entrypoints and remainder expressions preserve compiler admission", () => {
+  const json = modules.json;
+  for (const method of ["read_value", "finished", "start_kind", "node_count", "length_in_scalars"])
+    assert.match(json, new RegExp("^    pub " + method + "\\(", "m"), "scanner entrypoint must be callable from its module");
+  for (const method of ["read_value", "finished", "start_kind"])
+    assert.match(json, new RegExp("^    pub " + method + "\\(mut self\\)", "m"), "scanner mutation must be explicit");
+  const zorde = modules.zorde;
+  const code = zorde.split("\n").map(line => line.replace(/\/\/.*$/, "")).join("\n");
+  assert.ok(!code.includes("%"), "noncanonical remainder operator");
+  for (const expr of ["remaining - (remaining / 128) * 128", "byte_value - (byte_value / 128) * 128", "zigzag - (zigzag / 2) * 2"])
+    assert.ok(code.includes(expr), "missing bounded nonnegative remainder: " + expr);
+  // No compiler admission or actual allocation evidence is implied.
 });
