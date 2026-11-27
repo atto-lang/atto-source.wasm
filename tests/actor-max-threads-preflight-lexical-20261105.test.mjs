@@ -58,6 +58,8 @@ test('standalone imported actor spawn cannot bypass scalar admission via grouped
   'await /* nested /* comment */ ok */ spawn pkg.Worker<int>() with { schedule { affinity = sticky; } };',
   'spawn Worker(make_arg(42)) with {};',
   'spawn Worker();',
+  'spawn ΩWorker() with {};',
+  'spawn 𐐀Worker() with {};',
   '// ignored\u0085spawn Worker() with {};'
  ]) assert.throws(()=>check(source),/actor spawn options and guest actor execution require typed lowering/);
  for(const source of [
