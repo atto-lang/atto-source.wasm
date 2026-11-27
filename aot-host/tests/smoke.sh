@@ -258,6 +258,13 @@ if [[ "$tenant_result" != "wasmtime_tenant_store_isolation=ok" ]]; then
   echo "Wasmtime tenant-store isolation failed: $tenant_result" >&2
   exit 1
 fi
+# Unlike an individual Wasmtime out-of-fuel call, this compiled-guest test
+# makes repeated successful calls and proves the logical budget is conserved.
+conserve_result="$("$runner" --tenant-fuel-conservation-smoke "$tmp/tenant-counter.cwasm" "$tenant_pin")"
+if [[ "$conserve_result" != "wasmtime_tenant_fuel_conservation=ok" ]]; then
+  echo "Wasmtime tenant lifetime fuel conservation failed: $conserve_result" >&2
+  exit 1
+fi
 if "$runner" --tenant-isolation-smoke "$tmp/tenant-counter.cwasm" "$(printf '0%.0s' {1..64})" > /dev/null 2>&1; then
   echo "tenant smoke bypassed AOT digest check" >&2
   exit 1

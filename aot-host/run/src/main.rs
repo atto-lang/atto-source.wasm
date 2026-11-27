@@ -28,7 +28,8 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  let tenant_smoke=all_args.first().map(String::as_str)==Some("--tenant-isolation-smoke");
  let growth_smoke=all_args.first().map(String::as_str)==Some("--tenant-memory-growth-smoke");
  let fuel_smoke=all_args.first().map(String::as_str)==Some("--tenant-fuel-starvation-smoke");
- let args=if tenant_smoke || growth_smoke || fuel_smoke {&all_args[1..]} else {&all_args[..]};
+ let conserve_smoke=all_args.first().map(String::as_str)==Some("--tenant-fuel-conservation-smoke");
+ let args=if tenant_smoke || growth_smoke || fuel_smoke || conserve_smoke {&all_args[1..]} else {&all_args[..]};
  if args.len()!=2 && args.len()!=3{
   return Err("usage (insecure debug only): run-aot LOCAL.cwasm INSECURE_DEV_SHA256 [FUEL]".into());
  }
@@ -59,6 +60,70 @@ fn main()->Result<(),Box<dyn std::error::Error>>{
  // A guest-supplied pin or self-reported manifest is never sufficient.
  let module=unsafe{Module::deserialize(&engine,&bytes)?};
  profile::check_abi(&module)?;
+ if conserve_smoke {
+  // This fixture has a finite, small *lifetime* fuel budget. Host calls each
+  // request a larger allowance; a buggy set_fuel(requested) on every call
+  // would permit all 1024 executions to succeed rather than exhausting fuel.
+  let mut registry=tenant_isolation::TenantRegistry::new_for_fuel_conservation_smoke(engine,module,2)?;
+  let offender=registry.admit("fuel-replayed")?;
+  let healthy=registry.admit("fuel-healthy")?;
+  if registry.invoke(&healthy,1_000_000)?!=1 {
+   return Err("conservation fixture healthy tenant could not execute".into());
+  }
+  let mut successes=0u32;
+  let failure=loop {
+   if successes >= 1_024 {
+    return Err("tenant logical fuel replenished across repeated invocations".into());
+   }
+   match registry.invoke(&offender,1_000_000) {
+    Ok(actual) => {
+     successes+=1;
+     if actual!=i64::from(successes) {
+      return Err("fuel conservation guest state changed unexpectedly".into());
+     }
+    }
+    Err(err) => break err,
+   }
+  };
+  if successes<2 {
+   return Err("tenant logical fuel budget too low for multi-call proof".into());
+  }
+  // The failure must be a genuine Wasmtime fuel trap or our explicit
+  // conserved-budget exhaustion, not an ABI or unrelated Wasm failure.
+  let mut source: Option<&(dyn std::error::Error + 'static)> = Some(failure.as_ref());
+  let mut out_of_fuel=false;
+  while let Some(cause)=source {
+   let msg=cause.to_string().to_ascii_lowercase();
+   if msg.contains("out of fuel") || msg.contains("all fuel consumed") ||
+      msg.contains("tenant fuel exhausted") {
+    out_of_fuel=true;
+    break;
+   }
+   source=cause.source();
+  }
+  if !out_of_fuel || registry.active_tenants()!=1 ||
+     registry.invoke(&offender,1_000_000).is_ok() ||
+     registry.begin_shutdown(&offender).is_ok() {
+   return Err("tenant fuel failure did not retire only the offender".into());
+  }
+  if registry.invoke(&healthy,1_000_000)?!=2 {
+   return Err("neighbor tenant failed after lifetime fuel exhaustion".into());
+  }
+  let fresh=registry.admit("fuel-replayed")?;
+  if registry.invoke(&fresh,1_000_000)?!=1 ||
+     registry.invoke(&offender,1_000_000).is_ok() {
+   return Err("tenant reincarnation reused old fuel or stale authority".into());
+  }
+  registry.begin_shutdown(&fresh)?;
+  registry.destroy(&fresh)?;
+  registry.begin_shutdown(&healthy)?;
+  registry.destroy(&healthy)?;
+  if registry.active_tenants()!=0 {
+   return Err("tenant fuel conservation smoke leaked active stores".into());
+  }
+  println!("wasmtime_tenant_fuel_conservation=ok");
+  return Ok(());
+ }
  if fuel_smoke {
   // The third invocation is an intentionally nonterminating guest loop.
   // Fuel must interrupt that guest, retire only its Store, and invalidate

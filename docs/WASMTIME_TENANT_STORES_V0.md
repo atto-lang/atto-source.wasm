@@ -27,8 +27,13 @@ compromise of the Rust host or Wasmtime's native code.
   an arbitrary tenant-id string alone is not authority.
 - Admission is limited to 32 tenants **per registry**, 128 KiB guest linear
   memory, one memory, one instance, and zero tables per Store.
-- Calls reset a strictly positive fuel budget (maximum 100 million), and a
-  guest trap retires the Store/Instance rather than reusing mutable guest state.
+- Each tenant starts with a finite Wasmtime logical fuel budget (maximum 100
+  million) that also covers instantiation. Per-call requested fuel is a positive
+  **ceiling** on one invocation, not a refill: calls grant only the smaller
+  of the requested limit and the tenant's remaining fuel and debit the actual
+  consumed Wasmtime fuel after success. Resume/dispatch cannot mint fuel.
+  An exhausted request or guest trap retires the Store/Instance rather than
+  reusing mutable guest state.
   Both the tenant registry and the debug-only scalar runner explicitly enable
   Wasmtime `StoreLimitsBuilder::trap_on_grow_failure(true)`: denied resource
   growth must not silently return a `-1` sentinel that guest code could ignore.

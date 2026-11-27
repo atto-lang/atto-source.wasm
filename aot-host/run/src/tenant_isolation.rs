@@ -8,6 +8,10 @@
 //! host kernel, Wasmtime native code, process RSS, or a compromised embedding.
 //! A caller-controlled SHA-256 is NOT artifact authorization. Production AOT
 //! execution stays disabled until authenticated deployment and OS supervision.
+// NOTE: a fresh Store/tenant gets an initial finite fuel budget. Repeated
+// invoke calls conserve that logical budget: yielding, polling and retrying
+// cannot restore charged fuel. This does not turn Wasmtime instruction-level
+// metering into a 128/512-iteration sampling scheme.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -41,6 +45,8 @@ struct Tenant {
     phase: Phase,
     store: Store<StoreLimits>,
     instance: Instance,
+    // Conserved across all calls; scheduler handoffs must never mint new fuel.
+    remaining_fuel: u64,
     // Not guest-reachable. Scheduler-issued actor capability required before use.
     durable: DurableLockQueues,
 }
@@ -52,6 +58,7 @@ pub struct TenantRegistry {
     next_generation: u64,
     max_tenants: usize,
     memory_limit_bytes: usize,
+    initial_fuel: u64,
 }
 
 fn valid_tenant_id(id: &str) -> bool {
@@ -63,9 +70,31 @@ fn valid_tenant_id(id: &str) -> bool {
         id.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
 }
 
+// The call allowance can bound one invocation but cannot refill a logical
+// tenant quota. Both the scheduler and the guest are unable to increase it.
+fn admitted_call_fuel(remaining: u64, requested: u64) -> Result<u64, &'static str> {
+    if !(1..=MAX_FUEL).contains(&requested) { return Err("tenant fuel outside admission bounds"); }
+    let granted = remaining.min(requested);
+    if granted == 0 { Err("tenant fuel exhausted") } else { Ok(granted) }
+}
+
+fn debit_used_fuel(remaining: &mut u64, granted: u64, unused: u64) -> Result<(), &'static str> {
+    if granted == 0 || unused > granted { return Err("invalid Wasmtime fuel accounting"); }
+    *remaining = remaining.checked_sub(granted - unused)
+        .ok_or("tenant fuel accounting underflow")?;
+    Ok(())
+}
+
 impl TenantRegistry {
     pub fn new(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
         Self::with_memory_limit(engine, module, max_tenants, GUEST_MEMORY_BYTES)
+    }
+
+    // Debug-only guest execution: a small lifetime budget makes repeated
+    // successful calls measurably exhaust the same finite Store quota.
+    #[cfg(all(oreslang_debug_cargo_profile, debug_assertions, feature = "insecure-dev-caller-pin"))]
+    pub fn new_for_fuel_conservation_smoke(engine: Engine, module: Module, max_tenants: usize) -> Result<Self, Failure> {
+        Self::with_resource_limits(engine, module, max_tenants, GUEST_MEMORY_BYTES, 1_024)
     }
 
     // Debug-only regression: guest may grow to two pages but its Store is
@@ -76,6 +105,13 @@ impl TenantRegistry {
     }
 
     fn with_memory_limit(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize) -> Result<Self, Failure> {
+        Self::with_resource_limits(engine, module, max_tenants, memory_limit_bytes, MAX_FUEL)
+    }
+
+    fn with_resource_limits(engine: Engine, module: Module, max_tenants: usize, memory_limit_bytes: usize, initial_fuel: u64) -> Result<Self, Failure> {
+        if initial_fuel == 0 || initial_fuel > MAX_FUEL {
+            return Err("invalid initial tenant fuel".into());
+        }
         if !(1..=MAX_TENANTS).contains(&max_tenants) {
             return Err("invalid tenant admission capacity".into());
         }
@@ -92,6 +128,7 @@ impl TenantRegistry {
             next_generation: 1,
             max_tenants,
             memory_limit_bytes,
+            initial_fuel,
         })
     }
 
@@ -123,9 +160,12 @@ impl TenantRegistry {
         let mut store = Store::new(&self.engine, limits);
         store.limiter(|limits| limits);
         // Fuel applies during instantiation as well. The admitted scalar
-        // profile forbids start sections; each call resets its own budget.
-        store.set_fuel(MAX_FUEL)?;
+        // profile forbids start sections. Each call gets no more than the
+        // tenant's unspent lifetime balance; it never resets tenant fuel.
+        store.set_fuel(self.initial_fuel)?;
         let instance = Instance::new(&mut store, &self.module, &[])?;
+        // Preserve any instantiation charge instead of assigning fresh fuel.
+        let remaining_fuel = store.get_fuel()?;
         let identity = Arc::new(());
         let handle = TenantHandle {
             id: id.to_string(),
@@ -139,6 +179,7 @@ impl TenantRegistry {
             phase: Phase::Running,
             store,
             instance,
+            remaining_fuel,
             durable,
         });
         self.next_generation = next;
@@ -157,6 +198,8 @@ impl TenantRegistry {
     }
 
     pub fn invoke(&mut self, handle: &TenantHandle, fuel: u64) -> Result<i64, Failure> {
+        // Validate before looking up a tenant; invalid host requests never
+        // consume another tenant's quota.
         if !(1..=MAX_FUEL).contains(&fuel) {
             return Err("tenant fuel outside admission bounds".into());
         }
@@ -169,10 +212,14 @@ impl TenantRegistry {
         // '?' directly on set_fuel or get_typed_func outside the closure:
         // doing so skips the Store retirement below.
         let outcome = (|| -> Result<i64, Failure> {
-            tenant.store.set_fuel(fuel)?;
+            let granted = admitted_call_fuel(tenant.remaining_fuel, fuel)?;
+            tenant.store.set_fuel(granted)?;
             let main = tenant.instance
                 .get_typed_func::<(), i64>(&mut tenant.store, "main")?;
-            Ok(main.call(&mut tenant.store, ())?)
+            let output = main.call(&mut tenant.store, ())?;
+            let unused = tenant.store.get_fuel()?;
+            debit_used_fuel(&mut tenant.remaining_fuel, granted, unused)?;
+            Ok(output)
         })();
 
         // Always retire a compartment after a failed invocation, whether
@@ -266,6 +313,42 @@ mod tests {
         );
         let error = result.expect_err("host quota must deny guest-permitted growth");
         assert!(error.to_string().contains("forcing trap when growing memory"));
+    }
+
+    #[test]
+    fn scheduler_calls_cannot_refill_logical_fuel() {
+        let mut remaining = 1_000;
+        for _ in 0..10 {
+            let granted = admitted_call_fuel(remaining, 128).unwrap();
+            debit_used_fuel(&mut remaining, granted, granted - 100).unwrap();
+        }
+        assert_eq!(remaining, 0);
+        assert!(admitted_call_fuel(remaining, 128).is_err());
+        assert!(admitted_call_fuel(128, 0).is_err());
+        assert!(admitted_call_fuel(128, MAX_FUEL + 1).is_err());
+        let mut other_tenant = 256;
+        let granted = admitted_call_fuel(other_tenant, 128).unwrap();
+        debit_used_fuel(&mut other_tenant, granted, 64).unwrap();
+        assert_eq!(other_tenant, 192);
+        assert_eq!(admitted_call_fuel(other_tenant, 512).unwrap(), 192);
+        assert!(debit_used_fuel(&mut other_tenant, 64, 65).is_err());
+        assert_eq!(other_tenant, 192);
+    }
+
+    #[test]
+    fn invalid_fuel_debits_are_atomic_and_never_forge_credit() {
+        let mut remaining = 9_u64;
+        for (grant, unused) in [(0, 0), (1, 2), (10, 0), (u64::MAX, 0)] {
+            assert!(debit_used_fuel(&mut remaining, grant, unused).is_err());
+            assert_eq!(remaining, 9, "invalid debit changed the tenant balance");
+        }
+        let granted = admitted_call_fuel(remaining, 100).unwrap();
+        assert_eq!(granted, 9, "request cannot mint more than lifetime balance");
+        debit_used_fuel(&mut remaining, granted, 8).unwrap();
+        assert_eq!(remaining, 8);
+        debit_used_fuel(&mut remaining, 8, 0).unwrap();
+        assert_eq!(remaining, 0);
+        assert!(admitted_call_fuel(remaining, 1).is_err());
     }
 
     #[test]
