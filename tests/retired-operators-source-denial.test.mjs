@@ -59,3 +59,13 @@ test("retired operators cannot invoke an older compiler or publish Wasm", async 
     }
   } finally { await rm(work,{recursive:true,force:true}); }
 });
+
+// Source-only preflight; compiler behavior still requires exact guest execution.
+test("canonical-i64-v5 delegates integer XOR and simple caret returns only",()=>{
+ const gate=source=>rejectRetiredSourceOperators(bytes(source),"canonical-i64-v5");
+ for(const source of ["pub fnc main():int{return 11^^4;}","pub fnc main():int{ ^ 42;}","pub fnc main():int{return (11 ^^ 4);}", "pub fnc main():int{return 7 /* ^^ */;}"])
+  assert.doesNotThrow(()=>gate(source),source);
+ for(const source of ["pub fnc main():int{return 7%3;}","pub fnc main():int{return 7 ^ 3;}","pub fnc main():int{return 7 ^ ^ 3;}","pub fnc main():int{return 7^^^3;}","pub fnc main():int{return 7^^=3;}",'pub fnc main():int{"hidden" ^ 42;}'])
+  assert.throws(()=>gate(source),/ATTO_REMOVED_OPERATOR/,source);
+ assert.throws(()=>rejectRetiredSourceOperators(bytes("7^^3"),"unknown"),/unknown source operator profile/);
+});
