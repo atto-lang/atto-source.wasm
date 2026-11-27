@@ -78,7 +78,15 @@ fn invalid(message: impl Into<String>) -> String {
 }
 
 fn verify_bytes(raw: &[u8], repository_name: &str) -> Result<BTreeMap<String, Value>, String> {
-    let expected_upstreams = upstreams(repository_name).ok_or_else(|| invalid("unknown source repository"))?;
+    // The migrated WASM repository retains its original declaration-only
+    // manifest. Accept only this exact checkout basename as its legacy
+    // declaration identity. This verifier does not authorize source exports
+    // or attest compiler/runtime parity. No wildcard or prefix aliases.
+    let declaration_name = match repository_name {
+        "atto-source.wasm" => "oreslang-source.wasm",
+        other => other,
+    };
+    let expected_upstreams = upstreams(declaration_name).ok_or_else(|| invalid("unknown source repository"))?;
     if raw.is_empty() || raw.len() > MAX_BYTES {
         return Err(invalid("manifest is empty or oversized"));
     }
@@ -108,7 +116,7 @@ fn verify_bytes(raw: &[u8], repository_name: &str) -> Result<BTreeMap<String, Va
     }
     match value.get("repository") {
         Some(Value::String(repository))
-            if repository == &format!("ores-truffle-oreslang/{repository_name}") => {}
+            if repository == &format!("ores-truffle-oreslang/{declaration_name}") => {}
         _ => return Err(invalid("repository identity mismatch")),
     }
     match value.get("role") {
@@ -381,6 +389,19 @@ mod tests {
         raw.pop();
         raw.extend_from_slice(b",\"evidence\":\"not-attested\"}");
         assert!(verify_bytes(&raw, "oreslang-source.java").is_err());
+    }
+
+    #[test]
+    fn migrated_wasm_checkout_retains_exact_declaration_identity() {
+        let raw = valid("oreslang-source.wasm");
+        let verified = verify_bytes(&raw, "atto-source.wasm").unwrap();
+        assert_eq!(verified["evidence"], Value::String("not-attested".into()));
+        assert!(verify_bytes(&valid("oreslang-source.llvm"), "atto-source.wasm").is_err());
+        assert!(verify_bytes(&raw, "atto-source.wasm-copy").is_err());
+        assert!(verify_bytes(&raw, "atto-source.js").is_err());
+        let fake = manifest("oreslang-source.wasm", "verified", NOTE,
+            upstreams("oreslang-source.wasm").unwrap());
+        assert!(verify_bytes(&fake, "atto-source.wasm").is_err());
     }
 
     #[test]
