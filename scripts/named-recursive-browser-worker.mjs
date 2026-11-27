@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import {Worker,isMainThread,parentPort,workerData} from 'node:worker_threads';
 
 export function observeGuest(bytes,expected){
+  if(expected.kind==='compile'){
+    // This branch is handled before instantiation by the compiler worker.
+    throw new Error('compile-only guest must not be instantiated');
+  }
   assert.ok(WebAssembly.validate(bytes),'invalid guest');
   const mod=new WebAssembly.Module(bytes);
   assert.deepEqual(WebAssembly.Module.imports(mod),[],'unexpected guest imports');
@@ -10,10 +14,6 @@ export function observeGuest(bytes,expected){
   assert.equal(typeof main,'function');
   assert.ok(panic instanceof WebAssembly.Global);
   assert.equal(panic.value,0,'dirty initial panic state');
-  if(expected.kind==='compile'){
-    // This branch is handled before instantiation by the compiler worker.
-    throw new Error('compile-only guest must not be instantiated');
-  }
   if(expected.kind==='value'){
     for(let i=0;i<3;i++){
       assert.equal(main(),BigInt(expected.value),'wrong signed i64 value');
