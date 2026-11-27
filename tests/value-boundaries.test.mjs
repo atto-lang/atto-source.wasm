@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {mkdtemp, readFile, writeFile, rm, readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -94,19 +95,40 @@ test('real source value boundaries reject before publishing a Wasm artifact', {
     assert.deepEqual(await readFile(output), good, 'precedence compile replaced earlier add artifact');
     assert.deepEqual(await readFile(output + '.provenance.json'), provenance,
       'precedence compile replaced add provenance');
+    // Use a byte-pinned native compiler snapshot for direct source denial.
+    const stagedCompiler = join(dir, 'compiler-exact');
+    await writeFile(stagedCompiler, bytes, {flag:'wx',mode:0o500});
     const originalEntries = (await readdir(dir)).sort();
-    assert.equal(Object.keys(cases).length, 46);
+    // The v1/v2 manifests deliberately share exactly one byte-identical ID.
+    // Assert the overlap rather than silently dropping a distinct fixture.
+    const sharedIds = Object.keys(taskV2Cases).filter(k => Object.hasOwn(sharedCases, k));
+    assert.deepEqual(sharedIds, ['gpu-cpu-gpu-nested']);
+    assert.equal(taskV2Cases[sharedIds[0]], sharedCases[sharedIds[0]]);
+    assert.equal(Object.keys(legacyCases).length, 20);
+    assert.equal(Object.keys(cases).length, 45);
     for (const [name, program] of Object.entries(cases)) {
       await writeFile(source, program);
+      const borrowedTask = Object.hasOwn(borrowTaskCases, name);
+      if (borrowedTask) {
+        const denial = spawnSync(stagedCompiler,
+          ['--tree-shake','--tree-shake-root=main','--target=wasm32',source],
+          {encoding:'utf8',timeout:15000,maxBuffer:2*1024*1024});
+        assert.ifError(denial.error);
+        assert.equal(denial.signal,null,name);
+        assert.equal(denial.status,1,name);
+        assert.equal(denial.stdout,'',name);
+        assert.match(denial.stderr,/oreslang-llvmc:.*native execution task lowering unsupported/,name);
+        assert.doesNotMatch(denial.stderr,/segmentation fault|internal compiler error|LLVM ERROR|core dumped/i,name);
+        assert.equal(createHash('sha256').update(await readFile(stagedCompiler)).digest('hex'),compilerSha256,name);
+      }
       // Exercise both failure with no previous output and preservation of a
       // previous successful artifact. A toolchain failure alone is no pass.
       for (const target of [join(dir, 'rejected.wasm'), output]) {
         await assert.rejects(
           compileOresToWasm({compiler, compilerSha256, source, output: target}),
-          error => /command failed/.test(error.message) &&
-            /oreslang-llvmc:/.test(error.message) &&
-            (!Object.hasOwn(borrowTaskCases, name) ||
-              /native execution task lowering unsupported/.test(error.message)), name);
+          error => borrowedTask
+            ? /^wasm heap loan\/transfer lowering unsupported at byte [0-9]+$/.test(error.message)
+            : /command failed/.test(error.message) && /oreslang-llvmc:/.test(error.message), name);
       }
       assert.deepEqual(await readFile(output), good, name + ': replaced valid module');
       assert.deepEqual(await readFile(output + '.provenance.json'), provenance, name + ': replaced provenance');

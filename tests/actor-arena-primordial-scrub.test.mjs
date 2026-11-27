@@ -1,18 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ActorArena} from '../src/actor-arena.mjs';
-
 const NativeMemory = WebAssembly.Memory;
 const NativeFill = Uint8Array.prototype.fill;
 const NativeBytes = Uint8Array;
 
+// Instrument the constructor BEFORE the module captures its trusted
+// primordials. Never expose backing memory through the production API.
+let capturedMemory;
+class ObservedMemory extends NativeMemory {
+  constructor(options) { super(options); capturedMemory = this; }
+}
+Object.defineProperty(ObservedMemory.prototype, 'buffer',
+  Object.getOwnPropertyDescriptor(NativeMemory.prototype, 'buffer'));
+let ActorArena;
+WebAssembly.Memory = ObservedMemory;
+try {
+  ({ActorArena} = await import('../src/actor-arena.mjs?primordial-scrub-test'));
+} finally {
+  WebAssembly.Memory = NativeMemory;
+}
+
 function captureArena(actorId) {
-  let memory;
-  WebAssembly.Memory = class extends NativeMemory {
-    constructor(options) { super(options); memory = this; }
-  };
-  try { return {arena: new ActorArena({actorId, incarnation: 1}), memory}; }
-  finally { WebAssembly.Memory = NativeMemory; }
+  capturedMemory = undefined;
+  const arena = new ActorArena({actorId, incarnation: 1});
+  assert.ok(capturedMemory instanceof NativeMemory, 'must observe actual backing memory');
+  const memory = capturedMemory;
+  capturedMemory = undefined;
+  return {arena, memory};
 }
 
 test('retirement must scrub even when later host mutates Uint8Array.prototype.fill', () => {

@@ -33,7 +33,7 @@ export function assertNativeMutShareDenial(error) {
   // A plausible first line followed by a parser/usage error is not proof
   // that the exact source was rejected for the guarded-sharing reason.
   assert.match(error.stderr ?? "",
-    /^oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof; refusing unsynchronized alias at byte [0-9]+\r?\n?$/,
+    /^oreslang-llvmc: native rt mut share requires verified SharedMutex<T> capability, guarded lowering and allocation-domain proof; refusing unsynchronized alias at byte [0-9]+(?: \[file: [A-Za-z0-9_.-]+\])?\r?\n?$/,
     "mixed or multiline compiler errors cannot establish guarded-sharing denial");
   assert.ok(error.code == null && error.errno == null && error.syscall == null && error.cause == null,
     "host/transport failure metadata cannot stand in for compiler rejection");

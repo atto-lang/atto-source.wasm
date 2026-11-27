@@ -1,7 +1,8 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {compileOresToWasm} from '../scripts/compile-ores.mjs';
@@ -27,6 +28,20 @@ test('canonical removed-% fixture SHA and source-only verdicts (NOT Wasm executi
     assert.equal(gitBlob(bytes),sha,id);
     assert.equal(expr.includes('%'),id!=='multiply-positive',id);
   }
+});
+
+// Both compiler revisions reject the same removed operator. Do not accept
+// generic parser, bridge, or toolchain failures as evidence of this denial.
+const removedPercentDiagnostic = /noncanonical '%' source operator|'%' is reserved and is not AttoLang source syntax; use Integer\.rem\(a, b\) or Integer\.mod\(a, b\)/;
+test('removed-percent diagnostic recognizes only the specific language denial',()=>{
+  for(const message of [
+    "noncanonical '%' source operator",
+    "'%' is reserved and is not AttoLang source syntax; use Integer.rem(a, b) or Integer.mod(a, b) at byte 33"
+  ]) assert.match(message,removedPercentDiagnostic);
+  for(const message of [
+    "native public module wrapper is not supported in the i64 subset",
+    "compiler not found","invalid WebAssembly artifact","unexpected '%' token"
+  ]) assert.doesNotMatch(message,removedPercentDiagnostic);
 });
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
@@ -66,12 +81,12 @@ test('actual LLVM -> wasm32 source rejects legacy % and executes unchanged multi
             compiler:resolve(compiler),compilerSha256,source:input,output,
             environment:'browser',publication:'atomic'
           }),
-          /noncanonical '%' source operator/,
+          removedPercentDiagnostic,
           id+' must be rejected by the real compiler for the RIGHT reason'
         );
         await assert.rejects(()=>readFile(output),{code:'ENOENT'},
           id+' published a Wasm artifact after source rejection');
       }
     }
-  }finally{await rm(dir,{recursive:true,force:true});}
+  }finally{await cleanupRealCompilerWorkspace(dir);}
 });

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
+import {spawnSync} from "node:child_process";
 import {mkdtemp, writeFile, readFile, readdir, rm, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -27,6 +28,10 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
 
   const root = await mkdtemp(join(tmpdir(), "ores-wasm-mutshare-"));
   try {
+    // The bridge deliberately rejects heap loans before native invocation.
+    // Independently execute the same pinned compiler to prove its denial too.
+    const stagedCompiler = join(root, "compiler-exact");
+    await writeFile(stagedCompiler, snapshot.bytes, {mode:0o500,flag:"wx"});
     const expressions = [
       "rt mut share 42",
       "(rt mut share 42)",
@@ -53,8 +58,18 @@ test("rt mut share refuses unsynchronized aliases without publishing wasm", {
           compiler, compilerSha256, source, output,
           environment: "browser", publication: "atomic"
         }),
-        assertNativeMutShareDenial
+        error => error instanceof Error && /^wasm heap loan\/transfer lowering unsupported at byte [0-9]+$/.test(error.message)
       );
+      const result = spawnSync(stagedCompiler,
+        ["--tree-shake","--tree-shake-root=main","--target=wasm32",source],
+        {encoding:"utf8",timeout:15000,maxBuffer:2*1024*1024});
+      assert.ifError(result.error);
+      assertNativeMutShareDenial({
+        message: "command failed ("+stagedCompiler+"): "+result.stderr.trimEnd(),
+        stdout:result.stdout,stderr:result.stderr,status:result.status,signal:result.signal
+      });
+      assert.equal(createHash("sha256").update(await readFile(stagedCompiler)).digest("hex"),
+        compilerSha256,"staged compiler changed during denial");
       assert.equal(await readFile(source, "utf8"), sourceBytes,
         "failed compilation must not rewrite its source fixture");
       assert.deepEqual((await readdir(root)).sort(), entriesBefore,

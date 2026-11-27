@@ -1,20 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,writeFile,readFile,rm} from "node:fs/promises";
+import {mkdtemp,writeFile,readFile} from "node:fs/promises";
+import {cleanupRealCompilerWorkspace} from "../scripts/cleanup-real-compiler.mjs";
 import {tmpdir} from "node:os";
 import {join,resolve} from "node:path";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
 
 const compiler=process.env.ORESLANG_LLVM_COMPILER;
+const required=process.env.ORESLANG_REQUIRE_REAL_COMPILER==="1"||process.env.ORESLANG_NUMERIC_PARITY_REQUIRED==="1";
+const compilerSha256=process.env.ORESLANG_LLVM_COMPILER_SHA256;
 const header="// oreslang:checked-i64-v1\n";
 
 async function compileMain(t,expression){
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return null;}
+  if(!compiler){
+    assert.ok(!required,"real compiler required for checked-i64 execution");
+    t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return null;
+  }
+  if(required) assert.match(compilerSha256||"",/^[a-f0-9]{64}$/,"required compiler SHA-256");
   const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
-  t.after(()=>rm(dir,{recursive:true,force:true}));
+  t.after(()=>cleanupRealCompilerWorkspace(dir));
   const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return "+expression+"; }\n");
-  await compileOresToWasm({compiler:resolve(compiler),source,output});
+  await writeFile(source,header+"pub fnc main(): int { return "+expression+"; }\n");
+  await compileOresToWasm({compiler:resolve(compiler),compilerSha256,source,output});
   const bytes=await readFile(output);
   const {instance}=await WebAssembly.instantiate(bytes,{});
   assert.equal(typeof instance.exports.main,"function");
@@ -29,6 +36,11 @@ for(const [name,expression,expected] of [
   ["min","-9223372036854775808",-9223372036854775808n],
   ["zero","0",0n],
   ["signed multiplication","-7 * -6",42n],
+  // Current merged cross-backend semantics: signed integer division truncates toward zero.
+  ["positive integer division","7 / 2",3n],
+  ["negative dividend division","-7 / 2",-3n],
+  ["negative divisor division","7 / -2",-3n],
+  ["two negative operands division","-7 / -2",3n],
 ]){
   test("checked-i64 cross-backend scalar: "+name,async t=>{
     const main=await compileMain(t,expression); if(!main)return;
@@ -48,11 +60,3 @@ for(const [name,expression] of [
   });
 }
 
-test("int / int is not admitted as an i64 result",async t=>{
-  if(!compiler){t.skip("set ORESLANG_LLVM_COMPILER to run real cross-backend parity");return;}
-  const dir=await mkdtemp(join(tmpdir(),"oreslang-wasm-parity-"));
-  t.after(()=>rm(dir,{recursive:true,force:true}));
-  const source=join(dir,"main.ores"), output=join(dir,"main.wasm");
-  await writeFile(source,header+"define pub fnc main(): int { return 7 / 2; }\n");
-  await assert.rejects(()=>compileOresToWasm({compiler:resolve(compiler),source,output}));
-});

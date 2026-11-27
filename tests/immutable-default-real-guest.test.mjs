@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {mkdtemp, writeFile, readFile, rm, stat} from "node:fs/promises";
+import {mkdtemp, writeFile, readFile, stat} from "node:fs/promises";
+import {cleanupRealCompilerWorkspace} from "../scripts/cleanup-real-compiler.mjs";
 import {join, resolve} from "node:path";
 import {tmpdir} from "node:os";
 import {compileOresToWasm} from "../scripts/compile-ores.mjs";
@@ -61,17 +62,17 @@ async function admitted(t) {
 }
 async function scratch(t, sourceBody) {
   const dir = await mkdtemp(join(tmpdir(), "ores-immutable-wasm-"));
-  t.after(() => rm(dir, {recursive: true, force: true}));
+  t.after(() => cleanupRealCompilerWorkspace(dir));
   const source = join(dir, "main.ores");
   const output = join(dir, "main.wasm");
-  await writeFile(source, `define pub fnc main(): int { ${sourceBody} }\n`);
+  await writeFile(source, `pub fnc main(): int { ${sourceBody} }\n`);
   return {source, output};
 }
 for (const [name, body, expected] of positives) {
   test("immutable-default actual wasm32 guest: " + name, async t => {
     if (!await admitted(t)) return;
     const {source, output} = await scratch(t, body);
-    await compileOresToWasm({compiler: resolve(compiler), source, output});
+    await compileOresToWasm({compiler: resolve(compiler), compilerSha256: pin, source, output});
     const bytes = await readFile(output);
     const {instance} = await WebAssembly.instantiate(bytes, {});
     assert.equal(typeof instance.exports.main, "function");
@@ -83,7 +84,7 @@ for (const [index, body] of negatives.entries()) {
     if (!await admitted(t)) return;
     const {source, output} = await scratch(t, body);
     await assert.rejects(() => compileOresToWasm({
-      compiler: resolve(compiler), source, output,
+      compiler: resolve(compiler), compilerSha256: pin, source, output,
     }));
     await assert.rejects(stat(output), {code: "ENOENT"});
     // Generic rejection is NOT semantic immutability proof: the compiler must
@@ -94,7 +95,7 @@ test("immutable-default unused initializer still traps in actual wasm guest", as
   if (!await admitted(t)) return;
   const {source, output} = await scratch(t,
     "int unused = 9223372036854775807 + 1; return 7;");
-  await compileOresToWasm({compiler: resolve(compiler), source, output});
+  await compileOresToWasm({compiler: resolve(compiler), compilerSha256: pin, source, output});
   const {instance} = await WebAssembly.instantiate(await readFile(output), {});
   assert.throws(() => instance.exports.main(), WebAssembly.RuntimeError);
 });

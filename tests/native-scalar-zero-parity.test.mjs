@@ -1,10 +1,11 @@
+import {cleanupRealCompilerWorkspace} from '../scripts/cleanup-real-compiler.mjs';
 // Shared native Oreslang zero-assertions: WASM core execution lane.
 // This is NOT the hosted ores.std/testing TestSuite. Real LLVM compiler is
 // required for execution; a static inventory check cannot count guest passes.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
-import {readFile, writeFile, mkdtemp, rm, stat} from "node:fs/promises";
+import {readFile, writeFile, mkdtemp, stat} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, isAbsolute} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -100,5 +101,5 @@ test("actual LLVM-to-WASM guest executes five zero assertions and rejects a remo
     assert.equal(mutantObserved.value,1n,"mutant must execute with nonzero result");
     assert.notEqual(mutantObserved.value,0n,"wrong Oreslang assertion cannot be green");
     assert.equal(completed,6,"all five guests and negative control must run");
-  }finally{await rm(dir,{recursive:true,force:true});}
+  }finally{await cleanupRealCompilerWorkspace(dir);}
 });
