@@ -50,3 +50,38 @@ test('throwing terminal observer cannot change final outcome or notify twice', (
     assert.equal(rt.quiescent(0), true);
   }
 });
+
+test('capacity exhaustion and retirement preserve ticket authority across incarnations', () => {
+  for (const terminal of ['complete', 'abort']) {
+    const events = [];
+    const rt = createStateRuntime({maxContainers:2,maxTickets:2,onEvent:e=>events.push(e.kind)});
+    const other = createStateRuntime({maxContainers:1,maxTickets:1});
+    const {state_register:reg,state_enter:enter,state_leave:leave}=rt.imports;
+    reg(0); reg(8); other.imports.state_register(0);
+    const a=enter(0,0), b=enter(8,1), foreign=other.imports.state_enter(0,1);
+    const before=rt.snapshot(), eventCount=events.length;
+    assert.throws(()=>reg(16),/container admission capacity/);
+    assert.throws(()=>enter(0,0),/admission capacity/);
+    assert.throws(()=>leave(foreign),/replayed/);
+    assert.throws(()=>other.imports.state_leave(a),/replayed/);
+    assert.throws(()=>rt.complete(),/unreleased/);
+    assert.deepEqual(rt.snapshot(),before);
+    assert.equal(events.length,eventCount);
+    leave(a);
+    rt.beginRetire(8);
+    assert.throws(()=>enter(8,0),/retired/);
+    const next=enter(0,1);
+    assert.equal(next,b+1n); // rejected admissions do not mint tickets
+    assert.throws(()=>leave(a),/replayed/);
+    assert.equal(rt.quiescent(8),false);
+    if(terminal==='complete'){leave(b);leave(next);}
+    rt[terminal]();
+    assert.equal(rt.snapshot().active,0);
+    assert.equal(rt.quiescent(0),true);
+    assert.equal(rt.quiescent(8),true);
+    assert.equal(other.snapshot().active,1);
+    other.imports.state_leave(foreign);
+    other.complete();
+    assert.equal(other.snapshot().quiescent,true);
+  }
+});
