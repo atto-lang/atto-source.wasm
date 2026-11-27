@@ -195,6 +195,25 @@ if (checkedUnwrap) {
         outcomes.push({id:fixture.path,status:'PASS',guest_sha256:sha256(output.wasm)});
       }catch(error){outcomes.push({id:fixture.path,status:'EXECUTION_FAILED',diagnostic:String(error)});}
     }
+    // Separate adversarial task controls: do not inflate the pinned corpus count.
+    const taskControls=[];
+    for(const [id,source,value,stdout,diagnostic] of [
+      ['task-success-lifo','pub fnc main(): int { let int n=0; val Option<int> x=Some(2); val Result<int, Error> r=trap! sync task<int> { n=n+2; defer stdio.out.write("A"); defer process.stdout.write("B"); val int y=x.unwrap(); n=n+38; return y; }; return n+r.unwrap(); }',42n,'BA',null],
+      ['task-failure-before-registration','pub fnc main(): int { let int n=0; val Option<int> x=None; val Result<int, Error> r=trap! sync task<int> { n=n+2; defer stdio.out.write("A"); val int y=x.unwrap(); defer process.stdout.write("B"); return y; }; guard r.is_err(), n eq 2 { return 1; } return n+40; }',42n,'A',null],
+      ['task-local-scope','pub fnc main(): int { val int n=40; val int r=sync task<int> { val int n=2; return n; }; return n+r; }',42n,'',null],
+      ['task-immutable-capture','pub fnc main(): int { val int n=40; return sync task<int> { n=n+2; return n; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-wrong-return','pub fnc main(): int { return sync task<int> { return true; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-no-return','pub fnc main(): int { return sync task<int> { val int n=42; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-nested','pub fnc main(): int { return sync task<int> { return sync task<int> { return 42; }; }; }',null,null,/^E_SYNC_TASK_PROFILE:/],
+      ['task-capability-shadow','pub fnc main(): int { val int process=1; return sync task<int> { defer process.stdout.write("A"); return 42; }; }',null,null,/^E_IO_SHADOW:/]
+    ]){
+      try{
+        const built=compile(source);
+        if(diagnostic){assert.equal(built.ok,false,'unexpected guest artifact');assert.match(built.diagnostic,diagnostic);}
+        else{assert.ok(built.ok,built.diagnostic);const actual=run(built.wasm);assert.equal(actual.ok,true);assert.equal(actual.panic,0);assert.equal(actual.value,value);assert.equal(actual.stdout,stdout);}
+        taskControls.push({id,status:'PASS'});
+      }catch(error){taskControls.push({id,status:'FAIL',diagnostic:String(error)});}
+    }
     const controls=[];
     for(const [id,source,expected] of [
       ['expect-some','pub fnc main(): int { val Option<int> x = Some(42); return x.expect("not reached"); }',42n],
@@ -210,9 +229,9 @@ if (checkedUnwrap) {
         controls.push({id,status:'PASS'});
       }catch(error){controls.push({id,status:'FAIL',diagnostic:String(error)});}
     }
-    const controlPass=controls.every(x=>x.status==='PASS');
+    const controlPass=controls.every(x=>x.status==='PASS')&&taskControls.every(x=>x.status==='PASS');
     const passed=outcomes.filter(x=>x.status==='PASS').length;
-    console.log(JSON.stringify({status:passed===remaining.length&&controlPass?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,controls,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
+    console.log(JSON.stringify({status:passed===remaining.length&&controlPass?'PASS':'FAIL',profile:'checked-unwrap-v6-full',compiler_sha256:compilerSha,prior_guest_cases:guestCases,remaining:outcomes,controls,task_controls:taskControls,guest_executions:guestCases.length+passed,rejected_without_wasm:negative}));
     if(passed!==remaining.length||!controlPass)process.exitCode=1;
     process.exit();
   }
