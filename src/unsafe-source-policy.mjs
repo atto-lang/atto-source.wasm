@@ -22,32 +22,38 @@ export function rejectUnsupportedUnsafeSource(sourceBytes) {
     // Reserved compiler-owned stdlib identity, including legacy spellings.
     // Do not reject quoted text outside an import declaration.
     let normalized = path.split(String.fromCharCode(92)).join('/');
-    if (normalized.startsWith('std/') || normalized.startsWith('ores.std/')) {
-      const parts = [];
-      for (const part of normalized.split('/')) {
-        if (part === '' || part === '.') continue;
-        if (part === '..') {
-          if (parts.length <= 1) return true; // Cannot escape stdlib root.
-          parts.pop();
-        } else parts.push(part);
+    const reserved = value => {
+      const segments = value.split(/[/.:]+/).filter(Boolean);
+      const offset = segments[0] === 'atto' || segments[0] === 'ores' ? 1 : 0;
+      return segments[offset] === 'std' && segments[offset + 1] === 'unsafe';
+    };
+    // Never launder an explicitly reserved path through later traversal.
+    if (reserved(normalized)) return true;
+    // Track the first three logical segments incrementally. Check every
+    // intermediate canonical prefix, not just the final path: traversing
+    // into a forbidden namespace and then out cannot erase its identity.
+    // Each slash component records the prefix length before it was added.
+    const prefix = [];
+    const stack = [];
+    let rootDepth = 0;
+    for (const component of normalized.split('/')) {
+      if (component === '' || component === '.') continue;
+      if (component === '..') {
+        if (rootDepth && stack.length <= rootDepth) return true;
+        if (stack.length) prefix.length = stack.pop();
+        continue;
       }
-      normalized = parts.join('/');
-    } else if (normalized.includes('/')) {
-      // A relative import may become compiler-owned after graph resolution:
-      // ./std/unsafe and pkg/../std/unsafe are not guest package names.
-      const parts = [];
-      for (const part of normalized.split('/')) {
-        if (part === '' || part === '.') continue;
-        if (part === '..') {
-          if (parts.length) parts.pop();
-        } else parts.push(part);
+      stack.push(prefix.length);
+      for (const segment of component.split(/[.:]+/)) {
+        if (segment && prefix.length < 3) prefix.push(segment);
       }
-      normalized = parts.join('/');
+      const offset = prefix[0] === 'atto' || prefix[0] === 'ores' ? 1 : 0;
+      if (prefix[offset] === 'std') {
+        if (!rootDepth) rootDepth = stack.length;
+        if (prefix[offset + 1] === 'unsafe') return true;
+      }
     }
-    return ['ores.std/unsafe', 'std/unsafe', 'ores.std.unsafe',
-            'std.unsafe', 'ores.std:unsafe', 'std:unsafe'].some(root =>
-      normalized === root || normalized.startsWith(root + '/') ||
-      normalized.startsWith(root + '.'));
+    return false;
   };
   function quoted(quote) {
     const at = pos++;

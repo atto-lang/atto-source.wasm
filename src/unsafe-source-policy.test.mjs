@@ -150,3 +150,45 @@ test('Deterministic compositional lexical fuzzer: inert unsafe cannot mask real 
                  Buffer.byteLength(prefix, 'utf8'));
   }
 });
+
+test('Canonical Atto roots and mixed colon delimiter aliases fail closed', () => {
+  for (const root of ['std', 'ores.std', 'atto.std', 'atto::std', 'ores::std'])
+    for (const separator of ['/', '.', ':', '::'])
+      for (const suffix of ['', '/ffi', '.ffi', ':ffi', '::ffi']) {
+        const path = root + separator + 'unsafe' + suffix;
+        assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+          /wasm unsafe standard-library import unavailable in guest domains/, path);
+      }
+  for (const path of ['atto.std/unsafe_tools', 'atto.std:unsafe-math', 'pkg/atto.std/unsafe', 'atto.std/safe'])
+    assert.doesNotThrow(() => reject(bytes('import module tools from "' + path + '";')), path);
+});
+
+test('unsafe identity cannot be laundered by traversal or mixed root separators', () => {
+  for (const path of [
+    'std/unsafe/../safe', 'atto.std/unsafe/../safe',
+    'atto::std/unsafe/../safe', 'ores:std/unsafe/../safe',
+    'atto::std/../safe', 'ores:std/../safe',
+    'atto/std/../safe', 'ores/std/../safe',
+    'atto.std/other/../unsafe/ffi'
+  ]) assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+    /wasm unsafe standard-library import unavailable in guest domains/, path);
+  for (const path of ['atto::std/other/../safe', 'atto/std/other/../safe',
+    'atto.std/unsafe_tools', 'pkg/atto.std/unsafe'])
+    assert.doesNotThrow(() => reject(bytes('import module innocent from "' + path + '";')), path);
+});
+
+test('intermediate canonical unsafe identities and normalized root escapes fail closed', () => {
+  for (const path of [
+    'std/other/../unsafe/../safe', './std/other/../unsafe/../safe',
+    'pkg/../std/other/../unsafe/../safe', 'atto//std/../safe',
+    'atto/./std/../safe', './atto::std/../safe',
+    'pkg/../ores.std/../safe', 'atto/std/other/../unsafe/../safe',
+    'atto/:/std/../safe', 'std/other/../unsafe::ffi/../safe'
+  ]) assert.throws(() => reject(bytes('import module innocent from "' + path + '";')),
+    /wasm unsafe standard-library import unavailable in guest domains/, path);
+  for (const path of [
+    'std/other/../safe', './atto::std/other/../safe',
+    'pkg/../std/unsafe_tools/../safe', 'pkg/atto.std/unsafe/../safe',
+    'atto/std/other/deeper/../../safe'
+  ]) assert.doesNotThrow(() => reject(bytes('import module tools from "' + path + '";')), path);
+});
