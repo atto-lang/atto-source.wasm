@@ -1,0 +1,16 @@
+# Secure selectable actor DATA codecs — wasm backend integration draft
+
+Status: DESIGN_ONLY_NOT_EXECUTED. Canonical proposal: https://github.com/atto-lang/atto-spec/pull/228. Shared 22-case matrix: https://github.com/atto-lang/atto-platform-conformance/pull/586. Existing shared codec interfaces and hardening: https://github.com/atto-lang/atto-serialization-and-validation/pull/18, /pull/23 and /pull/25 in that repository. This is a new selection/integration delta, not a replacement for existing serde or routing implementations.
+
+## Required backend behavior
+- Preserve borrow-checked share, move and typed copy for Sendable; serialized DATA requires format-qualified Serializable and a statically registered schema. Preserve current MessagePack v2 / DATA v0 wire compatibility. MessagePack default for new serialized endpoints; Protobuf and CBOR first-class, optional verified immutable FlatBuffers. No fallback, auto-detection or implicit transcoding. Application/supervisor/endpoint selection is constrained by supervisor allowlist, schema/version and target capabilities; unsupported selections reject explicitly.
+- Preserve sealed runtime CONTROL; user DATA cannot forge actor refs or lifecycle privileges. Authenticate sender/recipient and envelope metadata, enforce tenant and generation fencing and anti-replay where required. No raw pointers, host objects, codec instances, arbitrary object instantiation or dynamic untrusted plugin loading. Decode into owned typed data or bounded typed error.
+- Reserve credits before allocation; cap wire/expanded bytes, nesting, collection elements, integer arithmetic, parser fuel and concurrent tenant/mailbox usage. Validate UTF-8, schema/variant IDs, duplicate keys/fields, trailing bytes and extensions; compression disabled by default. Revalidate generation before publication; all rejects/cancel/restart/queue-full release exactly once and never partially enqueue.
+- Generate wasm32 codecs with checked linear-memory ranges and tenant/worker isolation; transfer owned buffers or copy, no host object alias; real browser and WASI guest where supported. Reconcile #125.
+
+## Implementation and acceptance checklist
+- [ ] Audit existing and mapped legacy PRs by semantic overlap; reuse existing MessagePack and ActorMessageCodec/NetworkCodec split, never introduce a competing ABI. Reconcile related code in existing canonical branches, link dispositions before merge.
+- [ ] Pin approved spec, shared codec/schema contract and conformance matrix; static AOT codec registry and policy selection; preserve current default wire semantics.
+- [ ] Integrate bounded MessagePack, then Protobuf and CBOR, optional FlatBuffers only after verifier/lifetime review. Explicitly diagnose unsupported profiles and targets; no simulated guest support.
+- [ ] Execute shared positive/negative .atto cases, golden vectors, cross-backend differential encode/decode, fuzz malformed input, forged CONTROL/ActorRef, downgrade, replay, stale generation, quota, cancellation and cleanup races; document target/toolchain and exact compiler/fixture/root tree.
+- [ ] Independent security review and exact-head material CI; host-only/source-only/zero-step = NOT_EXECUTED. No capability claim or promotion from this documentation alone.
