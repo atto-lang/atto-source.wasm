@@ -22,6 +22,7 @@
     "test:std-time-jspi": "node --test tests/stdlib-time-jspi.test.mjs",
     "test:attached-struct-browser": "ATTO_STRUCT_BROWSER_REQUIRED=1 node --test tests/attached-struct-browser-compiler.test.mjs",
     "test:pair-browser": "ATTO_PAIR_BROWSER_REQUIRED=1 node --test tests/pair-browser-compiler.test.mjs",
-    "test:byte-buffer-guest-v1": "node --test tests/byte-buffer-guest-v1-real.test.mjs"
+    "test:byte-buffer-guest-v1": "node --test tests/byte-buffer-guest-v1-real.test.mjs",
+    "test:named-recursive-browser": "node scripts/named-recursive-browser-proof.mjs"
   }
 }
