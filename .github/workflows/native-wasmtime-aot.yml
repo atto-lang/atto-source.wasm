@@ -1,0 +1,48 @@
+name: Native Wasmtime AOT tenant smoke (experimental)
+on:
+  push:
+    paths:
+      - 'aot-host/**'
+      - 'ci/native-aot/**'
+      - '.github/workflows/native-wasmtime-aot.yml'
+  pull_request:
+    paths:
+      - 'aot-host/**'
+      - 'ci/native-aot/**'
+      - '.github/workflows/native-wasmtime-aot.yml'
+permissions:
+  contents: read
+jobs:
+  compiled-guest-aot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout exact PR source head without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Check exact head and clean tree
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git diff --quiet HEAD --
+          test -z "$(git ls-files --others --exclude-standard)"
+          echo "ATTO_SOURCE_WASM_HEAD=$EXPECTED_HEAD"
+      - name: Install Wasmtime 49-compatible Rust 1.96
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Install Node 22 for real wasm32 fixture checks
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+      - name: Install LLVM wasm32 linker
+        run: sudo apt-get update && sudo apt-get install -y clang lld
+      - name: Verify source blobs and execute real native AOT guest isolation
+        run: bash ci/native-aot/verify.sh
+      - name: State evidence limitation
+        run: echo 'NATIVE_WASMTIME_GUESTS_ONLY — NO SOURCE COMPILED ATTO OR PRODUCTION TENANT SANDBOX CERTIFICATION'
