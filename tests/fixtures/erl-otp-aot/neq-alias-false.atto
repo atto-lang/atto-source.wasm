@@ -1,0 +1,2 @@
+// Real LLVM -> Wasm guest candidate. False branch must be chosen.
+pub fnc main():int{if(7 !eq 7){return 0;}return 37;}
