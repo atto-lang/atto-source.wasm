@@ -6,6 +6,7 @@ import {readFileSync,lstatSync,realpathSync} from 'node:fs';
 import {resolve,sep} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {requireNativeDiagnostic,readBrowserDiagnostic} from './field-lifetime-diagnostics.mjs';
 const [compilerPath, compilerSha, profilePath, fixtureRoot] = process.argv.slice(2);
 assert.equal(process.argv.length, 6, 'usage: verify-field-lifetime-wasm.mjs compiler.wasm sha256 profile.json source-root');
 assert.match(compilerSha, /^[a-f0-9]{64}$/);
@@ -37,8 +38,7 @@ function nativeCompare(path, expected, browser) {
   if (expected.decision === 'REJECT') {
     assert.equal(r.status, 1, 'native compiler did not return normal source rejection');
     assert.equal(r.stdout.length, 0, 'native rejection leaked artifact');
-    const diagnostic = decoder.decode(r.stderr);
-    assert.ok(diagnostic.includes(': '+expected.reference_diagnostic+': '), 'native diagnostic mismatch: '+diagnostic);
+    requireNativeDiagnostic(r.stderr, path, expected.reference_diagnostic);
   } else {
     assert.equal(r.status, 0, 'native compiler failed: '+decoder.decode(r.stderr));
     assert.deepEqual(new Uint8Array(r.stdout), browser.wasm, 'native/browser guest byte mismatch');
@@ -70,11 +70,7 @@ function compile(source) {
     assert.equal(api.result_length(), 0, 'compiler emitted output after failure');
     const errorMemory = new Uint8Array(api.memory.buffer);
     const offset = api.error_ptr();
-    assert.ok(offset >= 0 && offset < errorMemory.length, 'invalid diagnostic offset');
-    let end = offset;
-    while (end < errorMemory.length && errorMemory[end]) end++;
-    assert.ok(end < errorMemory.length, 'unterminated diagnostic');
-    return {ok: false, diagnostic: decoder.decode(errorMemory.subarray(offset, end))};
+    return {ok: false, diagnostic: readBrowserDiagnostic(errorMemory, offset)};
   }
   const outputMemory = new Uint8Array(api.memory.buffer);
   const offset = api.result_ptr(), length = api.result_length();
