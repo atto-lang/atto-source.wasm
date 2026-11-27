@@ -14,6 +14,9 @@ export function semanticCompilerRejection(error) {
   const matched=/^command failed \([^\r\n)]*compiler-exact\): ([\s\S]+)$/i.exec(message);
   if (!matched) return false;
   const diagnostics=matched[1];
+  // Escaped line separators are not raw child stderr. Reject ambiguous
+  // serialized diagnostics rather than letting \nspawn evade word boundaries.
+  if (/\\[nr]/.test(diagnostics)) return false;
   if (/\b(?:ENOENT|EACCES|ETIMEDOUT|spawn|timed out|killed|not found|permission denied|no such file|segmentation fault|signal|out of memory|digest mismatch|sha-256 mismatch|exit 12[467]|exit 13[079]|exit 143)\b/i.test(diagnostics)) {
     return false;
   }
