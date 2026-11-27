@@ -71,3 +71,17 @@ for(const [label,s] of [
 ]){
  test('not semantic proof '+label,()=>assert.equal(semanticCompilerRejection(s===null?s:new Error(s)),false));
 }
+
+test('typed arithmetic bool denial from compiler-exact is semantic',()=>{
+ const diagnostic='oreslang-llvmc: arithmetic requires int, got bool at byte 34 [file: source.atto]';
+ assert.equal(semanticCompilerRejection(new Error('command failed (/tmp/compiler-exact): '+diagnostic)),true);
+ for(const s of [
+  'command failed (clang): '+diagnostic,
+  'command failed (/tmp/compiler-exact): '+diagnostic+'\nspawn EACCES',
+  'command failed (/tmp/compiler-exact): '+diagnostic+'\nexit 124',
+  'command failed (/tmp/compiler-exact): arithmetic requires int, got bool',
+  'command failed (/tmp/compiler-exact): '+diagnostic+'\ntransport failure'
+ ]) {
+  assert.equal(semanticCompilerRejection(new Error(s)),false,s);
+ }
+});

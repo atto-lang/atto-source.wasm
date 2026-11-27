@@ -21,6 +21,8 @@ export function semanticCompilerRejection(error) {
   // infrastructure failures merely because they use "forbidden"/"removed"
   // instead of "unsupported". Keep these conditional on compiler-exact and
   // the existing infrastructure-denial screen above.
+  // Accept the exact native typed-arithmetic denial, not a generic 'requires' message.
+  if (/^oreslang-llvmc: arithmetic requires int, got bool at byte [0-9]+ \[file: [^\r\n\]]+\]\s*$/.test(diagnostics)) return true;
   return /\b(?:syntax|unexpected|unknown|unbound|unsupported|invalid|expected|literal|identifier|parse|operator|division|separator)\b/i.test(diagnostics) ||
     /\b(?:async|critical|suspends)\b[^\r\n]{0,160}\b(?:modifier|forbidden|removed|disallowed|incompatible)\b/i.test(diagnostics);
 }
