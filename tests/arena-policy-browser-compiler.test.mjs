@@ -46,9 +46,15 @@ test('real browser compiler emits policy Wasm and ESM guests',{skip:!required},a
   assert.equal(guest.main(),want,target);
   assert.equal(guest.panic_code.value,0);
  };
- const prefix=core+'\n'+life+'\n',marker='arena_end_offset(0, 0, 1, 0) != 0';
+ const mask=pinned('tests/fixtures/arena-policy-rust-mask-v1.atto','96d14731780b041d92ff518ca9c6c125bcd3d4c7');
+ const original=core+'\n'+life+'\n'+fixed;
+ const prefix=mask+'\n'+life+'\n',marker='arena_end_offset(0, 0, 1, 0) != 0';
  assert.equal(fixed.split(marker).length,2);
  for(const target of ['wasm','javascript']){
+  const denied=compiler.compile(original,target);
+  assert.equal(denied.ok,false,'original division policy must not be silently lowered');
+  assert.match(JSON.stringify(denied.diagnostics),/checked integer division/);
+  assert.equal('wasm' in denied,false);assert.equal('esm' in denied,false);
   await run(prefix+fixed,target,100n);
   await run(prefix+fixed.replace(marker,'arena_end_offset(0, 0, 1, 0) != 1'),target,1n);
   let count=0;
@@ -56,6 +62,6 @@ test('real browser compiler emits policy Wasm and ESM guests',{skip:!required},a
    await run(prefix+batch.source,target,100n);count+=batch.count;
   }
   assert.equal(count,352);
-  console.log('ARENA_BROWSER_POLICY_PASS target='+target+' assertions=408 wrong_oracle=1 compiler='+digest);
+  console.log('ARENA_BROWSER_POLICY_PASS target='+target+' profile=rust-mask assertions=408 wrong_oracle=1 original_division_denied=1 compiler='+digest);
  }
 });
