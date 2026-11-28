@@ -1,0 +1,29 @@
+// Rust-backend freestanding arena arithmetic. No memory authority or heap effects.
+// Inclusive byte limit; -1 denotes invalid input or an impossible reservation.
+pub fnc arena_alignment_valid(int alignment) -> bool {
+  if alignment <= 0 then return false; fi
+  return (alignment & (alignment - 1)) == 0;
+}
+
+pub fnc arena_padding(int cursor, int alignment) -> int {
+  if cursor < 0 then return -1; fi
+  if arena_alignment_valid(alignment) == false then return -1; fi
+  // With validated positive power-of-two alignment and nonnegative cursor,
+  // masking the low bits is exact remainder without division or overflow.
+  val int remainder = cursor & (alignment - 1);
+  if remainder == 0 then return 0; fi
+  return alignment - remainder;
+}
+
+pub fnc arena_end_offset(int cursor, int count, int alignment, int limit) -> int {
+  if cursor < 0 || count < 0 || limit < 0 then return -1; fi
+  if cursor > limit then return -1; fi
+  val int padding = arena_padding(cursor, alignment);
+  if padding < 0 then return -1; fi
+  // An empty allocation must not charge alignment padding or reserve storage.
+  if count == 0 then return cursor; fi
+  if padding > limit - cursor then return -1; fi
+  val int aligned = cursor + padding;
+  if count > limit - aligned then return -1; fi
+  return aligned + count;
+}
